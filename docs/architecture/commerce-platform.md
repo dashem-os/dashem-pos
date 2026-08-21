@@ -213,6 +213,17 @@ exigem aprovação humana. Dados de tenants distintos nunca compartilham context
 7. registry de ferramentas de domínio;
 8. observabilidade e evals.
 
+### Marco operacional antes do primeiro tenant piloto
+
+1. configurar Resend em `auth.dashem.tech`, com SPF, DKIM e DMARC;
+2. validar convite, recuperação, expiração e MFA do Platform Owner;
+3. concluir o Console Owner para leads, tenants, sites e capabilities;
+4. persistir e correlacionar eventos de identidade e entrega de e-mail;
+5. expor timeline operacional sem tokens ou URLs sensíveis;
+6. implementar suporte assistido temporário e auditado;
+7. executar testes negativos de RBAC e isolamento entre tenants;
+8. criar tenants e sites de teste antes de retomar expansão visual do PDV.
+
 ## 11. Critérios de aceite arquiteturais
 
 - uma loja nunca lê ou altera dados de outro tenant;

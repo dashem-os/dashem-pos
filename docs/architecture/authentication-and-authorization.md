@@ -8,6 +8,12 @@ Supabase Auth proves identity and owns credentials, sessions, recovery and MFA.
 FastAPI and the Dashem PostgreSQL schema own authorization: platform roles,
 tenant memberships, site scope and business permissions.
 
+Transactional email is a separate delivery boundary. Resend is the adopted
+provider for invites, recovery and confirmation messages. The built-in
+Supabase SMTP service is not production infrastructure and must not be used for
+tenant onboarding or production support flows. See
+[`identity-email-delivery.md`](identity-email-delivery.md).
+
 The JWT `sub` is mapped through `auth_identities`; it is not used as the
 primary key of the business user. This keeps the domain portable to another
 OIDC provider or enterprise SSO.
@@ -48,11 +54,12 @@ support-access workflow must be explicit, time-bound and audited.
 
 ## Provisioning
 
-1. Create or invite the person in Supabase Auth.
-2. Create the internal `users` record without a password.
-3. Create `auth_identities(provider='supabase', provider_subject=<auth user id>)`.
-4. Create a platform membership or one or more tenant memberships.
-5. Require MFA (`aal2`) for future privileged Console Owner operations.
+1. Confirm that Resend Custom SMTP and the official redirect URLs are healthy.
+2. Create or invite the person in Supabase Auth.
+3. Create the internal `users` record without a password.
+4. Create `auth_identities(provider='supabase', provider_subject=<auth user id>)`.
+5. Create a platform membership or one or more tenant memberships.
+6. Require MFA (`aal2`) for privileged Console Owner operations.
 
 The initial link can be created without handling any password:
 
@@ -88,16 +95,18 @@ There is intentionally no public sign-up for a Platform Owner. The first
 access is bootstrapped once by an operator with access to Supabase Auth and the
 production database:
 
-1. In Supabase Auth, invite or create the Owner user. Prefer an email invitation
+1. Verify Custom SMTP, the sender domain and the recovery flow before sending
+   any invitation. Do not use the built-in Supabase SMTP for this procedure.
+2. In Supabase Auth, invite or create the Owner user. Prefer an email invitation
    so the person chooses the password; never exchange the password with Dashem.
-2. Copy the Auth user UUID shown by Supabase. This is the JWT `sub`, not an API
+3. Copy the Auth user UUID shown by Supabase. This is the JWT `sub`, not an API
    key and not the user's email.
-3. Run `provision_access` with `DATABASE_URL` pointing to the intended database,
+4. Run `provision_access` with `DATABASE_URL` pointing to the intended database,
    using the Auth UUID as `--subject`.
-4. Open the normal application URL. The application sends an unauthenticated
+5. Open the normal application URL. The application sends an unauthenticated
    visitor to `/login`; after authentication it recognizes the platform role
    and sends the Owner to `/owner`.
-5. Email/password Owners must set a strong password on first access. All Owner
+6. Email/password Owners must set a strong password on first access. All Owner
    and Platform Admin accounts must then enroll or verify TOTP MFA before the
    Console or its privileged endpoints are released.
 
@@ -144,3 +153,14 @@ Supabase Auth URL configuration:
 
 Never put the Supabase `service_role` key in Vercel, a `VITE_*` variable or
 browser code.
+
+Supabase Auth email delivery:
+
+- provider: Resend via Custom SMTP;
+- sender: `Dashem Segurança <acesso@auth.dashem.tech>`;
+- dedicated sending domain: `auth.dashem.tech`;
+- SPF, DKIM and DMARC must be healthy before invites are enabled;
+- SMTP credentials remain only in server-side provider settings;
+- delivery, bounce and complaint webhooks feed the Dashem audit trail;
+- Google and Microsoft buttons remain hidden until their providers are
+  configured and validated.
