@@ -60,6 +60,8 @@ npm run build
 - Nunca versione arquivos `.env` reais.
 - Use segredos diferentes em desenvolvimento, homologação e produção.
 - Configure `DATABASE_URL`, `SECRET_KEY` e `VITE_API_URL` nos provedores de hospedagem.
+- Em bancos gerenciados pequenos, ajuste `DB_POOL_SIZE` e `DB_MAX_OVERFLOW`
+  conforme o limite de conexões do provedor.
 - Os dados de demonstração não devem ser usados em produção.
 
 ## Licença
