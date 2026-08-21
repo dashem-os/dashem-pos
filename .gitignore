@@ -1,0 +1,49 @@
+# Environment files (examples remain versioned)
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# Python / Pytest
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+.venv/
+env/
+venv/
+ENV/
+
+# Database / Storage
+*.db
+*.sqlite3
+postgres_pos_data/
+
+# Frontend / Node
+node_modules/
+dist/
+dist-ssr/
+*.local
+*.log
+.pnpm-debug.log*
+.yarn-debug.log*
+.yarn-error.log*
+playwright-report/
+test-results/
+artifacts/
+.vercel/
+
+# Local-only diagnostic scripts (they mutate development data)
+frontend/capture_*.cjs
+frontend/tests_e2e/
+
+# IDE / OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo

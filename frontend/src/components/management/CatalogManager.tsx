@@ -1,0 +1,332 @@
+import React, { useState } from 'react'
+import { Package, Plus, Search, Edit3, ArrowUpDown, Wrench, CheckCircle2 } from 'lucide-react'
+import { usePos } from '../../context/PosContext'
+import { Modal } from '../common/Modal'
+
+export const CatalogManager: React.FC = () => {
+  const { products, prices, balances, createNewProduct, adjustStock, actionLoading } = usePos()
+  const [searchQuery, setSearchQuery] = useState('')
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false)
+  const [isStockModalOpen, setIsStockModalOpen] = useState(false)
+  const [selectedProductForStock, setSelectedProductForStock] = useState<string | null>(null)
+
+  // New Product Form
+  const [name, setName] = useState('')
+  const [sku, setSku] = useState('')
+  const [barcode, setBarcode] = useState('')
+  const [itemType, setItemType] = useState<'PRODUCT' | 'SERVICE'>('PRODUCT')
+  const [priceInput, setPriceInput] = useState('')
+  const [stockInput, setStockInput] = useState('10')
+
+  // Adjust Stock Form
+  const [adjustQty, setAdjustQty] = useState('')
+  const [adjustType, setAdjustType] = useState<'PURCHASE' | 'LOSS' | 'ADJUSTMENT'>('PURCHASE')
+  const [adjustReason, setAdjustReason] = useState('Entrada de Mercadoria')
+
+  const filtered = products.filter(
+    (p) =>
+      p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      p.sku.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (p.barcode && p.barcode.includes(searchQuery))
+  )
+
+  const handleCreateProduct = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!name || !sku || !priceInput) return
+
+    await createNewProduct(
+      { name, sku, barcode: barcode || undefined, item_type: itemType },
+      parseFloat(priceInput),
+      itemType === 'PRODUCT' ? parseInt(stockInput || '0', 10) : 0
+    )
+
+    setName('')
+    setSku('')
+    setBarcode('')
+    setPriceInput('')
+    setStockInput('10')
+    setIsAddModalOpen(false)
+  }
+
+  const handleAdjustStock = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!selectedProductForStock || !adjustQty) return
+
+    await adjustStock(selectedProductForStock, parseFloat(adjustQty), adjustType, adjustReason)
+    setAdjustQty('')
+    setSelectedProductForStock(null)
+    setIsStockModalOpen(false)
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Header Row */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-black text-white tracking-tight flex items-center space-x-2">
+            <Package className="w-5 h-5 text-dashem-red" />
+            <span>Catálogo de Produtos & Estoque</span>
+          </h2>
+          <p className="text-xs text-dashem-muted font-medium mt-0.5">
+            Gerenciamento de produtos, serviços, preços de venda e saldos de inventário.
+          </p>
+        </div>
+
+        <button
+          onClick={() => setIsAddModalOpen(true)}
+          className="h-11 px-5 rounded-2xl bg-dashem-red hover:bg-dashem-red-light text-white text-xs font-black flex items-center justify-center space-x-2 transition-all shadow-md shadow-dashem-red/30 active:scale-95 shrink-0"
+        >
+          <Plus className="w-4 h-4" />
+          <span>Cadastrar Novo Produto</span>
+        </button>
+      </div>
+
+      {/* Search Input */}
+      <div className="relative">
+        <Search className="w-4 h-4 text-dashem-muted absolute left-4 top-1/2 -translate-y-1/2" />
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Buscar produto por nome, SKU ou código de barras..."
+          className="w-full h-11 pl-11 pr-4 rounded-xl bg-dashem-surface border border-dashem-border text-white text-xs font-medium focus:border-dashem-red outline-none"
+        />
+      </div>
+
+      {/* Products Table */}
+      <div className="bg-dashem-surface border border-dashem-border rounded-3xl overflow-hidden shadow-sm">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead className="bg-dashem-surface-elevated text-dashem-muted font-extrabold uppercase tracking-wider text-[10px] border-b border-dashem-border">
+              <tr>
+                <th className="px-5 py-3.5">Produto / Descrição</th>
+                <th className="px-4 py-3.5">SKU / EAN</th>
+                <th className="px-4 py-3.5">Tipo</th>
+                <th className="px-4 py-3.5 text-right">Preço de Venda</th>
+                <th className="px-4 py-3.5 text-right">Estoque Atual</th>
+                <th className="px-5 py-3.5 text-center">Ações</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-dashem-border/50 font-medium">
+              {filtered.map((prod) => {
+                const price = prices[prod.id] || 0
+                const stock = balances[prod.id] || 0
+                const isService = prod.item_type === 'SERVICE'
+
+                return (
+                  <tr key={prod.id} className="hover:bg-dashem-surface-elevated/40 transition-colors">
+                    <td className="px-5 py-3.5">
+                      <span className="font-bold text-white block">{prod.name}</span>
+                      {prod.description && <span className="text-[11px] text-dashem-muted">{prod.description}</span>}
+                    </td>
+                    <td className="px-4 py-3.5">
+                      <span className="font-mono text-white block">{prod.sku}</span>
+                      {prod.barcode && <span className="text-[10px] text-dashem-muted">EAN: {prod.barcode}</span>}
+                    </td>
+                    <td className="px-4 py-3.5">
+                      <span
+                        className={`px-2 py-0.5 rounded-md font-bold text-[10px] uppercase ${
+                          isService ? 'bg-amber-950/60 text-amber-300 border border-amber-800/40' : 'bg-dashem-surface-elevated text-slate-300'
+                        }`}
+                      >
+                        {prod.item_type}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3.5 text-right">
+                      <span className="font-black text-white text-sm">R$ {price.toFixed(2)}</span>
+                    </td>
+                    <td className="px-4 py-3.5 text-right">
+                      {isService ? (
+                        <span className="text-dashem-muted text-[11px]">—</span>
+                      ) : (
+                        <span
+                          className={`font-bold px-2 py-0.5 rounded-md text-[11px] ${
+                            stock > 5
+                              ? 'text-emerald-400 bg-emerald-950/40'
+                              : stock > 0
+                              ? 'text-amber-400 bg-amber-950/40'
+                              : 'text-rose-400 bg-rose-950/40'
+                          }`}
+                        >
+                          {stock} un
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-5 py-3.5 text-center">
+                      {!isService && (
+                        <button
+                          onClick={() => {
+                            setSelectedProductForStock(prod.id)
+                            setIsStockModalOpen(true)
+                          }}
+                          className="px-3 py-1.5 rounded-lg bg-dashem-surface-elevated hover:bg-dashem-border text-white text-[11px] font-bold transition-all border border-dashem-border inline-flex items-center space-x-1"
+                        >
+                          <ArrowUpDown className="w-3.5 h-3.5 text-dashem-red" />
+                          <span>Ajustar</span>
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Modal: Cadastrar Produto */}
+      <Modal
+        isOpen={isAddModalOpen}
+        onClose={() => setIsAddModalOpen(false)}
+        title="Cadastrar Novo Produto"
+        subtitle="Adiciona um novo item ao catálogo e define o preço"
+      >
+        <form onSubmit={handleCreateProduct} className="space-y-4">
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-white block">Nome do Produto / Serviço</label>
+            <input
+              type="text"
+              required
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Ex: Cabo Flexível 2.5mm"
+              className="w-full h-11 px-3.5 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-white text-xs font-semibold focus:border-dashem-red outline-none"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-white block">SKU / Código</label>
+              <input
+                type="text"
+                required
+                value={sku}
+                onChange={(e) => setSku(e.target.value)}
+                placeholder="Ex: CAB-25"
+                className="w-full h-11 px-3.5 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-white text-xs font-semibold focus:border-dashem-red outline-none"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-white block">Código de Barras (EAN)</label>
+              <input
+                type="text"
+                value={barcode}
+                onChange={(e) => setBarcode(e.target.value)}
+                placeholder="Ex: 789123456789"
+                className="w-full h-11 px-3.5 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-white text-xs font-semibold focus:border-dashem-red outline-none"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-white block">Tipo</label>
+              <select
+                value={itemType}
+                onChange={(e) => setItemType(e.target.value as any)}
+                className="w-full h-11 px-3.5 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-white text-xs font-semibold focus:border-dashem-red outline-none"
+              >
+                <option value="PRODUCT">Produto Físico</option>
+                <option value="SERVICE">Serviço / Mão de Obra</option>
+              </select>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-white block">Preço de Venda (R$)</label>
+              <input
+                type="number"
+                step="0.01"
+                required
+                value={priceInput}
+                onChange={(e) => setPriceInput(e.target.value)}
+                placeholder="Ex: 49.90"
+                className="w-full h-11 px-3.5 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-white text-xs font-semibold focus:border-dashem-red outline-none"
+              />
+            </div>
+          </div>
+
+          {itemType === 'PRODUCT' && (
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-white block">Estoque Inicial (unidades)</label>
+              <input
+                type="number"
+                value={stockInput}
+                onChange={(e) => setStockInput(e.target.value)}
+                className="w-full h-11 px-3.5 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-white text-xs font-semibold focus:border-dashem-red outline-none"
+              />
+            </div>
+          )}
+
+          <div className="pt-3">
+            <button
+              type="submit"
+              disabled={actionLoading}
+              className="w-full h-12 rounded-2xl bg-dashem-red hover:bg-dashem-red-light text-white text-xs font-black flex items-center justify-center space-x-2 transition-all shadow-lg active:scale-95 disabled:opacity-40"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Salvar Produto no Catálogo</span>
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Modal: Ajustar Estoque */}
+      <Modal
+        isOpen={isStockModalOpen}
+        onClose={() => setIsStockModalOpen(false)}
+        title="Ajustar Inventário de Estoque"
+        subtitle="Registra movimentação de entrada ou baixa com auditoria"
+      >
+        <form onSubmit={handleAdjustStock} className="space-y-4">
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-white block">Tipo de Movimentação</label>
+            <select
+              value={adjustType}
+              onChange={(e) => setAdjustType(e.target.value as any)}
+              className="w-full h-11 px-3.5 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-white text-xs font-semibold focus:border-dashem-red outline-none"
+            >
+              <option value="PURCHASE">Entrada / Compra de Mercadoria</option>
+              <option value="LOSS">Perda / Avaria / Vencimento</option>
+              <option value="ADJUSTMENT">Ajuste de Balanço / Inventário</option>
+            </select>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-white block">Quantidade</label>
+            <input
+              type="number"
+              step="1"
+              required
+              value={adjustQty}
+              onChange={(e) => setAdjustQty(e.target.value)}
+              placeholder="Ex: 10"
+              className="w-full h-11 px-3.5 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-white text-xs font-semibold focus:border-dashem-red outline-none"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-white block">Motivo / Observação</label>
+            <input
+              type="text"
+              value={adjustReason}
+              onChange={(e) => setAdjustReason(e.target.value)}
+              className="w-full h-11 px-3.5 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-white text-xs font-semibold focus:border-dashem-red outline-none"
+            />
+          </div>
+
+          <div className="pt-3">
+            <button
+              type="submit"
+              disabled={actionLoading}
+              className="w-full h-12 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black flex items-center justify-center space-x-2 transition-all shadow-lg active:scale-95 disabled:opacity-40"
+            >
+              <CheckCircle2 className="w-4 h-4" />
+              <span>Confirmar Ajuste de Estoque</span>
+            </button>
+          </div>
+        </form>
+      </Modal>
+    </div>
+  )
+}

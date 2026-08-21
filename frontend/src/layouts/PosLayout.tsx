@@ -1,0 +1,287 @@
+import React, { useState } from 'react'
+import {
+  Store as StoreIcon,
+  LayoutDashboard,
+  ShoppingBag,
+  CheckCircle2,
+  AlertCircle,
+  Lock,
+  Unlock,
+  ChevronUp,
+  X
+} from 'lucide-react'
+import { usePos } from '../context/PosContext'
+import { ProductSearch } from '../components/pos/ProductSearch'
+import { QuickProductGrid } from '../components/pos/QuickProductGrid'
+import { Cart } from '../components/pos/Cart'
+import { SaleTotals } from '../components/pos/SaleTotals'
+import { PaymentDialog } from '../components/pos/PaymentDialog'
+import { QuantityModal } from '../components/pos/QuantityModal'
+import { DiscountModal } from '../components/pos/DiscountModal'
+import { FiscalStatusModal } from '../components/pos/FiscalStatusModal'
+import { CancelModal } from '../components/pos/CancelModal'
+import { formatCurrency, formatQuantity } from '../utils/format'
+
+export const PosLayout: React.FC = () => {
+  const {
+    store,
+    register,
+    cashSession,
+    currentSale,
+    switchView,
+    openCash,
+    actionLoading,
+    openPaymentModal
+  } = usePos()
+
+  const [openingBalanceInput, setOpeningBalanceInput] = useState('100.00')
+  const [isMobileCartOpen, setIsMobileCartOpen] = useState(false)
+
+  const isCashOpen = cashSession?.status === 'OPEN'
+  const items = currentSale?.items || []
+  const netTotal = Number(currentSale?.net_total || 0)
+
+  const handleOpenCash = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const val = parseFloat(openingBalanceInput)
+    if (!isNaN(val) && val >= 0) {
+      await openCash(val)
+    }
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-100 text-slate-900 flex flex-col font-sans selection:bg-rose-500 selection:text-white pb-20 lg:pb-0">
+      {/* ========================================================================= */}
+      {/* COMPACT OPERATIONAL HEADER (56px)                                         */}
+      {/* ========================================================================= */}
+      <header className="h-14 px-4 sm:px-6 bg-white border-b border-slate-200 flex items-center justify-between shrink-0 z-30 select-none shadow-xs">
+        {/* Brand & Instance Identification */}
+        <div className="flex items-center space-x-3">
+          <div className="w-8 h-8 rounded-xl bg-rose-600 flex items-center justify-center font-black text-white text-base shadow-sm">
+            D
+          </div>
+          <div>
+            <div className="flex items-center space-x-2">
+              <span className="font-black text-sm sm:text-base leading-none tracking-tight text-slate-900">
+                DASHEM <span className="text-rose-600">PDV</span>
+              </span>
+              <span className="hidden sm:inline-block text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+                Frente de Caixa
+              </span>
+            </div>
+            <div className="flex items-center space-x-2 text-[11px] text-slate-400 font-medium mt-0.5">
+              <span className="flex items-center space-x-1 truncate max-w-[140px] sm:max-w-none text-slate-600">
+                <StoreIcon className="w-3 h-3 text-rose-600 shrink-0" />
+                <span>{store?.name || 'Loja Matriz Centro'}</span>
+              </span>
+              <span>•</span>
+              <span className="text-slate-600">{register?.name || 'Caixa 01'}</span>
+              <span>•</span>
+              <span className="hidden md:inline text-slate-500">Operador: Demonstração</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Right Status Pill & Navigation */}
+        <div className="flex items-center space-x-2.5">
+          {/* Cash Status Pill */}
+          <div
+            className={`flex items-center space-x-1.5 px-3 py-1 rounded-xl text-xs font-bold border ${
+              isCashOpen
+                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                : 'bg-rose-50 text-rose-700 border-rose-200'
+            }`}
+          >
+            {isCashOpen ? (
+              <>
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Caixa Aberto ({formatCurrency(Number(cashSession?.opening_balance || 0))})</span>
+              </>
+            ) : (
+              <>
+                <AlertCircle className="w-3.5 h-3.5 text-rose-600" />
+                <span>Caixa Fechado</span>
+              </>
+            )}
+          </div>
+
+          {/* Discrete Switch to Management */}
+          <button
+            onClick={() => switchView('bi')}
+            className="h-9 px-3.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold flex items-center space-x-1.5 transition-colors border border-slate-200 active:scale-95"
+            title="Acessar Gestão e Retaguarda"
+          >
+            <LayoutDashboard className="w-3.5 h-3.5 text-slate-500" />
+            <span className="hidden sm:inline">Gestão</span>
+          </button>
+        </div>
+      </header>
+
+      {/* ========================================================================= */}
+      {/* CASH CLOSED BLOCKING STATE                                                */}
+      {/* ========================================================================= */}
+      {!isCashOpen ? (
+        <main className="flex-1 flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-white border border-slate-200 rounded-3xl p-8 shadow-xl text-center flex flex-col items-center space-y-4 animate-in fade-in zoom-in-95 duration-200">
+            <div className="w-16 h-16 rounded-2xl bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center shadow-xs">
+              <Lock className="w-8 h-8" />
+            </div>
+
+            <div>
+              <h2 className="text-xl font-black text-slate-900">Caixa Fechado</h2>
+              <p className="text-xs text-slate-500 font-medium max-w-xs mt-1">
+                Para iniciar as operações de venda na Frente de Caixa, informe o saldo inicial de troco.
+              </p>
+            </div>
+
+            <form onSubmit={handleOpenCash} className="w-full space-y-3 pt-2">
+              <div className="space-y-1 text-left">
+                <label className="text-xs font-bold text-slate-700 block">
+                  Fundo de Troco / Saldo Inicial (R$)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  required
+                  value={openingBalanceInput}
+                  onChange={(e) => setOpeningBalanceInput(e.target.value)}
+                  placeholder="100.00"
+                  className="w-full h-12 px-4 rounded-xl bg-slate-50 border-2 border-slate-300 focus:border-rose-600 text-slate-900 text-lg font-black outline-none transition-all"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={actionLoading || !openingBalanceInput}
+                className="w-full h-13 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-sm flex items-center justify-center space-x-2 transition-all shadow-md active:scale-95 disabled:opacity-40"
+              >
+                <Unlock className="w-4 h-4" />
+                <span>ABRIR CAIXA E INICIAR VENDAS</span>
+              </button>
+            </form>
+          </div>
+        </main>
+      ) : (
+        /* ========================================================================= */
+        /* CASH OPEN: MAIN OPERATIONAL WORKSPACE                                     */
+        /* 2-Column on >= 1024px (lg:), Single Column with Fixed Bottom on < 1024px  */
+        /* ========================================================================= */
+        <main className="flex-1 flex flex-col lg:flex-row overflow-hidden p-3 sm:p-4 gap-3 sm:gap-4 max-w-[1920px] w-full mx-auto">
+          {/* LEFT COLUMN: Search + Category Tabs + Touch Product Grid */}
+          <div className="flex-1 flex flex-col space-y-3 overflow-y-auto min-w-0 pr-0.5">
+            <ProductSearch />
+            <QuickProductGrid />
+          </div>
+
+          {/* RIGHT COLUMN (DESKTOP >= 1024px): "Venda atual" + Items + Totals */}
+          <div className="hidden lg:flex flex-col w-[380px] xl:w-[420px] shrink-0 bg-white border border-slate-200 rounded-3xl p-4 overflow-hidden shadow-sm justify-between">
+            <div className="flex items-center justify-between pb-2.5 border-b border-slate-100 shrink-0">
+              <h2 className="text-sm font-black text-slate-900 flex items-center space-x-2">
+                <ShoppingBag className="w-4 h-4 text-rose-600" />
+                <span>Venda Atual</span>
+              </h2>
+              <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
+                {items.length} {items.length === 1 ? 'item' : 'itens'}
+              </span>
+            </div>
+
+            {/* Scrollable Cart Items */}
+            <Cart />
+
+            {/* Fixed Totals & Receber Action Button */}
+            <SaleTotals />
+          </div>
+        </main>
+      )}
+
+      {/* ========================================================================= */}
+      {/* FIXED BOTTOM BAR (Active for viewports < 1024px, e.g. 846x870, Tablets)   */}
+      {/* ========================================================================= */}
+      {isCashOpen && (
+        <div className="lg:hidden fixed bottom-0 left-0 right-0 p-3 bg-white border-t border-slate-200 shadow-2xl z-30 flex items-center justify-between">
+          <button
+            type="button"
+            onClick={() => setIsMobileCartOpen(true)}
+            className="flex items-center space-x-3 text-left"
+          >
+            <div className="w-12 h-12 rounded-xl bg-slate-100 flex items-center justify-center text-rose-600 relative border border-slate-200">
+              <ShoppingBag className="w-6 h-6" />
+              {items.length > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-rose-600 text-white text-[10px] font-black flex items-center justify-center shadow-xs">
+                  {items.length}
+                </span>
+              )}
+            </div>
+            <div>
+              <span className="text-[10px] font-bold uppercase text-slate-400 block">
+                Venda ({items.length} {items.length === 1 ? 'item' : 'itens'})
+              </span>
+              <span className="text-lg font-black text-slate-900 leading-tight">
+                {formatCurrency(netTotal)}
+              </span>
+            </div>
+          </button>
+
+          <div className="flex items-center space-x-2">
+            <button
+              type="button"
+              onClick={() => setIsMobileCartOpen(true)}
+              className="h-12 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-colors border border-slate-200"
+            >
+              Ver Itens
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                if (items.length > 0) {
+                  openPaymentModal()
+                } else {
+                  setIsMobileCartOpen(true)
+                }
+              }}
+              disabled={items.length === 0}
+              className="h-12 px-5 rounded-xl bg-rose-600 hover:bg-rose-500 disabled:opacity-40 text-white font-black text-xs flex items-center space-x-1.5 shadow-md active:scale-95 transition-all"
+            >
+              <span>RECEBER</span>
+              <ChevronUp className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Cart Drawer for Viewports < 1024px */}
+      {isMobileCartOpen && (
+        <div className="lg:hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex flex-col justify-end animate-in fade-in">
+          <div className="bg-white border-t border-slate-200 rounded-t-3xl p-4 max-h-[85vh] flex flex-col space-y-3 shadow-2xl animate-in slide-in-from-bottom duration-200">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <h3 className="text-sm font-black text-slate-900 flex items-center space-x-2">
+                <ShoppingBag className="w-4 h-4 text-rose-600" />
+                <span>Venda Atual ({items.length} itens)</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsMobileCartOpen(false)}
+                className="w-9 h-9 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <Cart />
+            <SaleTotals />
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* OPERATIONAL MODALS                                                        */}
+      {/* ========================================================================= */}
+      <PaymentDialog />
+      <QuantityModal />
+      <DiscountModal />
+      <FiscalStatusModal />
+      <CancelModal />
+    </div>
+  )
+}
