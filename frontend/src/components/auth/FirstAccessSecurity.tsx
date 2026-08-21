@@ -52,7 +52,11 @@ export function PasswordSetupScreen({ onComplete, recovery = false }: { onComple
       return
     }
     try {
-      if (!recovery) await completePasswordSetup()
+      // Password recovery and first access finish the same Dashem-side
+      // security transition. Keeping this call idempotent prevents a user
+      // whose password was already changed in Supabase from being sent back
+      // to this screen on every subsequent sign-in.
+      await completePasswordSetup()
       await onComplete()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Não foi possível concluir a configuração.')

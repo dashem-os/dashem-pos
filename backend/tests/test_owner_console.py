@@ -62,6 +62,9 @@ def test_owner_first_access_and_atomic_tenant_provisioning():
         assert me_before["password_setup_required"] is True
         assert me_before["mfa_required"] is False
 
+        # First access and password recovery converge on this transition.
+        # A retry must remain safe if the password was already updated.
+        complete_password_setup(principal=principal, session=session)
         complete_password_setup(principal=principal, session=session)
         created = provision_platform_tenant(
             data=PlatformTenantCreate(
