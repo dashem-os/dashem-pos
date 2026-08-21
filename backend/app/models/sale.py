@@ -4,6 +4,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional, List
 from sqlmodel import SQLModel, Field, Relationship, UniqueConstraint, Column, Numeric
+from sqlalchemy import String
 
 class SaleStatusEnum(str, Enum):
     DRAFT = "DRAFT"
@@ -18,6 +19,21 @@ class SaleStatusEnum(str, Enum):
 class DiscountTypeEnum(str, Enum):
     PERCENTAGE = "PERCENTAGE"
     FIXED = "FIXED"
+
+class FulfillmentTypeEnum(str, Enum):
+    COUNTER = "COUNTER"
+    PICKUP = "PICKUP"
+    DELIVERY = "DELIVERY"
+    DINE_IN = "DINE_IN"
+    SHIPPING = "SHIPPING"
+    DIGITAL = "DIGITAL"
+
+class SyncStatusEnum(str, Enum):
+    LOCAL = "LOCAL"
+    PENDING = "PENDING"
+    SYNCED = "SYNCED"
+    CONFLICT = "CONFLICT"
+    FAILED = "FAILED"
 
 class Customer(SQLModel, table=True):
     __tablename__ = "customers"
@@ -37,10 +53,33 @@ class Customer(SQLModel, table=True):
 
 class Sale(SQLModel, table=True):
     __tablename__ = "sales"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "channel_id", "external_order_id",
+            name="uq_tenant_channel_external_order"
+        ),
+        UniqueConstraint(
+            "tenant_id", "idempotency_key",
+            name="uq_tenant_sale_idempotency_key"
+        ),
+    )
     
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     tenant_id: uuid.UUID = Field(index=True)
     store_id: uuid.UUID = Field(index=True)
+    channel_id: Optional[uuid.UUID] = Field(default=None, foreign_key="sales_channels.id", index=True)
+    source_type: str = Field(default="POS", index=True)
+    external_order_id: Optional[str] = Field(default=None, index=True)
+    idempotency_key: Optional[str] = Field(default=None, index=True)
+    fulfillment_type: FulfillmentTypeEnum = Field(
+        default=FulfillmentTypeEnum.COUNTER,
+        sa_column=Column(String, nullable=False, index=True),
+    )
+    sync_status: SyncStatusEnum = Field(
+        default=SyncStatusEnum.SYNCED,
+        sa_column=Column(String, nullable=False, index=True),
+    )
+    occurred_at: datetime = Field(default_factory=datetime.utcnow, index=True)
     customer_id: Optional[uuid.UUID] = Field(default=None, foreign_key="customers.id", index=True)
     seller_id: Optional[uuid.UUID] = Field(default=None, index=True)
     status: SaleStatusEnum = Field(default=SaleStatusEnum.DRAFT, index=True)

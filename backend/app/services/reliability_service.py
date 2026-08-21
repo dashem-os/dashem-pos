@@ -114,6 +114,8 @@ def write_audit_and_outbox(
 
     outbox = OutboxEvent(
         tenant_id=tenant_id,
+        store_id=store_id,
+        actor_id=actor_id,
         aggregate_type=aggregate_type,
         aggregate_id=aggregate_id,
         event_type=event_type,

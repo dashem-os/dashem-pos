@@ -80,7 +80,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [store, setStore] = useState<api.Store | null>(null)
   const [register, setRegister] = useState<api.Register | null>(null)
   const [cashSession, setCashSession] = useState<api.CashSession | null>(null)
-  const [operatorId] = useState<string>('00000000-0000-0000-0000-000000000001')
+  const [operatorId, setOperatorId] = useState<string>('00000000-0000-0000-0000-000000000001')
   const [health, setHealth] = useState<api.ApiHealth | null>(null)
 
   const [products, setProducts] = useState<api.Product[]>([])
@@ -122,6 +122,9 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setLoading(true)
       const h = await api.fetchHealth().catch(() => null)
       setHealth(h)
+
+      const me = await api.fetchMe()
+      if (me.user) setOperatorId(me.user.id)
 
       const tenants = await api.fetchTenants()
       if (tenants.length === 0) {

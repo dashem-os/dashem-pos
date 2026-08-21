@@ -16,14 +16,18 @@ class OutboxEvent(SQLModel, table=True):
     
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     tenant_id: uuid.UUID = Field(index=True)
+    store_id: Optional[uuid.UUID] = Field(default=None, index=True)
+    actor_id: Optional[uuid.UUID] = Field(default=None, index=True)
     aggregate_type: str = Field(index=True)
     aggregate_id: str = Field(index=True)
     event_type: str = Field(index=True)
+    schema_version: int = Field(default=1)
     payload: str  # JSON string
     status: OutboxStatusEnum = Field(default=OutboxStatusEnum.PENDING, index=True)
     attempts: int = Field(default=0)
     available_at: datetime = Field(default_factory=datetime.utcnow, index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    occurred_at: datetime = Field(default_factory=datetime.utcnow, index=True)
     processed_at: Optional[datetime] = None
     last_error: Optional[str] = None
     correlation_id: Optional[str] = Field(default=None, index=True)
@@ -33,8 +37,9 @@ class AuditEvent(SQLModel, table=True):
     
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     actor_id: uuid.UUID = Field(index=True)
-    tenant_id: uuid.UUID = Field(index=True)
-    store_id: uuid.UUID = Field(index=True)
+    tenant_id: Optional[uuid.UUID] = Field(default=None, index=True)
+    store_id: Optional[uuid.UUID] = Field(default=None, index=True)
+    platform_scope: bool = Field(default=False, index=True)
     action: str = Field(index=True)
     target: str = Field(index=True)
     payload: str  # JSON string

@@ -1,8 +1,9 @@
 import uuid
+import os
 import pytest
 import httpx
 
-BASE_URL = "http://localhost:8002"
+BASE_URL = os.getenv("TEST_BASE_URL", "http://localhost:8002")
 
 @pytest.mark.asyncio
 async def test_pos4_gates_1_to_14():

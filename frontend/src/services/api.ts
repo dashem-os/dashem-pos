@@ -1,9 +1,25 @@
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8002'
 
+let accessTokenProvider: () => Promise<string | null> = async () => null
+
+export function setApiAccessTokenProvider(provider: () => Promise<string | null>) {
+  accessTokenProvider = provider
+}
+
+const nativeFetch = globalThis.fetch.bind(globalThis)
+const fetch: typeof globalThis.fetch = async (input, init = {}) => {
+  const token = await accessTokenProvider()
+  const headers = new Headers(init.headers)
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+  return nativeFetch(input, { ...init, headers })
+}
+
 export interface Tenant {
   id: string
   name: string
   slug: string
+  status?: 'PROVISIONING' | 'TRIAL' | 'ACTIVE' | 'SUSPENDED' | 'CANCELED'
+  created_at?: string
 }
 
 export interface Store {
@@ -173,6 +189,46 @@ export interface ApiHealth {
   timestamp: string
 }
 
+export interface AuthMe {
+  mode: 'authenticated' | 'local-bypass'
+  user: { id: string; email: string; full_name: string; is_active: boolean } | null
+  platform_role?: string
+  assurance_level?: string
+  auth_provider?: string
+  password_setup_required?: boolean
+  mfa_required?: boolean
+  onboarding_completed?: boolean
+  memberships?: Array<{
+    id: string
+    tenant_id: string
+    store_id?: string
+    role: string
+    status: string
+  }>
+}
+
+export interface PlatformTenantSummary {
+  id: string
+  name: string
+  slug: string
+  status: 'PROVISIONING' | 'TRIAL' | 'ACTIVE' | 'SUSPENDED' | 'CANCELED'
+  created_at: string
+  store_count: number
+}
+
+export interface PlatformOverview {
+  tenant_count: number
+  trial_count: number
+  active_count: number
+  lead_count: number
+  tenants: PlatformTenantSummary[]
+}
+
+export interface PlatformTenantProvisioned {
+  tenant: Tenant
+  first_store: Store
+}
+
 export interface PaymentConfirmResponse {
   payment: Payment
   sale_status: Sale['status']
@@ -192,6 +248,56 @@ export interface FiscalIssueResponse {
 export async function fetchHealth(): Promise<ApiHealth> {
   const res = await fetch(`${API_BASE_URL}/health`)
   if (!res.ok) throw new Error('API Offline')
+  return res.json()
+}
+
+export async function fetchMe(): Promise<AuthMe> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/identity/me`)
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body.detail || 'Usuário não provisionado no Dashem POS')
+  }
+  return res.json()
+}
+
+async function apiError(res: Response, fallback: string): Promise<Error> {
+  const body = await res.json().catch(() => ({}))
+  const detail = typeof body.detail === 'string' ? body.detail : fallback
+  return new Error(detail)
+}
+
+export async function completePasswordSetup(): Promise<void> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/identity/me/password-setup-complete`, {
+    method: 'POST',
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível concluir a configuração da senha.')
+}
+
+export async function completeOwnerOnboarding(): Promise<void> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/identity/me/onboarding-complete`, {
+    method: 'POST',
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível concluir o primeiro acesso.')
+}
+
+export async function fetchPlatformOverview(): Promise<PlatformOverview> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/identity/platform/overview`)
+  if (!res.ok) throw await apiError(res, 'Não foi possível carregar o Console Owner.')
+  return res.json()
+}
+
+export async function provisionPlatformTenant(input: {
+  name: string
+  slug: string
+  first_store_name: string
+  first_store_code: string
+}): Promise<PlatformTenantProvisioned> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/identity/platform/tenants`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível criar o tenant.')
   return res.json()
 }
 

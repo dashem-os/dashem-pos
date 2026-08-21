@@ -1,7 +1,13 @@
 import uuid
+import json
+from datetime import datetime
+from typing import Optional
 from sqlmodel import Session, select
 from fastapi import HTTPException, status
-from app.models.identity import Tenant, Store, User, Membership, RoleEnum
+from app.models.identity import (
+    AuthIdentity, Tenant, TenantStatusEnum, Store, User, Membership, RoleEnum,
+)
+from app.models.reliability import AuditEvent, OutboxEvent, OutboxStatusEnum
 
 def create_tenant(session: Session, name: str, slug: str) -> Tenant:
     existing = session.exec(select(Tenant).where(Tenant.slug == slug)).first()
@@ -10,11 +16,91 @@ def create_tenant(session: Session, name: str, slug: str) -> Tenant:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Tenant with slug '{slug}' already exists."
         )
-    tenant = Tenant(name=name, slug=slug)
+    tenant = Tenant(name=name, slug=slug, status=TenantStatusEnum.TRIAL)
     session.add(tenant)
     session.commit()
     session.refresh(tenant)
     return tenant
+
+
+def provision_tenant(
+    session: Session,
+    *,
+    name: str,
+    slug: str,
+    first_store_name: str,
+    first_store_code: str,
+    actor_id: uuid.UUID,
+) -> tuple[Tenant, Store]:
+    """Create the tenant and its first site in one audited transaction."""
+    existing = session.exec(select(Tenant).where(Tenant.slug == slug)).first()
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Tenant with slug '{slug}' already exists.",
+        )
+
+    tenant = Tenant(name=name, slug=slug, status=TenantStatusEnum.TRIAL)
+    session.add(tenant)
+    session.flush()
+    store = Store(
+        tenant_id=tenant.id,
+        name=first_store_name,
+        code=first_store_code,
+        site_type="STORE",
+    )
+    session.add(store)
+    session.flush()
+
+    event_payload = {
+        "tenant_id": str(tenant.id),
+        "tenant_name": tenant.name,
+        "slug": tenant.slug,
+        "store_id": str(store.id),
+        "store_name": store.name,
+        "store_code": store.code,
+    }
+    session.add(AuditEvent(
+        actor_id=actor_id,
+        tenant_id=tenant.id,
+        store_id=store.id,
+        platform_scope=True,
+        action="platform.tenant.provisioned",
+        target=f"tenant:{tenant.id}",
+        payload=json.dumps(event_payload),
+    ))
+    session.add(OutboxEvent(
+        tenant_id=tenant.id,
+        store_id=store.id,
+        actor_id=actor_id,
+        aggregate_type="tenant",
+        aggregate_id=str(tenant.id),
+        event_type="platform.tenant.provisioned",
+        payload=json.dumps(event_payload),
+        status=OutboxStatusEnum.PENDING,
+    ))
+    session.commit()
+    session.refresh(tenant)
+    session.refresh(store)
+    return tenant, store
+
+
+def mark_password_setup_completed(session: Session, user: User) -> User:
+    if user.password_setup_completed_at is None:
+        user.password_setup_completed_at = datetime.utcnow()
+        session.add(user)
+        session.commit()
+        session.refresh(user)
+    return user
+
+
+def mark_onboarding_completed(session: Session, user: User) -> User:
+    if user.onboarding_completed_at is None:
+        user.onboarding_completed_at = datetime.utcnow()
+        session.add(user)
+        session.commit()
+        session.refresh(user)
+    return user
 
 def create_store(session: Session, tenant_id: uuid.UUID, name: str, code: str) -> Store:
     tenant = session.get(Tenant, tenant_id)
@@ -23,21 +109,43 @@ def create_store(session: Session, tenant_id: uuid.UUID, name: str, code: str) -
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Tenant not found."
         )
+    existing = session.exec(
+        select(Store).where(Store.tenant_id == tenant_id, Store.code == code)
+    ).first()
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Store code '{code}' already exists in this tenant."
+        )
+
     store = Store(tenant_id=tenant_id, name=name, code=code)
     session.add(store)
     session.commit()
     session.refresh(store)
     return store
 
-def create_user(session: Session, email: str, full_name: str, password_hash: str) -> User:
+def create_user(
+    session: Session,
+    email: str,
+    full_name: str,
+    provider_subject: Optional[str] = None,
+) -> User:
     existing = session.exec(select(User).where(User.email == email)).first()
     if existing:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"User with email '{email}' already exists."
         )
-    user = User(email=email, full_name=full_name, password_hash=password_hash)
+    user = User(email=email, full_name=full_name)
     session.add(user)
+    session.flush()
+    if provider_subject:
+        session.add(AuthIdentity(
+            user_id=user.id,
+            provider="supabase",
+            provider_subject=provider_subject,
+            provider_email=email,
+        ))
     session.commit()
     session.refresh(user)
     return user
@@ -46,20 +154,42 @@ def create_membership(
     session: Session,
     user_id: uuid.UUID,
     tenant_id: uuid.UUID,
-    store_id: uuid.UUID,
+    store_id: Optional[uuid.UUID],
     role: RoleEnum
 ) -> Membership:
-    # Invariant Check: Store MUST belong to the specified Tenant
-    store = session.get(Store, store_id)
-    if not store:
+    user = session.get(User, user_id)
+    if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Store not found."
+            detail="User not found."
         )
-    if store.tenant_id != tenant_id:
+
+    tenant = session.get(Tenant, tenant_id)
+    if not tenant:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tenant not found."
+        )
+
+    # A membership without store_id is tenant-wide. A site-scoped membership
+    # must always point to a site owned by the same tenant.
+    if store_id is not None:
+        store = session.get(Store, store_id)
+        if not store:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Store not found."
+            )
+        if store.tenant_id != tenant_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Store '{store_id}' does not belong to Tenant '{tenant_id}'."
+            )
+
+    if role in {RoleEnum.CASHIER, RoleEnum.OPERATOR} and store_id is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Store '{store_id}' does not belong to Tenant '{tenant_id}'."
+            detail=f"Role '{role.value}' requires a store-scoped membership."
         )
     
     # Check UNIQUE constraint

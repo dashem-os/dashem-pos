@@ -29,6 +29,11 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-dashem_pos}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@dashem-pos-db:5432/${POSTGRES_DB:-dashem_pos}
       SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
       ENVIRONMENT: ${ENVIRONMENT:-development}
+      # Local prototype compatibility only. Production is forced to "required"
+      # by Settings validation and must configure SUPABASE_URL.
+      AUTH_MODE: ${AUTH_MODE:-disabled}
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_JWT_AUDIENCE: ${SUPABASE_JWT_AUDIENCE:-authenticated}
     volumes:
       - ./backend:/app
     entrypoint: ["/bin/sh", "/entrypoint.sh"]
@@ -52,6 +57,8 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-dashem_pos}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@dashem-pos-db:5432/${POSTGRES_DB:-dashem_pos}
       SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
       ENVIRONMENT: ${ENVIRONMENT:-development}
+      AUTH_MODE: ${AUTH_MODE:-disabled}
+      SUPABASE_URL: ${SUPABASE_URL:-}
     volumes:
       - ./backend:/app
     depends_on:

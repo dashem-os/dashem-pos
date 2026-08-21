@@ -1,9 +1,10 @@
 import uuid
+import os
 import pytest
 import httpx
 from decimal import Decimal
 
-BASE_URL = "http://localhost:8002"
+BASE_URL = os.getenv("TEST_BASE_URL", "http://localhost:8002")
 
 @pytest.mark.asyncio
 async def test_pos5_item_quantity_update_delete_and_totals():
