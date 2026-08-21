@@ -16,8 +16,10 @@ class Settings(BaseSettings):
     # Supabase proves identity; Dashem remains the authorization authority.
     AUTH_MODE: Literal["required", "test", "disabled"] = "required"
     SUPABASE_URL: Optional[str] = None
+    SUPABASE_SECRET_KEY: Optional[str] = None
     SUPABASE_JWT_AUDIENCE: str = "authenticated"
     AUTH_TEST_SECRET: Optional[str] = None
+    APP_URL: str = "http://localhost:5173"
 
     # Conservative defaults for small managed Postgres instances. These values
     # can be overridden per environment without changing application code.

@@ -5,7 +5,8 @@ from typing import Optional
 from sqlmodel import Session, select
 from fastapi import HTTPException, status
 from app.models.identity import (
-    AuthIdentity, Tenant, TenantStatusEnum, Store, User, Membership, RoleEnum,
+    AuthIdentity, Tenant, TenantStatusEnum, Store, User, Membership,
+    MembershipStatusEnum, RoleEnum,
 )
 from app.models.reliability import AuditEvent, OutboxEvent, OutboxStatusEnum
 
@@ -86,12 +87,93 @@ def provision_tenant(
 
 
 def mark_password_setup_completed(session: Session, user: User) -> User:
+    changed = False
     if user.password_setup_completed_at is None:
         user.password_setup_completed_at = datetime.utcnow()
         session.add(user)
+        changed = True
+    invited_memberships = session.exec(
+        select(Membership).where(
+            Membership.user_id == user.id,
+            Membership.status == MembershipStatusEnum.INVITED,
+        )
+    ).all()
+    for membership in invited_memberships:
+        membership.status = MembershipStatusEnum.ACTIVE
+        membership.updated_at = datetime.utcnow()
+        session.add(membership)
+        changed = True
+    if changed:
         session.commit()
         session.refresh(user)
     return user
+
+
+def provision_tenant_access(
+    session: Session,
+    *,
+    tenant: Tenant,
+    email: str,
+    full_name: str,
+    role: RoleEnum,
+    store_id: Optional[uuid.UUID],
+    actor_id: uuid.UUID,
+    provider_subject: Optional[str],
+) -> Membership:
+    """Provision one tenant access without ever accepting credentials locally."""
+    normalized_email = email.strip().lower()
+    user = session.exec(select(User).where(User.email == normalized_email)).first()
+    if user is None:
+        if not provider_subject:
+            raise HTTPException(status_code=502, detail="O provedor não retornou a identidade convidada.")
+        user = User(email=normalized_email, full_name=full_name.strip())
+        session.add(user)
+        session.flush()
+        session.add(AuthIdentity(
+            user_id=user.id,
+            provider="supabase",
+            provider_subject=provider_subject,
+            provider_email=normalized_email,
+            email_verified=False,
+        ))
+        membership_status = MembershipStatusEnum.INVITED
+    else:
+        membership_status = MembershipStatusEnum.ACTIVE
+
+    existing = session.exec(select(Membership).where(
+        Membership.user_id == user.id,
+        Membership.tenant_id == tenant.id,
+    )).first()
+    if existing:
+        raise HTTPException(status_code=409, detail="Este usuário já possui acesso ao tenant.")
+
+    membership = Membership(
+        user_id=user.id,
+        tenant_id=tenant.id,
+        store_id=store_id,
+        role=role,
+        status=membership_status,
+    )
+    session.add(membership)
+    session.flush()
+    payload = {
+        "tenant_id": str(tenant.id), "user_id": str(user.id), "email": normalized_email,
+        "membership_id": str(membership.id), "role": role.value, "store_id": str(store_id) if store_id else None,
+    }
+    session.add(AuditEvent(
+        actor_id=actor_id, tenant_id=tenant.id, store_id=store_id, platform_scope=True,
+        action="platform.tenant.user_invited", target=f"membership:{membership.id}",
+        payload=json.dumps(payload),
+    ))
+    session.add(OutboxEvent(
+        tenant_id=tenant.id, store_id=store_id, actor_id=actor_id,
+        aggregate_type="membership", aggregate_id=str(membership.id),
+        event_type="platform.tenant.user_invited", payload=json.dumps(payload),
+        status=OutboxStatusEnum.PENDING,
+    ))
+    session.commit()
+    session.refresh(membership)
+    return membership
 
 
 def mark_onboarding_completed(session: Session, user: User) -> User:

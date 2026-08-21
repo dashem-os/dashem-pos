@@ -38,12 +38,18 @@ Plataforma Dashem
 - rotas `/login` e `/owner` no mesmo domínio, com destino resolvido pelo papel;
 - telas de primeiro acesso, senha forte e preparação para TOTP MFA;
 - endpoints protegidos do Console Owner e testes automatizados da fundação;
+- tenants clicáveis no Console Owner, com detalhe de unidades e acessos;
+- fluxo backend de convite por e-mail, papel e unidade, com membership
+  `INVITED` ativada somente após a criação da senha;
+- auditoria e outbox para o provisionamento de cada acesso;
 - domínio comercial existente do PDV preservado durante a evolução arquitetural.
 
 ### Ainda não pronto para produção
 
 - o SMTP padrão do Supabase foi rejeitado para qualquer fluxo real da Dashem;
 - o Resend ainda precisa ser configurado e validado com domínio próprio;
+- o backend de produção ainda precisa receber `SUPABASE_SECRET_KEY` e
+  `APP_URL`; o segredo administrativo nunca pertence ao frontend;
 - o primeiro acesso do Owner precisa ser retestado de ponta a ponta após o Resend;
 - Google e Microsoft devem ficar ocultos até seus provedores OAuth estarem
   configurados e testados;
@@ -137,7 +143,7 @@ para testar o ciclo de vida dos tenants.
 - leads e solicitações de acesso;
 - criação, suspensão e reativação de tenants;
 - criação de sites e definição de capabilities;
-- convite de Owner/Admin do tenant;
+- evoluir o convite já implementado para reenvio, cancelamento e timeline de entrega;
 - linha do tempo verificável de convites e recuperação;
 - logs correlacionados de API, autenticação e entrega de e-mail;
 - suporte assistido explícito, temporário e auditado;

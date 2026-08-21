@@ -6,6 +6,8 @@ import {
 import { useAuth } from '../../context/AuthContext'
 import {
   AuthMe, fetchPlatformOverview, PlatformOverview, provisionPlatformTenant,
+  fetchPlatformTenantDetail, invitePlatformTenantUser, PlatformTenantDetail,
+  PlatformTenantSummary,
 } from '../../services/api'
 
 const statusLabel: Record<string, string> = {
@@ -32,6 +34,7 @@ export function PlatformOwnerConsole({ me }: { me: AuthMe }) {
   const [query, setQuery] = useState('')
   const [createOpen, setCreateOpen] = useState(false)
   const [mobileNav, setMobileNav] = useState(false)
+  const [selectedTenant, setSelectedTenant] = useState<PlatformTenantSummary | null>(null)
 
   const load = useCallback(async () => {
     setError(null)
@@ -103,15 +106,73 @@ export function PlatformOwnerConsole({ me }: { me: AuthMe }) {
           <section className="mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
             <div className="flex flex-col gap-4 border-b border-slate-200 p-5 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-black">Tenants da plataforma</h2><p className="mt-1 text-sm text-slate-500">Organizações e suas primeiras unidades operacionais.</p></div><label className="relative block sm:w-80"><Search className="absolute left-3.5 top-3 h-4 w-4 text-slate-400" /><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Buscar nome ou slug" className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-4 text-sm font-semibold outline-none focus:border-rose-400" /></label></div>
             {!overview ? <div className="flex justify-center py-20"><Loader2 className="h-7 w-7 animate-spin text-rose-600" /></div> : tenants.length === 0 ? <div className="py-16 text-center"><Building2 className="mx-auto h-9 w-9 text-slate-300" /><p className="mt-4 font-black">Nenhum tenant encontrado</p><p className="mt-1 text-sm text-slate-500">Crie o primeiro ambiente operacional da plataforma.</p></div> : (
-              <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left"><thead className="bg-slate-50 text-[11px] font-black uppercase tracking-[.12em] text-slate-400"><tr><th className="px-5 py-3">Organização</th><th className="px-5 py-3">Slug</th><th className="px-5 py-3">Status</th><th className="px-5 py-3">Unidades</th><th className="px-5 py-3">Criado em</th><th className="px-5 py-3" /></tr></thead><tbody className="divide-y divide-slate-100">{tenants.map(tenant => <tr key={tenant.id} className="group hover:bg-slate-50"><td className="px-5 py-4"><div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 font-black text-slate-600">{tenant.name.charAt(0).toUpperCase()}</div><div><p className="font-black">{tenant.name}</p><p className="text-xs text-slate-400">{tenant.id.slice(0, 8)}</p></div></div></td><td className="px-5 py-4 font-mono text-sm font-bold text-slate-600">{tenant.slug}</td><td className="px-5 py-4"><span className={`rounded-full px-2.5 py-1 text-xs font-black ${tenant.status === 'ACTIVE' ? 'bg-emerald-50 text-emerald-700' : tenant.status === 'TRIAL' ? 'bg-sky-50 text-sky-700' : 'bg-slate-100 text-slate-600'}`}>{statusLabel[tenant.status] ?? tenant.status}</span></td><td className="px-5 py-4"><span className="inline-flex items-center gap-2 text-sm font-bold"><Store className="h-4 w-4 text-slate-400" />{tenant.store_count}</span></td><td className="px-5 py-4 text-sm font-semibold text-slate-500">{new Intl.DateTimeFormat('pt-BR').format(new Date(tenant.created_at))}</td><td className="px-5 py-4 text-right"><button title="Detalhes do tenant" className="rounded-lg p-2 text-slate-400 hover:bg-white hover:text-rose-600"><ArrowRight className="h-4 w-4" /></button></td></tr>)}</tbody></table></div>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[760px] text-left">
+                  <thead className="bg-slate-50 text-[11px] font-black uppercase tracking-[.12em] text-slate-400"><tr><th className="px-5 py-3">Organização</th><th className="px-5 py-3">Slug</th><th className="px-5 py-3">Status</th><th className="px-5 py-3">Unidades</th><th className="px-5 py-3">Criado em</th><th className="px-5 py-3" /></tr></thead>
+                  <tbody className="divide-y divide-slate-100">{tenants.map(tenant => (
+                    <tr key={tenant.id} onClick={() => setSelectedTenant(tenant)} tabIndex={0} role="button" onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') setSelectedTenant(tenant) }} className="group cursor-pointer hover:bg-slate-50 focus:bg-rose-50 focus:outline-none">
+                      <td className="px-5 py-4"><div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 font-black text-slate-600">{tenant.name.charAt(0).toUpperCase()}</div><div><p className="font-black">{tenant.name}</p><p className="text-xs text-slate-400">{tenant.id.slice(0, 8)}</p></div></div></td>
+                      <td className="px-5 py-4 font-mono text-sm font-bold text-slate-600">{tenant.slug}</td>
+                      <td className="px-5 py-4"><span className={`rounded-full px-2.5 py-1 text-xs font-black ${tenant.status === 'ACTIVE' ? 'bg-emerald-50 text-emerald-700' : tenant.status === 'TRIAL' ? 'bg-sky-50 text-sky-700' : 'bg-slate-100 text-slate-600'}`}>{statusLabel[tenant.status] ?? tenant.status}</span></td>
+                      <td className="px-5 py-4"><span className="inline-flex items-center gap-2 text-sm font-bold"><Store className="h-4 w-4 text-slate-400" />{tenant.store_count}</span></td>
+                      <td className="px-5 py-4 text-sm font-semibold text-slate-500">{new Intl.DateTimeFormat('pt-BR').format(new Date(tenant.created_at))}</td>
+                      <td className="px-5 py-4 text-right"><button onClick={event => { event.stopPropagation(); setSelectedTenant(tenant) }} title="Detalhes do tenant" className="rounded-lg p-2 text-slate-400 hover:bg-white hover:text-rose-600"><ArrowRight className="h-4 w-4" /></button></td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              </div>
             )}
           </section>
         </div>
       </main>
 
       {createOpen && <CreateTenantPanel onClose={() => setCreateOpen(false)} onCreated={async () => { setCreateOpen(false); await load() }} />}
+      {selectedTenant && <TenantAccessPanel tenant={selectedTenant} onClose={() => setSelectedTenant(null)} />}
     </div>
   )
+}
+
+const roleOptions = [
+  ['TENANT_OWNER', 'Proprietário'], ['ADMIN', 'Administrador'], ['MANAGER', 'Gerente'],
+  ['CASHIER', 'Caixa'], ['OPERATOR', 'Operador'], ['AUDITOR', 'Auditor'],
+]
+
+function TenantAccessPanel({ tenant, onClose }: { tenant: PlatformTenantSummary; onClose: () => void }) {
+  const [detail, setDetail] = useState<PlatformTenantDetail | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [inviteOpen, setInviteOpen] = useState(false)
+  const [fullName, setFullName] = useState('')
+  const [email, setEmail] = useState('')
+  const [role, setRole] = useState('TENANT_OWNER')
+  const [storeId, setStoreId] = useState('')
+  const [sending, setSending] = useState(false)
+  const [notice, setNotice] = useState<string | null>(null)
+  const loadDetail = useCallback(async () => {
+    setLoading(true); setError(null)
+    try { setDetail(await fetchPlatformTenantDetail(tenant.id)) }
+    catch (err) { setError(err instanceof Error ? err.message : 'Não foi possível carregar o tenant.') }
+    finally { setLoading(false) }
+  }, [tenant.id])
+  useEffect(() => { loadDetail() }, [loadDetail])
+  const scopedRole = role === 'CASHIER' || role === 'OPERATOR'
+  const submitInvite = async (event: React.FormEvent) => {
+    event.preventDefault(); setSending(true); setError(null); setNotice(null)
+    try {
+      const result = await invitePlatformTenantUser(tenant.id, { full_name: fullName.trim(), email: email.trim(), role, store_id: scopedRole ? storeId : undefined })
+      setNotice(result.delivery_status === 'ENVIADO' ? 'Convite enviado. O acesso será ativado após a criação da senha.' : 'Acesso associado à identidade existente.')
+      setFullName(''); setEmail(''); setInviteOpen(false); await loadDetail()
+    } catch (err) { setError(err instanceof Error ? err.message : 'Não foi possível enviar o convite.') }
+    finally { setSending(false) }
+  }
+  return <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/55 backdrop-blur-sm"><button aria-label="Fechar detalhes" className="absolute inset-0" onClick={onClose} /><section className="relative flex h-full w-full max-w-2xl flex-col bg-white shadow-2xl"><header className="flex items-start justify-between border-b border-slate-200 p-6 sm:p-8"><div><p className="text-xs font-black uppercase tracking-[.16em] text-rose-600">Tenant</p><h2 className="mt-2 text-2xl font-black">{tenant.name}</h2><p className="mt-2 font-mono text-sm text-slate-500">{tenant.slug}</p></div><button onClick={onClose} className="rounded-xl border border-slate-200 p-2 text-slate-500"><X className="h-5 w-5" /></button></header><div className="flex-1 overflow-y-auto p-6 sm:p-8">
+    <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm leading-6 text-sky-900"><strong>Como o usuário entra:</strong> todos usam <span className="font-mono">dashem-pos.vercel.app/login</span>. O convite define automaticamente tenant, papel e unidade.</div>
+    {error && <p role="alert" className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">{error}</p>}
+    {notice && <p className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-bold text-emerald-700">{notice}</p>}
+    <div className="mt-6 flex items-center justify-between"><div><h3 className="font-black">Acessos</h3><p className="text-sm text-slate-500">Pessoas autorizadas neste contexto.</p></div><button onClick={() => setInviteOpen(value => !value)} className="flex h-10 items-center gap-2 rounded-xl bg-rose-600 px-4 text-sm font-black text-white"><Plus className="h-4 w-4" />Convidar acesso</button></div>
+    {inviteOpen && <form onSubmit={submitInvite} className="mt-5 space-y-4 rounded-2xl border border-slate-200 bg-slate-50 p-5"><div className="grid gap-4 sm:grid-cols-2"><label className="text-sm font-black">Nome completo<input value={fullName} onChange={e => setFullName(e.target.value)} className="mt-2 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 font-semibold" /></label><label className="text-sm font-black">E-mail<input type="email" value={email} onChange={e => setEmail(e.target.value)} className="mt-2 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 font-semibold" /></label><label className="text-sm font-black">Papel<select value={role} onChange={e => setRole(e.target.value)} className="mt-2 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 font-semibold">{roleOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>{scopedRole && <label className="text-sm font-black">Unidade<select value={storeId} onChange={e => setStoreId(e.target.value)} className="mt-2 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 font-semibold"><option value="">Selecione</option>{detail?.stores.map(store => <option key={store.id} value={store.id}>{store.name}</option>)}</select></label>}</div><button disabled={sending || fullName.trim().length < 2 || !email.includes('@') || (scopedRole && !storeId)} className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#0b172a] font-black text-white disabled:opacity-40">{sending ? <Loader2 className="h-5 w-5 animate-spin" /> : 'Enviar convite seguro'}</button></form>}
+    {loading ? <Loader2 className="mx-auto mt-12 h-7 w-7 animate-spin text-rose-600" /> : detail?.accesses.length ? <div className="mt-5 space-y-3">{detail.accesses.map(access => <article key={access.membership_id} className="rounded-2xl border border-slate-200 p-4"><div className="flex items-start justify-between gap-4"><div><p className="font-black">{access.full_name}</p><p className="text-sm text-slate-500">{access.email}</p><p className="mt-2 text-xs font-bold text-slate-400">{access.store_name ?? 'Todas as unidades'}</p></div><div className="text-right"><span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-black">{access.role}</span><p className={`mt-3 text-xs font-black ${access.status === 'ACTIVE' ? 'text-emerald-600' : 'text-amber-600'}`}>{access.status === 'ACTIVE' ? 'ATIVO' : 'CONVITE PENDENTE'}</p></div></div></article>)}</div> : <div className="mt-8 rounded-2xl border border-dashed border-slate-300 p-8 text-center"><Users className="mx-auto h-8 w-8 text-slate-300" /><p className="mt-3 font-black">Nenhum usuário autorizado</p><p className="mt-1 text-sm text-slate-500">Envie o primeiro convite para entregar o acesso.</p></div>}
+  </div></section></div>
 }
 
 function CreateTenantPanel({ onClose, onCreated }: { onClose: () => void; onCreated: () => Promise<void> }) {

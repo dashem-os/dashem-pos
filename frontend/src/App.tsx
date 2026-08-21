@@ -60,9 +60,12 @@ function IdentityRouter() {
   if (identityLoading && !me) return <FullScreenLoader label="Reconhecendo identidade e permissões..." />
   if (identityError || !me) return <AccessState message={identityError ?? 'Seu usuário ainda não possui acesso ao Dashem POS.'} onSignOut={signOut} onRetry={loadIdentity} />
 
+  // Email invitations for both platform and tenant users converge here. The
+  // backend activates INVITED memberships only after this transition.
+  if (me.password_setup_required) return <PasswordSetupScreen onComplete={loadIdentity} />
+
   const platformRole = me.platform_role ?? ''
   if (PLATFORM_CONSOLE_ROLES.has(platformRole)) {
-    if (me.password_setup_required) return <PasswordSetupScreen onComplete={loadIdentity} />
     if (me.mfa_required) return <OwnerMfaScreen onComplete={loadIdentity} />
     if (window.location.pathname !== '/owner') window.history.replaceState({}, '', '/owner')
     return <PlatformOwnerConsole me={me} />

@@ -6,15 +6,18 @@ from sqlmodel import Session, select
 
 from app.api.v1.endpoints.identity import (
     PlatformTenantCreate,
+    PlatformTenantInvite,
     complete_owner_onboarding,
     complete_password_setup,
     get_me,
     platform_overview,
+    platform_tenant_detail,
+    invite_platform_tenant_user,
     provision_platform_tenant,
 )
 from app.core.database import engine
 from app.core.security import AuthPrincipal
-from app.models.identity import AuthIdentity, User
+from app.models.identity import AuthIdentity, MembershipStatusEnum, RoleEnum, User
 from app.models.platform import PlatformMembership, PlatformRoleEnum
 from app.models.reliability import AuditEvent
 
@@ -117,3 +120,46 @@ def test_owner_mutations_require_aal2():
             )
         assert exc.value.status_code == 403
         assert "Multi-factor" in exc.value.detail
+
+
+def test_owner_can_open_tenant_and_invite_first_user(monkeypatch):
+    suffix = uuid.uuid4().hex[:8]
+    invite_subject = str(uuid.uuid4())
+    with Session(engine) as session:
+        owner_subject, _ = _owner(session)
+        principal = _principal(owner_subject)
+        complete_password_setup(principal=principal, session=session)
+        created = provision_platform_tenant(
+            data=PlatformTenantCreate(
+                name=f"Invite Tenant {suffix}", slug=f"invite-{suffix}",
+                first_store_name="Unidade Centro", first_store_code="CENTRO",
+            ), principal=principal, session=session,
+        )
+        monkeypatch.setattr(
+            "app.services.supabase_admin.invite_user",
+            lambda **_: {"id": invite_subject, "email": f"user-{suffix}@example.test"},
+        )
+        result = invite_platform_tenant_user(
+            tenant_id=created.tenant.id,
+            data=PlatformTenantInvite(
+                email=f"user-{suffix}@example.test", full_name="Tenant User",
+                role=RoleEnum.TENANT_OWNER,
+            ), principal=principal, session=session,
+        )
+        assert result.delivery_status == "ENVIADO"
+        assert result.access.status == MembershipStatusEnum.INVITED
+
+        detail = platform_tenant_detail(
+            tenant_id=created.tenant.id, principal=principal, session=session,
+        )
+        assert len(detail.stores) == 1
+        assert any(access.email == f"user-{suffix}@example.test" for access in detail.accesses)
+
+        invited_principal = AuthPrincipal(
+            subject=invite_subject, email=f"user-{suffix}@example.test",
+            session_id=str(uuid.uuid4()), assurance_level="aal1",
+            claims={"sub": invite_subject, "aal": "aal1"}, provider="email",
+        )
+        complete_password_setup(principal=invited_principal, session=session)
+        invited_me = get_me(principal=invited_principal, session=session)
+        assert invited_me["memberships"][0].status == MembershipStatusEnum.ACTIVE

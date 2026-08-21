@@ -17,7 +17,7 @@ from app.models.identity import (
     Membership, MembershipStatusEnum, RoleEnum, Store, Tenant, TenantStatusEnum, User,
 )
 from app.models.platform import Lead, LeadStatusEnum, PlatformRoleEnum
-from app.services import identity_service, reliability_service
+from app.services import identity_service, reliability_service, supabase_admin
 
 
 router = APIRouter(dependencies=[Depends(get_current_principal)])
@@ -60,6 +60,36 @@ class PlatformOverview(BaseModel):
 class PlatformTenantProvisioned(BaseModel):
     tenant: Tenant
     first_store: Store
+
+
+class PlatformTenantAccessRead(BaseModel):
+    membership_id: uuid.UUID
+    user_id: uuid.UUID
+    email: str
+    full_name: str
+    role: str
+    status: str
+    store_id: Optional[uuid.UUID] = None
+    store_name: Optional[str] = None
+    created_at: datetime
+
+
+class PlatformTenantDetail(BaseModel):
+    tenant: PlatformTenantRead
+    stores: List[Store]
+    accesses: List[PlatformTenantAccessRead]
+
+
+class PlatformTenantInvite(BaseModel):
+    email: str = PydanticField(min_length=5, max_length=254)
+    full_name: str = PydanticField(min_length=2, max_length=160)
+    role: RoleEnum
+    store_id: Optional[uuid.UUID] = None
+
+
+class PlatformTenantInviteResult(BaseModel):
+    access: PlatformTenantAccessRead
+    delivery_status: str
 
 
 class StoreCreate(BaseModel):
@@ -218,6 +248,88 @@ def provision_platform_tenant(
         actor_id=user.id,
     )
     return PlatformTenantProvisioned(tenant=tenant, first_store=store)
+
+
+def _tenant_access_read(membership: Membership, user: User, store: Optional[Store]) -> PlatformTenantAccessRead:
+    return PlatformTenantAccessRead(
+        membership_id=membership.id, user_id=user.id, email=user.email,
+        full_name=user.full_name, role=getattr(membership.role, "value", str(membership.role)),
+        status=getattr(membership.status, "value", str(membership.status)),
+        store_id=membership.store_id, store_name=store.name if store else None,
+        created_at=membership.created_at,
+    )
+
+
+@router.get("/platform/tenants/{tenant_id}", response_model=PlatformTenantDetail)
+def platform_tenant_detail(
+    tenant_id: uuid.UUID,
+    principal: AuthPrincipal = Depends(get_current_principal),
+    session: Session = Depends(get_session),
+):
+    require_platform_role(session, principal, PLATFORM_MANAGERS, require_aal2=True)
+    tenant = session.get(Tenant, tenant_id)
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant não encontrado.")
+    stores = session.exec(select(Store).where(Store.tenant_id == tenant_id)).all()
+    store_map = {store.id: store for store in stores}
+    rows = session.exec(
+        select(Membership, User).join(User, User.id == Membership.user_id).where(Membership.tenant_id == tenant_id)
+    ).all()
+    return PlatformTenantDetail(
+        tenant=PlatformTenantRead(
+            id=tenant.id, name=tenant.name, slug=tenant.slug,
+            status=getattr(tenant.status, "value", str(tenant.status)),
+            created_at=tenant.created_at, store_count=len(stores),
+        ),
+        stores=stores,
+        accesses=[_tenant_access_read(membership, user, store_map.get(membership.store_id)) for membership, user in rows],
+    )
+
+
+@router.post("/platform/tenants/{tenant_id}/invitations", response_model=PlatformTenantInviteResult, status_code=201)
+def invite_platform_tenant_user(
+    tenant_id: uuid.UUID,
+    data: PlatformTenantInvite,
+    principal: AuthPrincipal = Depends(get_current_principal),
+    session: Session = Depends(get_session),
+):
+    actor = require_platform_role(session, principal, PLATFORM_MANAGERS, require_aal2=True)
+    assert actor is not None
+    tenant = session.get(Tenant, tenant_id)
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant não encontrado.")
+    email = data.email.strip().lower()
+    if "@" not in email:
+        raise HTTPException(status_code=422, detail="Informe um e-mail válido.")
+    if data.role in {RoleEnum.CASHIER, RoleEnum.OPERATOR} and data.store_id is None:
+        raise HTTPException(status_code=422, detail="Caixa e operador precisam de uma unidade.")
+    store = session.get(Store, data.store_id) if data.store_id else None
+    if data.store_id and (not store or store.tenant_id != tenant_id):
+        raise HTTPException(status_code=422, detail="A unidade não pertence ao tenant.")
+
+    existing_user = session.exec(select(User).where(User.email == email)).first()
+    if existing_user:
+        existing_membership = session.exec(select(Membership).where(
+            Membership.user_id == existing_user.id,
+            Membership.tenant_id == tenant_id,
+        )).first()
+        if existing_membership:
+            raise HTTPException(status_code=409, detail="Este usuário já possui acesso ao tenant.")
+    provider_subject = None
+    delivery_status = "IDENTIDADE_EXISTENTE"
+    if existing_user is None:
+        invited = supabase_admin.invite_user(email=email, full_name=data.full_name.strip(), tenant_id=str(tenant_id))
+        provider_subject = str(invited["id"])
+        delivery_status = "ENVIADO"
+    membership = identity_service.provision_tenant_access(
+        session, tenant=tenant, email=email, full_name=data.full_name, role=data.role,
+        store_id=data.store_id, actor_id=actor.id, provider_subject=provider_subject,
+    )
+    user = session.get(User, membership.user_id)
+    assert user is not None
+    return PlatformTenantInviteResult(
+        access=_tenant_access_read(membership, user, store), delivery_status=delivery_status,
+    )
 
 
 @router.post("/tenants", response_model=Tenant)

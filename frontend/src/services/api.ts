@@ -229,6 +229,24 @@ export interface PlatformTenantProvisioned {
   first_store: Store
 }
 
+export interface PlatformTenantAccess {
+  membership_id: string
+  user_id: string
+  email: string
+  full_name: string
+  role: string
+  status: string
+  store_id?: string
+  store_name?: string
+  created_at: string
+}
+
+export interface PlatformTenantDetail {
+  tenant: PlatformTenantSummary
+  stores: Store[]
+  accesses: PlatformTenantAccess[]
+}
+
 export interface PaymentConfirmResponse {
   payment: Payment
   sale_status: Sale['status']
@@ -298,6 +316,25 @@ export async function provisionPlatformTenant(input: {
     body: JSON.stringify(input),
   })
   if (!res.ok) throw await apiError(res, 'Não foi possível criar o tenant.')
+  return res.json()
+}
+
+export async function fetchPlatformTenantDetail(tenantId: string): Promise<PlatformTenantDetail> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/identity/platform/tenants/${tenantId}`)
+  if (!res.ok) throw await apiError(res, 'Não foi possível carregar o tenant.')
+  return res.json()
+}
+
+export async function invitePlatformTenantUser(tenantId: string, input: {
+  email: string
+  full_name: string
+  role: string
+  store_id?: string
+}): Promise<{ access: PlatformTenantAccess; delivery_status: string }> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/identity/platform/tenants/${tenantId}/invitations`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível enviar o convite.')
   return res.json()
 }
 

@@ -1,7 +1,9 @@
 # Identity and transactional email delivery
 
-Status: decisão arquitetural aceita. Resend adotado; configuração operacional
-pendente antes de novos convites ou pilotos.
+Status: decisão arquitetural aceita. O Console Owner e a API já possuem o fluxo
+de convite com escopo de tenant, papel e unidade. Resend, domínio de envio,
+segredo administrativo do backend e telemetria de entrega ainda precisam ser
+configurados antes de convites externos ou pilotos.
 
 ## 1. Decisão
 
