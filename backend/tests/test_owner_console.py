@@ -2,6 +2,7 @@ import uuid
 
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
 from sqlmodel import Session, select
 
 from app.api.v1.endpoints.identity import (
@@ -122,6 +123,15 @@ def test_owner_mutations_require_aal2():
         assert "Multi-factor" in exc.value.detail
 
 
+def test_control_plane_cannot_assign_internal_tenant_roles():
+    with pytest.raises(ValidationError):
+        PlatformTenantInvite(
+            email="manager@example.test",
+            full_name="Internal Manager",
+            role=RoleEnum.MANAGER,
+        )
+
+
 def test_owner_can_open_tenant_and_invite_first_user(monkeypatch):
     suffix = uuid.uuid4().hex[:8]
     invite_subject = str(uuid.uuid4())
@@ -143,11 +153,11 @@ def test_owner_can_open_tenant_and_invite_first_user(monkeypatch):
             tenant_id=created.tenant.id,
             data=PlatformTenantInvite(
                 email=f"user-{suffix}@example.test", full_name="Tenant User",
-                role=RoleEnum.TENANT_OWNER,
             ), principal=principal, session=session,
         )
         assert result.delivery_status == "ENVIADO"
         assert result.access.status == MembershipStatusEnum.INVITED
+        assert result.access.role == RoleEnum.TENANT_OWNER
 
         detail = platform_tenant_detail(
             tenant_id=created.tenant.id, principal=principal, session=session,

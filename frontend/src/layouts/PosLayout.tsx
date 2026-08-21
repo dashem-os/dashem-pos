@@ -8,9 +8,11 @@ import {
   Lock,
   Unlock,
   ChevronUp,
+  LogOut,
   X
 } from 'lucide-react'
 import { usePos } from '../context/PosContext'
+import { useAuth } from '../context/AuthContext'
 import { ProductSearch } from '../components/pos/ProductSearch'
 import { QuickProductGrid } from '../components/pos/QuickProductGrid'
 import { Cart } from '../components/pos/Cart'
@@ -23,6 +25,7 @@ import { CancelModal } from '../components/pos/CancelModal'
 import { formatCurrency, formatQuantity } from '../utils/format'
 
 export const PosLayout: React.FC = () => {
+  const { signOut } = useAuth()
   const {
     store,
     register,
@@ -113,6 +116,15 @@ export const PosLayout: React.FC = () => {
           >
             <LayoutDashboard className="w-3.5 h-3.5 text-slate-500" />
             <span className="hidden sm:inline">Gestão</span>
+          </button>
+
+          <button
+            onClick={signOut}
+            title="Encerrar sessão"
+            aria-label="Encerrar sessão"
+            className="h-9 w-9 rounded-xl border border-slate-200 bg-white text-slate-500 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 flex items-center justify-center transition-colors active:scale-95"
+          >
+            <LogOut className="w-3.5 h-3.5" />
           </button>
         </div>
       </header>

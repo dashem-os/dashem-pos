@@ -328,8 +328,6 @@ export async function fetchPlatformTenantDetail(tenantId: string): Promise<Platf
 export async function invitePlatformTenantUser(tenantId: string, input: {
   email: string
   full_name: string
-  role: string
-  store_id?: string
 }): Promise<{ access: PlatformTenantAccess; delivery_status: string }> {
   const res = await fetch(`${API_BASE_URL}/api/v1/identity/platform/tenants/${tenantId}/invitations`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),

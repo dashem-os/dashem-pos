@@ -6,11 +6,13 @@ import {
   Package,
   Banknote,
   Activity,
+  LogOut,
   Store as StoreIcon,
   CheckCircle2,
   AlertCircle
 } from 'lucide-react'
 import { usePos } from '../context/PosContext'
+import { useAuth } from '../context/AuthContext'
 import { DashboardBI } from '../components/management/DashboardBI'
 import { SalesHistory } from '../components/management/SalesHistory'
 import { CatalogManager } from '../components/management/CatalogManager'
@@ -18,6 +20,7 @@ import { CashManager } from '../components/management/CashManager'
 import { Diagnostics } from '../components/management/Diagnostics'
 
 export const ManagementLayout: React.FC = () => {
+  const { signOut } = useAuth()
   const {
     activeBiTab,
     setActiveBiTab,
@@ -191,6 +194,16 @@ export const ManagementLayout: React.FC = () => {
             >
               <ShoppingCart className="w-3.5 h-3.5" />
               <span>Ir para o PDV</span>
+            </button>
+
+            <button
+              onClick={signOut}
+              title="Encerrar sessão"
+              aria-label="Encerrar sessão"
+              className="h-9 px-3 rounded-xl border border-dashem-border bg-dashem-surface-elevated text-dashem-muted hover:border-rose-500/40 hover:text-white text-xs font-black flex items-center space-x-1.5 transition-all active:scale-95"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span className="hidden xl:inline">Sair</span>
             </button>
           </div>
         </header>

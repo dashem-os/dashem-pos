@@ -81,10 +81,10 @@ class PlatformTenantDetail(BaseModel):
 
 
 class PlatformTenantInvite(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     email: str = PydanticField(min_length=5, max_length=254)
     full_name: str = PydanticField(min_length=2, max_length=160)
-    role: RoleEnum
-    store_id: Optional[uuid.UUID] = None
 
 
 class PlatformTenantInviteResult(BaseModel):
@@ -301,11 +301,10 @@ def invite_platform_tenant_user(
     email = data.email.strip().lower()
     if "@" not in email:
         raise HTTPException(status_code=422, detail="Informe um e-mail válido.")
-    if data.role in {RoleEnum.CASHIER, RoleEnum.OPERATOR} and data.store_id is None:
-        raise HTTPException(status_code=422, detail="Caixa e operador precisam de uma unidade.")
-    store = session.get(Store, data.store_id) if data.store_id else None
-    if data.store_id and (not store or store.tenant_id != tenant_id):
-        raise HTTPException(status_code=422, detail="A unidade não pertence ao tenant.")
+    # The Control Plane delivers only the first contractual administrator.
+    # Roles and scopes inside the organization are owned by the customer and
+    # must be managed from the tenant administration experience.
+    store = None
 
     existing_user = session.exec(select(User).where(User.email == email)).first()
     if existing_user:
@@ -322,8 +321,9 @@ def invite_platform_tenant_user(
         provider_subject = str(invited["id"])
         delivery_status = "ENVIADO"
     membership = identity_service.provision_tenant_access(
-        session, tenant=tenant, email=email, full_name=data.full_name, role=data.role,
-        store_id=data.store_id, actor_id=actor.id, provider_subject=provider_subject,
+        session, tenant=tenant, email=email, full_name=data.full_name,
+        role=RoleEnum.TENANT_OWNER, store_id=None, actor_id=actor.id,
+        provider_subject=provider_subject,
     )
     user = session.get(User, membership.user_id)
     assert user is not None

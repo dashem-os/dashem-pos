@@ -60,6 +60,24 @@ Uso exclusivo da equipe Dashem:
 Papéis iniciais: `PLATFORM_OWNER`, `PLATFORM_ADMIN`, `SALES`, `SUPPORT`,
 `OPERATIONS` e `AUDITOR`.
 
+O fluxo de responsabilidade é explícito:
+
+```text
+Dashem Control
+└── provisiona a organização e as estruturas contratadas
+    └── entrega o acesso ao administrador contratual
+        └── o cliente organiza sua própria empresa
+            ├── administradores
+            ├── gerentes e supervisores
+            ├── caixas e operadores
+            └── auditores
+```
+
+O Control Plane não atribui funções internas do cliente. Ele controla contrato,
+plano, limites, capabilities contratadas e ciclo de vida da organização. A
+administração do tenant controla usuários, papéis, permissões e escopos por
+unidade dentro desses limites.
+
 ### 3.2 Commerce Plane
 
 Uso dos clientes:
