@@ -10,6 +10,7 @@ from sqlmodel.sql.expression import SelectOfScalar
 from app.core.database import get_session
 from app.core.rbac import enforce_tenant_permission
 from app.core.security import AuthPrincipal, get_current_principal
+from app.core.tenancy import set_tenant_db_context
 from app.models.identity import (
     AuthIdentity, Membership, MembershipStatusEnum, RoleEnum, Store, Tenant,
     TenantStatusEnum, User,
@@ -66,6 +67,7 @@ def authorize_tenant_context(
     path: str,
 ) -> TenantContext:
     if principal.bypass:
+        set_tenant_db_context(session, tenant_id, store_id, principal.legacy_user_id)
         return TenantContext(
             tenant_id=tenant_id,
             store_id=store_id,
@@ -75,6 +77,7 @@ def authorize_tenant_context(
 
     user = resolve_internal_user(session, principal)
     assert user is not None
+    set_tenant_db_context(session, tenant_id, store_id, user.id)
     tenant = session.get(Tenant, tenant_id)
     if not tenant or tenant.status not in {TenantStatusEnum.TRIAL, TenantStatusEnum.ACTIVE}:
         raise HTTPException(status_code=403, detail="Tenant is unavailable.")

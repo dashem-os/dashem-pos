@@ -4,6 +4,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional, List
 from sqlmodel import SQLModel, Field, Relationship, UniqueConstraint, Column, Numeric
+from app.core.db_types import EnumString
 
 class CashSessionStatusEnum(str, Enum):
     OPEN = "OPEN"
@@ -53,7 +54,10 @@ class CashSession(SQLModel, table=True):
     store_id: uuid.UUID = Field(index=True)
     register_id: uuid.UUID = Field(foreign_key="registers.id", index=True)
     operator_id: uuid.UUID = Field(index=True)
-    status: CashSessionStatusEnum = Field(default=CashSessionStatusEnum.OPEN, index=True)
+    status: CashSessionStatusEnum = Field(
+        default=CashSessionStatusEnum.OPEN,
+        sa_column=Column(EnumString(CashSessionStatusEnum), nullable=False, index=True),
+    )
     opening_balance: Decimal = Field(default=Decimal("0.00"), sa_column=Column(Numeric(14, 4), nullable=False, default=0.0))
     closing_balance: Optional[Decimal] = Field(default=None, sa_column=Column(Numeric(14, 4), nullable=True))
     expected_balance: Optional[Decimal] = Field(default=None, sa_column=Column(Numeric(14, 4), nullable=True))
@@ -73,7 +77,7 @@ class CashMovement(SQLModel, table=True):
     store_id: uuid.UUID = Field(index=True)
     cash_session_id: uuid.UUID = Field(foreign_key="cash_sessions.id", index=True)
     actor_id: uuid.UUID = Field(index=True)
-    movement_type: CashMovementTypeEnum = Field(index=True)
+    movement_type: CashMovementTypeEnum = Field(sa_column=Column(EnumString(CashMovementTypeEnum), nullable=False, index=True))
     amount: Decimal = Field(sa_column=Column(Numeric(14, 4), nullable=False))
     notes: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
@@ -91,8 +95,11 @@ class Payment(SQLModel, table=True):
     store_id: uuid.UUID = Field(index=True)
     sale_id: uuid.UUID = Field(foreign_key="sales.id", index=True)
     cash_session_id: Optional[uuid.UUID] = Field(default=None, foreign_key="cash_sessions.id", index=True)
-    method: PaymentMethodEnum = Field(index=True)
-    status: PaymentStatusEnum = Field(default=PaymentStatusEnum.PENDING, index=True)
+    method: PaymentMethodEnum = Field(sa_column=Column(EnumString(PaymentMethodEnum), nullable=False, index=True))
+    status: PaymentStatusEnum = Field(
+        default=PaymentStatusEnum.PENDING,
+        sa_column=Column(EnumString(PaymentStatusEnum), nullable=False, index=True),
+    )
     amount: Decimal = Field(sa_column=Column(Numeric(14, 4), nullable=False))
     tendered_amount: Optional[Decimal] = Field(default=None, sa_column=Column(Numeric(14, 4), nullable=True))
     change_amount: Optional[Decimal] = Field(default=None, sa_column=Column(Numeric(14, 4), nullable=True))

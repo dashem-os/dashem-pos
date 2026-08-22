@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.api.v1.endpoints import identity, catalog, inventory, sales, cash, payments, fiscal
+from app.api.v1.endpoints import identity, catalog, inventory, sales, cash, payments, fiscal, capabilities
 
 api_router = APIRouter()
 api_router.include_router(identity.router, prefix="/identity", tags=["Identity & Tenancy"])
@@ -9,3 +9,4 @@ api_router.include_router(sales.router, prefix="/sales", tags=["Sales & Checkout
 api_router.include_router(cash.router, prefix="/cash", tags=["Cash Sessions & Movements"])
 api_router.include_router(payments.router, prefix="/payments", tags=["Payment Engine & Confirmation"])
 api_router.include_router(fiscal.router, prefix="/fiscal", tags=["Fiscal Gateway & Issuance"])
+api_router.include_router(capabilities.router, prefix="/capabilities", tags=["Capability Mesh"])

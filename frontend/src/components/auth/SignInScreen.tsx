@@ -106,7 +106,7 @@ export function SignInScreen() {
                   {submitting ? <Loader2 className="h-5 w-5 animate-spin" /> : <>{recovery ? 'Enviar link seguro' : 'Entrar'}<ArrowRight className="h-4 w-4" /></>}
                 </button>
               </form>
-              <button type="button" onClick={() => { setRecovery(!recovery); setError(null); setNotice(null) }} className="mt-6 w-full text-center text-sm font-bold text-slate-500 hover:text-rose-600">
+              <button type="button" onClick={() => { setRecovery(!recovery); setError(null); setNotice(null) }} className="mt-4 flex min-h-11 w-full items-center justify-center text-center text-sm font-bold text-slate-500 hover:text-rose-600">
                 {recovery ? 'Voltar ao login' : 'Esqueci minha senha'}
               </button>
             </>

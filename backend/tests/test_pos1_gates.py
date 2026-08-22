@@ -29,6 +29,7 @@ async def test_pos1_gates_1_to_11():
 
         actor_id = str(uuid.uuid4())
         headers_A = {"X-Tenant-ID": tA["id"], "X-Store-ID": sA["id"]}
+        headers_A2 = {"X-Tenant-ID": tA["id"], "X-Store-ID": sA2["id"]}
         headers_B = {"X-Tenant-ID": tB["id"], "X-Store-ID": sB["id"]}
 
         # --- GATE 1: Multi-Tenant Isolation ---
@@ -61,7 +62,7 @@ async def test_pos1_gates_1_to_11():
         pr2 = await client.post(
             "/api/v1/catalog/prices",
             json={"product_id": pA["id"], "store_id": sA2["id"], "cost_price": 60.00, "sale_price": 105.00},
-            headers=headers_A
+            headers=headers_A2
         )
         assert pr2.status_code == 200
         assert float(pr2.json()["sale_price"]) == 105.0

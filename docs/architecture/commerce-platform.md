@@ -28,7 +28,7 @@ As três dimensões são independentes:
 
 1. Nenhum tenant, operador, catálogo, preço ou segmento é hardcoded.
 2. Toda operação comercial persistida possui `tenant_id`; operações locais
-   também possuem `site_id`.
+   também possuem `store_id` (o nome canônico atual de site no schema).
 3. Identidade vem de autenticação verificada. Headers fornecidos pelo cliente
    não são prova de identidade e serão removidos como mecanismo de confiança.
 4. Autorização é aplicada no serviço e no banco, com menor privilégio.
@@ -144,8 +144,10 @@ User ──< Membership >── Tenant
 - acesso de plataforma é separado em `PlatformMembership`;
 - suporte assistido nunca reutiliza silenciosamente a identidade do cliente.
 
-A evolução de segurança prevê tokens curtos, refresh seguro, MFA para o Control
-Plane, revogação, sessões, RLS no PostgreSQL e testes negativos de isolamento.
+A fundação já aplica RLS forçado no PostgreSQL, papel de runtime sem bypass e
+testes negativos entre tenants e sites. Tokens curtos, refresh seguro, MFA para
+o Control Plane, revogação e ampliação contínua da matriz negativa permanecem
+parte do contrato. Veja `database-tenancy-and-migrations.md`.
 
 ## 6. Capabilities e verticais
 
@@ -157,9 +159,11 @@ Diferenças de segmento são capabilities e módulos, não forks:
 - serviços: agenda, profissionais e itens sem estoque;
 - rede: catálogo central, preços locais e permissões regionais.
 
-`TenantCapability` controla habilitação e configuração. Entitlements comerciais
-e feature flags técnicas são conceitos separados, ainda que possam convergir na
-decisão de acesso.
+`TenantCapability` controla entitlement, limites contratuais e configuração;
+`StoreCapabilityOverride` restringe ou configura o comportamento local. Os
+contratos e dependências versionados formam o Capability Mesh. Entitlements
+comerciais, permissões e feature flags técnicas são conceitos separados, ainda
+que possam convergir na decisão de acesso. Veja `capability-mesh.md`.
 
 ## 7. Pedidos omnichannel
 
@@ -224,7 +228,7 @@ exigem aprovação humana. Dados de tenants distintos nunca compartilham context
 
 1. autenticação real e sessões;
 2. RBAC e policies;
-3. RLS;
+3. ampliar RLS e testes negativos a cada novo módulo;
 4. APIs protegidas do Control Plane;
 5. onboarding e configuração do tenant;
 6. catálogo editável e importável;

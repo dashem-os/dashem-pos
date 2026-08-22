@@ -13,6 +13,7 @@ from app.core.access import (
 )
 from app.core.database import get_session
 from app.core.security import AuthPrincipal, get_current_principal
+from app.core.tenancy import set_platform_db_context, set_tenant_db_context
 from app.models.identity import (
     Membership, MembershipStatusEnum, RoleEnum, Store, Tenant, TenantStatusEnum, User,
 )
@@ -132,9 +133,11 @@ def _platform_or_tenant_admin(
     session: Session, principal: AuthPrincipal, tenant_id: uuid.UUID
 ) -> None:
     if principal.bypass:
+        set_tenant_db_context(session, tenant_id, user_id=principal.legacy_user_id)
         return
     platform = get_platform_membership(session, principal)
     if platform and PlatformRoleEnum(platform.role) in PLATFORM_MANAGERS:
+        require_platform_role(session, principal, PLATFORM_MANAGERS)
         return
     require_tenant_admin(session, principal, tenant_id)
 
@@ -349,6 +352,7 @@ def list_tenants(
 ):
     platform = get_platform_membership(session, principal)
     if principal.bypass:
+        set_platform_db_context(session, principal.legacy_user_id)
         return session.exec(select(Tenant)).all()
     if platform:
         require_platform_role(session, principal, PLATFORM_MANAGERS, require_aal2=True)
@@ -379,13 +383,19 @@ def list_stores(
     principal: AuthPrincipal = Depends(get_current_principal),
     session: Session = Depends(get_session),
 ):
-    if principal.bypass or get_platform_membership(session, principal):
+    if principal.bypass:
+        set_platform_db_context(session, principal.legacy_user_id)
+        query = select(Store)
+        return session.exec(query.where(Store.tenant_id == tenant_id) if tenant_id else query).all()
+    if get_platform_membership(session, principal):
+        require_platform_role(session, principal, PLATFORM_MANAGERS)
         query = select(Store)
         return session.exec(query.where(Store.tenant_id == tenant_id) if tenant_id else query).all()
     if tenant_id is None:
         raise HTTPException(status_code=400, detail="tenant_id is required.")
     user = get_request_user(session, principal)
     assert user is not None
+    set_tenant_db_context(session, tenant_id, user_id=user.id)
     memberships = session.exec(
         select(Membership).where(
             Membership.user_id == user.id,
@@ -463,6 +473,7 @@ def test_atomic_mutation_endpoint(
 ):
     if not principal.bypass:
         raise HTTPException(status_code=404, detail="Not found.")
+    set_tenant_db_context(session, data.tenant_id, data.store_id, data.actor_id)
     if x_idempotency_key:
         is_cached, status_code, body = reliability_service.check_idempotency(
             session, data.tenant_id, data.actor_id, "POST /test-atomic-mutation",

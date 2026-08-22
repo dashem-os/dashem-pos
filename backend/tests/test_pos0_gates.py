@@ -58,8 +58,10 @@ async def test_gate_4_and_5_membership_invariants():
             "store_id": s2["id"],  # Wrong tenant!
             "role": "MANAGER"
         })
-        assert m_invalid.status_code == 400
-        assert "does not belong to Tenant" in m_invalid.json()["detail"]
+        # RLS deliberately makes a sibling tenant's store indistinguishable
+        # from a nonexistent resource, avoiding an identifier-enumeration leak.
+        assert m_invalid.status_code == 404
+        assert m_invalid.json()["detail"] == "Store not found."
 
         # DUPLICATE CONSTRAINT VIOLATION: Duplicate (User, Tenant 1, Store 1)
         m_dup = await client.post("/api/v1/identity/memberships", json={
@@ -74,8 +76,17 @@ async def test_gate_4_and_5_membership_invariants():
 @pytest.mark.asyncio
 async def test_gate_6_7_8_atomic_outbox_idempotency_correlation():
     async with httpx.AsyncClient(base_url=BASE_URL) as client:
-        tenant_id = str(uuid.uuid4())
-        store_id = str(uuid.uuid4())
+        suffix = uuid.uuid4().hex[:8]
+        tenant = (await client.post(
+            "/api/v1/identity/tenants",
+            json={"name": f"Atomic Tenant {suffix}", "slug": f"atomic-{suffix}"},
+        )).json()
+        store = (await client.post(
+            "/api/v1/identity/stores",
+            json={"tenant_id": tenant["id"], "name": "Atomic Store", "code": f"AT-{suffix}"},
+        )).json()
+        tenant_id = tenant["id"]
+        store_id = store["id"]
         actor_id = str(uuid.uuid4())
         idempotency_key = f"key-{uuid.uuid4().hex[:6]}"
         correlation_id = f"corr-{uuid.uuid4().hex[:6]}"
@@ -118,8 +129,17 @@ async def test_gate_6_7_8_atomic_outbox_idempotency_correlation():
 async def test_concurrent_idempotency_race_condition():
     async with httpx.AsyncClient(base_url=BASE_URL) as client:
         import asyncio
-        tenant_id = str(uuid.uuid4())
-        store_id = str(uuid.uuid4())
+        suffix = uuid.uuid4().hex[:8]
+        tenant = (await client.post(
+            "/api/v1/identity/tenants",
+            json={"name": f"Concurrent Tenant {suffix}", "slug": f"concurrent-{suffix}"},
+        )).json()
+        store = (await client.post(
+            "/api/v1/identity/stores",
+            json={"tenant_id": tenant["id"], "name": "Concurrent Store", "code": f"CT-{suffix}"},
+        )).json()
+        tenant_id = tenant["id"]
+        store_id = store["id"]
         actor_id = str(uuid.uuid4())
         idempotency_key = f"concurrent-key-{uuid.uuid4().hex[:6]}"
 

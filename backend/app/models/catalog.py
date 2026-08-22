@@ -4,6 +4,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional, List
 from sqlmodel import SQLModel, Field, Relationship, UniqueConstraint, Column, Numeric
+from app.core.db_types import EnumString
 
 class ItemTypeEnum(str, Enum):
     PRODUCT = "PRODUCT"
@@ -44,7 +45,10 @@ class Product(SQLModel, table=True):
     sku: str = Field(index=True)
     barcode: Optional[str] = Field(default=None, index=True)
     description: Optional[str] = None
-    item_type: ItemTypeEnum = Field(default=ItemTypeEnum.PRODUCT)
+    item_type: ItemTypeEnum = Field(
+        default=ItemTypeEnum.PRODUCT,
+        sa_column=Column(EnumString(ItemTypeEnum), nullable=False),
+    )
     tracks_inventory: bool = Field(default=True)
     requires_fulfillment: bool = Field(default=False)
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -55,9 +59,6 @@ class Product(SQLModel, table=True):
 
 class ProductPrice(SQLModel, table=True):
     __tablename__ = "product_prices"
-    __table_args__ = (
-        UniqueConstraint("tenant_id", "store_id", "product_id", name="uq_tenant_store_product_price"),
-    )
     
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     tenant_id: uuid.UUID = Field(index=True)
@@ -77,7 +78,10 @@ class InventoryMovement(SQLModel, table=True):
     store_id: uuid.UUID = Field(index=True)
     product_id: uuid.UUID = Field(foreign_key="products.id", index=True)
     actor_id: uuid.UUID = Field(index=True)
-    movement_type: MovementTypeEnum = Field(default=MovementTypeEnum.ADJUSTMENT, index=True)
+    movement_type: MovementTypeEnum = Field(
+        default=MovementTypeEnum.ADJUSTMENT,
+        sa_column=Column(EnumString(MovementTypeEnum), nullable=False, index=True),
+    )
     quantity: Decimal = Field(sa_column=Column(Numeric(14, 4), nullable=False))
     previous_balance: Decimal = Field(sa_column=Column(Numeric(14, 4), nullable=False))
     new_balance: Decimal = Field(sa_column=Column(Numeric(14, 4), nullable=False))

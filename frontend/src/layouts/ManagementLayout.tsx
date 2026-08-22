@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import {
   Home,
   ShoppingCart,
@@ -9,7 +9,9 @@ import {
   LogOut,
   Store as StoreIcon,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Menu,
+  X
 } from 'lucide-react'
 import { usePos } from '../context/PosContext'
 import { useAuth } from '../context/AuthContext'
@@ -20,6 +22,7 @@ import { CashManager } from '../components/management/CashManager'
 import { Diagnostics } from '../components/management/Diagnostics'
 
 export const ManagementLayout: React.FC = () => {
+  const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false)
   const { signOut } = useAuth()
   const {
     activeBiTab,
@@ -31,6 +34,36 @@ export const ManagementLayout: React.FC = () => {
   } = usePos()
 
   const isCashOpen = cashSession?.status === 'OPEN'
+
+  const navigation = [
+    { id: 'dashboard', label: 'Painel Geral (BI)', icon: Home },
+    { id: 'sales', label: 'Vendas & Histórico', icon: FileText },
+    { id: 'catalog', label: 'Catálogo & Estoque', icon: Package },
+    { id: 'cash', label: 'Caixa & Tesouraria', icon: Banknote },
+    { id: 'diagnostics', label: 'Diagnóstico & API', icon: Activity },
+  ] as const
+
+  const navigationButtons = navigation.map(item => {
+    const Icon = item.icon
+    const active = activeBiTab === item.id
+    return (
+      <button
+        key={item.id}
+        onClick={() => {
+          setActiveBiTab(item.id)
+          setMobileNavigationOpen(false)
+        }}
+        className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-xs font-extrabold transition-all ${
+          active
+            ? 'bg-dashem-surface-elevated text-white shadow-md border-l-4 border-dashem-red'
+            : 'text-dashem-muted hover:text-white hover:bg-dashem-surface-elevated/60'
+        }`}
+      >
+        <Icon className={`w-4 h-4 ${active ? 'text-dashem-red' : ''}`} />
+        <span>{item.label}</span>
+      </button>
+    )
+  })
 
   const renderActiveTab = () => {
     switch (activeBiTab) {
@@ -72,67 +105,7 @@ export const ManagementLayout: React.FC = () => {
           </div>
 
           {/* Navigation Menu */}
-          <nav className="space-y-1.5">
-            <button
-              onClick={() => setActiveBiTab('dashboard')}
-              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-xs font-extrabold transition-all ${
-                activeBiTab === 'dashboard'
-                  ? 'bg-dashem-surface-elevated text-white shadow-md border-l-4 border-dashem-red'
-                  : 'text-dashem-muted hover:text-white hover:bg-dashem-surface-elevated/60'
-              }`}
-            >
-              <Home className={`w-4 h-4 ${activeBiTab === 'dashboard' ? 'text-dashem-red' : ''}`} />
-              <span>Painel Geral (BI)</span>
-            </button>
-
-            <button
-              onClick={() => setActiveBiTab('sales')}
-              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-xs font-extrabold transition-all ${
-                activeBiTab === 'sales'
-                  ? 'bg-dashem-surface-elevated text-white shadow-md border-l-4 border-dashem-red'
-                  : 'text-dashem-muted hover:text-white hover:bg-dashem-surface-elevated/60'
-              }`}
-            >
-              <FileText className={`w-4 h-4 ${activeBiTab === 'sales' ? 'text-dashem-red' : ''}`} />
-              <span>Vendas & Histórico</span>
-            </button>
-
-            <button
-              onClick={() => setActiveBiTab('catalog')}
-              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-xs font-extrabold transition-all ${
-                activeBiTab === 'catalog'
-                  ? 'bg-dashem-surface-elevated text-white shadow-md border-l-4 border-dashem-red'
-                  : 'text-dashem-muted hover:text-white hover:bg-dashem-surface-elevated/60'
-              }`}
-            >
-              <Package className={`w-4 h-4 ${activeBiTab === 'catalog' ? 'text-dashem-red' : ''}`} />
-              <span>Catálogo & Estoque</span>
-            </button>
-
-            <button
-              onClick={() => setActiveBiTab('cash')}
-              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-xs font-extrabold transition-all ${
-                activeBiTab === 'cash'
-                  ? 'bg-dashem-surface-elevated text-white shadow-md border-l-4 border-dashem-red'
-                  : 'text-dashem-muted hover:text-white hover:bg-dashem-surface-elevated/60'
-              }`}
-            >
-              <Banknote className={`w-4 h-4 ${activeBiTab === 'cash' ? 'text-dashem-red' : ''}`} />
-              <span>Caixa & Tesouraria</span>
-            </button>
-
-            <button
-              onClick={() => setActiveBiTab('diagnostics')}
-              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-xs font-extrabold transition-all ${
-                activeBiTab === 'diagnostics'
-                  ? 'bg-dashem-surface-elevated text-white shadow-md border-l-4 border-dashem-red'
-                  : 'text-dashem-muted hover:text-white hover:bg-dashem-surface-elevated/60'
-              }`}
-            >
-              <Activity className={`w-4 h-4 ${activeBiTab === 'diagnostics' ? 'text-dashem-red' : ''}`} />
-              <span>Diagnóstico & API</span>
-            </button>
-          </nav>
+          <nav className="space-y-1.5">{navigationButtons}</nav>
         </div>
 
         {/* Bottom Switch to POS Card */}
@@ -150,18 +123,36 @@ export const ManagementLayout: React.FC = () => {
         </div>
       </aside>
 
+      {mobileNavigationOpen && (
+        <div className="fixed inset-0 z-50 md:hidden" role="dialog" aria-modal="true" aria-label="Navegação da gestão">
+          <button className="absolute inset-0 bg-slate-950/75 backdrop-blur-sm" aria-label="Fechar navegação" onClick={() => setMobileNavigationOpen(false)} />
+          <aside className="relative flex h-full w-[min(86vw,20rem)] flex-col bg-dashem-surface p-5 shadow-2xl">
+            <div className="mb-7 flex items-center justify-between">
+              <div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-dashem-red text-xl font-black">D</div><div><p className="font-black">DASHEM <span className="text-dashem-red">GESTÃO</span></p><p className="text-[10px] font-bold uppercase tracking-wider text-dashem-muted">Admin do tenant</p></div></div>
+              <button className="flex h-11 w-11 items-center justify-center rounded-xl border border-dashem-border text-dashem-muted" onClick={() => setMobileNavigationOpen(false)} aria-label="Fechar menu"><X className="h-5 w-5" /></button>
+            </div>
+            <nav className="space-y-1.5">{navigationButtons}</nav>
+            <div className="mt-auto space-y-3 border-t border-dashem-border pt-5">
+              <button onClick={() => switchView('pdv')} className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-dashem-red text-sm font-black"><ShoppingCart className="h-4 w-4" />Abrir PDV / Caixa</button>
+              <button onClick={signOut} className="flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-dashem-border text-sm font-black text-dashem-muted"><LogOut className="h-4 w-4" />Encerrar sessão</button>
+            </div>
+          </aside>
+        </div>
+      )}
+
       {/* ========================================================================= */}
       {/* MAIN MANAGEMENT CONTENT AREA                                              */}
       {/* ========================================================================= */}
       <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
         {/* Management Top Header */}
-        <header className="h-16 px-6 bg-dashem-surface border-b border-dashem-border flex items-center justify-between sticky top-0 z-20 shadow-sm">
+        <header className="h-16 px-3 sm:px-6 bg-dashem-surface border-b border-dashem-border flex items-center justify-between sticky top-0 z-20 shadow-sm">
           <div className="flex items-center space-x-3">
+            <button onClick={() => setMobileNavigationOpen(true)} className="flex h-11 w-11 items-center justify-center rounded-xl border border-dashem-border text-white md:hidden" aria-label="Abrir menu de gestão"><Menu className="h-5 w-5" /></button>
             <div className="flex items-center space-x-2 text-xs font-bold text-dashem-muted">
               <StoreIcon className="w-4 h-4 text-dashem-red" />
               <span className="text-white">{store?.name || 'Loja Principal'}</span>
-              <span>•</span>
-              <span>{register?.name || 'Terminal 01'}</span>
+              <span className="hidden sm:inline">•</span>
+              <span className="hidden sm:inline">{register?.name || 'Terminal 01'}</span>
             </div>
           </div>
 
@@ -190,10 +181,12 @@ export const ManagementLayout: React.FC = () => {
             {/* Quick Button to PDV */}
             <button
               onClick={() => switchView('pdv')}
+              title="Ir para o PDV"
+              aria-label="Ir para o PDV"
               className="h-9 px-4 rounded-xl bg-dashem-red hover:bg-dashem-red-light text-white text-xs font-black flex items-center space-x-1.5 transition-all shadow-md active:scale-95"
             >
               <ShoppingCart className="w-3.5 h-3.5" />
-              <span>Ir para o PDV</span>
+              <span className="hidden sm:inline">Ir para o PDV</span>
             </button>
 
             <button
@@ -209,7 +202,7 @@ export const ManagementLayout: React.FC = () => {
         </header>
 
         {/* Active Tab Body */}
-        <main className="flex-1 p-6 max-w-7xl w-full mx-auto">{renderActiveTab()}</main>
+        <main className="flex-1 p-3 sm:p-6 max-w-7xl w-full mx-auto">{renderActiveTab()}</main>
       </div>
     </div>
   )

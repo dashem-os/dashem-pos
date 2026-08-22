@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     
     # Required in every environment. Local Docker values come from the root .env.
     DATABASE_URL: str
+    DATABASE_ADMIN_URL: Optional[str] = None
+    RUNTIME_DB_ROLE: str = "dashem_runtime"
     SECRET_KEY: str
 
     # Supabase proves identity; Dashem remains the authorization authority.

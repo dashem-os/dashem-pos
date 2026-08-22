@@ -4,7 +4,9 @@ from app.models.identity import (
 )
 from app.models.platform import (
     Lead, LeadStatusEnum, PlatformMembership, PlatformRoleEnum,
-    TenantCapability,
+    TenantCapability, CapabilityDefinition, CapabilityDependency,
+    CapabilityProfile, CapabilityProfileItem, StoreCapabilityOverride,
+    CapabilityScopeEnum, CapabilityStatusEnum, EntitlementStatusEnum,
 )
 from app.models.channel import SalesChannel, SalesChannelTypeEnum
 from app.models.intelligence import (
@@ -34,6 +36,14 @@ __all__ = [
     "PlatformMembership",
     "PlatformRoleEnum",
     "TenantCapability",
+    "CapabilityDefinition",
+    "CapabilityDependency",
+    "CapabilityProfile",
+    "CapabilityProfileItem",
+    "StoreCapabilityOverride",
+    "CapabilityScopeEnum",
+    "CapabilityStatusEnum",
+    "EntitlementStatusEnum",
     "SalesChannel",
     "SalesChannelTypeEnum",
     "ContextEdge",

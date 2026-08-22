@@ -5,8 +5,9 @@ from sqlalchemy import pool
 from alembic import context
 from sqlmodel import SQLModel
 
-# Import all models to ensure metadata is populated
-from app.models import Tenant, Store, User, Membership, OutboxEvent, AuditEvent, IdempotencyRecord
+# Import the model package for its metadata-registration side effects. Alembic
+# is the only schema authority; application startup never calls create_all().
+import app.models  # noqa: F401
 from app.core.config import settings
 
 config = context.config
@@ -17,7 +18,9 @@ if config.config_file_name:
 target_metadata = SQLModel.metadata
 
 def get_url():
-    return os.getenv("DATABASE_URL", settings.DATABASE_URL)
+    # A dedicated migration credential can own DDL while the runtime
+    # credential remains restricted by PostgreSQL RLS.
+    return os.getenv("DATABASE_ADMIN_URL") or os.getenv("DATABASE_URL", settings.DATABASE_URL)
 
 def run_migrations_offline() -> None:
     url = get_url()
@@ -29,7 +32,7 @@ def run_migrations_offline() -> None:
     )
 
     with context.begin_transaction():
-        run_migrations_online()
+        context.run_migrations()
 
 def run_migrations_online() -> None:
     configuration = config.get_section(config.config_ini_section)

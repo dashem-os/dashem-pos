@@ -2,7 +2,8 @@ import uuid
 from datetime import datetime
 from enum import Enum
 from typing import Optional
-from sqlmodel import SQLModel, Field, UniqueConstraint
+from sqlmodel import SQLModel, Field, UniqueConstraint, Column
+from app.core.db_types import EnumString
 
 class OutboxStatusEnum(str, Enum):
     PENDING = "PENDING"
@@ -23,7 +24,10 @@ class OutboxEvent(SQLModel, table=True):
     event_type: str = Field(index=True)
     schema_version: int = Field(default=1)
     payload: str  # JSON string
-    status: OutboxStatusEnum = Field(default=OutboxStatusEnum.PENDING, index=True)
+    status: OutboxStatusEnum = Field(
+        default=OutboxStatusEnum.PENDING,
+        sa_column=Column(EnumString(OutboxStatusEnum), nullable=False, index=True),
+    )
     attempts: int = Field(default=0)
     available_at: datetime = Field(default_factory=datetime.utcnow, index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)

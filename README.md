@@ -38,6 +38,13 @@ Plataforma Dashem
 - rotas `/login` e `/owner` no mesmo domínio, com destino resolvido pelo papel;
 - telas de primeiro acesso, senha forte e preparação para TOTP MFA;
 - endpoints protegidos do Console Owner e testes automatizados da fundação;
+- isolamento obrigatório no PostgreSQL com RLS forçado para tenants e sites;
+- papel de runtime sem `BYPASSRLS`, separado da autoridade de migrations;
+- Alembic como autoridade exclusiva do schema, sem `create_all` no runtime;
+- CI independente para frontend, backend com PostgreSQL e ciclo do Alembic;
+- primeiro Capability Mesh executável, com contratos versionados, dependências,
+  entitlements por tenant e overrides por unidade;
+- navegação móvel no Dashem Control e no Admin do tenant;
 - tenants clicáveis no Console Owner, com detalhe de unidades e acessos;
 - fluxo backend de convite por e-mail, papel e unidade, com membership
   `INVITED` ativada somente após a criação da senha;
@@ -54,8 +61,8 @@ Plataforma Dashem
 - Google e Microsoft devem ficar ocultos até seus provedores OAuth estarem
   configurados e testados;
 - o Console Owner ainda precisa alcançar o nível operacional definido abaixo;
-- provisionamento, onboarding e isolamento de tenants precisam de testes
-  negativos completos antes do primeiro piloto;
+- o isolamento de tenants e unidades já possui os primeiros testes negativos,
+  mas cada novo módulo ainda deve ampliar essa matriz antes do primeiro piloto;
 - custom domains, observabilidade e runbooks de suporte ainda serão concluídos.
 
 ### Ambientes de validação
@@ -112,6 +119,12 @@ A arquitetura multi-tenant, multi-site, omnichannel e agent-ready está em
 [`docs/architecture/commerce-platform.md`](docs/architecture/commerce-platform.md).
 O contrato de autenticação e autorização está em
 [`docs/architecture/authentication-and-authorization.md`](docs/architecture/authentication-and-authorization.md).
+O contrato de isolamento no banco e migrations está em
+[`docs/architecture/database-tenancy-and-migrations.md`](docs/architecture/database-tenancy-and-migrations.md).
+O contrato inicial do Capability Mesh está em
+[`docs/architecture/capability-mesh.md`](docs/architecture/capability-mesh.md).
+A matriz responsiva validada está em
+[`docs/quality/responsive-audit-2026-08-21.md`](docs/quality/responsive-audit-2026-08-21.md).
 
 ## Próximo marco: Console Owner operacional
 
@@ -163,7 +176,7 @@ para testar o ciclo de vida dos tenants.
 ## Arquitetura técnica
 
 - Frontend: React, TypeScript, Vite e Tailwind CSS
-- API: FastAPI, SQLModel e Alembic
+- API: FastAPI, SQLModel e Alembic canônico
 - Banco: PostgreSQL
 - Identity Provider: Supabase Auth
 - E-mail transacional adotado: Resend
@@ -212,6 +225,11 @@ Set-Location frontend
 npm run build
 ```
 
+O workflow em `.github/workflows/ci.yml` rejeita falhas de build, testes de
+isolamento com PostgreSQL real e divergências entre modelos e migrations. O
+gate do Alembic reconstrói um banco vazio, executa downgrade e novo upgrade e
+finaliza com `alembic check`.
+
 Com o backend no Docker:
 
 ```powershell
@@ -228,6 +246,10 @@ docker compose exec -T -e TEST_BASE_URL=http://127.0.0.1:8000 dashem-pos-backend
 - O primeiro Platform Owner não é criado por cadastro público.
 - Toda autorização é revalidada no backend; esconder uma rota no frontend não
   constitui controle de acesso.
+- Filtros de ORM não constituem isolamento: tabelas de tenant e unidade devem
+  ter RLS forçado e testes negativos no PostgreSQL.
+- A aplicação nunca serve requisições com a autoridade proprietária do schema.
+- Toda alteração de schema passa pelo Alembic; DDL de runtime é proibido.
 - Links e tokens de autenticação nunca são armazenados integralmente em logs.
 - Ações de suporte sobre tenants exigirão motivo, prazo e auditoria.
 - Dados de demonstração não podem ser usados como dados de produção.

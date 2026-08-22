@@ -5,6 +5,7 @@ from enum import Enum
 from typing import Optional, List
 from sqlmodel import SQLModel, Field, Relationship, UniqueConstraint, Column, Numeric
 from sqlalchemy import String
+from app.core.db_types import EnumString
 
 class SaleStatusEnum(str, Enum):
     DRAFT = "DRAFT"
@@ -73,17 +74,23 @@ class Sale(SQLModel, table=True):
     idempotency_key: Optional[str] = Field(default=None, index=True)
     fulfillment_type: FulfillmentTypeEnum = Field(
         default=FulfillmentTypeEnum.COUNTER,
-        sa_column=Column(String, nullable=False, index=True),
+        sa_column=Column(EnumString(FulfillmentTypeEnum), nullable=False, index=True),
     )
     sync_status: SyncStatusEnum = Field(
         default=SyncStatusEnum.SYNCED,
-        sa_column=Column(String, nullable=False, index=True),
+        sa_column=Column(EnumString(SyncStatusEnum), nullable=False, index=True),
     )
     occurred_at: datetime = Field(default_factory=datetime.utcnow, index=True)
     customer_id: Optional[uuid.UUID] = Field(default=None, foreign_key="customers.id", index=True)
     seller_id: Optional[uuid.UUID] = Field(default=None, index=True)
-    status: SaleStatusEnum = Field(default=SaleStatusEnum.DRAFT, index=True)
-    discount_type: Optional[DiscountTypeEnum] = Field(default=None)
+    status: SaleStatusEnum = Field(
+        default=SaleStatusEnum.DRAFT,
+        sa_column=Column(EnumString(SaleStatusEnum), nullable=False, index=True),
+    )
+    discount_type: Optional[DiscountTypeEnum] = Field(
+        default=None,
+        sa_column=Column(EnumString(DiscountTypeEnum), nullable=True),
+    )
     requested_discount: Decimal = Field(default=Decimal("0.00"), sa_column=Column(Numeric(14, 4), nullable=False, default=0.0))
     approved_discount: Decimal = Field(default=Decimal("0.00"), sa_column=Column(Numeric(14, 4), nullable=False, default=0.0))
     gross_total: Decimal = Field(default=Decimal("0.00"), sa_column=Column(Numeric(14, 4), nullable=False, default=0.0))

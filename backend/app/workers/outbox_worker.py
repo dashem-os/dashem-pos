@@ -5,6 +5,7 @@ from datetime import datetime
 from sqlmodel import Session, select, text
 from app.core.database import engine
 from app.models.reliability import OutboxEvent, OutboxStatusEnum
+from app.core.tenancy import set_platform_db_context
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("dashem_pos.outbox_worker")
@@ -15,6 +16,8 @@ def process_outbox_events():
     while True:
         try:
             with Session(engine) as session:
+                # This is an internal platform worker, not a tenant request.
+                set_platform_db_context(session)
                 # Concurrency-safe claim using FOR UPDATE SKIP LOCKED
                 query = text("""
                     SELECT id FROM outbox_events
