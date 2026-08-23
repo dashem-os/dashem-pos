@@ -48,6 +48,14 @@ def route_requirement(method: str, path: str) -> RouteRequirement:
         if "/items" in path:
             return RouteRequirement("order.item.update")
         return RouteRequirement("order.create")
+    if path.startswith("/api/v1/tables"):
+        if method == "GET":
+            return RouteRequirement("table.read")
+        if path.endswith("/close"):
+            return RouteRequirement("table.session.close")
+        if "/sessions" in path:
+            return RouteRequirement("table.session.open" if path.endswith("/sessions") else "table.session.update")
+        return RouteRequirement("table.manage")
     if path.startswith("/api/v1/sales/customers"):
         return RouteRequirement("customer.read" if method == "GET" else "customer.update")
     if path.startswith("/api/v1/sales"):

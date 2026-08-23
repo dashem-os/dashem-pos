@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.api.v1.endpoints import identity, catalog, inventory, sales, cash, payments, fiscal, capabilities, team, management, orders
+from app.api.v1.endpoints import identity, catalog, inventory, sales, cash, payments, fiscal, capabilities, team, management, orders, tables
 
 api_router = APIRouter()
 api_router.include_router(identity.router, prefix="/identity", tags=["Identity & Tenancy"])
@@ -13,3 +13,4 @@ api_router.include_router(capabilities.router, prefix="/capabilities", tags=["Ca
 api_router.include_router(team.router, prefix="/team", tags=["Tenant Team & Permissions"])
 api_router.include_router(management.router, prefix="/management", tags=["Tenant Management"])
 api_router.include_router(orders.router, prefix="/orders", tags=["Order Aggregate"])
+api_router.include_router(tables.router, prefix="/tables", tags=["Tables & Tabs"])

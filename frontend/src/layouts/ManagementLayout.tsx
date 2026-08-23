@@ -11,6 +11,7 @@ import { SalesHistory } from '../components/management/SalesHistory'
 import { CatalogManager } from '../components/management/CatalogManager'
 import { CashManager } from '../components/management/CashManager'
 import { TeamManager } from '../components/management/TeamManager'
+import { TableServiceWorkspace } from '../components/tables/TableServiceWorkspace'
 import { navigateTo } from '../utils/navigation'
 
 type ModuleId = 'overview' | 'sales' | 'orders' | 'tables' | 'cash' | 'products' | 'categories' | 'inventory' | 'customers' | 'receipts' | 'movements' | 'stores' | 'team' | 'permissions' | 'payments' | 'printers' | 'fiscal' | 'integrations'
@@ -30,7 +31,7 @@ const GROUPS: Array<{ label: string; items: NavigationItem[] }> = [
   { label: 'Operação', items: [
     { id: 'sales', label: 'Vendas', icon: FileText, permission: 'sale.read', capability: 'counter_order', active: true },
     { id: 'orders', label: 'Pedidos', icon: Receipt, permission: 'sale.read', capability: 'counter_order', active: false, sprint: 'S6' },
-    { id: 'tables', label: 'Mesas & Comandas', icon: ChefHat, permission: 'sale.read', capability: 'kitchen_routing', active: false, sprint: 'S7' },
+    { id: 'tables', label: 'Mesas & Comandas', icon: ChefHat, permission: 'table.read', capability: 'table_service', active: true },
     { id: 'cash', label: 'Caixas', icon: Banknote, permission: 'cash.read', capability: 'cash_management', active: true },
   ] },
   { label: 'Cadastros', items: [
@@ -77,6 +78,7 @@ export const ManagementLayout: React.FC = () => {
       case 'sales': return <SalesHistory />
       case 'products': case 'categories': case 'inventory': return <CatalogManager />
       case 'cash': return <CashManager />
+      case 'tables': return <TableServiceWorkspace />
       case 'team': return <TeamManager />
       default: return <ModuleBoundary item={selected} />
     }

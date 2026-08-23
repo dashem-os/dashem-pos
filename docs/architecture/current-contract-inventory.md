@@ -19,7 +19,7 @@ migrations e testes.
 | Fiscal | issue, cancel, get | gateway e estados fiscais simuláveis |
 | Capability | `GET /api/v1/capabilities/effective` | entitlement de produto; não é permission |
 
-## Evolução validada até S6
+## Evolução validada até S7
 
 | Domínio | Contrato canônico atual |
 |---|---|
@@ -27,6 +27,7 @@ migrations e testes.
 | Catálogo | `SellableProduct` paginado com preço, saldo, mínimo, margem, categoria e acesso rápido persistido |
 | COUNTER | operação recuperável por store, terminal e operador; modos COUNTER/TAKEAWAY e conectividade explícita |
 | Order | agregado separado de Sale; comandos de item idempotentes, snapshots e outbox transacional |
+| Mesas e comandas | `ServiceTable`, `TableSession` e `Order` separados; sessão multi-comanda, projeção consolidada, concorrência e RLS |
 
 ## Máquinas de estado protegidas
 
@@ -54,6 +55,13 @@ Pagamento em dinheiro exige sessão aberta e gera movimento no ledger.
 
 `NOT_REQUIRED/PENDING → AUTHORIZED/REJECTED/CONTINGENCY → CANCELED` conforme o
 gateway. A finalização comercial respeita o gate fiscal configurado.
+
+### ServiceTable e TableSession
+
+Mesa física: `AVAILABLE/OCCUPIED/RESERVED/BLOCKED`. Atendimento:
+`OPEN → IN_SERVICE → PARTIALLY_PAID/CLOSING → CLOSED`, com `CANCELED` quando
+permitido. A mesa só volta a `AVAILABLE` por comando explícito e uma sessão pode
+agrupar várias comandas (`Order`).
 
 ## Dívidas explicitamente não promovidas a contrato
 

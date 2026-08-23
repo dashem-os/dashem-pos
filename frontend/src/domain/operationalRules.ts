@@ -1,4 +1,4 @@
-export type ShellRoute = '/login' | '/owner' | '/manage' | '/pos' | '/kds'
+export type ShellRoute = '/login' | '/owner' | '/manage' | '/pos' | '/tables' | '/kds'
 
 const PLATFORM_ROLES = new Set(['PLATFORM_OWNER', 'PLATFORM_ADMIN'])
 
@@ -16,6 +16,7 @@ export function normalizeAuthenticatedRoute(
   if (home === '/owner') return '/owner'
   if (pathname === '/manage') return canManage ? '/manage' : '/pos'
   if (pathname === '/kds') return canUseKds ? '/kds' : '/pos'
+  if (pathname === '/tables') return '/tables'
   if (pathname === '/pos') return '/pos'
   return '/pos'
 }

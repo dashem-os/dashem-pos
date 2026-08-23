@@ -547,17 +547,40 @@ Objetivo: implementar o workflow Food Service de atendimento.
 
 Entregas:
 
-- `ServiceTable` com `FREE`, `OPEN`, `WAITING`, `PAYMENT`, `CLOSED`;
-- abertura de mesa ou comanda individual;
-- lançamento incremental e conta consolidada;
-- vínculo de cliente e atendente;
-- concorrência otimista/pessimista definida por comando;
-- histórico operacional.
+- `ServiceTable` como recurso físico com estados `AVAILABLE`, `OCCUPIED`,
+  `RESERVED` e `BLOCKED`;
+- `TableSession` como ciclo de atendimento, separado da mesa física, com estados
+  `OPEN`, `IN_SERVICE`, `PARTIALLY_PAID`, `CLOSING`, `CLOSED` e `CANCELED`;
+- abertura idempotente de mesa ou comanda individual sem mesa;
+- uma sessão pode agrupar uma ou mais comandas (`Order`) sem confundir
+  ocupação, consumo, fechamento financeiro e disponibilidade física;
+- lançamento incremental, múltiplas ondas de itens e conta consolidada no
+  backend;
+- vínculo explícito de cliente e atendente;
+- versão esperada e bloqueio transacional definidos por comando;
+- projeção operacional de mesas e sessões sem cálculo autoritativo no browser;
+- histórico operacional, auditoria e outbox transacional;
+- isolamento RLS por tenant e store e capability `table_service` independente
+  de permission.
 
 Gate:
 
-- abrir mesa → lançar → adicionar depois → consultar total consolidado;
-- dois operadores não sobrescrevem consumo silenciosamente.
+- abrir mesa → criar sessão → lançar → adicionar depois → consultar total
+  consolidado persistido;
+- abrir comanda individual sem criar mesa fictícia;
+- duas aberturas concorrentes não ocupam a mesma mesa nem criam duas sessões
+  ativas;
+- retry com a mesma chave não duplica sessão, comanda ou lançamento e payload
+  divergente é rejeitado;
+- dois operadores não sobrescrevem consumo silenciosamente;
+- uma sessão aceita mais de uma comanda sem impor `uma mesa = um order`;
+- tenant ou store diferente não consulta nem altera mesa, sessão ou comanda;
+- `PARTIALLY_PAID` é estado da sessão/conta e nunca estado físico da mesa;
+- saldo zero não libera mesa automaticamente: o encerramento é explícito e
+  rejeitado enquanto existirem impedimentos operacionais;
+- toda mutação registra ator, contexto, idempotência, auditoria e outbox;
+- a interface usa somente dados persistidos e mantém estados vazios reais, sem
+  fixtures ou conteúdo hardcoded.
 
 ### S8 — Production Routing e KDS
 

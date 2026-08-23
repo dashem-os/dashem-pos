@@ -22,7 +22,8 @@ from app.models.order import (
 )
 from app.models.payment import Register
 from app.models.sale import Customer, Sale
-from app.services import reliability_service
+from app.models.table_service import ServiceTable, TableSession, TableSessionStatusEnum
+from app.services import reliability_service, table_service
 
 
 def _hash(payload: dict[str, Any]) -> str:
@@ -113,7 +114,7 @@ def create_order(
     session: Session, context: TenantContext, *, store_id: uuid.UUID,
     idempotency_key: str, actor_id: Optional[uuid.UUID],
     register_id: Optional[uuid.UUID], customer_id: Optional[uuid.UUID],
-    table_id: Optional[uuid.UUID], sale_id: Optional[uuid.UUID],
+    table_id: Optional[uuid.UUID], table_session_id: Optional[uuid.UUID], sale_id: Optional[uuid.UUID],
     channel_id: Optional[uuid.UUID], origin: OrderOriginEnum,
     fulfillment: OrderFulfillmentEnum, external_reference: Optional[str], notes: Optional[str],
 ) -> Order:
@@ -128,6 +129,7 @@ def create_order(
         same_request = (
             existing.store_id == store_id and existing.register_id == register_id
             and existing.customer_id == customer_id and existing.table_id == table_id
+            and existing.table_session_id == table_session_id
             and existing.sale_id == sale_id and existing.channel_id == channel_id
             and existing.origin == origin and existing.fulfillment == fulfillment
             and existing.external_reference == external_reference and existing.notes == notes
@@ -147,6 +149,16 @@ def create_order(
             raise HTTPException(status_code=403, detail="Terminal não pertence à unidade ativa.")
     if customer_id and not session.exec(scope_tenant_query(select(Customer).where(Customer.id == customer_id), Customer, context)).first():
         raise HTTPException(status_code=404, detail="Cliente não encontrado.")
+    if table_id:
+        table = session.exec(scope_tenant_query(select(ServiceTable).where(ServiceTable.id == table_id), ServiceTable, context)).first()
+        if not table:
+            raise HTTPException(status_code=404, detail="Mesa não encontrada.")
+    if table_session_id:
+        table_session = session.exec(scope_tenant_query(select(TableSession).where(TableSession.id == table_session_id), TableSession, context)).first()
+        if not table_session or table_session.status in {TableSessionStatusEnum.CLOSED, TableSessionStatusEnum.CANCELED}:
+            raise HTTPException(status_code=404, detail="Sessão de atendimento ativa não encontrada.")
+        if table_session.service_table_id != table_id:
+            raise HTTPException(status_code=409, detail="Mesa e sessão de atendimento não correspondem.")
     if sale_id:
         sale = session.exec(scope_tenant_query(select(Sale).where(Sale.id == sale_id), Sale, context)).first()
         if not sale:
@@ -159,7 +171,7 @@ def create_order(
         raise HTTPException(status_code=400, detail="Pedidos de canal exigem channel_id.")
     order = Order(
         tenant_id=context.tenant_id, store_id=store_id, register_id=register_id,
-        customer_id=customer_id, table_id=table_id, sale_id=sale_id,
+        customer_id=customer_id, table_id=table_id, table_session_id=table_session_id, sale_id=sale_id,
         channel_id=channel_id, origin=origin, fulfillment=fulfillment,
         status=OrderStatusEnum.OPEN, idempotency_key=key,
         external_reference=external_reference, opened_by=actor, notes=notes,
@@ -170,6 +182,7 @@ def create_order(
         "register_id": str(register_id) if register_id else None,
         "customer_id": str(customer_id) if customer_id else None,
         "table_id": str(table_id) if table_id else None,
+        "table_session_id": str(table_session_id) if table_session_id else None,
         "sale_id": str(sale_id) if sale_id else None,
         "channel_id": str(channel_id) if channel_id else None,
     })
@@ -268,6 +281,7 @@ def add_item(
     session.add(item)
     _record_command(session, context, order.id, idempotency_key, "ADD_ITEM", payload, item.id, actor)
     order.updated_at = datetime.utcnow()
+    table_service.touch_session_activity(session, context, order, actor, item.id)
     _event(session, context, order, actor, "order.item.added", {
         "order_item_id": str(item.id), "product_id": str(product.id),
         "quantity": str(quantity), "unit_price": str(item.unit_price),

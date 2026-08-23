@@ -41,7 +41,9 @@ export const PosLayout: React.FC<{ canManage?: boolean }> = ({ canManage = false
     setOperationMode,
     openCash,
     actionLoading,
-    openPaymentModal
+    openPaymentModal,
+    permissions,
+    capabilities,
   } = usePos()
 
   const [openingBalanceInput, setOpeningBalanceInput] = useState('')
@@ -129,6 +131,15 @@ export const PosLayout: React.FC<{ canManage?: boolean }> = ({ canManage = false
           >
             <LayoutDashboard className="w-3.5 h-3.5 text-slate-500" />
             <span className="hidden sm:inline">Gestão</span>
+          </button>}
+
+          {permissions.includes('table.read') && 'table_service' in capabilities && <button
+            onClick={() => navigateTo('/tables')}
+            className="h-9 px-3.5 rounded-xl bg-orange-50 hover:bg-orange-100 text-orange-800 text-xs font-bold flex items-center space-x-1.5 transition-colors border border-orange-200 active:scale-95"
+            title="Operar mesas e comandas"
+          >
+            <UtensilsCrossed className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Mesas</span>
           </button>}
 
           <button

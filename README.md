@@ -132,9 +132,12 @@ A sequência oficial de construção das experiências do cliente, dos domínios
 Food Service, do motor financeiro e da conclusão do Control Plane está em
 [`docs/product/roadmap-commerce-os-v2.md`](docs/product/roadmap-commerce-os-v2.md).
 
-O próximo ciclo é o **S0 — Baseline, contratos e testes de caracterização**.
-Somente após esse gate começa o refactoring estrutural que separará `/manage`,
-`/pos` e `/kds`, preservando o core transacional já validado.
+Os gates **S0–S6** consolidaram contratos, shells, autorização, catálogo,
+Frente de Caixa e `Order Foundation`. O ciclo atual é o **S7 — Mesas e
+Comandas**, que separa `ServiceTable`, `TableSession` e `Order`, com concorrência,
+idempotência, RLS, auditoria e interface operacional baseada apenas em dados
+persistidos. O próximo gate após sua validação é o **S8 — Production Routing e
+KDS**.
 
 ## Trilha pendente: conclusão do Console Owner
 

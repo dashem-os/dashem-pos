@@ -32,6 +32,10 @@ from app.models.order import (
     Order, OrderItem, OrderCommand, OrderStatusEnum, OrderOriginEnum,
     OrderFulfillmentEnum, OrderItemStatusEnum, ProductionStateEnum,
 )
+from app.models.table_service import (
+    ServiceTable, ServiceTableStatusEnum, TableSession, TableSessionCommand,
+    TableSessionEvent, TableSessionKindEnum, TableSessionStatusEnum,
+)
 
 __all__ = [
     "Tenant",
@@ -123,4 +127,11 @@ __all__ = [
     "OrderFulfillmentEnum",
     "OrderItemStatusEnum",
     "ProductionStateEnum",
+    "ServiceTable",
+    "ServiceTableStatusEnum",
+    "TableSession",
+    "TableSessionCommand",
+    "TableSessionEvent",
+    "TableSessionKindEnum",
+    "TableSessionStatusEnum",
 ]

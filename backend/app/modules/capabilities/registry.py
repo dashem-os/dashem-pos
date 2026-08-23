@@ -23,6 +23,7 @@ CAPABILITY_REGISTRY: dict[str, CapabilityContract] = {
         _contract("kitchen_routing", "Roteamento de cozinha", CapabilityScope.STORE, "Direcionamento de produção por estação.", "catalog"),
         _contract("delivery_orders", "Pedidos de delivery", CapabilityScope.STORE, "Entrada e acompanhamento de canais de entrega.", "catalog", "customer"),
         _contract("counter_order", "Pedido de balcão", CapabilityScope.STORE, "Fluxo ágil de pedido e retirada.", "catalog", "payments"),
+        _contract("table_service", "Mesas e comandas", CapabilityScope.STORE, "Atendimento de mesa e comandas individuais com ciclo operacional rastreável.", "catalog"),
         _contract("weighted_products", "Produtos pesáveis", CapabilityScope.STORE, "Venda por peso e leitura de etiqueta de balança.", "catalog"),
         _contract("high_speed_checkout", "Checkout de alta velocidade", CapabilityScope.TERMINAL, "Fluxo otimizado para grande volume.", "barcode_scanning", "payments"),
         _contract("supervisor_override", "Autorização de supervisor", CapabilityScope.STORE, "Elevação auditada para operações sensíveis."),

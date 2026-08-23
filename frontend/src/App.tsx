@@ -10,6 +10,7 @@ const OwnerConsole = lazy(() => import('./components/owner/PlatformOwnerConsole'
 const ManageShell = lazy(() => import('./shells/ManageShell'))
 const PosShell = lazy(() => import('./shells/PosShell'))
 const KdsShell = lazy(() => import('./shells/KdsShell'))
+const TablesShell = lazy(() => import('./shells/TablesShell'))
 
 const PLATFORM_CONSOLE_ROLES = new Set(['PLATFORM_OWNER', 'PLATFORM_ADMIN'])
 const MANAGEMENT_ROLES = new Set(['OWNER', 'TENANT_OWNER', 'ADMIN', 'MANAGER'])
@@ -87,6 +88,7 @@ function IdentityRouter() {
 
   if (route === '/manage') return <ShellSuspense label="Carregando Dashem Gestão..."><ManageShell /></ShellSuspense>
   if (route === '/kds') return <ShellSuspense label="Carregando Dashem KDS..."><KdsShell canManage={canManage} /></ShellSuspense>
+  if (route === '/tables') return <ShellSuspense label="Carregando mesas e comandas..."><TablesShell /></ShellSuspense>
   return <ShellSuspense label="Carregando frente de caixa..."><PosShell canManage={canManage} /></ShellSuspense>
 }
 

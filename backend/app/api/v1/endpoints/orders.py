@@ -53,6 +53,7 @@ class OrderReadDTO(BaseModel):
     register_id: Optional[uuid.UUID]
     customer_id: Optional[uuid.UUID]
     table_id: Optional[uuid.UUID]
+    table_session_id: Optional[uuid.UUID]
     sale_id: Optional[uuid.UUID]
     channel_id: Optional[uuid.UUID]
     origin: OrderOriginEnum
@@ -72,6 +73,7 @@ class OrderCreateDTO(BaseModel):
     register_id: Optional[uuid.UUID] = None
     customer_id: Optional[uuid.UUID] = None
     table_id: Optional[uuid.UUID] = None
+    table_session_id: Optional[uuid.UUID] = None
     sale_id: Optional[uuid.UUID] = None
     channel_id: Optional[uuid.UUID] = None
     origin: OrderOriginEnum = OrderOriginEnum.POS
@@ -110,7 +112,8 @@ def create_order_endpoint(
     return order_service.create_order(
         session, context, store_id=data.store_id, idempotency_key=idempotency_key,
         actor_id=data.actor_id, register_id=data.register_id, customer_id=data.customer_id,
-        table_id=data.table_id, sale_id=data.sale_id, channel_id=data.channel_id,
+        table_id=data.table_id, table_session_id=data.table_session_id,
+        sale_id=data.sale_id, channel_id=data.channel_id,
         origin=data.origin, fulfillment=data.fulfillment,
         external_reference=data.external_reference, notes=data.notes,
     )

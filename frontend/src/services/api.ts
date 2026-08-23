@@ -179,6 +179,7 @@ export interface Order {
   register_id?: string
   customer_id?: string
   table_id?: string
+  table_session_id?: string
   sale_id?: string
   channel_id?: string
   origin: 'POS' | 'API' | 'SALES_CHANNEL'
@@ -191,6 +192,82 @@ export interface Order {
   created_at: string
   updated_at: string
   items: OrderItem[]
+}
+
+export interface ServiceTable {
+  id: string
+  tenant_id: string
+  store_id: string
+  code: string
+  name: string
+  capacity: number
+  area?: string
+  status: 'AVAILABLE' | 'OCCUPIED' | 'RESERVED' | 'BLOCKED'
+  version: number
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface ServiceTableProjection extends ServiceTable {
+  active_session_id?: string
+  active_session_status?: TableSession['status']
+  active_session_label?: string
+  order_count: number
+  item_count: number
+  consolidated_total: number
+}
+
+export interface TableSessionEvent {
+  id: string
+  tenant_id: string
+  table_session_id: string
+  event_type: string
+  actor_id: string
+  from_status?: string
+  to_status?: string
+  reason?: string
+  payload: Record<string, unknown>
+  created_at: string
+}
+
+export interface TableSession {
+  id: string
+  tenant_id: string
+  store_id: string
+  service_table_id?: string
+  kind: 'TABLE' | 'INDIVIDUAL_TAB'
+  status: 'OPEN' | 'IN_SERVICE' | 'PARTIALLY_PAID' | 'CLOSING' | 'CLOSED' | 'CANCELED'
+  display_label: string
+  customer_id?: string
+  attendant_id: string
+  opened_by: string
+  closed_by?: string
+  close_reason?: string
+  version: number
+  opened_at: string
+  updated_at: string
+  closed_at?: string
+  service_table?: ServiceTable
+  orders: Order[]
+  events: TableSessionEvent[]
+  order_count: number
+  active_item_count: number
+  consolidated_total: number
+}
+
+export interface TableSessionSummary {
+  id: string
+  service_table_id?: string
+  kind: TableSession['kind']
+  status: TableSession['status']
+  display_label: string
+  version: number
+  opened_at: string
+  updated_at: string
+  order_count: number
+  item_count: number
+  consolidated_total: number
 }
 
 export interface Register {
@@ -1069,7 +1146,7 @@ export async function checkoutSale(
 export async function createOrder(
   headers: Record<string, string>, idempotencyKey: string,
   data: {
-    store_id: string; register_id?: string; customer_id?: string; table_id?: string;
+    store_id: string; register_id?: string; customer_id?: string; table_id?: string; table_session_id?: string;
     sale_id?: string; channel_id?: string; origin?: Order['origin'];
     fulfillment?: Order['fulfillment']; external_reference?: string; actor_id?: string; notes?: string
   }
@@ -1080,6 +1157,72 @@ export async function createOrder(
     body: JSON.stringify(data)
   })
   if (!res.ok) throw new Error('Erro ao abrir pedido')
+  return res.json()
+}
+
+// ----------------------------------------------------------------------
+// TABLE SERVICE & TABS
+// ----------------------------------------------------------------------
+
+export async function fetchServiceTables(headers: Record<string, string>): Promise<ServiceTableProjection[]> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/tables`, { headers })
+  if (!res.ok) throw await apiError(res, 'Não foi possível carregar mesas e comandas.')
+  return res.json()
+}
+
+export async function createServiceTable(
+  headers: Record<string, string>, idempotencyKey: string,
+  data: { store_id: string; code: string; name: string; capacity: number; area?: string; actor_id?: string },
+): Promise<ServiceTable> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/tables`, {
+    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(data),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível cadastrar a mesa.')
+  return res.json()
+}
+
+export async function openTableSession(
+  headers: Record<string, string>, idempotencyKey: string,
+  data: { store_id: string; service_table_id?: string; display_label?: string; customer_id?: string; attendant_id?: string; actor_id?: string },
+): Promise<TableSession> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/tables/sessions`, {
+    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(data),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível abrir a mesa ou comanda.')
+  return res.json()
+}
+
+export async function getTableSession(headers: Record<string, string>, sessionId: string): Promise<TableSession> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/tables/sessions/${sessionId}`, { headers })
+  if (!res.ok) throw await apiError(res, 'Não foi possível recuperar a sessão de atendimento.')
+  return res.json()
+}
+
+export async function fetchActiveTableSessions(headers: Record<string, string>): Promise<TableSessionSummary[]> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/tables/sessions`, { headers })
+  if (!res.ok) throw await apiError(res, 'Não foi possível carregar as comandas ativas.')
+  return res.json()
+}
+
+export async function addTableSessionOrder(
+  headers: Record<string, string>, sessionId: string, idempotencyKey: string,
+  data: { display_reference?: string; customer_id?: string; actor_id?: string },
+): Promise<Order> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/tables/sessions/${sessionId}/orders`, {
+    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(data),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível abrir outra comanda.')
+  return res.json()
+}
+
+export async function closeEmptyTableSession(
+  headers: Record<string, string>, sessionId: string, idempotencyKey: string,
+  data: { expected_version: number; reason: string; actor_id?: string },
+): Promise<TableSession> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/tables/sessions/${sessionId}/close`, {
+    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(data),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível encerrar a sessão.')
   return res.json()
 }
 
@@ -1104,7 +1247,7 @@ export async function addOrderItem(
     method: 'POST', headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
     body: JSON.stringify(data)
   })
-  if (!res.ok) throw new Error('Erro ao lançar item no pedido')
+  if (!res.ok) throw await apiError(res, 'Erro ao lançar item no pedido')
   return res.json()
 }
 
