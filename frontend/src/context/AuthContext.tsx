@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useLayoutEffect, useMemo, 
 import type { Factor, Session } from '@supabase/supabase-js'
 import { setApiAccessTokenProvider } from '../services/api'
 import { hasSupabaseConfig, supabase } from '../services/supabase'
+import { clearRecoveryModeFromBrowser } from '../utils/authUrl'
 
 export interface TotpEnrollment {
   factorId: string
@@ -45,6 +46,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setApiAccessTokenProvider(async () => nextSession?.access_token ?? null)
       setSession(nextSession)
       setPasswordRecovery(event === 'PASSWORD_RECOVERY')
+      if (event === 'SIGNED_OUT') clearRecoveryModeFromBrowser()
       setLoading(false)
     })
     return () => data.subscription.unsubscribe()
@@ -62,6 +64,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     signIn: async (email, password) => {
       if (!supabase) return 'Supabase Auth não está configurado.'
       const { error } = await supabase.auth.signInWithPassword({ email, password })
+      if (!error) {
+        setPasswordRecovery(false)
+        clearRecoveryModeFromBrowser()
+      }
       return error?.message ?? null
     },
     signInSocial: async provider => {
@@ -117,6 +123,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     signOut: async () => {
       setPasswordRecovery(false)
       if (supabase) await supabase.auth.signOut()
+      clearRecoveryModeFromBrowser()
     },
   }), [session, loading, passwordRecovery])
 
