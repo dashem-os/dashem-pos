@@ -2,6 +2,7 @@
 
 Status: **diretriz canônica para a próxima fase de construção**  
 Data: 23 de agosto de 2026  
+Revisão: **pós-S7 — Negotiation, Payment Orchestrator, TEF e Channel Hub**
 Substitui como referência de execução qualquer sequência anterior que conflite com este documento.
 
 ## 1. Por que este roadmap existe
@@ -264,42 +265,93 @@ Para mutações críticas:
 + rollback verificável
 ```
 
-## 4. Estado da fundação em 23/08/2026
+## 4. Estado e leitura honesta da fundação após o S7
 
-### 4.1 Fundação cravada e preservável
+### 4.1 O que já está cravado e protegido pelo CI
 
 - Supabase Auth desacoplado do usuário interno;
 - memberships de plataforma separadas das memberships de tenant;
-- contexto tenant/store validado no backend;
-- RLS forçado e testes negativos entre tenants e stores;
+- contexto tenant/store/terminal explícito e validado no backend;
+- RLS forçado, runtime restrito e testes negativos entre tenants e stores;
 - Alembic como autoridade exclusiva do schema;
-- venda, itens, snapshot de preço e checkout;
-- estoque com razão e testes de concorrência;
-- pagamentos confirmados, split, parcial e troco;
-- caixa, sangria, suprimento e fechamento;
-- auditoria, outbox, idempotência e correlation IDs;
-- Capability Mesh com registry, dependências, entitlements e overrides;
-- Console Owner com ficha, lifecycle, estruturas, contrato e observabilidade inicial.
+- Permission Engine contextual separado do Capability Mesh;
+- shells independentes para Control, Gestão, POS e KDS;
+- `SellableProduct` paginado com preço, estoque, categoria e acesso rápido reais;
+- operação COUNTER recuperável por store, terminal e operador;
+- `Order` e `OrderItem` separados de `Sale`, com snapshots e comandos idempotentes;
+- `ServiceTable`, `TableSession` e `Order` como contratos distintos;
+- uma sessão de atendimento capaz de agrupar várias comandas;
+- concorrência de abertura de mesa, isolamento, auditoria e outbox testados;
+- estoque e caixa apoiados em ledger, sem saldo autoritativo inventado no browser;
+- Console Owner persistente para ficha, lifecycle, estruturas, contrato e saúde inicial.
 
-### 4.2 Fundação segura, porém ainda grosseira
+Essa é uma boa fundação porque as fronteiras de autoridade, isolamento e
+transação já existem e são exercitadas. Isso não significa que todos os
+domínios do produto estejam prontos. **Fundação sólida não é sinônimo de prédio
+concluído.** KDS, negociação financeira, TEF, Channel Hub, recebíveis e BI ainda
+precisam ser construídos sobre esses contratos, sem contorná-los.
 
-- RBAC por papel, método e família de rota: seguro por negação, mas sem grants granulares;
-- escolha de contexto no frontend: usa a primeira opção autorizada em vez de seleção explícita;
-- APIs de leitura: funcionais para protótipo, mas sem paginação/projeções operacionais;
-- frontend: Gestão, POS e estados de UI estão concentrados em um contexto único;
-- dashboards: parte das métricas ainda é agregada no navegador.
+### 4.2 O que será evoluído, não descartado
 
-### 4.3 Domínios ainda não construídos
+- o motor atual de `Payment`, split, parcial e troco será preservado por testes
+  de caracterização e incorporado ao `Payment Orchestrator`;
+- o fluxo atual de `Sale` continuará atendendo compatibilidade enquanto
+  `CheckoutNegotiation` passa a governar o fechamento de `Order` e
+  `TableSession`;
+- caixa, estoque, fiscal, auditoria e outbox serão estendidos, não reescritos
+  por preferência estética;
+- a estrutura física dos diretórios poderá mudar de forma incremental, mas os
+  limites modulares passam a valer imediatamente;
+- integrações reais dependentes de contrato, credencial, homologação ou
+  hardware terão gate interno separado do gate externo, sem providers falsos
+  em produção.
 
-- roles customizáveis e permission grants;
-- catálogo Food Service completo;
-- Order e OrderItem operacionais;
-- mesas, comandas e ondas de lançamento;
-- production routing, tickets e KDS;
-- transferências de mesa/comanda/item;
-- recebíveis, acordos e renegociação;
-- Order Hub e adapters externos;
-- BI multi-site com projeções e drill-down.
+### 4.3 Onde deliberadamente não seguiremos o desenho ao pé da letra
+
+O desenho é contrato de experiência e fluxo de trabalho; ele não é um diagrama
+de persistência. Quando uma solução de domínio for mais segura e extensível,
+preservaremos o comportamento visual usando contratos melhores por baixo:
+
+1. **Mesa não é comanda.** `ServiceTable` representa o recurso físico,
+   `TableSession` representa o atendimento e cada `Order` representa uma
+   comanda. Isso permite várias comandas, transferência e histórico sem
+   transformar uma mesa em um pedido mutável.
+2. **Saldo zero não libera mesa.** Pagamento cobre a obrigação financeira, mas
+   o encerramento do atendimento continua explícito e verifica impedimentos
+   operacionais.
+3. **Negociação não é renegociação.** `CheckoutNegotiation` governa o fechamento
+   atual da conta; `ReceivableAgreement` tratará posteriormente dívidas e
+   renegociações sem alterar documentos originais.
+4. **TEF não é regra de venda.** O `Payment Orchestrator` cria e acompanha cada
+   parcela; o TEF executa somente parcelas de cartão por adapter/bridge.
+5. **O navegador não conversa diretamente com DLL ou pinpad.** Um protocolo
+   local autenticado do `Dashem TEF Bridge` isola SDK nativo, timeout e
+   recuperação sem transformar o POS web em desktop monolítico.
+6. **Marketplace não cria uma segunda lógica de pedidos.** O `Channel Hub`
+   persiste, deduplica e normaliza eventos externos antes de entregá-los ao
+   mesmo `Order Engine` usado por balcão e mesa.
+7. **Pagamento online de marketplace não é TEF.** Ele nasce como pagamento do
+   provider, com repasse e conciliação próprios; jamais é fingido como cartão
+   local.
+8. **Módulo não significa microserviço.** Continuaremos em monólito modular até
+   carga, risco ou autonomia operacional justificarem extração.
+9. **Frontend não recompõe verdade financeira.** Read models do backend entregam
+   totais, saldo, disponibilidade e estados; a UI apenas orienta o trabalho.
+
+Essas decisões não são liberdade para improvisar. Qualquer desvio futuro de um
+contrato aceito exige ADR, migration, compatibilidade e gate automatizado.
+
+### 4.4 Domínios ainda não concluídos
+
+- `CheckoutNegotiation` e integração canônica entre Orders, Sale e pagamentos;
+- Payment Orchestrator, allocations e providers desacoplados;
+- protocolo e bridge TEF, seguido de homologação por provider;
+- production routing, tickets e KDS operacional;
+- transferências de mesa, comanda e item com conservação e linhagem;
+- Channel Hub, catálogo por canal e reconciliação de marketplace;
+- recebíveis, acordos, cobrança e renegociação;
+- BI multi-site com projeções e drill-down;
+- observabilidade completa e conclusão operacional do Dashem Control.
 
 ## 5. Arquitetura modular alvo
 
@@ -313,16 +365,18 @@ backend/app/modules
 ├── catalog           produtos, categorias, modifiers e combos
 ├── pricing           preços efetivos, tabelas, promoções e canais
 ├── inventory         saldo, ledger, reservas e reposição
-├── orders            pedidos, itens, canais e fulfillment
+├── orders            pedidos, itens, origem e fulfillment
 ├── table_service     mesas, comandas, junções e transferências
 ├── production        routing, tickets, filas e KDS
 ├── sales             fechamento comercial e snapshots
-├── payments          recebimentos, split, estorno e conciliação
+├── negotiation       conta, ajustes, cobertura e fechamento
+├── payments          intents, allocations, confirmações e estornos
 ├── receivables       crediário, parcelas, liquidações e acordos
 ├── cash              sessões e livro razão do caixa
 ├── fiscal            documentos e eventos fiscais
+├── channel_hub       inbox, normalização, deduplicação e catálogo por canal
 ├── reporting         projeções, métricas e drill-down
-├── integrations      TEF, PIX, fiscal, delivery e device bridge
+├── integrations      adapters TEF, PIX, fiscal, delivery e device bridge
 └── reliability       auditoria, outbox, idempotência e observabilidade
 ```
 
@@ -346,8 +400,10 @@ frontend/src
     ├── inventory
     ├── orders
     ├── production
+    ├── negotiation
     ├── payments
     ├── receivables
+    ├── channels
     └── cash
 ```
 
@@ -364,34 +420,80 @@ Tenant
 └── Membership
     └── PermissionGrant / RoleProfile
 
-Order
+TableSession
 ├── ServiceTable opcional
-├── Customer opcional
-├── OrderItem
-│   ├── ModifierSnapshot
-│   ├── lançamento/ator/horário
-│   └── ProductionState
-├── ProductionTicket
-└── TransferHistory
+├── Order 1..N
+│   └── OrderItem 1..N
+│       ├── CommercialSnapshot
+│       ├── ModifierSnapshot
+│       └── ProductionAllocation 0..N
+└── TransferRecord 0..N
 
-Sale
-├── Order(s) de origem
-├── SaleItem snapshots
-├── Payment(s)
-├── Receivable(s)
-└── FiscalDocument(s)
+CheckoutNegotiation
+├── Order(s) cobertos
+├── TotalSnapshot
+├── Adjustment(s): taxa, desconto e acréscimo autorizados
+├── PaymentAllocation 0..N
+│   ├── PaymentIntent
+│   ├── Payment confirmado opcional
+│   └── ProviderTransaction opcional
+├── ReceivableAllocation opcional
+└── Sale/FiscalDocument no fechamento
+
+ChannelInboxEvent
+├── provider + merchant + external_event_id
+├── payload persistido e versão do adapter
+├── acknowledgment posterior à persistência
+└── ExternalOrderMapping → Order canônico
+```
+
+Estados canônicos da negociação:
+
+```text
+OPEN → PARTIALLY_COVERED → COVERED → FINALIZING → FINALIZED
+  └───────────────────────────────→ CANCELED, quando permitido
+```
+
+Estados canônicos de uma intenção de pagamento:
+
+```text
+CREATED → PROCESSING → CONFIRMED
+                    ├→ FAILED
+                    ├→ CANCELED
+                    └→ UNKNOWN, exigindo consulta/reconciliação
 ```
 
 Invariantes:
 
 1. item transferido nunca desaparece; gera origem, destino, ator, motivo e horário;
-2. produção não altera preço ou total financeiro;
-3. pagamento confirmado nunca excede o saldo devido sem regra explícita de troco;
-4. venda só fica `PAID` quando os meios confirmados + saldo convertido em recebível cobrem o devido;
-5. recebível não altera silenciosamente o documento original;
-6. caixa esperado vem exclusivamente do ledger;
-7. capability e permission são avaliadas no servidor;
-8. toda transição crítica é auditável e idempotente quando repetível.
+2. produção não altera preço, snapshot comercial ou total financeiro;
+3. cada valor confirmado é alocado uma única vez à negociação;
+4. parcelas confirmadas permanecem válidas se uma parcela posterior falhar;
+5. pagamento confirmado nunca excede o saldo devido sem regra explícita de troco;
+6. `COVERED` significa cobertura financeira; não encerra sozinho `TableSession`;
+7. `FINALIZED` exige cobertura integral, Sale consistente e gates fiscal/caixa aplicáveis;
+8. recebível não altera silenciosamente o documento original;
+9. pagamento de marketplace e transação TEF possuem ciclos de conciliação distintos;
+10. caixa esperado vem exclusivamente do ledger;
+11. capability e permission são avaliadas no servidor em toda mutação;
+12. toda transição crítica é versionada, auditável, idempotente e acompanhada de outbox.
+
+### 6.1 Gates transversais obrigatórios a partir do S8
+
+Estes requisitos não pertencem ao último sprint de hardening. Eles bloqueiam a
+conclusão de **cada** sprint funcional:
+
+- RLS e teste negativo por tenant/store em toda tabela nova;
+- permission e capability independentes, avaliadas no backend;
+- idempotência com rejeição de payload divergente;
+- controle de concorrência e versão em toda mutação crítica;
+- auditoria, ator, motivo e outbox na mesma transação;
+- regra financeira e total autoritativo somente no servidor;
+- estado vazio, indisponível, degradado, conflito e retry reais na UI;
+- adapter externo fora do caminho crítico da venda local;
+- telemetria mínima: latência, falha, backlog, retry e última sincronização;
+- provider fake ou fixture somente em teste, nunca como aparência de integração real;
+- migration `upgrade/downgrade/check`, testes e CI verdes antes do próximo sprint.
 
 ## 7. Roadmap de execução
 
@@ -582,278 +684,446 @@ Gate:
 - a interface usa somente dados persistidos e mantém estados vazios reais, sem
   fixtures ou conteúdo hardcoded.
 
-### S8 — Production Routing e KDS
+### S8 — Checkout Negotiation e Payment Orchestrator
 
-Objetivo: encaminhar itens ao ponto correto de produção.
-
-Entregas:
-
-- production points: cozinha, bar, copa e impressora;
-- regras de roteamento por produto/modifier/store;
-- `ProductionTicket` e itens;
-- estados `NEW`, `ACCEPTED`, `PREPARING`, `READY`, `DELIVERED`, `CANCELLED`;
-- tela `/kds` com tempo, prioridade e concorrência;
-- fallback de impressão quando contratado.
-
-Gate:
-
-- item enviado aparece uma única vez no destino correto;
-- KDS indisponível não corrompe o order;
-- transições são auditadas.
-
-### S9 — Transferências e Comandas Avançadas
-
-Objetivo: suportar movimentações reais sem perda de rastreabilidade.
+Objetivo: criar a autoridade única da conta e incorporar o motor financeiro já
+existente sem confundir consumo, cobertura financeira e encerramento da mesa.
 
 Entregas:
 
-- mesa → mesa;
-- comanda → comanda;
-- item → mesa/comanda;
-- juntar e separar mesas;
-- motivo, ator, origem, destino e reversão permitida;
-- proteção contra transferência durante fechamento incompatível.
+- `CheckoutNegotiation` vinculada a uma `TableSession` ou a um ou mais Orders;
+- snapshot server-side de subtotal, taxas, descontos, acréscimos e total devido;
+- uma negociação ativa por escopo de fechamento, com versão e lock;
+- `PaymentIntent`, `PaymentAllocation` e saldo restante autoritativo;
+- incorporação dos pagamentos atuais de dinheiro, PIX e cartão manual ao
+  orchestrator, preservando idempotência, split, parcial e troco;
+- split por valor, pessoa ou seleção de itens quando aplicável, com allocations
+  rastreáveis até a obrigação coberta;
+- parcelas independentes: falha posterior não desfaz confirmação anterior;
+- projeção única para POS: total, pago confirmado, em processamento, falhou e
+  falta pagar;
+- transição de `TableSession` para `PARTIALLY_PAID` sem alterar o estado físico
+  da mesa;
+- finalização explícita, com Sale e snapshots consistentes, somente após
+  cobertura integral e gates aplicáveis.
 
 Gate:
 
-- total e quantidade são conservados;
-- histórico reconstrói a trajetória de cada item;
-- testes cobrem transferências concorrentes.
+- conta de R$ 64,90 aceita R$ 10 em dinheiro + R$ 20 em outro meio e permanece
+  aberta com R$ 34,90 de saldo;
+- falha na terceira parcela preserva as duas primeiras e permite retomada;
+- dois pagamentos concorrentes não ultrapassam o devido;
+- retry não duplica intent, confirmação, allocation, movimento de caixa ou Sale;
+- alteração do consumo invalida ou versiona negociação ainda não finalizada,
+  sem recalcular silenciosamente uma conta observada anteriormente;
+- saldo zero isolado não libera mesa e finalização rejeita impedimento operacional;
+- tenant/store diferente não lê nem altera negociação ou pagamento;
+- UI não calcula o saldo autoritativo e não cria pagamento apenas para simular fluxo.
 
-### S10 — Payment Engine 2.0
+### S9 — Payment Providers e Dashem TEF Bridge
 
-Objetivo: completar a experiência financeira preservando o motor existente.
+Objetivo: executar parcelas por providers intercambiáveis sem colocar SDK nativo
+ou indisponibilidade externa dentro da regra de venda.
 
 Entregas:
 
-- dinheiro, PIX, débito, crédito, vale refeição/alimentação, crédito da loja e conta;
-- split por valor, pessoa ou itens quando aplicável;
-- troco calculado no servidor;
-- pagamento parcial e retomada;
-- estorno/refund com permission;
-- adapters de provider e conciliação;
-- providers falsos restritos a teste.
+- contrato `PaymentProviderAdapter` para iniciar, consultar, cancelar e estornar;
+- `ProviderTransaction` com provider, NSU, autorização, adquirente, bandeira,
+  transaction ID, terminal e payload sanitizado;
+- estados `CREATED`, `PROCESSING`, `CONFIRMED`, `FAILED`, `CANCELED` e `UNKNOWN`;
+- protocolo versionado do `Dashem TEF Bridge`, com pareamento do terminal,
+  autenticação local, correlation ID, timeout e retomada;
+- adapter TEF separado do adapter do provider homologado (`SiTef`, `PayGo`,
+  `Cappta` ou futuro);
+- POS conversa apenas com API/bridge, nunca diretamente com DLL, SDK ou pinpad;
+- modo cartão manual explicitamente identificado e auditado quando permitido;
+- consulta e reconciliação obrigatórias para resultado desconhecido;
+- simulador de provider somente em testes automatizados;
+- telemetria de bridge: online, versão, provider, última operação e erro sanitizado.
 
-Gate:
+Gate interno, independente de homologação comercial:
 
-- `PAID` somente com cobertura integral confirmada;
-- dois pagamentos simultâneos não ultrapassam o devido;
-- confirmação repetida é idempotente.
+- uma parcela TEF aprovada confirma somente sua allocation;
+- timeout não vira falha definitiva nem confirmação presumida;
+- retry consulta a transação anterior antes de criar outra cobrança;
+- TEF offline não derruba dinheiro, PIX, crediário ou operação local;
+- navegador nunca recebe segredo, credencial do provider ou acesso ao SDK;
+- sem bridge/provider configurado a UI mostra `não configurado`, nunca sucesso falso.
 
-### S11 — Crediário e Receivables
+Gate externo para ativação produtiva de cada provider:
 
-Objetivo: converter saldo autorizado em obrigação financeira rastreável.
+- contrato, credenciais, hardware e ambiente de homologação disponíveis;
+- certificação do fluxo, impressão, cancelamento, estorno e reconciliação concluída;
+- capability específica liberada somente para combinação homologada de
+  tenant/store/terminal/provider.
+
+### S10 — Dashem Channel Hub e External Order Inbox
+
+Objetivo: receber origens externas no mesmo Order Engine sem criar uma segunda
+lógica de pedidos ou colocar marketplace no caminho crítico local.
 
 Entregas:
 
-- customer pessoa/empresa;
-- limite e autorização de conta;
-- `Receivable` com original, pago, saldo, emissão, vencimento, status e sale;
-- lançamento de saldo restante em conta;
-- eventos e auditoria financeira.
+- `Channel`, `MerchantConnection`, `ChannelInboxEvent` e
+  `ExternalOrderMapping`;
+- adapters versionados para iFood, 99Food e canais futuros;
+- autenticação e secrets fora do payload de domínio e dos logs;
+- persistência do evento antes do acknowledgment;
+- deduplicação por provider/merchant/external event e order ID;
+- normalização de origem, fulfillment, cliente, itens, modifiers e observações;
+- criação do Order canônico pelo mesmo serviço usado por COUNTER/TABLE;
+- status outbound via outbox, retry e dead-letter observável;
+- pagamento online de marketplace como provider `MARKETPLACE`, nunca TEF;
+- harness/fixtures de contrato somente em testes quando credenciais externas não
+  estiverem disponíveis.
+
+Gate interno:
+
+- replay do mesmo evento não duplica Order ou item;
+- evento só recebe acknowledgment após persistência durável;
+- payload inválido fica em quarentena com motivo, sem order parcial;
+- falha de iFood/99Food não impede venda local;
+- Order externo nasce no contrato canônico, sem bifurcar a lógica de venda; o
+  gate ponta a ponta de produção é concluído no S11;
+- marketplace pago online não cria transação de cartão local;
+- nenhuma tela apresenta canal conectado sem conexão real validada.
+
+Gate externo por canal:
+
+- credenciais, sandbox e autorização do merchant disponíveis;
+- testes oficiais/certificação do provider concluídos;
+- política de polling/webhook, rate limit e recuperação documentada.
+
+### S11 — Production Routing e KDS
+
+Objetivo: encaminhar cada item confirmado pelo Order Engine ao ponto correto de
+produção, sem duplicação e sem acoplar cozinha ao fechamento financeiro.
+
+Entregas:
+
+- `ProductionPoint`: cozinha, bar, copa, expedição e impressora;
+- regras persistidas por store, produto, modifier e fulfillment;
+- `ProductionTicket` e `ProductionTicketItem` como allocations do `OrderItem`;
+- dispatch idempotente por versão/onda do item, independentemente da origem;
+- estados `NEW`, `ACCEPTED`, `PREPARING`, `READY`, `DELIVERED`, `CANCELED`;
+- `/kds` com filas reais, tempo, prioridade, operador e concorrência;
+- cancelamento e alteração após envio com evento compensatório explícito;
+- fallback de impressão somente quando contratado e configurado;
+- projeção de produção no POS e no Channel Hub sem mutar preço ou total.
 
 Gate:
 
-- recebível aparece imediatamente no Gestão;
+- COUNTER, TABLE e canal externo usam a mesma regra de roteamento;
+- item aparece uma única vez em cada destino aplicável;
+- modifier pode alterar destino sem duplicar o item comercial;
+- duas telas KDS não sobrescrevem transição silenciosamente;
+- reenvio após timeout é idempotente;
+- KDS ou impressora indisponível mantém Order íntegro e backlog observável;
+- produção nunca altera snapshot comercial ou saldo da negociação;
+- toda transição registra ator/dispositivo, horário, versão e outbox.
+
+### S12 — Transferências e Comandas Avançadas
+
+Objetivo: mover responsabilidade operacional sem apagar origem, consumo ou
+trajetória de produção/pagamento.
+
+Entregas:
+
+- transferência mesa → mesa, comanda → comanda e item → comanda;
+- junção e separação de sessões com comandos explícitos;
+- `TransferRecord` imutável com origem, destino, quantidade, ator e motivo;
+- split de quantidade com identidade derivada e vínculo ao item original;
+- regras para itens já enviados, prontos, parcialmente pagos ou em fechamento;
+- bloqueio/compensação quando produção, negociação ou fiscal tornam a operação
+  incompatível;
+- projeção da linhagem no POS e Gestão.
+
+Gate:
+
+- quantidade e valor são conservados antes/depois da transferência;
+- histórico reconstrói toda a trajetória sem consultar log textual;
+- transferência concorrente possui um vencedor e conflito visível;
+- item coberto por pagamento não muda de obrigação silenciosamente;
+- junção não cria duas sessões ativas para a mesma mesa;
+- isolamento tenant/store e permissions são testados negativamente.
+
+### S13 — Channel Catalog e Marketplace Reconciliation
+
+Objetivo: manter um catálogo canônico e tratar venda de marketplace separada do
+repasse financeiro do marketplace.
+
+Entregas:
+
+- mapeamento de produto, categoria, modifier e opção Dashem ↔ provider;
+- preço, disponibilidade e estoque publicáveis por canal/store;
+- jobs de publicação idempotentes com versão, backlog e resultado por item;
+- disponibilidade alterada uma vez no Dashem e propagada aos canais habilitados;
+- divergências e conflitos de catálogo visíveis para correção, sem duplicar SKU;
+- `MarketplaceSettlement` com bruto, comissão, taxa, promoção, ajuste, previsto e pago;
+- importação/conciliação separada de pagamento operacional;
+- projeção financeira por canal e competência.
+
+Gate:
+
+- um produto Dashem mantém identidade única com vários IDs externos;
+- falha parcial de publicação não marca lote inteiro como sincronizado;
+- retry não duplica item ou modifier no provider;
+- Order continua aceito segundo política explícita se a sincronização estiver atrasada;
+- venda confirmada e repasse pendente aparecem como fatos distintos;
+- diferenças de comissão/taxa são rastreáveis até documento do provider.
+
+### S14 — Crediário e Receivables
+
+Objetivo: converter parte autorizada do saldo em obrigação financeira sem
+disfarçar ausência de pagamento.
+
+Entregas:
+
+- customer pessoa/empresa com política de crédito por tenant;
+- limite, exposição, bloqueio e autorização com permission;
+- `Receivable` com principal, pago, saldo, emissão, vencimento e status;
+- `ReceivableAllocation` cobrindo explicitamente uma negociação;
+- lançamento atômico entre negociação, Sale e recebível;
+- eventos, ledger financeiro e projeção imediata no Gestão.
+
+Gate:
+
+- limite é validado com lock e duas vendas concorrentes não o ultrapassam;
 - venda e recebível são atômicos;
-- saldo não desaparece nem é duplicado.
+- saldo convertido em conta não desaparece nem é contado como caixa recebido;
+- cancelamento/estorno gera reversão rastreável, nunca edição destrutiva;
+- cliente, saldo e documentos permanecem isolados por tenant.
 
-### S12 — Recebimentos e Renegociação
+### S15 — Recebimentos, Cobrança e Renegociação
 
-Objetivo: cobrar e renegociar sem alterar silenciosamente a origem.
+Objetivo: liquidar ou renegociar recebíveis preservando integralmente sua origem.
 
 Entregas:
 
 - seleção de um ou vários recebíveis;
-- liquidação total/parcial e split;
-- juros, multa e desconto autorizados;
-- `Agreement/Renegotiation` com parcelas e vínculos originais;
-- aging e vencidos.
+- liquidação total/parcial pelo Payment Orchestrator;
+- juros, multa, desconto e abatimento com política e permission;
+- `ReceivableAgreement` e parcelas vinculadas aos documentos originais;
+- aging, vencidos, promessa e histórico de cobrança;
+- baixa e estorno via ledger, sem alterar principal original.
 
 Gate:
 
-- toda mudança financeira possui ator, permission, motivo e trilha;
-- documentos originais permanecem imutáveis.
+- cada mudança possui ator, permission, motivo, versão e trilha;
+- documentos originais permanecem imutáveis;
+- split de recebimento não duplica baixa;
+- acordo soma exatamente principal selecionado + ajustes autorizados;
+- falha de uma parcela não apaga recebimentos anteriores.
 
-### S13 — Cash Operations
+### S16 — Cash, Fiscal e Financial Reconciliation Completion
 
-Objetivo: completar o caixa físico sobre o ledger já existente.
+Objetivo: integrar negociação, pagamentos, caixa e fiscal sobre os ledgers já
+existentes, sem reconstruí-los.
 
 Entregas:
 
-- estados `CLOSED`, `OPEN`, `CLOSING`, `CLOSED`;
-- opening, sale payment, bleed, reinforcement, refund e closing;
-- conferência cega opcional;
-- histórico, saldo esperado e divergência;
-- vínculo com terminal e operador.
+- estados de caixa canônicos `CLOSED → OPEN → CLOSING → CLOSED`;
+- opening, sale payment, sangria, reforço, refund e closing;
+- conferência cega opcional e política de divergência;
+- allocations em dinheiro geram movimento exatamente uma vez;
+- cartão/PIX/marketplace não entram como numerário físico;
+- vínculo entre negociação finalizada, Sale, FiscalDocument e CashSession;
+- conciliação por provider sem alterar pagamento confirmado;
+- contingência fiscal e retomada observáveis.
 
 Gate:
 
 - saldo esperado deriva exclusivamente do ledger;
 - fechamento concorrente é protegido;
-- divergência nunca é recalculada apenas no frontend.
+- divergência nunca é recalculada apenas no frontend;
+- refund/estorno produz movimentos compensatórios e auditoria;
+- falha fiscal respeita política configurada sem duplicar Sale ou documento;
+- conciliação aponta diferença, mas não reescreve fato financeiro confirmado.
 
-### S14 — Order Hub e Delivery Foundation
+### S17 — Business Intelligence V1
 
-Objetivo: unificar origens sobre o Order já existente.
-
-Entregas:
-
-- balcão, mesa, retirada e delivery no mesmo hub;
-- canais e fulfillment normalizados;
-- adapter contract para iFood, 99, WhatsApp e e-commerce;
-- reconciliação, retries e idempotência externa;
-- nenhuma integração externa no caminho crítico local.
-
-Gate:
-
-- order não depende de nascer em um terminal físico;
-- falha de canal não duplica pedido.
-
-### S15 — Business Intelligence V1
-
-Objetivo: transformar eventos em gestão multi-site.
+Objetivo: transformar fatos e eventos persistidos em gestão multi-site.
 
 Entregas:
 
-- projeções server-side por período;
+- projeções server-side incrementais por período;
 - faturamento, vendas, ticket, recebimentos e caixa;
-- mesas, produção, cancelamentos e descontos;
-- produtos, estoque e ruptura;
-- recebíveis e formas de pagamento;
-- filtros organização → região futura → store → terminal → operador;
-- drill-down e rastreabilidade.
+- ocupação, tempo de mesa, consumo, pagamento parcial e fechamento;
+- produção, backlog, tempo por ponto e cancelamentos;
+- pagamentos por meio/provider, TEF e marketplace;
+- produtos, estoque, ruptura, transferências e descontos;
+- recebíveis, aging, acordos e liquidações;
+- filtros tenant → região futura → store → terminal → operador → canal;
+- drill-down até a fonte persistida e indicação de atualização da projeção.
 
 Gate:
 
-- toda métrica possui fonte persistida conhecida;
-- dashboards não carregam históricos inteiros no browser.
+- toda métrica possui fórmula, fonte e competência documentadas;
+- dashboards não carregam históricos inteiros no browser;
+- projeção pode ser reconstruída sem alterar o core transacional;
+- atraso da projeção é informado, nunca escondido com número inventado;
+- tenant/store scope é testado em consulta agregada e drill-down.
 
-### S16 — Dashem Control Completion
+### S18 — Dashem Control Completion
 
-Objetivo: concluir o plano de controle sem invadir a gestão do tenant.
+Objetivo: concluir o plano de controle sem invadir a gestão cotidiana do tenant.
 
 Entregas:
 
-- leads e conversão;
-- contratos, limites, capabilities e onboarding;
+- leads, conversão, ficha cadastral e lifecycle comercial;
+- contratos, limites, capabilities, dependências e onboarding;
 - entrega e lifecycle do administrador contratual;
 - timeline de identidade e e-mail sem tokens;
-- saúde de Auth, API, banco, outbox, workers, fiscal e integrações;
-- suporte assistido temporário;
-- incidentes, auditoria e erros recentes;
-- Resend com domínio, SPF, DKIM, DMARC e webhooks.
+- saúde de Auth, API, banco, outbox, workers, fiscal, TEF e canais;
+- visão de backlog, última sincronização e erro sanitizado por tenant;
+- suporte assistido temporário, incidentes e auditoria;
+- Resend com domínio, SPF, DKIM, DMARC e webhooks quando houver domínio próprio.
 
 Gate:
 
 - cliente opera sem acessar o Control;
-- Control não cria equipe cotidiana;
-- suporte possui motivo, prazo e auditoria.
+- Control não cria nem administra equipe cotidiana;
+- capability altera disponibilidade contratual sem conceder permission pessoal;
+- suporte possui motivo, prazo, escopo, aprovação e auditoria;
+- saúde desconhecida aparece como não instrumentada, nunca verde presumido.
 
-### S17 — Capability Profiles
+### S19 — Capability Profiles e Module Contributions
 
-Objetivo: compor verticais sem forks.
+Objetivo: compor verticais e experiências sem forks, menus hardcoded ou módulos
+cosméticos.
 
 Entregas:
 
-- profiles `FOOD_SERVICE`, `RETAIL`, `GROCERY` futuros;
-- bundles versionados e persistidos;
-- configuração e dependências por tenant/store/terminal;
-- contribution points de UI por capability;
-- migração segura de versão de contrato.
+- profiles versionados `FOOD_SERVICE`, `RETAIL` e `GROCERY` futuros;
+- dependências e conflitos de capability persistidos;
+- configuração efetiva por tenant/store/terminal;
+- contribution points de UI, rotas, permissions, health e reporting;
+- migration segura de versão de contrato;
+- histórico preservado quando módulo é desativado.
 
 Gate:
 
 - vertical é composição de módulos, não branch de código;
-- desativar capability remove disponibilidade sem apagar histórico.
+- módulo sem implementação não pode ser vendido/ativado;
+- desativar capability remove comandos e navegação sem apagar histórico;
+- permission sem entitlement continua negada e entitlement sem grant não autoriza;
+- profile é atalho versionado de configuração, não nova fonte de verdade.
 
-### S18 — Operational Hardening
+### S20 — Operational Hardening e Pilot Readiness
 
-Objetivo: preparar piloto real.
+Objetivo: provar em conjunto as garantias que já foram exigidas sprint a sprint.
 
 Entregas:
 
-- concorrência de mesa, order, pagamento, transferência e fechamento;
-- retries e idempotência de comandos críticos;
-- matriz tenant/store/permission/capability;
-- rate limit e proteção de sessão;
-- testes de conectividade degradada e recuperação;
-- observabilidade, alertas e runbooks;
-- backup/restore e rollback de migration exercitados.
+- cenários combinados de concorrência entre mesa, order, produção, pagamento,
+  transferência e fechamento;
+- chaos/retry para bridge, providers, Channel Hub, workers e conectividade;
+- matriz completa tenant/store/terminal/permission/capability;
+- rate limit, proteção de sessão, AAL e rotação de secrets;
+- testes offline/degradado e recuperação sem perda silenciosa;
+- SLOs, alertas, dashboards operacionais e runbooks;
+- backup/restore, continuidade e rollback de migration exercitados;
+- carga e volume com catálogo, orders, tickets e eventos representativos.
 
 Gate:
 
-- suíte crítica automatizada verde;
-- nenhuma falha conhecida pode perder operação silenciosamente.
+- suíte crítica automatizada verde em banco vazio e migrado;
+- nenhum caminho conhecido pode perder ou duplicar operação silenciosamente;
+- RPO/RTO do piloto definidos e restore demonstrado;
+- falha externa degrada somente sua capability;
+- incidentes simulados possuem detecção, diagnóstico e procedimento de recuperação.
 
-### S19 — Piloto Comercial
+### S21 — Piloto Comercial
 
-Objetivo: validar trabalho real em uma operação pequena.
+Objetivo: validar trabalho real em uma operação pequena com telemetria e suporte.
 
-Perfil:
+Perfil inicial:
 
 - 1 estabelecimento;
 - 1–3 caixas;
 - 5–15 funcionários;
 - balcão + mesas + cozinha;
-- PIX, cartão e dinheiro.
+- PIX, dinheiro e cartão manual ou TEF somente se homologado;
+- canal externo somente se credenciado e certificado.
 
 Medir:
 
-- tempo e cliques por tarefa;
+- tempo e ações por tarefa;
 - tempo até produção e entrega;
-- pagamento e fechamento;
+- pagamento parcial, cobertura e encerramento;
 - erros, cancelamentos, transferências e divergências;
-- estabilidade e recuperação;
-- percepção de velocidade e clareza.
+- backlog/retry de integrações e recuperação;
+- estabilidade, clareza e percepção de velocidade.
 
 Gate:
 
-- decisões baseadas em operação observada, não somente opinião visual.
+- decisões baseadas em operação observada e dados persistidos;
+- ausência de contrato/hardware externo não é mascarada por integração fake;
+- incidente crítico bloqueia expansão até correção e novo gate verde.
 
 ## 8. Dependências e ordem de execução
 
 ```text
-S0
-└── S1
-    └── S2
-        ├── S3
-        │   └── S4
-        │       └── S5
-        │           └── S6
-        │               └── S7
-        │                   └── S8
-        │                       └── S9
-        └───────────────────────────┐
-                                    └── S10 → S11 → S12 → S13
+FUNDAÇÃO CONCLUÍDA
+S0 → S1 → S2 → S3 → S4 → S5 → S6 → S7
 
-S6 → S14
-S3 + S4 + S7 + S10 + S11 + S13 → S15
-S0–S15 + S16 + S17 → S18 → S19
+FECHAMENTO E PROVIDERS
+S7 + core financeiro existente → S8 CheckoutNegotiation/Orchestrator → S9 TEF
+
+OPERAÇÃO FOOD SERVICE
+S4 + S6 + S10 → S11 Production/KDS
+S7 + S8 + S11 → S12 Transferências
+
+OMNICHANNEL
+S4 + S6 → S10 Channel Hub
+S4 + S8 + S10 → S13 Channel Catalog/Reconciliation
+
+CRÉDITO E FINANCEIRO
+S8 → S14 Receivables → S15 Cobrança/Renegociação
+S8 + S9 + S13 + S14 + S15 → S16 Cash/Fiscal/Reconciliation
+
+GESTÃO E PLATAFORMA
+S11 + S12 + S13 + S14 + S15 + S16 → S17 BI
+S2 + fontes de saúde de S8–S17 → S18 Dashem Control Completion
+capabilities reais de S9–S18 → S19 Capability Profiles
+
+PILOTO
+S8–S19 → S20 Hardening/Pilot Readiness → S21 Piloto Comercial
 ```
 
-S16 pode evoluir em paralelo, mas não pode mudar silenciosamente contratos do
-Commerce Plane. S17 consolida profiles após capabilities reais possuírem
-implementações, evitando bundles apenas cosméticos.
+Os números registram a sequência recomendada de foco. S10 e partes internas do
+S18 podem evoluir em paralelo quando houver capacidade, mas nenhum trabalho
+paralelo pode mudar silenciosamente contratos do Commerce Plane. O S19 somente
+consolida profiles depois de existirem implementações reais, evitando bundles
+cosméticos. Gates externos de TEF ou marketplace podem permanecer pendentes sem
+bloquear módulos locais; nesse caso a capability produtiva continua desativada
+e aparece como `não configurada`, nunca como pronta.
 
-## 9. Registro de dívidas atuais a eliminar
+## 9. Registro de dívidas, destino e estado
 
-| Dívida atual | Sprint responsável | Resultado obrigatório |
-|---|---|---|
-| Gestão e POS alternados por estado global | S1 | rotas e shells independentes |
-| Diagnóstico técnico dentro do Gestão | S1 | somente no Control |
-| Um contexto concentra todos os domínios | S1 | contextos/queries por domínio |
-| Primeiro tenant/store/register selecionado | S2 | contexto explícito |
-| RBAC por rota/papel | S2 | permission grants granulares |
-| Control convida qualquer papel interno | S2 | somente admin contratual + segurança |
-| Produtos, preços e saldos consultados separadamente com N+1 de saldo | S4 | `SellableProduct` paginado |
-| Primeiros seis produtos tratados como favoritos | S4 | favoritos persistidos |
-| Estoque baixo visual fixado em 5 | S4 | `minimum_stock` real |
-| Categoria inferida da descrição | S4 | relacionamento real |
-| Listagens sem paginação | S4/S15 | paginação/cursor server-side |
-| BI agregado no browser | S3/S15 | read models do backend |
-| Poucos testes frontend de fluxos | S0 e contínuo | testes por shell e domínio |
-| Endpoint de identidade excessivamente amplo | S1/S2/S16 | routers por responsabilidade |
+| Dívida/risco | Destino | Resultado obrigatório | Estado |
+|---|---|---|---|
+| Gestão e POS alternados por estado global | S1 | rotas e shells independentes | resolvido e testado |
+| Diagnóstico técnico dentro do Gestão | S1 | somente no Control | resolvido e testado |
+| Primeiro tenant/store/register escolhido silenciosamente | S2 | contexto explícito | resolvido e testado |
+| RBAC grosso por papel/rota | S2 | permission grants granulares | resolvido no Permission Engine |
+| Capability confundida com permission | S2 | decisão efetiva independente | resolvido e inegociável |
+| Produtos, preços e saldos em N+1 | S4 | `SellableProduct` paginado | resolvido e testado |
+| Favorito, estoque mínimo ou categoria por fallback visual | S4 | dados persistidos reais | resolvido e testado |
+| Order confundido com Sale | S6 | agregados separados | resolvido e testado |
+| Uma mesa tratada como um único pedido | S7 | `ServiceTable → TableSession → Orders` | resolvido e testado |
+| Pagamento atual sem negociação canônica de Orders/sessão | S8 | `CheckoutNegotiation` + allocations | aberto |
+| Provider/TEF acoplável à regra de venda | S9 | adapter + bridge + reconciliação | aberto |
+| Canal externo capaz de duplicar lógica de Order | S10 | inbox + normalização + deduplicação | aberto |
+| Produção representada apenas como estado visual do item | S11 | tickets e allocations persistidos | aberto |
+| Transferência capaz de apagar origem | S12 | linhagem e conservação imutáveis | aberto |
+| Catálogo duplicado por marketplace | S13 | mapeamento canônico por canal | aberto |
+| Crediário tratado como pagamento recebido | S14 | recebível e allocation distintos | aberto |
+| Renegociação capaz de alterar documento original | S15 | acordo e ledger imutáveis | aberto |
+| Caixa/fiscal/provider sem conciliação unificada | S16 | fatos vinculados sem reescrita | aberto |
+| BI agregado ou inventado no browser | S17 | read models rastreáveis | parcial, gate completo em S17 |
+| Endpoint de identidade e saúde ainda amplos | S18 | routers e observabilidade por domínio | residual |
+| Segurança/confiabilidade deixadas para o fim | contínuo + S20 | gate por sprint e prova combinada | política corrigida |
 
 ## 10. Política de execução
 
@@ -861,10 +1131,13 @@ Antes de iniciar uma sprint:
 
 1. confirmar dependências concluídas;
 2. escrever casos de aceite e invariantes;
-3. mapear migrations e policies RLS;
-4. definir permissions e capabilities aplicáveis;
-5. definir eventos/auditoria;
-6. listar estados de loading, vazio, erro, retry e conflito.
+3. declarar aggregate root, autoridade dos dados e fronteiras com módulos existentes;
+4. registrar ADR quando a solução deliberadamente diferir do desenho visual;
+5. mapear migrations, rollback, policies RLS e índices;
+6. definir permissions e capabilities aplicáveis;
+7. definir eventos, auditoria, idempotência, lock e estratégia de retry;
+8. separar gates internos de dependências externas/homologações;
+9. listar estados de loading, vazio, erro, indisponível, retry e conflito.
 
 Durante a sprint:
 
@@ -872,7 +1145,11 @@ Durante a sprint:
 2. nenhuma UI antecede indefinidamente persistência e permission;
 3. nenhuma mutação crítica nasce sem teste negativo;
 4. mudanças estruturais possuem migration e rollback;
-5. métricas não são inventadas para preencher espaço.
+5. regras existentes só são substituídas com caracterização antes/depois;
+6. integração externa não entra no caminho crítico local;
+7. fixtures e simuladores ficam restritos a testes;
+8. métricas não são inventadas para preencher espaço;
+9. CI vermelho interrompe o avanço ao próximo sprint.
 
 Ao concluir:
 
@@ -880,16 +1157,20 @@ Ao concluir:
 2. fluxo manual validado com dados reais de teste;
 3. documentação e README atualizados;
 4. CI e deployment observados;
-5. dívida residual explicitamente registrada.
+5. dívida residual explicitamente registrada;
+6. capability sem gate externo concluído permanece desativada;
+7. “implementado” significa UI + API + persistência + autorização + testes, não mockup.
 
 ## 11. Próximo passo autorizado por este roadmap
 
 O próximo ciclo de implementação deve ser:
 
 ```text
-S0 — Baseline, contratos e testes de caracterização
+S8 — Checkout Negotiation e Payment Orchestrator
 ```
 
-Somente depois do gate de S0 deve começar o refactoring estrutural de S1. Isso
-preserva o core já correto e impede que a nova experiência do cliente seja
-construída sobre responsabilidades ambíguas.
+S0–S7 estão concluídos e protegidos pelo CI. O S8 deve começar por testes de
+caracterização do motor de pagamentos já existente e pelo ADR de
+`CheckoutNegotiation`, preservando split, parcial, troco, caixa, idempotência e
+concorrência antes de integrar Orders e TableSession. O S9 só começa após o
+saldo e as allocations do S8 serem autoridades server-side verificadas.

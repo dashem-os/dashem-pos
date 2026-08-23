@@ -132,12 +132,13 @@ A sequência oficial de construção das experiências do cliente, dos domínios
 Food Service, do motor financeiro e da conclusão do Control Plane está em
 [`docs/product/roadmap-commerce-os-v2.md`](docs/product/roadmap-commerce-os-v2.md).
 
-Os gates **S0–S6** consolidaram contratos, shells, autorização, catálogo,
-Frente de Caixa e `Order Foundation`. O ciclo atual é o **S7 — Mesas e
-Comandas**, que separa `ServiceTable`, `TableSession` e `Order`, com concorrência,
-idempotência, RLS, auditoria e interface operacional baseada apenas em dados
-persistidos. O próximo gate após sua validação é o **S8 — Production Routing e
-KDS**.
+Os gates **S0–S7** consolidaram contratos, shells, autorização, catálogo,
+Frente de Caixa, `Order Foundation` e Mesas & Comandas. `ServiceTable`,
+`TableSession` e `Order` são contratos distintos, com concorrência,
+idempotência, RLS, auditoria e interface operacional baseada somente em dados
+persistidos. O próximo gate é o **S8 — Checkout Negotiation e Payment
+Orchestrator**, que integrará o motor financeiro já existente a Orders e sessões
+sem confundir pagamento parcial, cobertura da conta e liberação física da mesa.
 
 ## Trilha pendente: conclusão do Console Owner
 
