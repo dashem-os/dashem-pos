@@ -404,6 +404,24 @@ def open_table_session(
         notes=None,
     )
     session.add(table_session)
+    try:
+        # The initial order references the new session.  Flush the aggregate
+        # root first so PostgreSQL can enforce the FK without depending on
+        # SQLAlchemy's insert ordering across models that have no ORM
+        # relationship configured.  This remains inside the same transaction.
+        session.flush()
+    except IntegrityError as exc:
+        session.rollback()
+        existing = session.exec(select(TableSession).where(
+            TableSession.tenant_id == context.tenant_id,
+            TableSession.open_idempotency_key == idempotency_key,
+        )).first()
+        if existing and existing.open_request_hash == request_hash:
+            return session_projection(session, context, existing.id)
+        raise HTTPException(
+            status_code=409,
+            detail="Mesa já possui uma sessão ativa ou houve abertura concorrente.",
+        ) from exc
     session.add(order)
     if table:
         table.status = ServiceTableStatusEnum.OCCUPIED
