@@ -35,12 +35,15 @@ tenant.
 
 ## Access rules
 
-| Role | Read | POS operations | Management mutations | Membership administration |
-|---|---:|---:|---:|---:|
-| TENANT_OWNER / OWNER / ADMIN | yes | yes | yes | yes |
-| MANAGER | yes | yes | yes | no |
-| CASHIER / OPERATOR | operational | yes | no | no |
-| AUDITOR | yes | no | no | no |
+Papéis agora apontam para perfis canônicos de permissions; não são mais a
+decisão final por prefixo de rota. Grants `ALLOW`/`DENY` podem especializar uma
+membership em tenant ou store, com `DENY` prevalecendo. Cada operação exige no
+servidor: contexto válido, capability contratada e permission efetiva.
+
+O Tenant Administrator administra equipe, perfis e escopos em `/api/v1/team`.
+O Dashem Control entrega apenas o administrador contratual e pode suspender ou
+revogar uma membership como ação explícita de segurança, sem redefinir papel ou
+escopo operacional.
 
 Platform membership does not silently grant access to customer data. A future
 support-access workflow must be explicit, time-bound and audited.
@@ -82,7 +85,9 @@ authenticated identity. It does not expose a separate Owner domain.
 |---|---|
 | No valid session | `/login` |
 | Platform Owner or Platform Admin | `/owner` |
-| Active tenant membership | `/` (tenant POS and management context) |
+| Tenant Administrator/Manager autorizado | `/manage` |
+| Operador/Caixa autorizado | `/pos` |
+| Produção autorizada | `/kds` |
 | Authenticated without an active authorization record | access-pending screen |
 
 The frontend route is only a navigation decision. Every privileged API route

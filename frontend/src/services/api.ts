@@ -192,6 +192,23 @@ export interface ApiHealth {
   timestamp: string
 }
 
+export interface EffectiveAccess {
+  capabilities: Record<string, { key: string; version: string; scope: string; configuration: Record<string, unknown>; inherited: boolean }>
+  permissions: string[]
+  context: { tenant_id: string; store_id?: string; membership_id?: string }
+}
+
+export interface TeamMember {
+  membership_id: string
+  user_id: string
+  full_name: string
+  email: string
+  role: string
+  status: string
+  store_id?: string
+  store_name?: string
+}
+
 export interface AuthMe {
   mode: 'authenticated' | 'local-bypass'
   user: { id: string; email: string; full_name: string; is_active: boolean } | null
@@ -409,6 +426,40 @@ export async function fetchMe(): Promise<AuthMe> {
     const body = await res.json().catch(() => ({}))
     throw new Error(body.detail || 'Usuário não provisionado no Dashem POS')
   }
+  return res.json()
+}
+
+export async function fetchEffectiveAccess(headers: Record<string, string>): Promise<EffectiveAccess> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/capabilities/effective`, { headers })
+  if (!res.ok) throw await apiError(res, 'Não foi possível resolver capabilities e permissions efetivas.')
+  return res.json()
+}
+
+export async function fetchTeam(headers: Record<string, string>): Promise<TeamMember[]> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/team`, { headers })
+  if (!res.ok) throw await apiError(res, 'Não foi possível carregar a equipe.')
+  return res.json()
+}
+
+export async function inviteTeamMember(
+  headers: Record<string, string>,
+  input: { email: string; full_name: string; role: string; store_id?: string },
+): Promise<TeamMember> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/team/invitations`, {
+    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível convidar o membro da equipe.')
+  return res.json()
+}
+
+export async function updateTeamMember(
+  headers: Record<string, string>, membershipId: string,
+  input: { role: string; status: string; store_id?: string; reason: string },
+): Promise<TeamMember> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/team/${membershipId}`, {
+    method: 'PATCH', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível atualizar o acesso da equipe.')
   return res.json()
 }
 

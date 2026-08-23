@@ -145,7 +145,7 @@ def test_owner_mutations_require_aal2():
         assert "Multi-factor" in exc.value.detail
 
 
-def test_control_plane_can_assign_tenant_roles_but_not_platform_roles():
+def test_tenant_role_payload_never_accepts_platform_roles():
     invite = PlatformTenantInvite(
         email="manager@example.test",
         full_name="Tenant Manager",
@@ -256,6 +256,20 @@ def test_owner_can_open_tenant_and_invite_first_user(monkeypatch):
             "app.services.supabase_admin.invite_user",
             lambda **_: {"id": invite_subject, "email": f"user-{suffix}@example.test"},
         )
+        with pytest.raises(HTTPException) as operational_role:
+            invite_platform_tenant_user(
+                tenant_id=created.tenant.id,
+                data=PlatformTenantInvite(
+                    email=f"manager-{suffix}@example.test",
+                    full_name="Tenant Manager",
+                    role=RoleEnum.MANAGER,
+                ),
+                principal=principal,
+                session=session,
+            )
+        assert operational_role.value.status_code == 403
+        assert "administrador contratual" in operational_role.value.detail
+
         result = invite_platform_tenant_user(
             tenant_id=created.tenant.id,
             data=PlatformTenantInvite(

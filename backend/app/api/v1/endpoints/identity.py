@@ -1110,6 +1110,11 @@ def invite_platform_tenant_user(
     tenant = session.get(Tenant, tenant_id)
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant não encontrado.")
+    if data.role not in {RoleEnum.TENANT_OWNER, RoleEnum.OWNER} or data.store_id is not None:
+        raise HTTPException(
+            status_code=403,
+            detail="Dashem Control entrega somente o administrador contratual do tenant.",
+        )
     email = data.email.strip().lower()
     if "@" not in email:
         raise HTTPException(status_code=422, detail="Informe um e-mail válido.")
@@ -1160,6 +1165,11 @@ def update_platform_tenant_access(
     membership = session.get(Membership, membership_id)
     if not membership or membership.tenant_id != tenant_id:
         raise HTTPException(status_code=404, detail="Acesso não encontrado.")
+    if data.role != membership.role or data.store_id != membership.store_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Dashem Control pode executar ações de segurança, mas papéis e escopos pertencem ao Tenant Admin.",
+        )
     store = None
     if data.store_id is not None:
         store = session.get(Store, data.store_id)

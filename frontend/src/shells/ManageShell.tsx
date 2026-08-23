@@ -1,9 +1,14 @@
 import { Toast } from '../components/common/Toast'
 import { PosProvider, usePos } from '../context/PosContext'
 import { ManagementLayout } from '../layouts/ManagementLayout'
+import { OperationalContextGate, OperationalSelection } from '../components/context/OperationalContextGate'
 
 export default function ManageShell() {
-  return <PosProvider><ManageSurface /></PosProvider>
+  return <OperationalContextGate requireTerminal={false}>{(selection) => <SelectedManageShell selection={selection} />}</OperationalContextGate>
+}
+
+function SelectedManageShell({ selection }: { selection: OperationalSelection }) {
+  return <PosProvider {...selection}><ManageSurface /></PosProvider>
 }
 
 function ManageSurface() {

@@ -15,7 +15,7 @@ from app.models.identity import (
     AuthIdentity, Membership, MembershipStatusEnum, RoleEnum, Store, Tenant,
     TenantStatusEnum, User,
 )
-from app.models.platform import PlatformMembership, PlatformRoleEnum
+from app.models.platform import PlatformMembership, PlatformRoleEnum, TenantCapability
 
 
 def _principal(subject: str) -> AuthPrincipal:
@@ -80,6 +80,7 @@ def test_membership_and_store_scope_block_cross_tenant_access():
             user_id=user.id, tenant_id=tenant_a.id, store_id=store_a.id,
             role=RoleEnum.CASHIER, status=MembershipStatusEnum.ACTIVE,
         ))
+        session.add(TenantCapability(tenant_id=tenant_a.id, key="catalog", enabled=True))
         tenant_a_id = tenant_a.id
         tenant_b_id = tenant_b.id
         store_a_id = store_a.id

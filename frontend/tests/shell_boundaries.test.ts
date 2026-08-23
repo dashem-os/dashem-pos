@@ -22,3 +22,18 @@ test('does not expose the management shortcut to an unauthorized POS operator', 
   assert.match(pos, /canManage && <button/)
   assert.match(pos, /navigateTo\('\/manage'\)/)
 })
+
+test('never derives operational context from the first item of an authorized list', async () => {
+  const context = await source('../src/context/PosContext.tsx')
+  const gate = await source('../src/components/context/OperationalContextGate.tsx')
+  assert.doesNotMatch(context, /tenants\[0\]|stores\[0\]|registers\[0\]/)
+  assert.match(gate, /selectOnlyOption\(items\)/)
+  assert.match(gate, /items\.find\(\(item\) => item\.id === stored\)/)
+})
+
+test('loads effective capabilities and permissions from the backend', async () => {
+  const context = await source('../src/context/PosContext.tsx')
+  assert.match(context, /fetchEffectiveAccess\(hdrs\)/)
+  assert.match(context, /setPermissions\(access\.permissions\)/)
+  assert.match(context, /setCapabilities\(access\.capabilities\)/)
+})

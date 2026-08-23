@@ -15,6 +15,8 @@ interface PosContextType {
   cashSession: api.CashSession | null
   operatorId: string
   health: api.ApiHealth | null
+  permissions: string[]
+  capabilities: api.EffectiveAccess['capabilities']
   activeBiTab: 'dashboard' | 'sales' | 'catalog' | 'cash'
 
   // Data state
@@ -70,7 +72,12 @@ interface PosContextType {
 
 const PosContext = createContext<PosContextType | undefined>(undefined)
 
-export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+export const PosProvider: React.FC<{
+  children: ReactNode
+  tenantId: string
+  storeId: string
+  registerId?: string
+}> = ({ children, tenantId, storeId, registerId }) => {
   const [activeBiTab, setActiveBiTab] = useState<'dashboard' | 'sales' | 'catalog' | 'cash'>('dashboard')
 
   const [tenant, setTenant] = useState<api.Tenant | null>(null)
@@ -79,6 +86,8 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [cashSession, setCashSession] = useState<api.CashSession | null>(null)
   const [operatorId, setOperatorId] = useState<string>('00000000-0000-0000-0000-000000000001')
   const [health, setHealth] = useState<api.ApiHealth | null>(null)
+  const [permissions, setPermissions] = useState<string[]>([])
+  const [capabilities, setCapabilities] = useState<api.EffectiveAccess['capabilities']>({})
 
   const [products, setProducts] = useState<api.Product[]>([])
   const [categories, setCategories] = useState<api.Category[]>([])
@@ -124,21 +133,27 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       if (me.user) setOperatorId(me.user.id)
 
       const tenants = await api.fetchTenants()
-      if (tenants.length > 0) {
-        const t = tenants[0]
-        setTenant(t)
-        const stores = await api.fetchStores(t.id)
-        if (stores.length > 0) {
-          const s = stores[0]
-          setStore(s)
-          const hdrs = { 'X-Tenant-ID': t.id, 'X-Store-ID': s.id }
-          const registers = await api.fetchRegisters(hdrs, s.id)
-          if (registers.length > 0) {
-            setRegister(registers[0])
-            const activeCs = await api.fetchActiveCashSession(hdrs, s.id, registers[0].id)
-            setCashSession(activeCs)
-          }
-        }
+      const selectedTenant = tenants.find((item) => item.id === tenantId)
+      if (!selectedTenant) throw new Error('Tenant selecionado não está autorizado para esta identidade.')
+      setTenant(selectedTenant)
+      const stores = await api.fetchStores(selectedTenant.id)
+      const selectedStore = stores.find((item) => item.id === storeId)
+      if (!selectedStore) throw new Error('Unidade selecionada não está autorizada para esta identidade.')
+      setStore(selectedStore)
+      const hdrs = { 'X-Tenant-ID': selectedTenant.id, 'X-Store-ID': selectedStore.id }
+      const access = await api.fetchEffectiveAccess(hdrs)
+      setPermissions(access.permissions)
+      setCapabilities(access.capabilities)
+      if (registerId) {
+        const registers = await api.fetchRegisters(hdrs, selectedStore.id)
+        const selectedRegister = registers.find((item) => item.id === registerId)
+        if (!selectedRegister) throw new Error('Terminal selecionado não está autorizado nesta unidade.')
+        setRegister(selectedRegister)
+        const activeCs = await api.fetchActiveCashSession(hdrs, selectedStore.id, selectedRegister.id)
+        setCashSession(activeCs)
+      } else {
+        setRegister(null)
+        setCashSession(null)
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Falha ao inicializar contexto'
@@ -146,7 +161,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     } finally {
       setLoading(false)
     }
-  }, [operatorId, showToast])
+  }, [tenantId, storeId, registerId, showToast])
 
   // Refresh products, inventory and sales data
   const refreshData = useCallback(async () => {
@@ -556,6 +571,8 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         cashSession,
         operatorId,
         health,
+        permissions,
+        capabilities,
         activeBiTab,
         products,
         categories,

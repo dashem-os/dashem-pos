@@ -44,6 +44,11 @@ class MembershipStatusEnum(str, Enum):
     SUSPENDED = "SUSPENDED"
     REVOKED = "REVOKED"
 
+
+class PermissionGrantEffectEnum(str, Enum):
+    ALLOW = "ALLOW"
+    DENY = "DENY"
+
 class Tenant(SQLModel, table=True):
     __tablename__ = "tenants"
     
@@ -253,3 +258,87 @@ class Membership(SQLModel, table=True):
     user: Optional[User] = Relationship(back_populates="memberships")
     tenant: Optional[Tenant] = Relationship(back_populates="memberships")
     store: Optional[Store] = Relationship(back_populates="memberships")
+
+
+class Permission(SQLModel, table=True):
+    """Canonical action contract evaluated by the backend."""
+
+    __tablename__ = "permissions"
+
+    key: str = Field(primary_key=True, max_length=100)
+    name: str = Field(max_length=160)
+    description: str = Field(sa_column=Column(Text, nullable=False))
+    capability_key: Optional[str] = Field(
+        default=None, foreign_key="capability_definitions.key", index=True, max_length=80
+    )
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class RoleProfile(SQLModel, table=True):
+    __tablename__ = "role_profiles"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "code", name="uq_tenant_role_profile_code"),
+        Index(
+            "uq_system_role_profile_code",
+            "code",
+            unique=True,
+            postgresql_where=text("tenant_id IS NULL AND is_system = true"),
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: Optional[uuid.UUID] = Field(default=None, foreign_key="tenants.id", index=True)
+    code: str = Field(index=True, max_length=80)
+    name: str = Field(max_length=160)
+    description: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    is_system: bool = Field(default=False, index=True)
+    is_active: bool = Field(default=True, index=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class RoleProfilePermission(SQLModel, table=True):
+    __tablename__ = "role_profile_permissions"
+    __table_args__ = (
+        UniqueConstraint("role_profile_id", "permission_key", name="uq_role_profile_permission"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    role_profile_id: uuid.UUID = Field(foreign_key="role_profiles.id", ondelete="CASCADE", index=True)
+    permission_key: str = Field(foreign_key="permissions.key", index=True, max_length=100)
+
+
+class MembershipRoleProfile(SQLModel, table=True):
+    __tablename__ = "membership_role_profiles"
+    __table_args__ = (
+        UniqueConstraint("membership_id", "role_profile_id", name="uq_membership_role_profile"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    membership_id: uuid.UUID = Field(foreign_key="memberships.id", ondelete="CASCADE", index=True)
+    role_profile_id: uuid.UUID = Field(foreign_key="role_profiles.id", ondelete="CASCADE", index=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class PermissionGrant(SQLModel, table=True):
+    __tablename__ = "permission_grants"
+    __table_args__ = (
+        UniqueConstraint(
+            "membership_id", "permission_key", "store_id",
+            name="uq_membership_permission_store_grant",
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(foreign_key="tenants.id", index=True)
+    store_id: Optional[uuid.UUID] = Field(default=None, foreign_key="stores.id", index=True)
+    membership_id: uuid.UUID = Field(foreign_key="memberships.id", ondelete="CASCADE", index=True)
+    permission_key: str = Field(foreign_key="permissions.key", index=True, max_length=100)
+    effect: PermissionGrantEffectEnum = Field(
+        default=PermissionGrantEffectEnum.ALLOW,
+        sa_column=Column(String, nullable=False, index=True),
+    )
+    reason: str = Field(sa_column=Column(Text, nullable=False))
+    granted_by: Optional[uuid.UUID] = Field(default=None, foreign_key="users.id", index=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)

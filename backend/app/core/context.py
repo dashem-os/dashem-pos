@@ -8,7 +8,7 @@ from sqlmodel import Session, select
 from sqlmodel.sql.expression import SelectOfScalar
 
 from app.core.database import get_session
-from app.core.rbac import enforce_tenant_permission
+from app.core.permissions import enforce_effective_access
 from app.core.security import AuthPrincipal, get_current_principal
 from app.core.tenancy import set_tenant_db_context
 from app.models.identity import (
@@ -22,6 +22,9 @@ class TenantContext(BaseModel):
     store_id: Optional[uuid.UUID] = None
     user_id: Optional[uuid.UUID] = None
     role: Optional[RoleEnum] = None
+    membership_id: Optional[uuid.UUID] = None
+    permissions: tuple[str, ...] = ()
+    capabilities: tuple[str, ...] = ()
     auth_subject: Optional[str] = None
     assurance_level: str = "aal1"
 
@@ -103,12 +106,15 @@ def authorize_tenant_context(
         raise HTTPException(status_code=403, detail="No active membership for this tenant and store.")
 
     role = RoleEnum(membership.role)
-    enforce_tenant_permission(role, method, path)
+    access = enforce_effective_access(session, membership, store_id, method, path)
     return TenantContext(
         tenant_id=tenant_id,
         store_id=store_id,
         user_id=user.id,
         role=role,
+        membership_id=membership.id,
+        permissions=access.permissions,
+        capabilities=access.capabilities,
         auth_subject=principal.subject,
         assurance_level=principal.assurance_level,
     )

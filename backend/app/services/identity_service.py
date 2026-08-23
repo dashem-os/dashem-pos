@@ -198,6 +198,7 @@ def provision_tenant_access(
     store_id: Optional[uuid.UUID],
     actor_id: uuid.UUID,
     provider_subject: Optional[str],
+    audit_scope: str = "platform",
 ) -> Membership:
     """Provision one tenant access without ever accepting credentials locally."""
     normalized_email = email.strip().lower()
@@ -240,14 +241,14 @@ def provision_tenant_access(
         "membership_id": str(membership.id), "role": role.value, "store_id": str(store_id) if store_id else None,
     }
     session.add(AuditEvent(
-        actor_id=actor_id, tenant_id=tenant.id, store_id=store_id, platform_scope=True,
-        action="platform.tenant.user_invited", target=f"membership:{membership.id}",
+        actor_id=actor_id, tenant_id=tenant.id, store_id=store_id, platform_scope=audit_scope == "platform",
+        action=f"{audit_scope}.tenant.user_invited", target=f"membership:{membership.id}",
         payload=json.dumps(payload),
     ))
     session.add(OutboxEvent(
         tenant_id=tenant.id, store_id=store_id, actor_id=actor_id,
         aggregate_type="membership", aggregate_id=str(membership.id),
-        event_type="platform.tenant.user_invited", payload=json.dumps(payload),
+        event_type=f"{audit_scope}.tenant.user_invited", payload=json.dumps(payload),
         status=OutboxStatusEnum.PENDING,
     ))
     session.commit()

@@ -14,4 +14,12 @@ def get_effective_capabilities(
     context: TenantContext = Depends(get_tenant_context),
     session: Session = Depends(get_session),
 ):
-    return {"capabilities": effective_capabilities(session, context.tenant_id, context.store_id)}
+    return {
+        "capabilities": effective_capabilities(session, context.tenant_id, context.store_id),
+        "permissions": list(context.permissions),
+        "context": {
+            "tenant_id": str(context.tenant_id),
+            "store_id": str(context.store_id) if context.store_id else None,
+            "membership_id": str(context.membership_id) if context.membership_id else None,
+        },
+    }

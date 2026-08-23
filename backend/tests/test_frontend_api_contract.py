@@ -33,6 +33,9 @@ CONTRACTS = [
     ("GET", "/api/v1/payments", "/api/v1/payments?sale_id="),
     ("POST", "/api/v1/payments", "/api/v1/payments`"),
     ("POST", "/api/v1/fiscal/documents/issue", "/api/v1/fiscal/documents/issue`"),
+    ("GET", "/api/v1/capabilities/effective", "/api/v1/capabilities/effective`"),
+    ("GET", "/api/v1/team", "/api/v1/team`"),
+    ("POST", "/api/v1/team/invitations", "/api/v1/team/invitations`"),
 ]
 
 
@@ -61,6 +64,9 @@ def test_every_tenant_critical_contract_keeps_context_headers_in_client():
         "openCashSession",
         "createPayment",
         "issueFiscalDocument",
+        "fetchEffectiveAccess",
+        "fetchTeam",
+        "inviteTeamMember",
     ):
         start = source.index(f"export async function {function_name}")
         next_export = source.find("export async function ", start + 1)
