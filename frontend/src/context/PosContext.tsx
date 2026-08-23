@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react'
 import * as api from '../services/api'
+import { paymentProgress, saleNeedsCreation } from '../domain/operationalRules'
 
 export interface ToastInfo {
   type: 'success' | 'error' | 'info'
@@ -242,11 +243,13 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       let saleToUse = currentSale
 
       // If no current sale or sale is finished/canceled, create a new sale first
-      if (!saleToUse || saleToUse.status === 'COMPLETED' || saleToUse.status === 'CANCELED' || saleToUse.status === 'PAID') {
+      if (saleNeedsCreation(saleToUse?.status)) {
         saleToUse = await api.createSale(hdrs, store.id)
         setConfirmedPayments([])
         setFiscalDoc(null)
       }
+
+      if (!saleToUse) throw new Error('Não foi possível iniciar a venda.')
 
       // Add item to sale
       const updatedSale = await api.addItemToSale(hdrs, saleToUse.id, productId, quantity)
@@ -399,8 +402,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const updatedPayments = [...confirmedPayments, confirmRes.payment]
       setConfirmedPayments(updatedPayments)
 
-      const totalPaid = updatedPayments.reduce((acc, p) => acc + p.amount, 0)
-      const remaining = Math.max(0, currentSale.net_total - totalPaid)
+      const { remaining } = paymentProgress(currentSale.net_total, updatedPayments.map((payment) => payment.amount))
 
       if (confirmRes.sale_status === 'PAID') {
         setCurrentSale((prev) => (prev ? { ...prev, status: 'PAID' } : null))

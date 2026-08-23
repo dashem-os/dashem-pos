@@ -126,11 +126,22 @@ O contrato inicial do Capability Mesh está em
 A matriz responsiva validada está em
 [`docs/quality/responsive-audit-2026-08-21.md`](docs/quality/responsive-audit-2026-08-21.md).
 
-## Próximo marco: Console Owner operacional
+## Roadmap canônico
 
-Quando o desenvolvimento for retomado, o objetivo imediato não será ampliar o
-PDV. Primeiro deixaremos o Console Owner profissional e plenamente operacional
-para testar o ciclo de vida dos tenants.
+A sequência oficial de construção das experiências do cliente, dos domínios
+Food Service, do motor financeiro e da conclusão do Control Plane está em
+[`docs/product/roadmap-commerce-os-v2.md`](docs/product/roadmap-commerce-os-v2.md).
+
+O próximo ciclo é o **S0 — Baseline, contratos e testes de caracterização**.
+Somente após esse gate começa o refactoring estrutural que separará `/manage`,
+`/pos` e `/kds`, preservando o core transacional já validado.
+
+## Trilha pendente: conclusão do Console Owner
+
+O Console Owner já possui sua primeira operação real e continuará evoluindo em
+paralelo, sem assumir a administração cotidiana da equipe dos clientes. O
+Platform Owner administra tenants, contrato, plano, limites, capabilities,
+onboarding, administrador contratual, segurança e saúde da plataforma.
 
 O contrato funcional detalhado deste marco está em
 [`docs/product/owner-console-operational.md`](docs/product/owner-console-operational.md).

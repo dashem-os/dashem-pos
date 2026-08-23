@@ -4,6 +4,7 @@ import { usePos } from '../../context/PosContext'
 import { Banknote, QrCode, CreditCard, Check, Split, ArrowLeft } from 'lucide-react'
 import { Payment } from '../../services/api'
 import { formatCurrency } from '../../utils/format'
+import { paymentProgress } from '../../domain/operationalRules'
 
 export const PaymentDialog: React.FC = () => {
   const {
@@ -21,13 +22,16 @@ export const PaymentDialog: React.FC = () => {
   const [isSplitMode, setIsSplitMode] = useState<boolean>(false)
 
   const netTotal = Number(currentSale?.net_total || 0)
-  const totalPaid = confirmedPayments.reduce((acc, p) => acc + Number(p.amount), 0)
-  const remainingBalance = Math.max(0, netTotal - totalPaid)
+  const baseProgress = paymentProgress(netTotal, confirmedPayments.map((payment) => payment.amount))
+  const totalPaid = baseProgress.totalPaid
+  const remainingBalance = baseProgress.remaining
 
   const activeAmountToPay = isSplitMode && customAmountInput ? parseFloat(customAmountInput) || 0 : remainingBalance
 
   const tenderedAmount = parseFloat(tenderedInput || '0')
-  const changeAmount = method === 'CASH' && tenderedAmount > activeAmountToPay ? tenderedAmount - activeAmountToPay : 0
+  const changeAmount = method === 'CASH'
+    ? paymentProgress(netTotal, confirmedPayments.map((payment) => payment.amount), tenderedAmount, activeAmountToPay).change
+    : 0
 
   useEffect(() => {
     if (isPaymentModalOpen) {

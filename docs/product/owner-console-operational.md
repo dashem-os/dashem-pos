@@ -6,6 +6,12 @@ O Console Owner é o plano de controle interno do Dashem. Ele não usa clientes,
 métricas ou estados fictícios. Todo valor exibido deve vir do banco, de uma
 verificação real ou aparecer explicitamente como **não instrumentado**.
 
+O Platform Owner administra a relação SaaS com o tenant. Ele entrega o acesso
+do administrador contratual, controla contrato, plano, limites, capabilities,
+ciclo de vida e segurança. A criação e administração cotidiana de gerentes,
+supervisores, atendentes, caixas e operadores pertence ao Tenant Administrator
+no Dashem Gestão.
+
 Cadastros de teste e pilotos usam as mesmas tabelas, validações, auditoria e
 regras dos clientes comerciais. A diferença é a classificação do cliente e o
 contrato, não um caminho alternativo no código.
@@ -29,7 +35,9 @@ contrato, não um caminho alternativo no código.
 
 - Criar e editar a ficha cadastral sem recriar o tenant técnico.
 - Implantar matriz e filiais e ativá-las ou desativá-las.
-- Conceder, alterar, suspender e revogar acessos com escopo de tenant ou unidade.
+- Entregar, reenviar, suspender ou revogar o acesso do administrador contratual.
+- Suspender ou revogar acesso em uma ação de segurança/suporte explicitamente
+  motivada e auditada, sem assumir a gestão cotidiana da equipe do cliente.
 - Aumentar ou reduzir limites e capacidades por contrato.
 - Pausar, suspender, cancelar ou arquivar sem apagar o histórico.
 - Registrar toda mutação privilegiada em auditoria com ator, alvo, momento e
