@@ -10,15 +10,20 @@ from app.api.v1.endpoints.identity import (
     PlatformTenantInvite,
     PlatformTenantLifecycleUpdate,
     ServicePlanCreate,
+    TenantCapabilityUpdate,
     complete_owner_onboarding,
     complete_password_setup,
     create_service_plan,
     get_me,
     platform_overview,
+    platform_system_health,
     platform_tenant_detail,
+    platform_tenant_metrics,
+    tenant_capability_catalog,
     invite_platform_tenant_user,
     provision_platform_tenant,
     update_platform_tenant_lifecycle,
+    update_tenant_capability,
 )
 from app.core.database import engine
 from app.core.security import AuthPrincipal
@@ -140,13 +145,98 @@ def test_owner_mutations_require_aal2():
         assert "Multi-factor" in exc.value.detail
 
 
-def test_control_plane_cannot_assign_internal_tenant_roles():
+def test_control_plane_can_assign_tenant_roles_but_not_platform_roles():
+    invite = PlatformTenantInvite(
+        email="manager@example.test",
+        full_name="Tenant Manager",
+        role=RoleEnum.MANAGER,
+    )
+    assert invite.role == RoleEnum.MANAGER
     with pytest.raises(ValidationError):
         PlatformTenantInvite(
-            email="manager@example.test",
-            full_name="Internal Manager",
-            role=RoleEnum.MANAGER,
+            email="platform@example.test",
+            full_name="Platform Owner",
+            role="PLATFORM_OWNER",
         )
+
+
+def test_owner_manages_capabilities_with_real_dependencies_and_audit():
+    suffix = uuid.uuid4().hex[:8]
+    with Session(engine) as session:
+        subject, owner = _owner(session)
+        principal = _principal(subject)
+        created = provision_platform_tenant(
+            data=PlatformTenantCreate(
+                name=f"Capabilities {suffix}", slug=f"capabilities-{suffix}",
+                first_store_name="Matriz", first_store_code="MATRIZ",
+            ), principal=principal, session=session,
+        )
+        catalog = tenant_capability_catalog(created.tenant.id, principal, session)
+        assert len(catalog) >= 20
+        assert not next(item for item in catalog if item.key == "high_speed_checkout").enabled
+
+        updated = update_tenant_capability(
+            tenant_id=created.tenant.id,
+            capability_key="high_speed_checkout",
+            data=TenantCapabilityUpdate(
+                enabled=True,
+                reason="Checkout contratado para o novo terminal.",
+            ),
+            principal=principal,
+            session=session,
+        )
+        enabled = {item.key for item in updated if item.enabled}
+        assert {"catalog", "barcode_scanning", "payments", "high_speed_checkout"} <= enabled
+
+        with pytest.raises(HTTPException) as exc:
+            update_tenant_capability(
+                tenant_id=created.tenant.id,
+                capability_key="catalog",
+                data=TenantCapabilityUpdate(
+                    enabled=False,
+                    reason="Tentativa inválida de reduzir dependência.",
+                ),
+                principal=principal,
+                session=session,
+            )
+        assert exc.value.status_code == 409
+        audit = session.exec(select(AuditEvent).where(
+            AuditEvent.actor_id == owner.id,
+            AuditEvent.tenant_id == created.tenant.id,
+            AuditEvent.action == "platform.tenant.capability_updated",
+        )).first()
+        assert audit is not None
+
+
+def test_owner_reads_real_platform_health_and_tenant_metrics(monkeypatch):
+    suffix = uuid.uuid4().hex[:8]
+
+    class HealthyAuth:
+        status_code = 200
+
+    monkeypatch.setattr("app.api.v1.endpoints.identity.httpx.get", lambda *_, **__: HealthyAuth())
+    with Session(engine) as session:
+        subject, _ = _owner(session)
+        principal = _principal(subject)
+        created = provision_platform_tenant(
+            data=PlatformTenantCreate(
+                name=f"Metrics {suffix}", slug=f"metrics-{suffix}",
+                first_store_name="Matriz", first_store_code="MATRIZ",
+            ), principal=principal, session=session,
+        )
+        metrics = platform_tenant_metrics(created.tenant.id, principal, session)
+        assert metrics.stores_total == 1
+        assert metrics.stores_active == 1
+        assert len(metrics.daily) == 30
+        assert metrics.sales_30d == 0
+        assert metrics.revenue_30d == 0
+
+        health = platform_system_health(principal, session)
+        components = {component.key: component for component in health.components}
+        assert components["api"].status == "HEALTHY"
+        assert components["database"].status == "HEALTHY"
+        assert components["outbox"].details["failed"] >= 0
+        assert health.totals["tenants"] >= 1
 
 
 def test_owner_can_open_tenant_and_invite_first_user(monkeypatch):

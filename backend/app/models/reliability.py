@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime
 from enum import Enum
 from typing import Optional
+from sqlalchemy import JSON
 from sqlmodel import SQLModel, Field, UniqueConstraint, Column
 from app.core.db_types import EnumString
 
@@ -65,3 +66,13 @@ class IdempotencyRecord(SQLModel, table=True):
     response_status: int
     response_body: str  # JSON string
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ServiceHeartbeat(SQLModel, table=True):
+    __tablename__ = "service_heartbeats"
+
+    service_key: str = Field(primary_key=True, max_length=80)
+    status: str = Field(default="HEALTHY", index=True, max_length=32)
+    details: dict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False, default=dict))
+    last_seen_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)

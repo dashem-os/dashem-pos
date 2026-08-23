@@ -14,7 +14,7 @@ from app.models.intelligence import (
     ContextEdge, AgentRun, AgentRunStatusEnum, AgentToolCall,
     ToolCallStatusEnum, ApprovalRequest, ApprovalStatusEnum,
 )
-from app.models.reliability import OutboxEvent, AuditEvent, IdempotencyRecord, OutboxStatusEnum
+from app.models.reliability import OutboxEvent, AuditEvent, IdempotencyRecord, OutboxStatusEnum, ServiceHeartbeat
 from app.models.catalog import Category, Product, ProductPrice, InventoryMovement, InventoryBalance, ItemTypeEnum, MovementTypeEnum
 from app.models.sale import (
     Customer, Sale, SaleItem, SaleStatusEnum, DiscountTypeEnum,
@@ -64,6 +64,7 @@ __all__ = [
     "AuditEvent",
     "IdempotencyRecord",
     "OutboxStatusEnum",
+    "ServiceHeartbeat",
     "Category",
     "Product",
     "ProductPrice",

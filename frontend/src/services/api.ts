@@ -298,6 +298,66 @@ export interface TenantCapability {
   configuration: Record<string, unknown>
 }
 
+export interface CapabilityCatalogItem {
+  key: string
+  name: string
+  version: string
+  scope: 'TENANT' | 'STORE' | 'TERMINAL'
+  description: string
+  requires: string[]
+  enabled: boolean
+  status: string
+  contract_limits: Record<string, unknown>
+}
+
+export interface HealthComponent {
+  key: string
+  label: string
+  status: 'HEALTHY' | 'DEGRADED' | 'UNHEALTHY' | 'UNKNOWN' | 'NOT_CONFIGURED'
+  latency_ms?: number
+  details: Record<string, unknown>
+}
+
+export interface PlatformSystemHealth {
+  checked_at: string
+  status: 'HEALTHY' | 'DEGRADED' | 'UNHEALTHY'
+  components: HealthComponent[]
+  totals: Record<string, number>
+}
+
+export interface TenantDailyMetric {
+  date: string
+  sales_count: number
+  revenue: number
+}
+
+export interface TenantOperationalMetrics {
+  tenant_id: string
+  checked_at: string
+  status: 'HEALTHY' | 'DEGRADED'
+  stores_total: number
+  stores_active: number
+  users_total: number
+  users_active: number
+  users_invited: number
+  users_suspended: number
+  users_revoked: number
+  registers_active: number
+  cash_sessions_open: number
+  products_total: number
+  low_stock_items: number
+  sales_today: number
+  sales_30d: number
+  revenue_today: number
+  revenue_30d: number
+  outbox_pending: number
+  outbox_failed: number
+  agent_runs_30d: number
+  agent_failures_30d: number
+  last_activity_at?: string
+  daily: TenantDailyMetric[]
+}
+
 export interface PlatformOverview {
   tenant_count: number
   trial_count: number
@@ -391,6 +451,18 @@ export async function fetchPlatformOverview(): Promise<PlatformOverview> {
   return res.json()
 }
 
+export async function fetchPlatformHealth(): Promise<PlatformSystemHealth> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/identity/platform/health`)
+  if (!res.ok) throw await apiError(res, 'Não foi possível verificar a saúde da plataforma.')
+  return res.json()
+}
+
+export async function fetchTenantMetrics(tenantId: string): Promise<TenantOperationalMetrics> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/identity/platform/tenants/${tenantId}/metrics`)
+  if (!res.ok) throw await apiError(res, 'Não foi possível carregar as métricas do cliente.')
+  return res.json()
+}
+
 export async function provisionPlatformTenant(input: {
   name: string
   slug: string
@@ -447,6 +519,63 @@ export async function updatePlatformTenantLifecycle(
   return res.json()
 }
 
+export async function updatePlatformTenantProfile(
+  tenantId: string,
+  input: Record<string, unknown>,
+): Promise<TenantProfile> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/identity/platform/tenants/${tenantId}/profile`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível atualizar a ficha do cliente.')
+  return res.json()
+}
+
+export async function updateTenantSubscription(
+  tenantId: string,
+  planId: string | undefined,
+  status: SubscriptionStatus,
+): Promise<TenantSubscription> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/identity/platform/tenants/${tenantId}/subscription`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ plan_id: planId, status }),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível atualizar o plano do cliente.')
+  return res.json()
+}
+
+export async function fetchTenantCapabilityCatalog(tenantId: string): Promise<CapabilityCatalogItem[]> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/identity/platform/tenants/${tenantId}/capabilities`)
+  if (!res.ok) throw await apiError(res, 'Não foi possível carregar as capacidades contratáveis.')
+  return res.json()
+}
+
+export async function updateTenantCapability(
+  tenantId: string,
+  capabilityKey: string,
+  input: { enabled: boolean; contract_limits?: Record<string, unknown>; reason: string },
+): Promise<CapabilityCatalogItem[]> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/identity/platform/tenants/${tenantId}/capabilities/${capabilityKey}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível atualizar a capacidade do cliente.')
+  return res.json()
+}
+
+export async function createPlatformStore(tenantId: string, input: Record<string, unknown>): Promise<Store> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/identity/platform/tenants/${tenantId}/stores`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível criar a filial.')
+  return res.json()
+}
+
+export async function updatePlatformStore(tenantId: string, storeId: string, input: Record<string, unknown>): Promise<Store> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/identity/platform/tenants/${tenantId}/stores/${storeId}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível atualizar a unidade.')
+  return res.json()
+}
+
 export async function fetchPlatformTenantDetail(tenantId: string): Promise<PlatformTenantDetail> {
   const res = await fetch(`${API_BASE_URL}/api/v1/identity/platform/tenants/${tenantId}`)
   if (!res.ok) throw await apiError(res, 'Não foi possível carregar o tenant.')
@@ -456,11 +585,26 @@ export async function fetchPlatformTenantDetail(tenantId: string): Promise<Platf
 export async function invitePlatformTenantUser(tenantId: string, input: {
   email: string
   full_name: string
+  role?: string
+  store_id?: string
 }): Promise<{ access: PlatformTenantAccess; delivery_status: string }> {
   const res = await fetch(`${API_BASE_URL}/api/v1/identity/platform/tenants/${tenantId}/invitations`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
   })
   if (!res.ok) throw await apiError(res, 'Não foi possível enviar o convite.')
+  return res.json()
+}
+
+export async function updatePlatformTenantAccess(tenantId: string, membershipId: string, input: {
+  role: string
+  status: string
+  store_id?: string
+  reason: string
+}): Promise<PlatformTenantAccess> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/identity/platform/tenants/${tenantId}/accesses/${membershipId}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível alterar o acesso.')
   return res.json()
 }
 

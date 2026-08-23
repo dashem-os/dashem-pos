@@ -1,12 +1,15 @@
 import json
 import re
+import time
 import uuid
-from datetime import datetime
-from typing import List, Optional
+from datetime import date, datetime, timedelta
+from decimal import Decimal
+from typing import Any, List, Optional
 
+import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, Field as PydanticField
-from sqlalchemy import or_
+from sqlalchemy import func, or_, text
 from sqlmodel import Session, select
 
 from app.core.access import (
@@ -14,6 +17,7 @@ from app.core.access import (
     require_tenant_admin,
 )
 from app.core.database import get_session
+from app.core.config import settings
 from app.core.security import AuthPrincipal, get_current_principal
 from app.core.tenancy import set_platform_db_context, set_tenant_db_context
 from app.models.identity import (
@@ -23,9 +27,16 @@ from app.models.identity import (
 )
 from app.models.platform import (
     Lead, LeadStatusEnum, PlatformRoleEnum, TenantCapability, CapabilityDefinition,
+    CapabilityScopeEnum, CapabilityStatusEnum, EntitlementStatusEnum,
 )
 from app.models.reliability import AuditEvent, OutboxEvent, OutboxStatusEnum
+from app.models.reliability import ServiceHeartbeat
+from app.models.payment import CashSession, CashSessionStatusEnum, Register
+from app.models.sale import Sale, SaleStatusEnum
+from app.models.catalog import InventoryBalance, Product
+from app.models.intelligence import AgentRun, AgentRunStatusEnum
 from app.services import identity_service, reliability_service, supabase_admin
+from app.modules.capabilities.registry import CAPABILITY_REGISTRY, resolve_dependencies
 
 
 router = APIRouter(dependencies=[Depends(get_current_principal)])
@@ -184,6 +195,72 @@ class PlatformTenantDetail(BaseModel):
     capabilities: List[TenantCapability]
 
 
+class HealthComponent(BaseModel):
+    key: str
+    label: str
+    status: str
+    latency_ms: Optional[float] = None
+    details: dict[str, Any] = PydanticField(default_factory=dict)
+
+
+class PlatformSystemHealth(BaseModel):
+    checked_at: datetime
+    status: str
+    components: List[HealthComponent]
+    totals: dict[str, int]
+
+
+class TenantDailyMetric(BaseModel):
+    date: date
+    sales_count: int
+    revenue: Decimal
+
+
+class TenantOperationalMetrics(BaseModel):
+    tenant_id: uuid.UUID
+    checked_at: datetime
+    status: str
+    stores_total: int
+    stores_active: int
+    users_total: int
+    users_active: int
+    users_invited: int
+    users_suspended: int
+    users_revoked: int
+    registers_active: int
+    cash_sessions_open: int
+    products_total: int
+    low_stock_items: int
+    sales_today: int
+    sales_30d: int
+    revenue_today: Decimal
+    revenue_30d: Decimal
+    outbox_pending: int
+    outbox_failed: int
+    agent_runs_30d: int
+    agent_failures_30d: int
+    last_activity_at: Optional[datetime]
+    daily: List[TenantDailyMetric]
+
+
+class CapabilityCatalogItem(BaseModel):
+    key: str
+    name: str
+    version: str
+    scope: str
+    description: str
+    requires: List[str]
+    enabled: bool
+    status: str
+    contract_limits: dict[str, Any]
+
+
+class TenantCapabilityUpdate(BaseModel):
+    enabled: bool
+    contract_limits: dict[str, Any] = PydanticField(default_factory=dict)
+    reason: str = PydanticField(min_length=4, max_length=500)
+
+
 class PlatformTenantProfileUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -198,6 +275,19 @@ class PlatformTenantProfileUpdate(BaseModel):
     company_phone: Optional[str] = PydanticField(default=None, max_length=32)
     website: Optional[str] = PydanticField(default=None, max_length=255)
     notes: Optional[str] = None
+    contact_name: Optional[str] = PydanticField(default=None, max_length=160)
+    contact_job_title: Optional[str] = PydanticField(default=None, max_length=120)
+    contact_email: Optional[str] = PydanticField(default=None, max_length=254)
+    contact_phone: Optional[str] = PydanticField(default=None, max_length=32)
+    store_name: Optional[str] = PydanticField(default=None, max_length=160)
+    store_code: Optional[str] = PydanticField(default=None, max_length=40)
+    postal_code: Optional[str] = PydanticField(default=None, max_length=10)
+    street: Optional[str] = PydanticField(default=None, max_length=200)
+    street_number: Optional[str] = PydanticField(default=None, max_length=32)
+    address_complement: Optional[str] = PydanticField(default=None, max_length=120)
+    district: Optional[str] = PydanticField(default=None, max_length=120)
+    city: Optional[str] = PydanticField(default=None, max_length=120)
+    state: Optional[str] = PydanticField(default=None, max_length=2)
 
 
 class PlatformTenantLifecycleUpdate(BaseModel):
@@ -225,11 +315,43 @@ class TenantSubscriptionUpdate(BaseModel):
     status: SubscriptionStatusEnum
 
 
+class PlatformStoreCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = PydanticField(min_length=2, max_length=160)
+    code: str = PydanticField(min_length=2, max_length=40, pattern=r"^[A-Z0-9_-]+$")
+    site_type: str = PydanticField(default="BRANCH", max_length=32)
+    tax_id: Optional[str] = PydanticField(default=None, max_length=18)
+    state_registration: Optional[str] = PydanticField(default=None, max_length=32)
+    email: Optional[str] = PydanticField(default=None, max_length=254)
+    phone: Optional[str] = PydanticField(default=None, max_length=32)
+    postal_code: Optional[str] = PydanticField(default=None, max_length=10)
+    street: Optional[str] = PydanticField(default=None, max_length=200)
+    street_number: Optional[str] = PydanticField(default=None, max_length=32)
+    address_complement: Optional[str] = PydanticField(default=None, max_length=120)
+    district: Optional[str] = PydanticField(default=None, max_length=120)
+    city: Optional[str] = PydanticField(default=None, max_length=120)
+    state: Optional[str] = PydanticField(default=None, max_length=2)
+
+
+class PlatformStoreUpdate(PlatformStoreCreate):
+    is_active: bool = True
+
+
+class PlatformTenantAccessUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    role: RoleEnum
+    status: MembershipStatusEnum
+    store_id: Optional[uuid.UUID] = None
+    reason: str = PydanticField(min_length=3, max_length=500)
+
+
 class PlatformTenantInvite(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     email: str = PydanticField(min_length=5, max_length=254)
     full_name: str = PydanticField(min_length=2, max_length=160)
+    role: RoleEnum = RoleEnum.TENANT_OWNER
+    store_id: Optional[uuid.UUID] = None
 
 
 class PlatformTenantInviteResult(BaseModel):
@@ -383,6 +505,169 @@ def platform_overview(
     )
 
 
+def _count(session: Session, model, *conditions) -> int:
+    statement = select(func.count()).select_from(model)
+    if conditions:
+        statement = statement.where(*conditions)
+    return int(session.exec(statement).one() or 0)
+
+
+@router.get("/platform/health", response_model=PlatformSystemHealth)
+def platform_system_health(
+    principal: AuthPrincipal = Depends(get_current_principal),
+    session: Session = Depends(get_session),
+):
+    require_platform_role(session, principal, PLATFORM_MANAGERS, require_aal2=True)
+    checked_at = datetime.utcnow()
+    components: list[HealthComponent] = [
+        HealthComponent(key="api", label="Backend API", status="HEALTHY", details={"version": settings.VERSION}),
+    ]
+
+    started = time.perf_counter()
+    try:
+        session.exec(text("SELECT 1")).one()
+        latency = round((time.perf_counter() - started) * 1000, 2)
+        components.append(HealthComponent(
+            key="database", label="PostgreSQL", status="HEALTHY", latency_ms=latency,
+            details={"pool_size": settings.DB_POOL_SIZE, "max_overflow": settings.DB_MAX_OVERFLOW},
+        ))
+    except Exception as exc:
+        components.append(HealthComponent(
+            key="database", label="PostgreSQL", status="UNHEALTHY",
+            details={"error": str(exc)[:300]},
+        ))
+
+    pending = _count(session, OutboxEvent, OutboxEvent.status.in_({OutboxStatusEnum.PENDING, OutboxStatusEnum.PROCESSING}))
+    failed = _count(session, OutboxEvent, OutboxEvent.status == OutboxStatusEnum.FAILED)
+    components.append(HealthComponent(
+        key="outbox", label="Fila transacional", status="DEGRADED" if failed else "HEALTHY",
+        details={"pending": pending, "failed": failed},
+    ))
+
+    heartbeat = session.get(ServiceHeartbeat, "outbox_worker")
+    heartbeat_age = (checked_at - heartbeat.last_seen_at).total_seconds() if heartbeat else None
+    worker_status = (
+        "HEALTHY" if heartbeat and heartbeat_age is not None and heartbeat_age <= 90 and heartbeat.status == "HEALTHY"
+        else "DEGRADED" if heartbeat else "UNKNOWN"
+    )
+    components.append(HealthComponent(
+        key="worker", label="Outbox worker", status=worker_status,
+        details={
+            "last_seen_at": heartbeat.last_seen_at.isoformat() if heartbeat else None,
+            "age_seconds": round(heartbeat_age, 1) if heartbeat_age is not None else None,
+            **(heartbeat.details if heartbeat else {}),
+        },
+    ))
+
+    if not settings.SUPABASE_URL:
+        components.append(HealthComponent(
+            key="auth", label="Supabase Auth", status="NOT_CONFIGURED", details={},
+        ))
+    else:
+        auth_started = time.perf_counter()
+        try:
+            response = httpx.get(f"{settings.SUPABASE_URL.rstrip('/')}/auth/v1/health", timeout=2.5)
+            auth_latency = round((time.perf_counter() - auth_started) * 1000, 2)
+            components.append(HealthComponent(
+                key="auth", label="Supabase Auth",
+                status="HEALTHY" if response.status_code < 400 else "DEGRADED",
+                latency_ms=auth_latency, details={"http_status": response.status_code},
+            ))
+        except Exception as exc:
+            components.append(HealthComponent(
+                key="auth", label="Supabase Auth", status="UNHEALTHY",
+                details={"error": str(exc)[:300]},
+            ))
+
+    unhealthy = any(item.status == "UNHEALTHY" for item in components)
+    attention = any(item.status in {"DEGRADED", "UNKNOWN", "NOT_CONFIGURED"} for item in components)
+    overall = "UNHEALTHY" if unhealthy else "DEGRADED" if attention else "HEALTHY"
+    return PlatformSystemHealth(
+        checked_at=checked_at,
+        status=overall,
+        components=components,
+        totals={
+            "tenants": _count(session, Tenant),
+            "active_stores": _count(session, Store, Store.is_active == True),  # noqa: E712
+            "active_users": _count(session, User, User.is_active == True),  # noqa: E712
+            "open_cash_sessions": _count(session, CashSession, CashSession.status == CashSessionStatusEnum.OPEN),
+            "pending_outbox": pending,
+            "failed_outbox": failed,
+        },
+    )
+
+
+@router.get("/platform/tenants/{tenant_id}/metrics", response_model=TenantOperationalMetrics)
+def platform_tenant_metrics(
+    tenant_id: uuid.UUID,
+    principal: AuthPrincipal = Depends(get_current_principal),
+    session: Session = Depends(get_session),
+):
+    require_platform_role(session, principal, PLATFORM_MANAGERS, require_aal2=True)
+    if session.get(Tenant, tenant_id) is None:
+        raise HTTPException(status_code=404, detail="Tenant não encontrado.")
+    now = datetime.utcnow()
+    today = datetime(now.year, now.month, now.day)
+    since_30d = today - timedelta(days=29)
+    memberships = session.exec(select(Membership).where(Membership.tenant_id == tenant_id)).all()
+    access_counts = {status.value: 0 for status in MembershipStatusEnum}
+    for membership in memberships:
+        access_counts[getattr(membership.status, "value", str(membership.status))] += 1
+
+    paid_statuses = {SaleStatusEnum.PAID, SaleStatusEnum.COMPLETED}
+    sale_rows = session.exec(
+        select(
+            func.date(Sale.created_at),
+            func.count(Sale.id),
+            func.coalesce(func.sum(Sale.net_total), 0),
+        ).where(
+            Sale.tenant_id == tenant_id,
+            Sale.created_at >= since_30d,
+            Sale.status.in_(paid_statuses),
+        ).group_by(func.date(Sale.created_at)).order_by(func.date(Sale.created_at))
+    ).all()
+    by_date = {
+        row[0]: (int(row[1]), Decimal(str(row[2] or 0))) for row in sale_rows
+    }
+    daily = []
+    for offset in range(30):
+        current = (since_30d + timedelta(days=offset)).date()
+        count, revenue = by_date.get(current, (0, Decimal("0")))
+        daily.append(TenantDailyMetric(date=current, sales_count=count, revenue=revenue))
+
+    sales_today = sum(item.sales_count for item in daily if item.date == today.date())
+    revenue_today = sum((item.revenue for item in daily if item.date == today.date()), Decimal("0"))
+    sales_30d = sum(item.sales_count for item in daily)
+    revenue_30d = sum((item.revenue for item in daily), Decimal("0"))
+    outbox_pending = _count(session, OutboxEvent, OutboxEvent.tenant_id == tenant_id, OutboxEvent.status.in_({OutboxStatusEnum.PENDING, OutboxStatusEnum.PROCESSING}))
+    outbox_failed = _count(session, OutboxEvent, OutboxEvent.tenant_id == tenant_id, OutboxEvent.status == OutboxStatusEnum.FAILED)
+    agent_runs = _count(session, AgentRun, AgentRun.tenant_id == tenant_id, AgentRun.created_at >= since_30d)
+    agent_failures = _count(session, AgentRun, AgentRun.tenant_id == tenant_id, AgentRun.created_at >= since_30d, AgentRun.status == AgentRunStatusEnum.FAILED)
+    last_sale = session.exec(select(func.max(Sale.created_at)).where(Sale.tenant_id == tenant_id)).one()
+    last_audit = session.exec(select(func.max(AuditEvent.created_at)).where(AuditEvent.tenant_id == tenant_id)).one()
+    last_activity = max((value for value in (last_sale, last_audit) if value is not None), default=None)
+    status = "DEGRADED" if outbox_failed or access_counts[MembershipStatusEnum.ACTIVE.value] == 0 else "HEALTHY"
+    return TenantOperationalMetrics(
+        tenant_id=tenant_id, checked_at=now, status=status,
+        stores_total=_count(session, Store, Store.tenant_id == tenant_id),
+        stores_active=_count(session, Store, Store.tenant_id == tenant_id, Store.is_active == True),  # noqa: E712
+        users_total=len(memberships),
+        users_active=access_counts[MembershipStatusEnum.ACTIVE.value],
+        users_invited=access_counts[MembershipStatusEnum.INVITED.value],
+        users_suspended=access_counts[MembershipStatusEnum.SUSPENDED.value],
+        users_revoked=access_counts[MembershipStatusEnum.REVOKED.value],
+        registers_active=_count(session, Register, Register.tenant_id == tenant_id, Register.is_active == True),  # noqa: E712
+        cash_sessions_open=_count(session, CashSession, CashSession.tenant_id == tenant_id, CashSession.status == CashSessionStatusEnum.OPEN),
+        products_total=_count(session, Product, Product.tenant_id == tenant_id),
+        low_stock_items=_count(session, InventoryBalance, InventoryBalance.tenant_id == tenant_id, InventoryBalance.quantity <= InventoryBalance.minimum_stock),
+        sales_today=sales_today, sales_30d=sales_30d,
+        revenue_today=revenue_today, revenue_30d=revenue_30d,
+        outbox_pending=outbox_pending, outbox_failed=outbox_failed,
+        agent_runs_30d=agent_runs, agent_failures_30d=agent_failures,
+        last_activity_at=last_activity, daily=daily,
+    )
+
+
 @router.post("/platform/tenants", response_model=PlatformTenantProvisioned, status_code=201)
 def provision_platform_tenant(
     data: PlatformTenantCreate,
@@ -517,6 +802,39 @@ def update_platform_tenant_profile(
     profile.website = data.website.strip() if data.website else None
     profile.notes = data.notes.strip() if data.notes else None
     profile.updated_at = datetime.utcnow()
+    primary_contact = session.exec(select(TenantContact).where(
+        TenantContact.tenant_id == tenant_id,
+        TenantContact.is_primary == True,  # noqa: E712
+        TenantContact.is_active == True,  # noqa: E712
+    )).first()
+    if data.contact_name:
+        primary_contact = primary_contact or TenantContact(
+            tenant_id=tenant_id, full_name=data.contact_name.strip(), is_primary=True,
+        )
+        primary_contact.full_name = data.contact_name.strip()
+        primary_contact.job_title = data.contact_job_title.strip() if data.contact_job_title else None
+        primary_contact.email = data.contact_email.strip().lower() if data.contact_email else None
+        primary_contact.phone = data.contact_phone.strip() if data.contact_phone else None
+        primary_contact.updated_at = datetime.utcnow()
+        session.add(primary_contact)
+    headquarters = session.exec(select(Store).where(
+        Store.tenant_id == tenant_id,
+        Store.is_headquarters == True,  # noqa: E712
+    )).first()
+    if headquarters:
+        if data.store_name:
+            headquarters.name = data.store_name.strip()
+        if data.store_code:
+            headquarters.code = data.store_code.strip().upper()
+        headquarters.postal_code = _digits(data.postal_code)
+        headquarters.street = data.street.strip() if data.street else None
+        headquarters.street_number = data.street_number.strip() if data.street_number else None
+        headquarters.address_complement = data.address_complement.strip() if data.address_complement else None
+        headquarters.district = data.district.strip() if data.district else None
+        headquarters.city = data.city.strip() if data.city else None
+        headquarters.state = data.state.strip().upper() if data.state else None
+        headquarters.updated_at = datetime.utcnow()
+        session.add(headquarters)
     session.add(tenant)
     session.add(profile)
     payload = {
@@ -639,6 +957,147 @@ def update_tenant_subscription(
     return subscription
 
 
+def _ensure_capability_definition(session: Session, key: str) -> CapabilityDefinition:
+    contract = CAPABILITY_REGISTRY[key]
+    definition = session.get(CapabilityDefinition, key)
+    if definition is None:
+        definition = CapabilityDefinition(
+            key=contract.key,
+            name=contract.name,
+            version=contract.version,
+            description=contract.description,
+            scope=CapabilityScopeEnum(contract.scope.value),
+            status=CapabilityStatusEnum.ACTIVE,
+            configuration_schema=dict(contract.configuration_schema),
+        )
+    else:
+        definition.name = contract.name
+        definition.version = contract.version
+        definition.description = contract.description
+        definition.scope = CapabilityScopeEnum(contract.scope.value)
+        definition.status = CapabilityStatusEnum.ACTIVE
+        definition.configuration_schema = dict(contract.configuration_schema)
+        definition.updated_at = datetime.utcnow()
+    session.add(definition)
+    return definition
+
+
+@router.get(
+    "/platform/tenants/{tenant_id}/capabilities",
+    response_model=List[CapabilityCatalogItem],
+)
+def tenant_capability_catalog(
+    tenant_id: uuid.UUID,
+    principal: AuthPrincipal = Depends(get_current_principal),
+    session: Session = Depends(get_session),
+):
+    require_platform_role(session, principal, PLATFORM_MANAGERS, require_aal2=True)
+    if session.get(Tenant, tenant_id) is None:
+        raise HTTPException(status_code=404, detail="Tenant não encontrado.")
+    entitlements = {
+        item.key: item for item in session.exec(
+            select(TenantCapability).where(TenantCapability.tenant_id == tenant_id)
+        ).all()
+    }
+    return [
+        CapabilityCatalogItem(
+            key=contract.key,
+            name=contract.name,
+            version=contract.version,
+            scope=contract.scope.value,
+            description=contract.description,
+            requires=list(contract.requires),
+            enabled=bool(entitlements.get(key) and entitlements[key].enabled),
+            status=(
+                getattr(entitlements[key].status, "value", str(entitlements[key].status))
+                if key in entitlements else EntitlementStatusEnum.SUSPENDED.value
+            ),
+            contract_limits=dict(entitlements[key].contract_limits) if key in entitlements else {},
+        )
+        for key, contract in CAPABILITY_REGISTRY.items()
+    ]
+
+
+@router.put(
+    "/platform/tenants/{tenant_id}/capabilities/{capability_key}",
+    response_model=List[CapabilityCatalogItem],
+)
+def update_tenant_capability(
+    tenant_id: uuid.UUID,
+    capability_key: str,
+    data: TenantCapabilityUpdate,
+    principal: AuthPrincipal = Depends(get_current_principal),
+    session: Session = Depends(get_session),
+):
+    actor = require_platform_role(session, principal, PLATFORM_MANAGERS, require_aal2=True)
+    assert actor is not None
+    if session.get(Tenant, tenant_id) is None:
+        raise HTTPException(status_code=404, detail="Tenant não encontrado.")
+    if capability_key not in CAPABILITY_REGISTRY:
+        raise HTTPException(status_code=404, detail="Capacidade não encontrada no catálogo.")
+
+    existing = {
+        item.key: item for item in session.exec(
+            select(TenantCapability).where(TenantCapability.tenant_id == tenant_id)
+        ).all()
+    }
+    changed_keys: list[str] = []
+    if data.enabled:
+        for key in resolve_dependencies([capability_key]):
+            _ensure_capability_definition(session, key)
+        session.flush()
+        for key in resolve_dependencies([capability_key]):
+            entitlement = existing.get(key) or TenantCapability(tenant_id=tenant_id, key=key)
+            entitlement.enabled = True
+            entitlement.status = EntitlementStatusEnum.ACTIVE
+            if key == capability_key:
+                entitlement.contract_limits = data.contract_limits
+            entitlement.updated_at = datetime.utcnow()
+            session.add(entitlement)
+            existing[key] = entitlement
+            changed_keys.append(key)
+    else:
+        blockers = [
+            contract.name for key, contract in CAPABILITY_REGISTRY.items()
+            if key != capability_key
+            and existing.get(key) is not None
+            and existing[key].enabled
+            and capability_key in contract.requires
+        ]
+        if blockers:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Desative primeiro as capacidades dependentes: {', '.join(blockers)}.",
+            )
+        entitlement = existing.get(capability_key)
+        if entitlement is not None:
+            entitlement.enabled = False
+            entitlement.status = EntitlementStatusEnum.SUSPENDED
+            entitlement.contract_limits = data.contract_limits
+            entitlement.updated_at = datetime.utcnow()
+            session.add(entitlement)
+        changed_keys.append(capability_key)
+
+    payload = {
+        "tenant_id": str(tenant_id),
+        "capability_key": capability_key,
+        "enabled": data.enabled,
+        "changed_keys": changed_keys,
+        "reason": data.reason.strip(),
+        "actor_id": str(actor.id),
+    }
+    reliability_service.write_audit_and_outbox(
+        session, tenant_id=tenant_id, store_id=None, actor_id=actor.id,
+        action="platform.tenant.capability_updated",
+        target=f"tenant:{tenant_id}:capability:{capability_key}",
+        audit_payload=payload, aggregate_type="tenant_capability",
+        aggregate_id=f"{tenant_id}:{capability_key}",
+        event_type="platform.tenant.capability_updated", outbox_payload=payload,
+    )
+    session.commit()
+    return tenant_capability_catalog(tenant_id, principal, session)
+
+
 @router.post("/platform/tenants/{tenant_id}/invitations", response_model=PlatformTenantInviteResult, status_code=201)
 def invite_platform_tenant_user(
     tenant_id: uuid.UUID,
@@ -654,10 +1113,13 @@ def invite_platform_tenant_user(
     email = data.email.strip().lower()
     if "@" not in email:
         raise HTTPException(status_code=422, detail="Informe um e-mail válido.")
-    # The Control Plane delivers only the first contractual administrator.
-    # Roles and scopes inside the organization are owned by the customer and
-    # must be managed from the tenant administration experience.
     store = None
+    if data.store_id is not None:
+        store = session.get(Store, data.store_id)
+        if not store or store.tenant_id != tenant_id:
+            raise HTTPException(status_code=422, detail="A unidade informada não pertence ao cliente.")
+    if data.role in {RoleEnum.CASHIER, RoleEnum.OPERATOR} and store is None:
+        raise HTTPException(status_code=422, detail="Este papel exige uma unidade específica.")
 
     existing_user = session.exec(select(User).where(User.email == email)).first()
     if existing_user:
@@ -675,7 +1137,7 @@ def invite_platform_tenant_user(
         delivery_status = "ENVIADO"
     membership = identity_service.provision_tenant_access(
         session, tenant=tenant, email=email, full_name=data.full_name,
-        role=RoleEnum.TENANT_OWNER, store_id=None, actor_id=actor.id,
+        role=data.role, store_id=data.store_id, actor_id=actor.id,
         provider_subject=provider_subject,
     )
     user = session.get(User, membership.user_id)
@@ -683,6 +1145,150 @@ def invite_platform_tenant_user(
     return PlatformTenantInviteResult(
         access=_tenant_access_read(membership, user, store), delivery_status=delivery_status,
     )
+
+
+@router.patch("/platform/tenants/{tenant_id}/accesses/{membership_id}", response_model=PlatformTenantAccessRead)
+def update_platform_tenant_access(
+    tenant_id: uuid.UUID,
+    membership_id: uuid.UUID,
+    data: PlatformTenantAccessUpdate,
+    principal: AuthPrincipal = Depends(get_current_principal),
+    session: Session = Depends(get_session),
+):
+    actor = require_platform_role(session, principal, PLATFORM_MANAGERS, require_aal2=True)
+    assert actor is not None
+    membership = session.get(Membership, membership_id)
+    if not membership or membership.tenant_id != tenant_id:
+        raise HTTPException(status_code=404, detail="Acesso não encontrado.")
+    store = None
+    if data.store_id is not None:
+        store = session.get(Store, data.store_id)
+        if not store or store.tenant_id != tenant_id:
+            raise HTTPException(status_code=422, detail="A unidade informada não pertence ao cliente.")
+    if data.role in {RoleEnum.CASHIER, RoleEnum.OPERATOR} and store is None:
+        raise HTTPException(status_code=422, detail="Este papel exige uma unidade específica.")
+    removing_owner = (
+        membership.role in {RoleEnum.TENANT_OWNER, RoleEnum.OWNER}
+        and membership.status in {MembershipStatusEnum.ACTIVE, MembershipStatusEnum.INVITED}
+        and (
+            data.role not in {RoleEnum.TENANT_OWNER, RoleEnum.OWNER}
+            or data.status in {MembershipStatusEnum.SUSPENDED, MembershipStatusEnum.REVOKED}
+        )
+    )
+    if removing_owner:
+        other_owners = session.exec(select(Membership).where(
+            Membership.tenant_id == tenant_id,
+            Membership.id != membership_id,
+            Membership.role.in_({RoleEnum.TENANT_OWNER, RoleEnum.OWNER}),
+            Membership.status.in_({MembershipStatusEnum.ACTIVE, MembershipStatusEnum.INVITED}),
+        )).all()
+        if not other_owners:
+            raise HTTPException(status_code=409, detail="Conceda outro acesso Owner antes de remover o último administrador.")
+    previous = {
+        "role": getattr(membership.role, "value", str(membership.role)),
+        "status": getattr(membership.status, "value", str(membership.status)),
+        "store_id": str(membership.store_id) if membership.store_id else None,
+    }
+    membership.role = data.role
+    membership.status = data.status
+    membership.store_id = data.store_id
+    membership.updated_at = datetime.utcnow()
+    session.add(membership)
+    payload = {
+        "tenant_id": str(tenant_id), "membership_id": str(membership_id),
+        "previous": previous,
+        "current": {"role": data.role.value, "status": data.status.value, "store_id": str(data.store_id) if data.store_id else None},
+        "reason": data.reason.strip(), "actor_id": str(actor.id),
+    }
+    reliability_service.write_audit_and_outbox(
+        session, tenant_id=tenant_id, store_id=data.store_id, actor_id=actor.id,
+        action="platform.tenant.access_updated", target=f"membership:{membership_id}",
+        audit_payload=payload, aggregate_type="membership", aggregate_id=str(membership_id),
+        event_type="platform.tenant.access_updated", outbox_payload=payload,
+    )
+    session.commit()
+    session.refresh(membership)
+    user = session.get(User, membership.user_id)
+    assert user is not None
+    return _tenant_access_read(membership, user, store)
+
+
+def _apply_store_fields(store: Store, data: PlatformStoreCreate) -> None:
+    store.name = data.name.strip()
+    store.code = data.code.strip().upper()
+    store.site_type = data.site_type.strip().upper()
+    store.tax_id = _normalize_cnpj(data.tax_id)
+    store.state_registration = data.state_registration.strip() if data.state_registration else None
+    store.email = data.email.strip().lower() if data.email else None
+    store.phone = data.phone.strip() if data.phone else None
+    store.postal_code = _digits(data.postal_code)
+    store.street = data.street.strip() if data.street else None
+    store.street_number = data.street_number.strip() if data.street_number else None
+    store.address_complement = data.address_complement.strip() if data.address_complement else None
+    store.district = data.district.strip() if data.district else None
+    store.city = data.city.strip() if data.city else None
+    store.state = data.state.strip().upper() if data.state else None
+    store.updated_at = datetime.utcnow()
+
+
+@router.post("/platform/tenants/{tenant_id}/stores", response_model=Store, status_code=201)
+def create_platform_store(
+    tenant_id: uuid.UUID,
+    data: PlatformStoreCreate,
+    principal: AuthPrincipal = Depends(get_current_principal),
+    session: Session = Depends(get_session),
+):
+    actor = require_platform_role(session, principal, PLATFORM_MANAGERS, require_aal2=True)
+    assert actor is not None
+    if session.get(Tenant, tenant_id) is None:
+        raise HTTPException(status_code=404, detail="Tenant não encontrado.")
+    if session.exec(select(Store).where(Store.tenant_id == tenant_id, Store.code == data.code)).first():
+        raise HTTPException(status_code=409, detail="Já existe uma unidade com este código.")
+    store = Store(tenant_id=tenant_id, name=data.name.strip(), code=data.code.strip().upper(), is_headquarters=False)
+    _apply_store_fields(store, data)
+    session.add(store)
+    session.flush()
+    payload = {"tenant_id": str(tenant_id), "store_id": str(store.id), "code": store.code, "actor_id": str(actor.id)}
+    reliability_service.write_audit_and_outbox(
+        session, tenant_id=tenant_id, store_id=store.id, actor_id=actor.id,
+        action="platform.tenant.store_created", target=f"store:{store.id}",
+        audit_payload=payload, aggregate_type="store", aggregate_id=str(store.id),
+        event_type="platform.tenant.store_created", outbox_payload=payload,
+    )
+    session.commit(); session.refresh(store)
+    return store
+
+
+@router.put("/platform/tenants/{tenant_id}/stores/{store_id}", response_model=Store)
+def update_platform_store(
+    tenant_id: uuid.UUID,
+    store_id: uuid.UUID,
+    data: PlatformStoreUpdate,
+    principal: AuthPrincipal = Depends(get_current_principal),
+    session: Session = Depends(get_session),
+):
+    actor = require_platform_role(session, principal, PLATFORM_MANAGERS, require_aal2=True)
+    assert actor is not None
+    store = session.get(Store, store_id)
+    if not store or store.tenant_id != tenant_id:
+        raise HTTPException(status_code=404, detail="Unidade não encontrada.")
+    duplicate = session.exec(select(Store).where(
+        Store.tenant_id == tenant_id, Store.code == data.code, Store.id != store_id,
+    )).first()
+    if duplicate:
+        raise HTTPException(status_code=409, detail="Já existe uma unidade com este código.")
+    _apply_store_fields(store, data)
+    store.is_active = data.is_active
+    session.add(store)
+    payload = {"tenant_id": str(tenant_id), "store_id": str(store.id), "active": store.is_active, "actor_id": str(actor.id)}
+    reliability_service.write_audit_and_outbox(
+        session, tenant_id=tenant_id, store_id=store.id, actor_id=actor.id,
+        action="platform.tenant.store_updated", target=f"store:{store.id}",
+        audit_payload=payload, aggregate_type="store", aggregate_id=str(store.id),
+        event_type="platform.tenant.store_updated", outbox_payload=payload,
+    )
+    session.commit(); session.refresh(store)
+    return store
 
 
 @router.post("/tenants", response_model=Tenant)
