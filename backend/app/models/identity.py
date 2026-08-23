@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from enum import Enum
 from typing import Optional, List
-from sqlalchemy import Column, Index, String, text
+from sqlalchemy import Column, Index, String, Text, text
 from sqlmodel import SQLModel, Field, Relationship, UniqueConstraint
 
 class RoleEnum(str, Enum):
@@ -18,7 +18,24 @@ class TenantStatusEnum(str, Enum):
     PROVISIONING = "PROVISIONING"
     TRIAL = "TRIAL"
     ACTIVE = "ACTIVE"
+    PAUSED = "PAUSED"
     SUSPENDED = "SUSPENDED"
+    CANCELED = "CANCELED"
+    ARCHIVED = "ARCHIVED"
+
+
+class TenantCustomerTypeEnum(str, Enum):
+    TEST = "TEST"
+    PILOT = "PILOT"
+    CUSTOMER = "CUSTOMER"
+    INTERNAL = "INTERNAL"
+
+
+class SubscriptionStatusEnum(str, Enum):
+    PENDING = "PENDING"
+    TRIAL = "TRIAL"
+    ACTIVE = "ACTIVE"
+    PAUSED = "PAUSED"
     CANCELED = "CANCELED"
 
 class MembershipStatusEnum(str, Enum):
@@ -46,10 +63,102 @@ class Tenant(SQLModel, table=True):
     stores: List["Store"] = Relationship(back_populates="tenant")
     memberships: List["Membership"] = Relationship(back_populates="tenant")
 
+
+class TenantProfile(SQLModel, table=True):
+    """Commercial and legal master data for one platform customer."""
+
+    __tablename__ = "tenant_profiles"
+    __table_args__ = (
+        UniqueConstraint("tax_id", name="uq_tenant_profiles_tax_id"),
+    )
+
+    tenant_id: uuid.UUID = Field(foreign_key="tenants.id", primary_key=True)
+    customer_type: TenantCustomerTypeEnum = Field(
+        default=TenantCustomerTypeEnum.TEST,
+        sa_column=Column(String, nullable=False, index=True),
+    )
+    trade_name: str = Field(index=True, max_length=160)
+    legal_name: Optional[str] = Field(default=None, index=True, max_length=200)
+    tax_id: Optional[str] = Field(default=None, index=True, max_length=14)
+    state_registration: Optional[str] = Field(default=None, max_length=32)
+    municipal_registration: Optional[str] = Field(default=None, max_length=32)
+    industry: Optional[str] = Field(default=None, index=True, max_length=120)
+    company_email: Optional[str] = Field(default=None, index=True, max_length=254)
+    company_phone: Optional[str] = Field(default=None, index=True, max_length=32)
+    website: Optional[str] = Field(default=None, max_length=255)
+    notes: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class TenantContact(SQLModel, table=True):
+    __tablename__ = "tenant_contacts"
+    __table_args__ = (
+        Index(
+            "uq_tenant_primary_contact",
+            "tenant_id",
+            unique=True,
+            postgresql_where=text("is_primary = true AND is_active = true"),
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(foreign_key="tenants.id", index=True)
+    full_name: str = Field(index=True, max_length=160)
+    job_title: Optional[str] = Field(default=None, max_length=120)
+    email: Optional[str] = Field(default=None, index=True, max_length=254)
+    phone: Optional[str] = Field(default=None, index=True, max_length=32)
+    is_primary: bool = Field(default=False, index=True)
+    is_active: bool = Field(default=True, index=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ServicePlan(SQLModel, table=True):
+    """Owner-managed commercial plan; plans are data, not code constants."""
+
+    __tablename__ = "service_plans"
+    __table_args__ = (
+        UniqueConstraint("code", name="uq_service_plans_code"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    code: str = Field(index=True, max_length=60)
+    name: str = Field(index=True, max_length=120)
+    description: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    is_active: bool = Field(default=True, index=True)
+    store_limit: Optional[int] = None
+    user_limit: Optional[int] = None
+    terminal_limit: Optional[int] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class TenantSubscription(SQLModel, table=True):
+    __tablename__ = "tenant_subscriptions"
+
+    tenant_id: uuid.UUID = Field(foreign_key="tenants.id", primary_key=True)
+    plan_id: Optional[uuid.UUID] = Field(default=None, foreign_key="service_plans.id", index=True)
+    status: SubscriptionStatusEnum = Field(
+        default=SubscriptionStatusEnum.PENDING,
+        sa_column=Column(String, nullable=False, index=True),
+    )
+    starts_at: Optional[datetime] = None
+    trial_ends_at: Optional[datetime] = None
+    ends_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
 class Store(SQLModel, table=True):
     __tablename__ = "stores"
     __table_args__ = (
         UniqueConstraint("tenant_id", "code", name="uq_tenant_store_code"),
+        Index(
+            "uq_tenant_headquarters",
+            "tenant_id",
+            unique=True,
+            postgresql_where=text("is_headquarters = true"),
+        ),
     )
     
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
@@ -57,6 +166,20 @@ class Store(SQLModel, table=True):
     name: str = Field(index=True)
     code: str = Field(index=True)
     site_type: str = Field(default="STORE", index=True)
+    is_headquarters: bool = Field(default=False, index=True)
+    legal_name: Optional[str] = Field(default=None, max_length=200)
+    tax_id: Optional[str] = Field(default=None, index=True, max_length=14)
+    state_registration: Optional[str] = Field(default=None, max_length=32)
+    email: Optional[str] = Field(default=None, max_length=254)
+    phone: Optional[str] = Field(default=None, max_length=32)
+    postal_code: Optional[str] = Field(default=None, max_length=8)
+    street: Optional[str] = Field(default=None, max_length=200)
+    street_number: Optional[str] = Field(default=None, max_length=32)
+    address_complement: Optional[str] = Field(default=None, max_length=120)
+    district: Optional[str] = Field(default=None, max_length=120)
+    city: Optional[str] = Field(default=None, max_length=120)
+    state: Optional[str] = Field(default=None, max_length=2)
+    country_code: str = Field(default="BR", max_length=2)
     timezone: str = Field(default="America/Sao_Paulo")
     is_active: bool = Field(default=True, index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)

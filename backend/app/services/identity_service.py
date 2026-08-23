@@ -6,7 +6,8 @@ from sqlmodel import Session, select
 from fastapi import HTTPException, status
 from app.models.identity import (
     AuthIdentity, Tenant, TenantStatusEnum, Store, User, Membership,
-    MembershipStatusEnum, RoleEnum,
+    MembershipStatusEnum, RoleEnum, TenantProfile, TenantContact,
+    TenantSubscription, TenantCustomerTypeEnum, SubscriptionStatusEnum,
 )
 from app.models.reliability import AuditEvent, OutboxEvent, OutboxStatusEnum
 
@@ -32,6 +33,31 @@ def provision_tenant(
     first_store_name: str,
     first_store_code: str,
     actor_id: uuid.UUID,
+    customer_type: TenantCustomerTypeEnum = TenantCustomerTypeEnum.TEST,
+    legal_name: Optional[str] = None,
+    tax_id: Optional[str] = None,
+    state_registration: Optional[str] = None,
+    municipal_registration: Optional[str] = None,
+    industry: Optional[str] = None,
+    company_email: Optional[str] = None,
+    company_phone: Optional[str] = None,
+    website: Optional[str] = None,
+    contact_name: Optional[str] = None,
+    contact_job_title: Optional[str] = None,
+    contact_email: Optional[str] = None,
+    contact_phone: Optional[str] = None,
+    store_tax_id: Optional[str] = None,
+    store_state_registration: Optional[str] = None,
+    store_email: Optional[str] = None,
+    store_phone: Optional[str] = None,
+    postal_code: Optional[str] = None,
+    street: Optional[str] = None,
+    street_number: Optional[str] = None,
+    address_complement: Optional[str] = None,
+    district: Optional[str] = None,
+    city: Optional[str] = None,
+    state: Optional[str] = None,
+    plan_id: Optional[uuid.UUID] = None,
 ) -> tuple[Tenant, Store]:
     """Create the tenant and its first site in one audited transaction."""
     existing = session.exec(select(Tenant).where(Tenant.slug == slug)).first()
@@ -41,14 +67,64 @@ def provision_tenant(
             detail=f"Tenant with slug '{slug}' already exists.",
         )
 
-    tenant = Tenant(name=name, slug=slug, status=TenantStatusEnum.TRIAL)
+    tenant = Tenant(
+        name=name,
+        slug=slug,
+        legal_name=legal_name,
+        status=TenantStatusEnum.TRIAL,
+    )
     session.add(tenant)
     session.flush()
+    profile = TenantProfile(
+        tenant_id=tenant.id,
+        customer_type=customer_type,
+        trade_name=name,
+        legal_name=legal_name,
+        tax_id=tax_id,
+        state_registration=state_registration,
+        municipal_registration=municipal_registration,
+        industry=industry,
+        company_email=company_email,
+        company_phone=company_phone,
+        website=website,
+    )
+    session.add(profile)
+    if contact_name:
+        session.add(TenantContact(
+            tenant_id=tenant.id,
+            full_name=contact_name,
+            job_title=contact_job_title,
+            email=contact_email,
+            phone=contact_phone,
+            is_primary=True,
+        ))
+    session.add(TenantSubscription(
+        tenant_id=tenant.id,
+        plan_id=plan_id,
+        status=(
+            SubscriptionStatusEnum.TRIAL
+            if customer_type in {TenantCustomerTypeEnum.TEST, TenantCustomerTypeEnum.PILOT}
+            else SubscriptionStatusEnum.PENDING
+        ),
+    ))
     store = Store(
         tenant_id=tenant.id,
         name=first_store_name,
         code=first_store_code,
-        site_type="STORE",
+        site_type="HEADQUARTERS",
+        is_headquarters=True,
+        legal_name=legal_name,
+        tax_id=store_tax_id or tax_id,
+        state_registration=store_state_registration or state_registration,
+        email=store_email or company_email,
+        phone=store_phone or company_phone,
+        postal_code=postal_code,
+        street=street,
+        street_number=street_number,
+        address_complement=address_complement,
+        district=district,
+        city=city,
+        state=state,
     )
     session.add(store)
     session.flush()
@@ -60,6 +136,9 @@ def provision_tenant(
         "store_id": str(store.id),
         "store_name": store.name,
         "store_code": store.code,
+        "customer_type": customer_type.value,
+        "profile_complete": bool(legal_name and tax_id and industry and contact_name and city and state),
+        "plan_id": str(plan_id) if plan_id else None,
     }
     session.add(AuditEvent(
         actor_id=actor_id,

@@ -8,17 +8,24 @@ from sqlmodel import Session, select
 from app.api.v1.endpoints.identity import (
     PlatformTenantCreate,
     PlatformTenantInvite,
+    PlatformTenantLifecycleUpdate,
+    ServicePlanCreate,
     complete_owner_onboarding,
     complete_password_setup,
+    create_service_plan,
     get_me,
     platform_overview,
     platform_tenant_detail,
     invite_platform_tenant_user,
     provision_platform_tenant,
+    update_platform_tenant_lifecycle,
 )
 from app.core.database import engine
 from app.core.security import AuthPrincipal
-from app.models.identity import AuthIdentity, MembershipStatusEnum, RoleEnum, User
+from app.models.identity import (
+    AuthIdentity, MembershipStatusEnum, RoleEnum, TenantCustomerTypeEnum,
+    TenantStatusEnum, User,
+)
 from app.models.platform import PlatformMembership, PlatformRoleEnum
 from app.models.reliability import AuditEvent
 
@@ -53,6 +60,16 @@ def _owner(session: Session) -> tuple[str, User]:
     session.commit()
     session.refresh(user)
     return subject, user
+
+
+def _valid_cnpj(base: str) -> str:
+    numbers = [int(digit) for digit in base]
+    for size in (12, 13):
+        weights = list(range(size - 7, 1, -1)) + list(range(9, 1, -1))
+        total = sum(number * weight for number, weight in zip(numbers[:size], weights))
+        remainder = total % 11
+        numbers.append(0 if remainder < 2 else 11 - remainder)
+    return "".join(str(number) for number in numbers)
 
 
 def test_owner_first_access_and_atomic_tenant_provisioning():
@@ -173,3 +190,79 @@ def test_owner_can_open_tenant_and_invite_first_user(monkeypatch):
         complete_password_setup(principal=invited_principal, session=session)
         invited_me = get_me(principal=invited_principal, session=session)
         assert invited_me["memberships"][0].status == MembershipStatusEnum.ACTIVE
+
+
+def test_owner_customer_master_is_persisted_and_audited():
+    suffix = uuid.uuid4().hex[:8]
+    cnpj = _valid_cnpj(f"{int(suffix, 16) % 100_000_000:08d}0001")
+    with Session(engine) as session:
+        owner_subject, owner = _owner(session)
+        principal = _principal(owner_subject)
+        plan = create_service_plan(
+            data=ServicePlanCreate(
+                code=f"PILOT_{suffix.upper()}",
+                name=f"Piloto {suffix}",
+                store_limit=3,
+                user_limit=12,
+                terminal_limit=4,
+            ),
+            principal=principal,
+            session=session,
+        )
+        created = provision_platform_tenant(
+            data=PlatformTenantCreate(
+                name=f"Comércio {suffix}",
+                legal_name=f"Comércio {suffix} LTDA",
+                slug=f"comercio-{suffix}",
+                customer_type=TenantCustomerTypeEnum.PILOT,
+                tax_id=cnpj,
+                state_registration="ISENTO",
+                industry="Varejo",
+                company_email=f"contato-{suffix}@example.test",
+                company_phone="+5521999999999",
+                contact_name="Responsável Contratual",
+                contact_job_title="Diretoria",
+                contact_email=f"responsavel-{suffix}@example.test",
+                contact_phone="+5521988888888",
+                first_store_name="Matriz Centro",
+                first_store_code="MATRIZ",
+                postal_code="20040020",
+                street="Rua do Mercado",
+                street_number="100",
+                district="Centro",
+                city="Rio de Janeiro",
+                state="RJ",
+                plan_id=plan.id,
+            ),
+            principal=principal,
+            session=session,
+        )
+        detail = platform_tenant_detail(
+            tenant_id=created.tenant.id,
+            principal=principal,
+            session=session,
+        )
+        assert detail.tenant.profile_complete is True
+        assert detail.tenant.customer_type == TenantCustomerTypeEnum.PILOT
+        assert detail.profile is not None and detail.profile.tax_id == cnpj
+        assert detail.contacts[0].is_primary is True
+        assert detail.stores[0].is_headquarters is True
+        assert detail.plan is not None and detail.plan.id == plan.id
+
+        paused = update_platform_tenant_lifecycle(
+            tenant_id=created.tenant.id,
+            data=PlatformTenantLifecycleUpdate(
+                status=TenantStatusEnum.PAUSED,
+                reason="Pausa solicitada pelo cliente durante o piloto.",
+            ),
+            principal=principal,
+            session=session,
+        )
+        assert paused.status == TenantStatusEnum.PAUSED
+        audit = session.exec(select(AuditEvent).where(
+            AuditEvent.actor_id == owner.id,
+            AuditEvent.tenant_id == created.tenant.id,
+            AuditEvent.action == "platform.tenant.lifecycle_changed",
+        )).first()
+        assert audit is not None
+        assert "Pausa solicitada" in audit.payload

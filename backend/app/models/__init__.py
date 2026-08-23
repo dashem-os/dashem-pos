@@ -1,6 +1,7 @@
 from app.models.identity import (
     Tenant, Store, User, AuthIdentity, Membership, RoleEnum, TenantStatusEnum,
-    MembershipStatusEnum,
+    MembershipStatusEnum, TenantProfile, TenantContact, ServicePlan,
+    TenantSubscription, TenantCustomerTypeEnum, SubscriptionStatusEnum,
 )
 from app.models.platform import (
     Lead, LeadStatusEnum, PlatformMembership, PlatformRoleEnum,
@@ -31,6 +32,12 @@ __all__ = [
     "RoleEnum",
     "TenantStatusEnum",
     "MembershipStatusEnum",
+    "TenantProfile",
+    "TenantContact",
+    "ServicePlan",
+    "TenantSubscription",
+    "TenantCustomerTypeEnum",
+    "SubscriptionStatusEnum",
     "Lead",
     "LeadStatusEnum",
     "PlatformMembership",

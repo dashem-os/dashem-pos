@@ -1,10 +1,10 @@
 import React, { useState, useMemo } from 'react'
-import { Package, Plus, Sparkles, Star } from 'lucide-react'
+import { Package, Plus, Star } from 'lucide-react'
 import { usePos } from '../../context/PosContext'
 import { formatCurrency, formatStock } from '../../utils/format'
 
 export const QuickProductGrid: React.FC = () => {
-  const { products, categories, prices, balances, addItemToCart, actionLoading, seedDev } = usePos()
+  const { products, categories, prices, balances, addItemToCart, actionLoading } = usePos()
   const [activeTab, setActiveTab] = useState<string>('FAVORITES')
 
   // Top 6 Fast-Access / Favorite products for counter sales
@@ -25,16 +25,8 @@ export const QuickProductGrid: React.FC = () => {
         <Package className="w-10 h-10 text-slate-300 mb-3" />
         <h3 className="text-base font-bold text-slate-800">Catálogo de Produtos Vazio</h3>
         <p className="text-xs text-slate-500 max-w-sm mt-1 mb-4">
-          Nenhum produto cadastrado no momento. Carregue o catálogo de demonstração para testar a operação.
+          Nenhum produto cadastrado. Cadastre ou importe o catálogo real no Dashem Gestão.
         </p>
-        <button
-          onClick={seedDev}
-          disabled={actionLoading}
-          className="h-11 px-5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all flex items-center space-x-2 shadow-sm active:scale-95"
-        >
-          <Sparkles className="w-4 h-4 text-amber-400" />
-          <span>Carregar Catálogo de Demonstração (12 Itens)</span>
-        </button>
       </div>
     )
   }

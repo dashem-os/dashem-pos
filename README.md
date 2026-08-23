@@ -132,8 +132,14 @@ Quando o desenvolvimento for retomado, o objetivo imediato não será ampliar o
 PDV. Primeiro deixaremos o Console Owner profissional e plenamente operacional
 para testar o ciclo de vida dos tenants.
 
+O contrato funcional detalhado deste marco está em
+[`docs/product/owner-console-operational.md`](docs/product/owner-console-operational.md).
+Nenhuma métrica ou cliente será simulado: registros de teste percorrem o mesmo
+modelo persistente e auditável usado por clientes comerciais.
+
 ### 1. Comunicação transacional
 
+- manter temporariamente o Gmail Custom SMTP já validado no Supabase Auth;
 - verificar `auth.dashem.tech` no Resend;
 - publicar SPF, DKIM e DMARC;
 - configurar o Resend como Custom SMTP do Supabase Auth;
@@ -152,6 +158,7 @@ para testar o ciclo de vida dos tenants.
 
 ### 3. Console Owner
 
+- concluir a ficha mestre persistida de clientes, contatos, matriz/filiais e contrato;
 - dashboard de saúde da plataforma;
 - leads e solicitações de acesso;
 - criação, suspensão e reativação de tenants;
@@ -162,6 +169,10 @@ para testar o ciclo de vida dos tenants.
 - suporte assistido explícito, temporário e auditado;
 - limites, planos e estado do onboarding;
 - estados vazios, falhas e retries reais, sem dados hardcoded.
+
+Primeira fundação implementada localmente: modelo cadastral, classificação de
+teste/piloto/cliente, contato principal, endereço da matriz, planos armazenados
+no banco e estados pausado/arquivado com mutações auditadas.
 
 ### 4. Piloto multi-tenant
 

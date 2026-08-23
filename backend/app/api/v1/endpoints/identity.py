@@ -1,3 +1,5 @@
+import json
+import re
 import uuid
 from datetime import datetime
 from typing import List, Optional
@@ -16,13 +18,84 @@ from app.core.security import AuthPrincipal, get_current_principal
 from app.core.tenancy import set_platform_db_context, set_tenant_db_context
 from app.models.identity import (
     Membership, MembershipStatusEnum, RoleEnum, Store, Tenant, TenantStatusEnum, User,
+    TenantProfile, TenantContact, TenantSubscription, ServicePlan,
+    TenantCustomerTypeEnum, SubscriptionStatusEnum,
 )
-from app.models.platform import Lead, LeadStatusEnum, PlatformRoleEnum
+from app.models.platform import (
+    Lead, LeadStatusEnum, PlatformRoleEnum, TenantCapability, CapabilityDefinition,
+)
+from app.models.reliability import AuditEvent, OutboxEvent, OutboxStatusEnum
 from app.services import identity_service, reliability_service, supabase_admin
 
 
 router = APIRouter(dependencies=[Depends(get_current_principal)])
 PLATFORM_MANAGERS = {PlatformRoleEnum.PLATFORM_OWNER, PlatformRoleEnum.PLATFORM_ADMIN}
+
+
+def _digits(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    normalized = re.sub(r"\D", "", value)
+    return normalized or None
+
+
+def _valid_cnpj(value: str) -> bool:
+    if len(value) != 14 or value == value[0] * 14:
+        return False
+    numbers = [int(digit) for digit in value]
+    for size in (12, 13):
+        weights = list(range(size - 7, 1, -1)) + list(range(9, 1, -1))
+        total = sum(number * weight for number, weight in zip(numbers[:size], weights))
+        remainder = total % 11
+        expected = 0 if remainder < 2 else 11 - remainder
+        if numbers[size] != expected:
+            return False
+    return True
+
+
+def _normalize_cnpj(value: Optional[str]) -> Optional[str]:
+    normalized = _digits(value)
+    if normalized and not _valid_cnpj(normalized):
+        raise HTTPException(status_code=422, detail="Informe um CNPJ válido.")
+    return normalized
+
+
+def _profile_complete(profile: Optional[TenantProfile], contacts: list[TenantContact], stores: list[Store]) -> bool:
+    if not profile:
+        return False
+    headquarters = next((store for store in stores if store.is_headquarters), None)
+    primary = next((contact for contact in contacts if contact.is_primary and contact.is_active), None)
+    return bool(
+        profile.legal_name and profile.tax_id and profile.industry
+        and profile.company_phone and primary and primary.full_name
+        and headquarters and headquarters.postal_code and headquarters.street
+        and headquarters.street_number and headquarters.city and headquarters.state
+    )
+
+
+def _tenant_read(
+    tenant: Tenant,
+    *,
+    store_count: int,
+    profile: Optional[TenantProfile] = None,
+    contacts: Optional[list[TenantContact]] = None,
+    stores: Optional[list[Store]] = None,
+) -> "PlatformTenantRead":
+    return PlatformTenantRead(
+        id=tenant.id,
+        name=tenant.name,
+        slug=tenant.slug,
+        status=getattr(tenant.status, "value", str(tenant.status)),
+        created_at=tenant.created_at,
+        store_count=store_count,
+        customer_type=(
+            getattr(profile.customer_type, "value", str(profile.customer_type))
+            if profile else None
+        ),
+        legal_name=profile.legal_name if profile else tenant.legal_name,
+        tax_id=profile.tax_id if profile else None,
+        profile_complete=_profile_complete(profile, contacts or [], stores or []),
+    )
 
 
 class TenantCreate(BaseModel):
@@ -39,6 +112,27 @@ class PlatformTenantCreate(BaseModel):
     )
     first_store_name: str = PydanticField(min_length=2, max_length=160)
     first_store_code: str = PydanticField(min_length=2, max_length=40)
+    customer_type: TenantCustomerTypeEnum = TenantCustomerTypeEnum.TEST
+    legal_name: Optional[str] = PydanticField(default=None, min_length=2, max_length=200)
+    tax_id: Optional[str] = PydanticField(default=None, max_length=18)
+    state_registration: Optional[str] = PydanticField(default=None, max_length=32)
+    municipal_registration: Optional[str] = PydanticField(default=None, max_length=32)
+    industry: Optional[str] = PydanticField(default=None, max_length=120)
+    company_email: Optional[str] = PydanticField(default=None, max_length=254)
+    company_phone: Optional[str] = PydanticField(default=None, max_length=32)
+    website: Optional[str] = PydanticField(default=None, max_length=255)
+    contact_name: Optional[str] = PydanticField(default=None, max_length=160)
+    contact_job_title: Optional[str] = PydanticField(default=None, max_length=120)
+    contact_email: Optional[str] = PydanticField(default=None, max_length=254)
+    contact_phone: Optional[str] = PydanticField(default=None, max_length=32)
+    postal_code: Optional[str] = PydanticField(default=None, max_length=10)
+    street: Optional[str] = PydanticField(default=None, max_length=200)
+    street_number: Optional[str] = PydanticField(default=None, max_length=32)
+    address_complement: Optional[str] = PydanticField(default=None, max_length=120)
+    district: Optional[str] = PydanticField(default=None, max_length=120)
+    city: Optional[str] = PydanticField(default=None, max_length=120)
+    state: Optional[str] = PydanticField(default=None, max_length=2)
+    plan_id: Optional[uuid.UUID] = None
 
 
 class PlatformTenantRead(BaseModel):
@@ -48,6 +142,10 @@ class PlatformTenantRead(BaseModel):
     status: str
     created_at: datetime
     store_count: int
+    customer_type: Optional[str] = None
+    legal_name: Optional[str] = None
+    tax_id: Optional[str] = None
+    profile_complete: bool = False
 
 
 class PlatformOverview(BaseModel):
@@ -77,8 +175,54 @@ class PlatformTenantAccessRead(BaseModel):
 
 class PlatformTenantDetail(BaseModel):
     tenant: PlatformTenantRead
+    profile: Optional[TenantProfile] = None
+    contacts: List[TenantContact]
+    subscription: Optional[TenantSubscription] = None
+    plan: Optional[ServicePlan] = None
     stores: List[Store]
     accesses: List[PlatformTenantAccessRead]
+    capabilities: List[TenantCapability]
+
+
+class PlatformTenantProfileUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = PydanticField(min_length=2, max_length=160)
+    customer_type: TenantCustomerTypeEnum
+    legal_name: Optional[str] = PydanticField(default=None, max_length=200)
+    tax_id: Optional[str] = PydanticField(default=None, max_length=18)
+    state_registration: Optional[str] = PydanticField(default=None, max_length=32)
+    municipal_registration: Optional[str] = PydanticField(default=None, max_length=32)
+    industry: Optional[str] = PydanticField(default=None, max_length=120)
+    company_email: Optional[str] = PydanticField(default=None, max_length=254)
+    company_phone: Optional[str] = PydanticField(default=None, max_length=32)
+    website: Optional[str] = PydanticField(default=None, max_length=255)
+    notes: Optional[str] = None
+
+
+class PlatformTenantLifecycleUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: TenantStatusEnum
+    reason: str = PydanticField(min_length=3, max_length=500)
+
+
+class ServicePlanCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: str = PydanticField(min_length=2, max_length=60, pattern=r"^[A-Z0-9_-]+$")
+    name: str = PydanticField(min_length=2, max_length=120)
+    description: Optional[str] = None
+    store_limit: Optional[int] = PydanticField(default=None, ge=1)
+    user_limit: Optional[int] = PydanticField(default=None, ge=1)
+    terminal_limit: Optional[int] = PydanticField(default=None, ge=1)
+
+
+class TenantSubscriptionUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    plan_id: Optional[uuid.UUID] = None
+    status: SubscriptionStatusEnum
 
 
 class PlatformTenantInvite(BaseModel):
@@ -209,9 +353,17 @@ def platform_overview(
     require_platform_role(session, principal, PLATFORM_MANAGERS, require_aal2=True)
     tenants = session.exec(select(Tenant).order_by(Tenant.created_at.desc())).all()
     stores = session.exec(select(Store)).all()
+    profiles = session.exec(select(TenantProfile)).all()
+    contacts = session.exec(select(TenantContact).where(TenantContact.is_active == True)).all()  # noqa: E712
+    profile_map = {profile.tenant_id: profile for profile in profiles}
+    contact_map: dict[uuid.UUID, list[TenantContact]] = {}
+    store_map: dict[uuid.UUID, list[Store]] = {}
+    for contact in contacts:
+        contact_map.setdefault(contact.tenant_id, []).append(contact)
     store_counts: dict[uuid.UUID, int] = {}
     for store in stores:
         store_counts[store.tenant_id] = store_counts.get(store.tenant_id, 0) + 1
+        store_map.setdefault(store.tenant_id, []).append(store)
     leads = session.exec(select(Lead).where(Lead.status != LeadStatusEnum.LOST)).all()
     return PlatformOverview(
         tenant_count=len(tenants),
@@ -219,13 +371,12 @@ def platform_overview(
         active_count=sum(1 for tenant in tenants if tenant.status == TenantStatusEnum.ACTIVE),
         lead_count=len(leads),
         tenants=[
-            PlatformTenantRead(
-                id=tenant.id,
-                name=tenant.name,
-                slug=tenant.slug,
-                status=getattr(tenant.status, "value", str(tenant.status)),
-                created_at=tenant.created_at,
+            _tenant_read(
+                tenant,
                 store_count=store_counts.get(tenant.id, 0),
+                profile=profile_map.get(tenant.id),
+                contacts=contact_map.get(tenant.id, []),
+                stores=store_map.get(tenant.id, []),
             )
             for tenant in tenants
         ],
@@ -242,6 +393,9 @@ def provision_platform_tenant(
         session, principal, PLATFORM_MANAGERS, require_aal2=True
     )
     assert user is not None
+    tax_id = _normalize_cnpj(data.tax_id)
+    if data.plan_id and session.get(ServicePlan, data.plan_id) is None:
+        raise HTTPException(status_code=422, detail="Plano não encontrado.")
     tenant, store = identity_service.provision_tenant(
         session,
         name=data.name.strip(),
@@ -249,6 +403,27 @@ def provision_platform_tenant(
         first_store_name=data.first_store_name.strip(),
         first_store_code=data.first_store_code.strip().upper(),
         actor_id=user.id,
+        customer_type=data.customer_type,
+        legal_name=data.legal_name.strip() if data.legal_name else None,
+        tax_id=tax_id,
+        state_registration=data.state_registration.strip() if data.state_registration else None,
+        municipal_registration=data.municipal_registration.strip() if data.municipal_registration else None,
+        industry=data.industry.strip() if data.industry else None,
+        company_email=data.company_email.strip().lower() if data.company_email else None,
+        company_phone=data.company_phone.strip() if data.company_phone else None,
+        website=data.website.strip() if data.website else None,
+        contact_name=data.contact_name.strip() if data.contact_name else None,
+        contact_job_title=data.contact_job_title.strip() if data.contact_job_title else None,
+        contact_email=data.contact_email.strip().lower() if data.contact_email else None,
+        contact_phone=data.contact_phone.strip() if data.contact_phone else None,
+        postal_code=_digits(data.postal_code),
+        street=data.street.strip() if data.street else None,
+        street_number=data.street_number.strip() if data.street_number else None,
+        address_complement=data.address_complement.strip() if data.address_complement else None,
+        district=data.district.strip() if data.district else None,
+        city=data.city.strip() if data.city else None,
+        state=data.state.strip().upper() if data.state else None,
+        plan_id=data.plan_id,
     )
     return PlatformTenantProvisioned(tenant=tenant, first_store=store)
 
@@ -274,19 +449,194 @@ def platform_tenant_detail(
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant não encontrado.")
     stores = session.exec(select(Store).where(Store.tenant_id == tenant_id)).all()
+    profile = session.get(TenantProfile, tenant_id)
+    contacts = session.exec(
+        select(TenantContact).where(TenantContact.tenant_id == tenant_id).order_by(TenantContact.is_primary.desc(), TenantContact.full_name)
+    ).all()
+    subscription = session.get(TenantSubscription, tenant_id)
+    plan = session.get(ServicePlan, subscription.plan_id) if subscription and subscription.plan_id else None
+    capabilities = session.exec(
+        select(TenantCapability).where(TenantCapability.tenant_id == tenant_id).order_by(TenantCapability.key)
+    ).all()
     store_map = {store.id: store for store in stores}
     rows = session.exec(
         select(Membership, User).join(User, User.id == Membership.user_id).where(Membership.tenant_id == tenant_id)
     ).all()
     return PlatformTenantDetail(
-        tenant=PlatformTenantRead(
-            id=tenant.id, name=tenant.name, slug=tenant.slug,
-            status=getattr(tenant.status, "value", str(tenant.status)),
-            created_at=tenant.created_at, store_count=len(stores),
+        tenant=_tenant_read(
+            tenant, store_count=len(stores), profile=profile, contacts=list(contacts), stores=list(stores),
         ),
+        profile=profile,
+        contacts=list(contacts),
+        subscription=subscription,
+        plan=plan,
         stores=stores,
         accesses=[_tenant_access_read(membership, user, store_map.get(membership.store_id)) for membership, user in rows],
+        capabilities=list(capabilities),
     )
+
+
+@router.put("/platform/tenants/{tenant_id}/profile", response_model=TenantProfile)
+def update_platform_tenant_profile(
+    tenant_id: uuid.UUID,
+    data: PlatformTenantProfileUpdate,
+    principal: AuthPrincipal = Depends(get_current_principal),
+    session: Session = Depends(get_session),
+):
+    actor = require_platform_role(session, principal, PLATFORM_MANAGERS, require_aal2=True)
+    assert actor is not None
+    tenant = session.get(Tenant, tenant_id)
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant não encontrado.")
+    profile = session.get(TenantProfile, tenant_id) or TenantProfile(
+        tenant_id=tenant_id,
+        customer_type=data.customer_type,
+        trade_name=data.name.strip(),
+    )
+    normalized_tax_id = _normalize_cnpj(data.tax_id)
+    if normalized_tax_id:
+        duplicate = session.exec(select(TenantProfile).where(
+            TenantProfile.tax_id == normalized_tax_id,
+            TenantProfile.tenant_id != tenant_id,
+        )).first()
+        if duplicate:
+            raise HTTPException(status_code=409, detail="Este CNPJ já pertence a outro cliente.")
+    previous_type = getattr(profile.customer_type, "value", str(profile.customer_type))
+    tenant.name = data.name.strip()
+    tenant.legal_name = data.legal_name.strip() if data.legal_name else None
+    tenant.updated_at = datetime.utcnow()
+    profile.customer_type = data.customer_type
+    profile.trade_name = tenant.name
+    profile.legal_name = tenant.legal_name
+    profile.tax_id = normalized_tax_id
+    profile.state_registration = data.state_registration.strip() if data.state_registration else None
+    profile.municipal_registration = data.municipal_registration.strip() if data.municipal_registration else None
+    profile.industry = data.industry.strip() if data.industry else None
+    profile.company_email = data.company_email.strip().lower() if data.company_email else None
+    profile.company_phone = data.company_phone.strip() if data.company_phone else None
+    profile.website = data.website.strip() if data.website else None
+    profile.notes = data.notes.strip() if data.notes else None
+    profile.updated_at = datetime.utcnow()
+    session.add(tenant)
+    session.add(profile)
+    payload = {
+        "tenant_id": str(tenant_id),
+        "changed_by": str(actor.id),
+        "customer_type_from": previous_type,
+        "customer_type_to": data.customer_type.value,
+    }
+    reliability_service.write_audit_and_outbox(
+        session, tenant_id=tenant_id, store_id=None, actor_id=actor.id,
+        action="platform.tenant.profile_updated", target=f"tenant:{tenant_id}",
+        audit_payload=payload, aggregate_type="tenant", aggregate_id=str(tenant_id),
+        event_type="platform.tenant.profile_updated", outbox_payload=payload,
+    )
+    session.commit()
+    session.refresh(profile)
+    return profile
+
+
+@router.patch("/platform/tenants/{tenant_id}/lifecycle", response_model=Tenant)
+def update_platform_tenant_lifecycle(
+    tenant_id: uuid.UUID,
+    data: PlatformTenantLifecycleUpdate,
+    principal: AuthPrincipal = Depends(get_current_principal),
+    session: Session = Depends(get_session),
+):
+    actor = require_platform_role(session, principal, PLATFORM_MANAGERS, require_aal2=True)
+    assert actor is not None
+    tenant = session.get(Tenant, tenant_id)
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant não encontrado.")
+    previous = getattr(tenant.status, "value", str(tenant.status))
+    if previous == data.status.value:
+        raise HTTPException(status_code=409, detail="O cliente já está neste estado.")
+    tenant.status = data.status
+    tenant.updated_at = datetime.utcnow()
+    session.add(tenant)
+    payload = {
+        "tenant_id": str(tenant_id), "from": previous, "to": data.status.value,
+        "reason": data.reason.strip(), "actor_id": str(actor.id),
+    }
+    reliability_service.write_audit_and_outbox(
+        session, tenant_id=tenant_id, store_id=None, actor_id=actor.id,
+        action="platform.tenant.lifecycle_changed", target=f"tenant:{tenant_id}",
+        audit_payload=payload, aggregate_type="tenant", aggregate_id=str(tenant_id),
+        event_type="platform.tenant.lifecycle_changed", outbox_payload=payload,
+    )
+    session.commit()
+    session.refresh(tenant)
+    return tenant
+
+
+@router.get("/platform/plans", response_model=List[ServicePlan])
+def list_service_plans(
+    principal: AuthPrincipal = Depends(get_current_principal),
+    session: Session = Depends(get_session),
+):
+    require_platform_role(session, principal, PLATFORM_MANAGERS, require_aal2=True)
+    return list(session.exec(select(ServicePlan).order_by(ServicePlan.name)).all())
+
+
+@router.post("/platform/plans", response_model=ServicePlan, status_code=201)
+def create_service_plan(
+    data: ServicePlanCreate,
+    principal: AuthPrincipal = Depends(get_current_principal),
+    session: Session = Depends(get_session),
+):
+    actor = require_platform_role(session, principal, PLATFORM_MANAGERS, require_aal2=True)
+    assert actor is not None
+    code = data.code.strip().upper()
+    if session.exec(select(ServicePlan).where(ServicePlan.code == code)).first():
+        raise HTTPException(status_code=409, detail="Já existe um plano com este código.")
+    plan = ServicePlan(
+        code=code, name=data.name.strip(), description=data.description,
+        store_limit=data.store_limit, user_limit=data.user_limit,
+        terminal_limit=data.terminal_limit,
+    )
+    session.add(plan)
+    session.flush()
+    session.add(AuditEvent(
+        actor_id=actor.id, tenant_id=None, store_id=None, platform_scope=True,
+        action="platform.plan.created", target=f"service_plan:{plan.id}",
+        payload=json.dumps({"plan_id": str(plan.id), "code": plan.code}),
+    ))
+    session.commit()
+    session.refresh(plan)
+    return plan
+
+
+@router.put("/platform/tenants/{tenant_id}/subscription", response_model=TenantSubscription)
+def update_tenant_subscription(
+    tenant_id: uuid.UUID,
+    data: TenantSubscriptionUpdate,
+    principal: AuthPrincipal = Depends(get_current_principal),
+    session: Session = Depends(get_session),
+):
+    actor = require_platform_role(session, principal, PLATFORM_MANAGERS, require_aal2=True)
+    assert actor is not None
+    if session.get(Tenant, tenant_id) is None:
+        raise HTTPException(status_code=404, detail="Tenant não encontrado.")
+    if data.plan_id and session.get(ServicePlan, data.plan_id) is None:
+        raise HTTPException(status_code=422, detail="Plano não encontrado.")
+    subscription = session.get(TenantSubscription, tenant_id) or TenantSubscription(tenant_id=tenant_id)
+    subscription.plan_id = data.plan_id
+    subscription.status = data.status
+    subscription.updated_at = datetime.utcnow()
+    session.add(subscription)
+    payload = {
+        "tenant_id": str(tenant_id), "plan_id": str(data.plan_id) if data.plan_id else None,
+        "status": data.status.value, "actor_id": str(actor.id),
+    }
+    reliability_service.write_audit_and_outbox(
+        session, tenant_id=tenant_id, store_id=None, actor_id=actor.id,
+        action="platform.tenant.subscription_updated", target=f"tenant:{tenant_id}",
+        audit_payload=payload, aggregate_type="tenant_subscription", aggregate_id=str(tenant_id),
+        event_type="platform.tenant.subscription_updated", outbox_payload=payload,
+    )
+    session.commit()
+    session.refresh(subscription)
+    return subscription
 
 
 @router.post("/platform/tenants/{tenant_id}/invitations", response_model=PlatformTenantInviteResult, status_code=201)

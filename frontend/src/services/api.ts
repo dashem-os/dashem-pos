@@ -18,7 +18,7 @@ export interface Tenant {
   id: string
   name: string
   slug: string
-  status?: 'PROVISIONING' | 'TRIAL' | 'ACTIVE' | 'SUSPENDED' | 'CANCELED'
+  status?: TenantLifecycleStatus
   created_at?: string
 }
 
@@ -27,6 +27,22 @@ export interface Store {
   tenant_id: string
   name: string
   code: string
+  site_type?: string
+  is_headquarters?: boolean
+  legal_name?: string
+  tax_id?: string
+  state_registration?: string
+  email?: string
+  phone?: string
+  postal_code?: string
+  street?: string
+  street_number?: string
+  address_complement?: string
+  district?: string
+  city?: string
+  state?: string
+  country_code?: string
+  is_active?: boolean
 }
 
 export interface Category {
@@ -211,9 +227,75 @@ export interface PlatformTenantSummary {
   id: string
   name: string
   slug: string
-  status: 'PROVISIONING' | 'TRIAL' | 'ACTIVE' | 'SUSPENDED' | 'CANCELED'
+  status: TenantLifecycleStatus
   created_at: string
   store_count: number
+  customer_type: TenantCustomerType
+  legal_name?: string
+  tax_id?: string
+  profile_complete: boolean
+}
+
+export type TenantLifecycleStatus = 'PROVISIONING' | 'TRIAL' | 'ACTIVE' | 'PAUSED' | 'SUSPENDED' | 'CANCELED' | 'ARCHIVED'
+export type TenantCustomerType = 'TEST' | 'PILOT' | 'CUSTOMER' | 'INTERNAL'
+export type SubscriptionStatus = 'PENDING' | 'TRIAL' | 'ACTIVE' | 'PAUSED' | 'CANCELED'
+
+export interface TenantProfile {
+  tenant_id: string
+  customer_type: TenantCustomerType
+  trade_name: string
+  legal_name?: string
+  tax_id?: string
+  state_registration?: string
+  municipal_registration?: string
+  industry?: string
+  company_email?: string
+  company_phone?: string
+  website?: string
+  notes?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface TenantContact {
+  id: string
+  tenant_id: string
+  full_name: string
+  job_title?: string
+  email?: string
+  phone?: string
+  is_primary: boolean
+  is_active: boolean
+}
+
+export interface ServicePlan {
+  id: string
+  code: string
+  name: string
+  description?: string
+  is_active: boolean
+  store_limit?: number
+  user_limit?: number
+  terminal_limit?: number
+}
+
+export interface TenantSubscription {
+  tenant_id: string
+  plan_id?: string
+  status: SubscriptionStatus
+  starts_at?: string
+  trial_ends_at?: string
+  ends_at?: string
+}
+
+export interface TenantCapability {
+  id: string
+  tenant_id: string
+  key: string
+  enabled: boolean
+  status: string
+  contract_limits: Record<string, unknown>
+  configuration: Record<string, unknown>
 }
 
 export interface PlatformOverview {
@@ -243,8 +325,13 @@ export interface PlatformTenantAccess {
 
 export interface PlatformTenantDetail {
   tenant: PlatformTenantSummary
+  profile?: TenantProfile
+  contacts: TenantContact[]
+  subscription?: TenantSubscription
+  plan?: ServicePlan
   stores: Store[]
   accesses: PlatformTenantAccess[]
+  capabilities: TenantCapability[]
 }
 
 export interface PaymentConfirmResponse {
@@ -309,6 +396,27 @@ export async function provisionPlatformTenant(input: {
   slug: string
   first_store_name: string
   first_store_code: string
+  customer_type: TenantCustomerType
+  legal_name?: string
+  tax_id?: string
+  state_registration?: string
+  municipal_registration?: string
+  industry?: string
+  company_email?: string
+  company_phone?: string
+  website?: string
+  contact_name?: string
+  contact_job_title?: string
+  contact_email?: string
+  contact_phone?: string
+  postal_code?: string
+  street?: string
+  street_number?: string
+  address_complement?: string
+  district?: string
+  city?: string
+  state?: string
+  plan_id?: string
 }): Promise<PlatformTenantProvisioned> {
   const res = await fetch(`${API_BASE_URL}/api/v1/identity/platform/tenants`, {
     method: 'POST',
@@ -316,6 +424,26 @@ export async function provisionPlatformTenant(input: {
     body: JSON.stringify(input),
   })
   if (!res.ok) throw await apiError(res, 'Não foi possível criar o tenant.')
+  return res.json()
+}
+
+export async function fetchServicePlans(): Promise<ServicePlan[]> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/identity/platform/plans`)
+  if (!res.ok) throw await apiError(res, 'Não foi possível carregar os planos.')
+  return res.json()
+}
+
+export async function updatePlatformTenantLifecycle(
+  tenantId: string,
+  status: TenantLifecycleStatus,
+  reason: string,
+): Promise<Tenant> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/identity/platform/tenants/${tenantId}/lifecycle`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status, reason }),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível alterar o estado do cliente.')
   return res.json()
 }
 
@@ -803,104 +931,4 @@ export async function getFiscalDocument(headers: Record<string, string>, fiscalD
   const res = await fetch(`${API_BASE_URL}/api/v1/fiscal/documents/${fiscalDocumentId}`, { headers })
   if (!res.ok) throw new Error('Documento fiscal não encontrado')
   return res.json()
-}
-
-// ----------------------------------------------------------------------
-// IDEMPOTENT DEVELOPMENT SEED HELPER
-// ----------------------------------------------------------------------
-
-export async function seedDevEnvironment(operatorId: string): Promise<{ tenant: Tenant; store: Store; register: Register; cashSession: CashSession }> {
-  // Check if any tenant exists
-  const tenants = await fetchTenants()
-  let tenant = tenants[0]
-  if (!tenant) {
-    tenant = await createTenant('Dashem Retail Store', 'dashem-retail-01')
-  }
-
-  // Check if store exists
-  const stores = await fetchStores(tenant.id)
-  let store = stores[0]
-  if (!store) {
-    store = await createStore(tenant.id, 'Loja Matriz Centro', 'MC-01')
-  }
-
-  const hdrs = { 'X-Tenant-ID': tenant.id, 'X-Store-ID': store.id }
-
-  // Check register
-  const registers = await fetchRegisters(hdrs, store.id)
-  let register = registers[0]
-  if (!register) {
-    register = await createRegister(hdrs, store.id, 'Caixa Principal 01', 'CX-01')
-  }
-
-  // Check active cash session
-  let activeSession = await fetchActiveCashSession(hdrs, store.id, register.id)
-  if (!activeSession) {
-    activeSession = await openCashSession(hdrs, store.id, register.id, operatorId, 100.0)
-  }
-
-  // Seed default categories & products if catalog is empty
-  const prods = await fetchProducts(hdrs)
-  if (prods.length === 0) {
-    // 1. Create Real Categories
-    const existingCats = await fetchCategories(hdrs)
-    const catMap: Record<string, string> = {}
-    for (const c of existingCats) {
-      catMap[c.name] = c.id
-    }
-
-    const categoriesToSeed = [
-      { name: 'Elétrica', slug: 'eletrica' },
-      { name: 'Iluminação', slug: 'iluminacao' },
-      { name: 'Acessórios', slug: 'acessorios' },
-      { name: 'Ferramentas', slug: 'ferramentas' }
-    ]
-
-    for (const c of categoriesToSeed) {
-      if (!catMap[c.name]) {
-        const createdCat = await createCategory(hdrs, c.name, c.slug).catch(() => null)
-        if (createdCat) catMap[c.name] = createdCat.id
-      }
-    }
-
-    // 2. Create Products linked to Category ID
-    const initialItems = [
-      { name: 'Cabo Flexível 2.5mm (Rolo 100m)', sku: 'CAB-25M', barcode: '7891000000014', price: 89.90, type: 'PRODUCT' as const, qty: 25, category: 'Elétrica' },
-      { name: 'Disjuntor Bipolar 32A DIN Curva C', sku: 'DISJ-32A', barcode: '7891000000021', price: 44.50, type: 'PRODUCT' as const, qty: 18, category: 'Elétrica' },
-      { name: 'Lâmpada LED Bulbo 12W Bivolt E27', sku: 'LAMP-12W', barcode: '7891000000038', price: 14.90, type: 'PRODUCT' as const, qty: 50, category: 'Iluminação' },
-      { name: 'Plafon LED Sobrepor 18W Quadrado', sku: 'PLAF-18W', barcode: '7891000000045', price: 38.00, type: 'PRODUCT' as const, qty: 14, category: 'Iluminação' },
-      { name: 'Tomada Dupla 20A com Placa 4x2', sku: 'TOM-20A', barcode: '7891000000052', price: 22.90, type: 'PRODUCT' as const, qty: 40, category: 'Elétrica' },
-      { name: 'Fita Isolante 3M Imperial 20m', sku: 'FITA-20M', barcode: '7891000000069', price: 11.50, type: 'PRODUCT' as const, qty: 60, category: 'Acessórios' },
-      { name: 'Refletor LED 50W IP65 Branco Frio', sku: 'REFL-50W', barcode: '7891000000076', price: 68.00, type: 'PRODUCT' as const, qty: 12, category: 'Iluminação' },
-      { name: 'Fita LED 5050 5m Branco Quente', sku: 'FLED-5M', barcode: '7891000000083', price: 49.90, type: 'PRODUCT' as const, qty: 15, category: 'Iluminação' },
-      { name: 'Canaleta 20x10mm com Fita Dupla Face 2m', sku: 'CAN-2010', barcode: '7891000000090', price: 8.50, type: 'PRODUCT' as const, qty: 35, category: 'Acessórios' },
-      { name: 'Interruptor Paralelo Simples com Placa', sku: 'INT-PAR', barcode: '7891000000106', price: 16.90, type: 'PRODUCT' as const, qty: 28, category: 'Elétrica' },
-      { name: 'Chave de Teste Digital 12-250V', sku: 'CHAV-TEST', barcode: '7891000000113', price: 28.00, type: 'PRODUCT' as const, qty: 20, category: 'Ferramentas' },
-      { name: 'Alicate Decapador e Crimpador Automático', sku: 'ALIC-DEC', barcode: '7891000000120', price: 75.00, type: 'PRODUCT' as const, qty: 8, category: 'Ferramentas' }
-    ]
-
-    for (const item of initialItems) {
-      const created = await createProduct(hdrs, {
-        name: item.name,
-        sku: item.sku,
-        barcode: item.barcode,
-        description: item.category,
-        category_id: catMap[item.category] || undefined,
-        item_type: item.type
-      })
-      await setProductPrice(hdrs, created.id, store.id, item.price)
-      if (item.type === 'PRODUCT' && item.qty > 0) {
-        await adjustInventory(hdrs, {
-          store_id: store.id,
-          product_id: created.id,
-          actor_id: operatorId,
-          movement_type: 'PURCHASE',
-          quantity: item.qty,
-          reason: 'Carga Inicial Estoque Dev'
-        })
-      }
-    }
-  }
-
-  return { tenant, store, register, cashSession: activeSession }
 }

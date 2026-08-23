@@ -67,7 +67,6 @@ interface PosContextType {
   createNewProduct: (product: { name: string; sku: string; barcode?: string; item_type?: 'PRODUCT' | 'SERVICE' }, price: number, initialStock?: number) => Promise<void>
   adjustStock: (productId: string, quantity: number, type: string, reason?: string) => Promise<void>
   refreshData: () => Promise<void>
-  seedDev: () => Promise<void>
 }
 
 const PosContext = createContext<PosContextType | undefined>(undefined)
@@ -127,14 +126,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       if (me.user) setOperatorId(me.user.id)
 
       const tenants = await api.fetchTenants()
-      if (tenants.length === 0) {
-        // Run seed only if totally empty
-        const seeded = await api.seedDevEnvironment(operatorId)
-        setTenant(seeded.tenant)
-        setStore(seeded.store)
-        setRegister(seeded.register)
-        setCashSession(seeded.cashSession)
-      } else {
+      if (tenants.length > 0) {
         const t = tenants[0]
         setTenant(t)
         const stores = await api.fetchStores(t.id)
@@ -560,24 +552,6 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }
 
-  const seedDev = async () => {
-    try {
-      setActionLoading(true)
-      const res = await api.seedDevEnvironment(operatorId)
-      setTenant(res.tenant)
-      setStore(res.store)
-      setRegister(res.register)
-      setCashSession(res.cashSession)
-      showToast('success', 'Ambiente de desenvolvimento inicializado com dados padrão!')
-      refreshData()
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Erro ao inicializar ambiente dev'
-      showToast('error', msg)
-    } finally {
-      setActionLoading(false)
-    }
-  }
-
   return (
     <PosContext.Provider
       value={{
@@ -631,8 +605,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         addCashMovement,
         createNewProduct,
         adjustStock,
-        refreshData,
-        seedDev
+        refreshData
       }}
     >
       {children}
