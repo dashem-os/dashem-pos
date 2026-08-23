@@ -1,16 +1,8 @@
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import {
-  Home,
-  ShoppingCart,
-  FileText,
-  Package,
-  Banknote,
-  LogOut,
-  Store as StoreIcon,
-  CheckCircle2,
-  AlertCircle,
-  Menu,
-  X
+  Banknote, Boxes, Building2, ChefHat, CircleDollarSign, FileText, Home,
+  LogOut, Menu, Package, Plug, Printer, Receipt, ShieldCheck,
+  ShoppingCart, Store as StoreIcon, Tags, Users, WalletCards, X,
 } from 'lucide-react'
 import { usePos } from '../context/PosContext'
 import { useAuth } from '../context/AuthContext'
@@ -18,187 +10,85 @@ import { DashboardBI } from '../components/management/DashboardBI'
 import { SalesHistory } from '../components/management/SalesHistory'
 import { CatalogManager } from '../components/management/CatalogManager'
 import { CashManager } from '../components/management/CashManager'
+import { TeamManager } from '../components/management/TeamManager'
 import { navigateTo } from '../utils/navigation'
 
+type ModuleId = 'overview' | 'sales' | 'orders' | 'tables' | 'cash' | 'products' | 'categories' | 'inventory' | 'customers' | 'receipts' | 'movements' | 'stores' | 'team' | 'permissions' | 'payments' | 'printers' | 'fiscal' | 'integrations'
+
+interface NavigationItem {
+  id: ModuleId
+  label: string
+  icon: React.ComponentType<{ className?: string }>
+  permission: string
+  capability?: string
+  active: boolean
+  sprint?: string
+}
+
+const GROUPS: Array<{ label: string; items: NavigationItem[] }> = [
+  { label: 'Visão', items: [{ id: 'overview', label: 'Visão Geral', icon: Home, permission: 'management.read', active: true }] },
+  { label: 'Operação', items: [
+    { id: 'sales', label: 'Vendas', icon: FileText, permission: 'sale.read', capability: 'counter_order', active: true },
+    { id: 'orders', label: 'Pedidos', icon: Receipt, permission: 'sale.read', capability: 'counter_order', active: false, sprint: 'S6' },
+    { id: 'tables', label: 'Mesas & Comandas', icon: ChefHat, permission: 'sale.read', capability: 'kitchen_routing', active: false, sprint: 'S7' },
+    { id: 'cash', label: 'Caixas', icon: Banknote, permission: 'cash.read', capability: 'cash_management', active: true },
+  ] },
+  { label: 'Cadastros', items: [
+    { id: 'products', label: 'Produtos', icon: Package, permission: 'catalog.read', capability: 'catalog', active: true },
+    { id: 'categories', label: 'Categorias', icon: Tags, permission: 'catalog.read', capability: 'catalog', active: true },
+    { id: 'inventory', label: 'Estoque', icon: Boxes, permission: 'inventory.read', capability: 'inventory', active: true },
+    { id: 'customers', label: 'Clientes', icon: Users, permission: 'customer.read', capability: 'customer', active: false, sprint: 'S9' },
+  ] },
+  { label: 'Financeiro', items: [
+    { id: 'receipts', label: 'Recebimentos', icon: CircleDollarSign, permission: 'payment.read', capability: 'payments', active: false, sprint: 'S12' },
+    { id: 'movements', label: 'Movimentações', icon: WalletCards, permission: 'cash.read', capability: 'cash_management', active: false, sprint: 'S13' },
+  ] },
+  { label: 'Administração', items: [
+    { id: 'stores', label: 'Unidades', icon: Building2, permission: 'tenant.settings', active: false, sprint: 'S16' },
+    { id: 'team', label: 'Equipe', icon: Users, permission: 'team.read', active: true },
+    { id: 'permissions', label: 'Permissões', icon: ShieldCheck, permission: 'permission.manage', active: false, sprint: 'S16' },
+  ] },
+  { label: 'Configurações', items: [
+    { id: 'payments', label: 'Pagamentos', icon: WalletCards, permission: 'payment.read', capability: 'payments', active: false, sprint: 'S10' },
+    { id: 'printers', label: 'Impressoras', icon: Printer, permission: 'tenant.settings', active: false, sprint: 'S8' },
+    { id: 'fiscal', label: 'Fiscal', icon: Receipt, permission: 'fiscal.read', capability: 'fiscal_nfce', active: false, sprint: 'S10' },
+    { id: 'integrations', label: 'Integrações', icon: Plug, permission: 'tenant.settings', active: false, sprint: 'S14' },
+  ] },
+]
+
 export const ManagementLayout: React.FC = () => {
+  const [module, setModule] = useState<ModuleId>('overview')
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false)
   const { signOut } = useAuth()
-  const {
-    activeBiTab,
-    setActiveBiTab,
-    store,
-    register,
-    cashSession
-  } = usePos()
+  const { tenant, store, permissions, capabilities } = usePos()
 
-  const isCashOpen = cashSession?.status === 'OPEN'
+  const visibleGroups = useMemo(() => GROUPS.map((group) => ({
+    ...group,
+    items: group.items.filter((item) => permissions.includes(item.permission) && (!item.capability || item.capability in capabilities)),
+  })).filter((group) => group.items.length > 0), [permissions, capabilities])
+  const selected = GROUPS.flatMap((group) => group.items).find((item) => item.id === module)
 
-  const navigation = [
-    { id: 'dashboard', label: 'Painel Geral (BI)', icon: Home },
-    { id: 'sales', label: 'Vendas & Histórico', icon: FileText },
-    { id: 'catalog', label: 'Catálogo & Estoque', icon: Package },
-    { id: 'cash', label: 'Caixa & Tesouraria', icon: Banknote },
-  ] as const
+  const choose = (id: ModuleId) => { setModule(id); setMobileNavigationOpen(false) }
+  const navigation = <nav className="space-y-5">{visibleGroups.map((group) => <section key={group.label}><p className="mb-2 px-3 text-[10px] font-black uppercase tracking-[.16em] text-slate-600">{group.label}</p><div className="space-y-1">{group.items.map((item) => { const Icon = item.icon; const current = module === item.id; return <button key={item.id} onClick={() => choose(item.id)} className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-xs font-extrabold transition ${current ? 'bg-dashem-surface-elevated text-white shadow-sm' : 'text-dashem-muted hover:bg-dashem-surface-elevated/60 hover:text-white'}`}><Icon className={`h-4 w-4 ${current ? 'text-dashem-red' : ''}`} /><span className="flex-1">{item.label}</span>{!item.active && <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[9px] text-slate-400">{item.sprint}</span>}</button> })}</div></section>)}</nav>
 
-  const navigationButtons = navigation.map(item => {
-    const Icon = item.icon
-    const active = activeBiTab === item.id
-    return (
-      <button
-        key={item.id}
-        onClick={() => {
-          setActiveBiTab(item.id)
-          setMobileNavigationOpen(false)
-        }}
-        className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-xs font-extrabold transition-all ${
-          active
-            ? 'bg-dashem-surface-elevated text-white shadow-md border-l-4 border-dashem-red'
-            : 'text-dashem-muted hover:text-white hover:bg-dashem-surface-elevated/60'
-        }`}
-      >
-        <Icon className={`w-4 h-4 ${active ? 'text-dashem-red' : ''}`} />
-        <span>{item.label}</span>
-      </button>
-    )
-  })
-
-  const renderActiveTab = () => {
-    switch (activeBiTab) {
-      case 'dashboard':
-        return <DashboardBI />
-      case 'sales':
-        return <SalesHistory />
-      case 'catalog':
-        return <CatalogManager />
-      case 'cash':
-        return <CashManager />
-      default:
-        return <DashboardBI />
+  const content = () => {
+    switch (module) {
+      case 'overview': return <DashboardBI />
+      case 'sales': return <SalesHistory />
+      case 'products': case 'categories': case 'inventory': return <CatalogManager />
+      case 'cash': return <CashManager />
+      case 'team': return <TeamManager />
+      default: return <ModuleBoundary item={selected} />
     }
   }
 
-  return (
-    <div className="min-h-screen bg-dashem-bg text-slate-100 flex flex-row font-sans selection:bg-dashem-red selection:text-white">
-      {/* ========================================================================= */}
-      {/* EXECUTIVE LEFT SIDEBAR NAVIGATION                                         */}
-      {/* ========================================================================= */}
-      <aside className="w-64 bg-dashem-surface border-r border-dashem-border flex flex-col justify-between p-5 sticky top-0 h-screen select-none shrink-0 hidden md:flex">
-        <div className="space-y-6">
-          {/* Dashem Brand Header */}
-          <div className="flex items-center space-x-3 px-2">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-dashem-red to-dashem-red-light flex items-center justify-center font-black text-white text-xl shadow-lg shadow-dashem-red/40 ring-2 ring-dashem-red/30">
-              D
-            </div>
-            <div>
-              <h1 className="font-extrabold text-lg leading-none tracking-tight text-white flex items-center">
-                DASHEM <span className="text-dashem-red ml-1">POS</span>
-              </h1>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-dashem-muted">
-                Gestão & BI v1.0
-              </span>
-            </div>
-          </div>
+  return <div className="flex min-h-screen bg-dashem-bg font-sans text-slate-100"><aside className="sticky top-0 hidden h-screen w-72 shrink-0 flex-col border-r border-dashem-border bg-dashem-surface p-5 md:flex"><Brand /><div className="mt-8 flex-1 overflow-y-auto pr-1">{navigation}</div><button onClick={() => navigateTo('/pos')} className="mt-5 flex h-11 items-center justify-center gap-2 rounded-xl bg-dashem-red text-xs font-black text-white"><ShoppingCart className="h-4 w-4" />Abrir PDV</button></aside>{mobileNavigationOpen && <div className="fixed inset-0 z-50 md:hidden"><button aria-label="Fechar menu" className="absolute inset-0 bg-slate-950/80" onClick={() => setMobileNavigationOpen(false)} /><aside className="relative h-full w-[min(88vw,20rem)] overflow-y-auto bg-dashem-surface p-5"><div className="flex items-center justify-between"><Brand /><button onClick={() => setMobileNavigationOpen(false)} className="flex h-10 w-10 items-center justify-center rounded-xl border border-dashem-border"><X className="h-5 w-5" /></button></div><div className="mt-8">{navigation}</div></aside></div>}<div className="min-w-0 flex-1"><header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-dashem-border bg-dashem-surface px-4 sm:px-6"><div className="flex items-center gap-3"><button onClick={() => setMobileNavigationOpen(true)} className="flex h-10 w-10 items-center justify-center rounded-xl border border-dashem-border md:hidden"><Menu className="h-5 w-5" /></button><StoreIcon className="h-4 w-4 text-dashem-red" /><div><p className="text-xs font-black text-white">{tenant?.name}</p><p className="text-[11px] text-dashem-muted">{store?.name}</p></div></div><div className="flex gap-2"><button onClick={() => navigateTo('/pos')} className="flex h-10 items-center gap-2 rounded-xl bg-dashem-red px-4 text-xs font-black"><ShoppingCart className="h-4 w-4" /><span className="hidden sm:inline">PDV</span></button><button onClick={signOut} className="flex h-10 items-center gap-2 rounded-xl border border-dashem-border px-3 text-xs font-black text-dashem-muted"><LogOut className="h-4 w-4" /><span className="hidden xl:inline">Sair</span></button></div></header><main className="mx-auto w-full max-w-[1500px] p-4 sm:p-6">{content()}</main></div></div>
+}
 
-          {/* Navigation Menu */}
-          <nav className="space-y-1.5">{navigationButtons}</nav>
-        </div>
+function Brand() { return <div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-dashem-red text-xl font-black text-white">D</div><div><p className="font-black text-white">DASHEM <span className="text-dashem-red">GESTÃO</span></p><p className="text-[10px] font-bold uppercase tracking-wider text-dashem-muted">Business Console</p></div></div> }
 
-        {/* Bottom Switch to POS Card */}
-        <div className="p-4 rounded-2xl bg-dashem-surface-elevated/80 border border-dashem-border space-y-2.5 text-center">
-          <span className="text-[10px] font-extrabold uppercase text-dashem-muted block">
-            Frente de Caixa
-          </span>
-          <button
-            onClick={() => navigateTo('/pos')}
-            className="w-full h-11 rounded-xl bg-dashem-red hover:bg-dashem-red-light text-white text-xs font-black flex items-center justify-center space-x-2 transition-all shadow-md shadow-dashem-red/30 active:scale-95"
-          >
-            <ShoppingCart className="w-4 h-4" />
-            <span>Abrir PDV / Caixa</span>
-          </button>
-        </div>
-      </aside>
-
-      {mobileNavigationOpen && (
-        <div className="fixed inset-0 z-50 md:hidden" role="dialog" aria-modal="true" aria-label="Navegação da gestão">
-          <button className="absolute inset-0 bg-slate-950/75 backdrop-blur-sm" aria-label="Fechar navegação" onClick={() => setMobileNavigationOpen(false)} />
-          <aside className="relative flex h-full w-[min(86vw,20rem)] flex-col bg-dashem-surface p-5 shadow-2xl">
-            <div className="mb-7 flex items-center justify-between">
-              <div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-dashem-red text-xl font-black">D</div><div><p className="font-black">DASHEM <span className="text-dashem-red">GESTÃO</span></p><p className="text-[10px] font-bold uppercase tracking-wider text-dashem-muted">Admin do tenant</p></div></div>
-              <button className="flex h-11 w-11 items-center justify-center rounded-xl border border-dashem-border text-dashem-muted" onClick={() => setMobileNavigationOpen(false)} aria-label="Fechar menu"><X className="h-5 w-5" /></button>
-            </div>
-            <nav className="space-y-1.5">{navigationButtons}</nav>
-            <div className="mt-auto space-y-3 border-t border-dashem-border pt-5">
-              <button onClick={() => navigateTo('/pos')} className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-dashem-red text-sm font-black"><ShoppingCart className="h-4 w-4" />Abrir PDV / Caixa</button>
-              <button onClick={signOut} className="flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-dashem-border text-sm font-black text-dashem-muted"><LogOut className="h-4 w-4" />Encerrar sessão</button>
-            </div>
-          </aside>
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* MAIN MANAGEMENT CONTENT AREA                                              */}
-      {/* ========================================================================= */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
-        {/* Management Top Header */}
-        <header className="h-16 px-3 sm:px-6 bg-dashem-surface border-b border-dashem-border flex items-center justify-between sticky top-0 z-20 shadow-sm">
-          <div className="flex items-center space-x-3">
-            <button onClick={() => setMobileNavigationOpen(true)} className="flex h-11 w-11 items-center justify-center rounded-xl border border-dashem-border text-white md:hidden" aria-label="Abrir menu de gestão"><Menu className="h-5 w-5" /></button>
-            <div className="flex items-center space-x-2 text-xs font-bold text-dashem-muted">
-              <StoreIcon className="w-4 h-4 text-dashem-red" />
-              <span className="text-white">{store?.name || 'Unidade não selecionada'}</span>
-              <span className="hidden sm:inline">•</span>
-              <span className="hidden sm:inline">{register?.name || 'Terminal não selecionado'}</span>
-            </div>
-          </div>
-
-          <div className="flex items-center space-x-3">
-            {/* Cash Status Indicator */}
-            <div
-              className={`flex items-center space-x-1.5 px-3 py-1 rounded-lg border text-[11px] font-bold ${
-                isCashOpen
-                  ? 'bg-emerald-950/80 border-emerald-500/40 text-emerald-300'
-                  : 'bg-rose-950/80 border-rose-500/40 text-rose-300'
-              }`}
-            >
-              {isCashOpen ? (
-                <>
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Caixa Aberto</span>
-                </>
-              ) : (
-                <>
-                  <AlertCircle className="w-3.5 h-3.5 text-rose-400" />
-                  <span>Caixa Fechado</span>
-                </>
-              )}
-            </div>
-
-            {/* Quick Button to PDV */}
-            <button
-              onClick={() => navigateTo('/pos')}
-              title="Ir para o PDV"
-              aria-label="Ir para o PDV"
-              className="h-9 px-4 rounded-xl bg-dashem-red hover:bg-dashem-red-light text-white text-xs font-black flex items-center space-x-1.5 transition-all shadow-md active:scale-95"
-            >
-              <ShoppingCart className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Ir para o PDV</span>
-            </button>
-
-            <button
-              onClick={signOut}
-              title="Encerrar sessão"
-              aria-label="Encerrar sessão"
-              className="h-9 px-3 rounded-xl border border-dashem-border bg-dashem-surface-elevated text-dashem-muted hover:border-rose-500/40 hover:text-white text-xs font-black flex items-center space-x-1.5 transition-all active:scale-95"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-              <span className="hidden xl:inline">Sair</span>
-            </button>
-          </div>
-        </header>
-
-        {/* Active Tab Body */}
-        <main className="flex-1 p-3 sm:p-6 max-w-7xl w-full mx-auto">{renderActiveTab()}</main>
-      </div>
-    </div>
-  )
+function ModuleBoundary({ item }: { item?: NavigationItem }) {
+  if (!item) return null
+  const Icon = item.icon
+  return <section className="flex min-h-[55vh] items-center justify-center rounded-3xl border border-dashed border-dashem-border bg-dashem-surface/60 p-8 text-center"><div className="max-w-lg"><div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-dashem-surface-elevated text-dashem-red"><Icon className="h-7 w-7" /></div><p className="mt-5 text-xs font-black uppercase tracking-[.16em] text-dashem-red">Contrato do módulo reconhecido</p><h2 className="mt-2 text-2xl font-black text-white">{item.label}</h2><p className="mt-3 leading-7 text-dashem-muted">Seu contrato e sua permission permitem visualizar este módulo. A operação ainda não foi liberada porque o domínio persistente será entregue no {item.sprint}; nenhum dado demonstrativo será exibido.</p></div></section>
 }

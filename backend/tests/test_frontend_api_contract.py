@@ -36,6 +36,7 @@ CONTRACTS = [
     ("GET", "/api/v1/capabilities/effective", "/api/v1/capabilities/effective`"),
     ("GET", "/api/v1/team", "/api/v1/team`"),
     ("POST", "/api/v1/team/invitations", "/api/v1/team/invitations`"),
+    ("GET", "/api/v1/management/overview", "/api/v1/management/overview`"),
 ]
 
 
@@ -67,6 +68,7 @@ def test_every_tenant_critical_contract_keeps_context_headers_in_client():
         "fetchEffectiveAccess",
         "fetchTeam",
         "inviteTeamMember",
+        "fetchManagementOverview",
     ):
         start = source.index(f"export async function {function_name}")
         next_export = source.find("export async function ", start + 1)

@@ -37,3 +37,18 @@ test('loads effective capabilities and permissions from the backend', async () =
   assert.match(context, /setPermissions\(access\.permissions\)/)
   assert.match(context, /setCapabilities\(access\.capabilities\)/)
 })
+
+test('filters every Gestão menu entry by backend permission and capability', async () => {
+  const management = await source('../src/layouts/ManagementLayout.tsx')
+  assert.match(management, /permissions\.includes\(item\.permission\)/)
+  assert.match(management, /item\.capability in capabilities/)
+  assert.match(management, /Equipe/)
+  assert.match(management, /Mesas & Comandas/)
+  assert.match(management, /Recebimentos/)
+})
+
+test('renders management metrics from the aggregate API instead of browser reductions', async () => {
+  const dashboard = await source('../src/components/management/DashboardBI.tsx')
+  assert.match(dashboard, /fetchManagementOverview/)
+  assert.doesNotMatch(dashboard, /salesHistory\.filter|salesHistory\.reduce/)
+})

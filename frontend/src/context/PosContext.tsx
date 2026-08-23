@@ -17,7 +17,6 @@ interface PosContextType {
   health: api.ApiHealth | null
   permissions: string[]
   capabilities: api.EffectiveAccess['capabilities']
-  activeBiTab: 'dashboard' | 'sales' | 'catalog' | 'cash'
 
   // Data state
   products: api.Product[]
@@ -43,7 +42,6 @@ interface PosContextType {
   toast: ToastInfo | null
 
   // Actions
-  setActiveBiTab: (tab: 'dashboard' | 'sales' | 'catalog' | 'cash') => void
   showToast: (type: 'success' | 'error' | 'info', text: string) => void
   startNewSale: () => Promise<void>
   addItemToCart: (productId: string, quantity?: number) => Promise<boolean>
@@ -78,7 +76,6 @@ export const PosProvider: React.FC<{
   storeId: string
   registerId?: string
 }> = ({ children, tenantId, storeId, registerId }) => {
-  const [activeBiTab, setActiveBiTab] = useState<'dashboard' | 'sales' | 'catalog' | 'cash'>('dashboard')
 
   const [tenant, setTenant] = useState<api.Tenant | null>(null)
   const [store, setStore] = useState<api.Store | null>(null)
@@ -573,7 +570,6 @@ export const PosProvider: React.FC<{
         health,
         permissions,
         capabilities,
-        activeBiTab,
         products,
         categories,
         prices,
@@ -591,7 +587,6 @@ export const PosProvider: React.FC<{
         loading,
         actionLoading,
         toast,
-        setActiveBiTab,
         showToast,
         startNewSale,
         addItemToCart,

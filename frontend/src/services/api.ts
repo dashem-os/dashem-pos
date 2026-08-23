@@ -209,6 +209,23 @@ export interface TeamMember {
   store_name?: string
 }
 
+export interface ManagementOverview {
+  generated_at: string
+  revenue_today: number
+  revenue_30d: number
+  sales_today: number
+  sales_30d: number
+  average_ticket_30d: number
+  open_sales: number
+  confirmed_receipts_30d: number
+  active_cash_sessions: number
+  products: number
+  customers: number
+  active_team_members: number
+  daily_revenue: Array<{ date: string; revenue: number; sales: number }>
+  alerts: string[]
+}
+
 export interface AuthMe {
   mode: 'authenticated' | 'local-bypass'
   user: { id: string; email: string; full_name: string; is_active: boolean } | null
@@ -460,6 +477,12 @@ export async function updateTeamMember(
     method: 'PATCH', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(input),
   })
   if (!res.ok) throw await apiError(res, 'Não foi possível atualizar o acesso da equipe.')
+  return res.json()
+}
+
+export async function fetchManagementOverview(headers: Record<string, string>): Promise<ManagementOverview> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/management/overview`, { headers })
+  if (!res.ok) throw await apiError(res, 'Não foi possível carregar os indicadores gerenciais.')
   return res.json()
 }
 
