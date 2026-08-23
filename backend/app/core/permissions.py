@@ -111,6 +111,8 @@ def route_requirement(method: str, path: str) -> RouteRequirement:
         if "/points" in path or "/rules" in path:
             return RouteRequirement("production.configure")
         return RouteRequirement("production.operate")
+    if path.startswith("/api/v1/transfers"):
+        return RouteRequirement("transfer.read" if method == "GET" else "transfer.execute")
     if path.startswith("/api/v1/fiscal"):
         if method == "GET":
             return RouteRequirement("fiscal.read")

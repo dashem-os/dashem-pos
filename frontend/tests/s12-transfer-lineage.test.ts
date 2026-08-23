@@ -1,0 +1,4 @@
+import assert from 'node:assert/strict';import{readFileSync}from'node:fs';import{join}from'node:path';import test from'node:test'
+const root=join(import.meta.dirname,'..','src');const api=readFileSync(join(root,'services','api.ts'),'utf8');const tables=readFileSync(join(root,'components','tables','TableServiceWorkspace.tsx'),'utf8')
+test('transfers persisted quantities with versions idempotency and a mandatory reason',()=>{assert.match(api,/\/api\/v1\/transfers\/items/);assert.match(api,/expected_source_version/);assert.match(api,/'Idempotency-Key':idempotencyKey/);assert.match(tables,/Motivo obrigatório/);assert.match(tables,/production_compensation_required/)})
+test('shows transfer only under its effective permission and uses real destination sessions',()=>{assert.match(tables,/permissions\.includes\('transfer\.execute'\)/);assert.match(tables,/availableSessions\.filter/);assert.doesNotMatch(tables,/Mesa 2|Comanda 42.*option|mock|fixture/i)})

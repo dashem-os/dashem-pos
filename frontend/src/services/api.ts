@@ -271,6 +271,13 @@ export interface TableSessionSummary {
   consolidated_total: number
 }
 
+export interface TransferRecord {
+  id: string; transfer_type: 'ITEM' | 'SESSION_MERGE'; source_session_id: string; destination_session_id: string
+  source_order_item_id?: string; derived_order_item_id?: string; quantity?: number; unit_price_snapshot?: number
+  source_version_before: number; destination_version_before: number; reason: string
+  production_compensation_required: boolean; created_at: string
+}
+
 export type CheckoutNegotiationStatus = 'OPEN' | 'PARTIALLY_COVERED' | 'COVERED' | 'INVALIDATED' | 'FINALIZED' | 'CANCELED'
 export type PaymentIntentStatus = 'PENDING' | 'PROCESSING' | 'CONFIRMED' | 'FAILED' | 'CANCELED'
 export type NegotiationPaymentMethod = 'CASH' | 'PIX' | 'CREDIT_CARD' | 'DEBIT_CARD' | 'STORE_CREDIT'
@@ -1365,6 +1372,15 @@ export async function getTableSession(headers: Record<string, string>, sessionId
 export async function fetchActiveTableSessions(headers: Record<string, string>): Promise<TableSessionSummary[]> {
   const res = await fetch(`${API_BASE_URL}/api/v1/tables/sessions`, { headers })
   if (!res.ok) throw await apiError(res, 'Não foi possível carregar as comandas ativas.')
+  return res.json()
+}
+
+export async function transferOrderItem(headers: Record<string, string>, idempotencyKey: string, data: {
+  source_session_id: string; destination_session_id: string; order_item_id: string; quantity: number
+  expected_source_version: number; expected_destination_version: number; reason: string; actor_id: string
+}): Promise<TransferRecord> {
+  const res=await fetch(`${API_BASE_URL}/api/v1/transfers/items`,{method:'POST',headers:{...headers,'Content-Type':'application/json','Idempotency-Key':idempotencyKey},body:JSON.stringify(data)})
+  if(!res.ok)throw await apiError(res,'Não foi possível transferir o item.')
   return res.json()
 }
 

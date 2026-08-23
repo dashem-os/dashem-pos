@@ -55,6 +55,7 @@ from app.models.production import (
     ProductionDispatch, ProductionTicket, ProductionTicketItem,
     ProductionTicketStatusEnum, ProductionOperationEnum, ProductionTransition,
 )
+from app.models.transfer import TransferRecord, TransferTypeEnum
 
 __all__ = [
     "Tenant",
@@ -183,4 +184,6 @@ __all__ = [
     "ProductionTicketStatusEnum",
     "ProductionOperationEnum",
     "ProductionTransition",
+    "TransferRecord",
+    "TransferTypeEnum",
 ]

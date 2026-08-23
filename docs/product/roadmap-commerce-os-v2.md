@@ -2,7 +2,7 @@
 
 Status: **diretriz canônica para a próxima fase de construção**  
 Data: 23 de agosto de 2026  
-Revisão: **S11 concluído — próximo gate S12 Transferências e Comandas Avançadas**
+Revisão: **S12 concluído — próximo gate S13 Channel Catalog e Marketplace Reconciliation**
 Substitui como referência de execução qualquer sequência anterior que conflite com este documento.
 
 ## 1. Por que este roadmap existe
@@ -1116,7 +1116,7 @@ e aparece como `não configurada`, nunca como pronta.
 | Provider/TEF acoplável à regra de venda | S9 | adapter + bridge + reconciliação | resolvido no gate interno; homologação externa pendente |
 | Canal externo capaz de duplicar lógica de Order | S10 | inbox + normalização + deduplicação | resolvido no S10 |
 | Produção representada apenas como estado visual do item | S11 | tickets e allocations persistidos | resolvido no S11 |
-| Transferência capaz de apagar origem | S12 | linhagem e conservação imutáveis | aberto |
+| Transferência capaz de apagar origem | S12 | linhagem e conservação imutáveis | resolvido no S12 |
 | Catálogo duplicado por marketplace | S13 | mapeamento canônico por canal | aberto |
 | Crediário tratado como pagamento recebido | S14 | recebível e allocation distintos | aberto |
 | Renegociação capaz de alterar documento original | S15 | acordo e ledger imutáveis | aberto |
@@ -1166,11 +1166,11 @@ Ao concluir:
 O próximo ciclo de implementação deve ser:
 
 ```text
-S12 — Transferências e Comandas Avançadas
+S13 — Channel Catalog e Marketplace Reconciliation
 ```
 
-S0–S11 estão concluídos nos gates internos. O S11 introduziu o ADR-007, pontos e
-regras persistidos, dispatch idempotente, allocations versionadas e KDS com
-concorrência otimista. Balcão, mesa e canal externo usam o mesmo roteador sem
-alterar snapshot comercial ou negociação. O S12 passa a mover responsabilidade
-operacional preservando origem, quantidade, valor e trajetória.
+S0–S12 estão concluídos nos gates internos. O S12 introduziu o ADR-008 e o
+`TransferRecord` imutável. Quantidade e valor são conservados por itens derivados;
+concorrência, pagamento e produção incompatível são tratados explicitamente. O
+S13 passa a sincronizar identidades do catálogo canônico e separar venda aceita
+do repasse financeiro do marketplace.
