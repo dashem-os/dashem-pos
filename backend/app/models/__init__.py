@@ -28,6 +28,10 @@ from app.models.sale import (
 )
 from app.models.payment import Register, CashSession, CashMovement, Payment, CashSessionStatusEnum, CashMovementTypeEnum, PaymentMethodEnum, PaymentStatusEnum
 from app.models.fiscal import FiscalDocument, FiscalEvent, FiscalStatusEnum, FiscalDocumentTypeEnum, FiscalEventTypeEnum
+from app.models.order import (
+    Order, OrderItem, OrderCommand, OrderStatusEnum, OrderOriginEnum,
+    OrderFulfillmentEnum, OrderItemStatusEnum, ProductionStateEnum,
+)
 
 __all__ = [
     "Tenant",
@@ -110,5 +114,13 @@ __all__ = [
     "FiscalEvent",
     "FiscalStatusEnum",
     "FiscalDocumentTypeEnum",
-    "FiscalEventTypeEnum"
+    "FiscalEventTypeEnum",
+    "Order",
+    "OrderItem",
+    "OrderCommand",
+    "OrderStatusEnum",
+    "OrderOriginEnum",
+    "OrderFulfillmentEnum",
+    "OrderItemStatusEnum",
+    "ProductionStateEnum",
 ]

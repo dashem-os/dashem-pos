@@ -149,6 +149,50 @@ export interface Sale {
   items: SaleItem[]
 }
 
+export interface OrderItem {
+  id: string
+  tenant_id: string
+  order_id: string
+  product_id: string
+  product_name: string
+  sku: string
+  unit_snapshot: string
+  unit_price: number
+  quantity: number
+  modifier_snapshot: Array<Record<string, unknown>>
+  notes?: string
+  production_destination?: string
+  production_state: 'NOT_REQUIRED' | 'PENDING' | 'IN_PREPARATION' | 'READY' | 'DELIVERED' | 'CANCELED'
+  status: 'ACTIVE' | 'CANCELED'
+  added_by: string
+  canceled_by?: string
+  cancellation_reason?: string
+  canceled_at?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface Order {
+  id: string
+  tenant_id: string
+  store_id: string
+  register_id?: string
+  customer_id?: string
+  table_id?: string
+  sale_id?: string
+  channel_id?: string
+  origin: 'POS' | 'API' | 'SALES_CHANNEL'
+  fulfillment: 'COUNTER' | 'TAKEAWAY' | 'DINE_IN' | 'DELIVERY'
+  status: 'OPEN' | 'SUBMITTED' | 'CLOSED' | 'CANCELED'
+  idempotency_key: string
+  external_reference?: string
+  opened_by: string
+  notes?: string
+  created_at: string
+  updated_at: string
+  items: OrderItem[]
+}
+
 export interface Register {
   id: string
   tenant_id: string
@@ -1015,6 +1059,76 @@ export async function checkoutSale(
     const err = await res.json().catch(() => ({}))
     throw new Error(err.detail || 'Erro no checkout da venda')
   }
+  return res.json()
+}
+
+// ----------------------------------------------------------------------
+// ORDER AGGREGATE ENDPOINTS
+// ----------------------------------------------------------------------
+
+export async function createOrder(
+  headers: Record<string, string>, idempotencyKey: string,
+  data: {
+    store_id: string; register_id?: string; customer_id?: string; table_id?: string;
+    sale_id?: string; channel_id?: string; origin?: Order['origin'];
+    fulfillment?: Order['fulfillment']; external_reference?: string; actor_id?: string; notes?: string
+  }
+): Promise<Order> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/orders`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify(data)
+  })
+  if (!res.ok) throw new Error('Erro ao abrir pedido')
+  return res.json()
+}
+
+export async function fetchOrders(headers: Record<string, string>, status?: Order['status']): Promise<Order[]> {
+  const suffix = status ? `?status=${status}` : ''
+  const res = await fetch(`${API_BASE_URL}/api/v1/orders${suffix}`, { headers })
+  if (!res.ok) throw new Error('Erro ao consultar pedidos')
+  return res.json()
+}
+
+export async function getOrder(headers: Record<string, string>, orderId: string): Promise<Order> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/orders/${orderId}`, { headers })
+  if (!res.ok) throw new Error('Pedido não encontrado')
+  return res.json()
+}
+
+export async function addOrderItem(
+  headers: Record<string, string>, orderId: string, idempotencyKey: string,
+  data: { product_id: string; quantity: number; modifier_ids?: string[]; notes?: string; actor_id?: string }
+): Promise<OrderItem> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/orders/${orderId}/items`, {
+    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify(data)
+  })
+  if (!res.ok) throw new Error('Erro ao lançar item no pedido')
+  return res.json()
+}
+
+export async function updateOrderItem(
+  headers: Record<string, string>, orderId: string, itemId: string, idempotencyKey: string,
+  data: { quantity: number; notes?: string; actor_id?: string }
+): Promise<OrderItem> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/orders/${orderId}/items/${itemId}`, {
+    method: 'PATCH', headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify(data)
+  })
+  if (!res.ok) throw new Error('Erro ao alterar item do pedido')
+  return res.json()
+}
+
+export async function cancelOrderItem(
+  headers: Record<string, string>, orderId: string, itemId: string, idempotencyKey: string,
+  reason: string, actorId?: string
+): Promise<OrderItem> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/orders/${orderId}/items/${itemId}/cancel`, {
+    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify({ reason, actor_id: actorId })
+  })
+  if (!res.ok) throw new Error('Erro ao cancelar item do pedido')
   return res.json()
 }
 

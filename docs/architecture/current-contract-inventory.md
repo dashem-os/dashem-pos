@@ -19,6 +19,15 @@ migrations e testes.
 | Fiscal | issue, cancel, get | gateway e estados fiscais simuláveis |
 | Capability | `GET /api/v1/capabilities/effective` | entitlement de produto; não é permission |
 
+## Evolução validada até S6
+
+| Domínio | Contrato canônico atual |
+|---|---|
+| Autorização | Permission Engine contextual; capability e permission avaliadas no servidor |
+| Catálogo | `SellableProduct` paginado com preço, saldo, mínimo, margem, categoria e acesso rápido persistido |
+| COUNTER | operação recuperável por store, terminal e operador; modos COUNTER/TAKEAWAY e conectividade explícita |
+| Order | agregado separado de Sale; comandos de item idempotentes, snapshots e outbox transacional |
+
 ## Máquinas de estado protegidas
 
 ### Tenant

@@ -40,6 +40,14 @@ def route_requirement(method: str, path: str) -> RouteRequirement:
         return RouteRequirement("catalog.read" if method == "GET" else "catalog.update")
     if path.startswith("/api/v1/inventory"):
         return RouteRequirement("inventory.read" if method == "GET" else "inventory.adjust")
+    if path.startswith("/api/v1/orders"):
+        if method == "GET":
+            return RouteRequirement("order.read")
+        if path.endswith("/cancel"):
+            return RouteRequirement("order.cancel")
+        if "/items" in path:
+            return RouteRequirement("order.item.update")
+        return RouteRequirement("order.create")
     if path.startswith("/api/v1/sales/customers"):
         return RouteRequirement("customer.read" if method == "GET" else "customer.update")
     if path.startswith("/api/v1/sales"):

@@ -1,6 +1,6 @@
 # ADR-001 — Order e Sale são agregados distintos
 
-- Status: aceito
+- Status: aceito e implementado no S6
 - Data: 2026-08-23
 - Decisores: Dashem Tech
 
@@ -43,3 +43,12 @@ O modo COUNTER permanece compatível durante a introdução de `Order`. Mesas, K
 transferências e delivery passam a compartilhar um núcleo operacional sem
 contaminar o ledger financeiro. Há custo adicional de uma transição explícita e
 de consultas que correlacionam os dois agregados.
+
+## Implementação S6
+
+- `Order`, `OrderItem` e `OrderCommand` possuem RLS por tenant e store;
+- abertura, adição, alteração e cancelamento de item usam chaves idempotentes;
+- modificadores, preço, unidade e destino de produção são snapshots do lançamento;
+- cada mutação gera auditoria e outbox na mesma transação;
+- vínculos com customer, table, channel e sale são opcionais e explícitos;
+- o fluxo COUNTER que cria `Sale` diretamente continua coberto pela regressão.
