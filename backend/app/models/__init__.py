@@ -24,7 +24,7 @@ from app.models.catalog import (
 )
 from app.models.sale import (
     Customer, Sale, SaleItem, SaleStatusEnum, DiscountTypeEnum,
-    FulfillmentTypeEnum, SyncStatusEnum,
+    FulfillmentTypeEnum, SaleOperationModeEnum, SyncStatusEnum,
 )
 from app.models.payment import Register, CashSession, CashMovement, Payment, CashSessionStatusEnum, CashMovementTypeEnum, PaymentMethodEnum, PaymentStatusEnum
 from app.models.fiscal import FiscalDocument, FiscalEvent, FiscalStatusEnum, FiscalDocumentTypeEnum, FiscalEventTypeEnum
@@ -96,6 +96,7 @@ __all__ = [
     "SaleStatusEnum",
     "DiscountTypeEnum",
     "FulfillmentTypeEnum",
+    "SaleOperationModeEnum",
     "SyncStatusEnum",
     "Register",
     "CashSession",

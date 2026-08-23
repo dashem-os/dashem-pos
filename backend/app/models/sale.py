@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional, List
 from sqlmodel import SQLModel, Field, Relationship, UniqueConstraint, Column, Numeric
-from sqlalchemy import String
+from sqlalchemy import Index, String, text
 from app.core.db_types import EnumString
 
 class SaleStatusEnum(str, Enum):
@@ -28,6 +28,11 @@ class FulfillmentTypeEnum(str, Enum):
     DINE_IN = "DINE_IN"
     SHIPPING = "SHIPPING"
     DIGITAL = "DIGITAL"
+
+
+class SaleOperationModeEnum(str, Enum):
+    COUNTER = "COUNTER"
+    TAKEAWAY = "TAKEAWAY"
 
 class SyncStatusEnum(str, Enum):
     LOCAL = "LOCAL"
@@ -63,11 +68,20 @@ class Sale(SQLModel, table=True):
             "tenant_id", "idempotency_key",
             name="uq_tenant_sale_idempotency_key"
         ),
+        Index(
+            "uq_active_sale_terminal_operator", "tenant_id", "store_id", "register_id", "seller_id",
+            unique=True,
+            postgresql_where=text(
+                "register_id IS NOT NULL AND seller_id IS NOT NULL "
+                "AND status IN ('DRAFT', 'CHECKOUT', 'AWAITING_PAYMENT')"
+            ),
+        ),
     )
     
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     tenant_id: uuid.UUID = Field(index=True)
     store_id: uuid.UUID = Field(index=True)
+    register_id: Optional[uuid.UUID] = Field(default=None, foreign_key="registers.id", index=True)
     channel_id: Optional[uuid.UUID] = Field(default=None, foreign_key="sales_channels.id", index=True)
     source_type: str = Field(default="POS", index=True)
     external_order_id: Optional[str] = Field(default=None, index=True)
@@ -83,6 +97,12 @@ class Sale(SQLModel, table=True):
     occurred_at: datetime = Field(default_factory=datetime.utcnow, index=True)
     customer_id: Optional[uuid.UUID] = Field(default=None, foreign_key="customers.id", index=True)
     seller_id: Optional[uuid.UUID] = Field(default=None, index=True)
+    operation_mode: SaleOperationModeEnum = Field(
+        default=SaleOperationModeEnum.COUNTER,
+        sa_column=Column(EnumString(SaleOperationModeEnum), nullable=False, index=True),
+    )
+    operator_action_count: int = Field(default=0)
+    last_activity_at: datetime = Field(default_factory=datetime.utcnow, index=True)
     status: SaleStatusEnum = Field(
         default=SaleStatusEnum.DRAFT,
         sa_column=Column(EnumString(SaleStatusEnum), nullable=False, index=True),

@@ -10,7 +10,8 @@ interface CartItemProps {
 }
 
 export const CartItem: React.FC<CartItemProps> = ({ item, index }) => {
-  const { updateItemQuantity, removeItemFromCart, openQuantityModal, actionLoading } = usePos()
+  const { updateItemQuantity, removeItemFromCart, openQuantityModal, actionLoading, permissions } = usePos()
+  const canEdit = permissions.includes('sale.item.update')
 
   const handleDecrease = () => {
     if (item.quantity > 1) {
@@ -52,7 +53,7 @@ export const CartItem: React.FC<CartItemProps> = ({ item, index }) => {
         {/* Remove Button */}
         <button
           onClick={() => removeItemFromCart(item.id)}
-          disabled={actionLoading}
+          disabled={actionLoading || !canEdit}
           aria-label="Remover item"
           className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-rose-600 hover:bg-rose-50 active:scale-95 transition-all shrink-0"
         >
@@ -66,7 +67,7 @@ export const CartItem: React.FC<CartItemProps> = ({ item, index }) => {
         <div className="flex items-center space-x-1 bg-slate-100 p-0.5 rounded-xl border border-slate-200">
           <button
             onClick={handleDecrease}
-            disabled={actionLoading}
+            disabled={actionLoading || !canEdit}
             className="w-8 h-8 rounded-lg bg-white hover:bg-slate-50 active:bg-slate-200 text-slate-700 flex items-center justify-center text-sm font-bold transition-all disabled:opacity-40 shadow-xs"
           >
             <Minus className="w-3.5 h-3.5" />
@@ -74,6 +75,7 @@ export const CartItem: React.FC<CartItemProps> = ({ item, index }) => {
 
           <button
             onClick={() => openQuantityModal(item)}
+            disabled={!canEdit}
             className="px-2.5 h-8 hover:bg-white rounded-lg text-center font-black text-xs text-slate-900 flex items-center justify-center space-x-1 transition-all"
             title="Toque para digitar quantidade"
           >
@@ -83,7 +85,7 @@ export const CartItem: React.FC<CartItemProps> = ({ item, index }) => {
 
           <button
             onClick={handleIncrease}
-            disabled={actionLoading}
+            disabled={actionLoading || !canEdit}
             className="w-8 h-8 rounded-lg bg-white hover:bg-slate-50 active:bg-slate-200 text-slate-700 flex items-center justify-center text-sm font-bold transition-all disabled:opacity-40 shadow-xs"
           >
             <Plus className="w-3.5 h-3.5" />

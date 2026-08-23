@@ -6,7 +6,7 @@ import * as api from '../../services/api'
 import { formatCurrency, formatStock } from '../../utils/format'
 
 export const ProductSearch: React.FC = () => {
-  const { tenant, store, prices, balances, addItemToCart, showToast, actionLoading, cashSession } = usePos()
+  const { tenant, store, prices, balances, addItemToCart, showToast, actionLoading, cashSession, permissions, connectionState } = usePos()
   const [query, setQuery] = useState('')
   const [searchResults, setSearchResults] = useState<SellableProduct[]>([])
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
@@ -14,6 +14,7 @@ export const ProductSearch: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null)
 
   const isCashOpen = cashSession?.status === 'OPEN'
+  const canSell = permissions.includes('sale.create') && connectionState === 'ONLINE'
 
   // Web Audio subtle scanner beep feedback
   const playBeep = () => {
@@ -68,7 +69,7 @@ export const ProductSearch: React.FC = () => {
   const handleScanOrSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     const clean = query.trim()
-    if (!clean || !isCashOpen || actionLoading) return
+    if (!clean || !isCashOpen || !canSell || actionLoading) return
 
     if (!tenant || !store) return
     const result = await api.fetchSellableProducts(
@@ -129,7 +130,7 @@ export const ProductSearch: React.FC = () => {
               if (isDropdownOpen) setIsDropdownOpen(false)
             }}
             placeholder="Escanear código de barras (Enter) ou digitar SKU / nome..."
-            disabled={!isCashOpen || actionLoading}
+            disabled={!isCashOpen || !canSell || actionLoading}
             className="w-full h-full pr-24 bg-transparent text-slate-900 placeholder:text-slate-400 font-semibold text-sm sm:text-base outline-none disabled:opacity-50"
           />
 

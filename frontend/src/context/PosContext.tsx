@@ -17,6 +17,8 @@ interface PosContextType {
   health: api.ApiHealth | null
   permissions: string[]
   capabilities: api.EffectiveAccess['capabilities']
+  connectionState: 'ONLINE' | 'DEGRADED' | 'OFFLINE'
+  operationMode: 'COUNTER' | 'TAKEAWAY'
 
   // Data state
   products: api.SellableProduct[]
@@ -43,6 +45,7 @@ interface PosContextType {
 
   // Actions
   showToast: (type: 'success' | 'error' | 'info', text: string) => void
+  setOperationMode: (mode: 'COUNTER' | 'TAKEAWAY') => void
   startNewSale: () => Promise<void>
   addItemToCart: (productId: string, quantity?: number) => Promise<boolean>
   updateItemQuantity: (itemId: string, quantity: number) => Promise<void>
@@ -85,6 +88,8 @@ export const PosProvider: React.FC<{
   const [health, setHealth] = useState<api.ApiHealth | null>(null)
   const [permissions, setPermissions] = useState<string[]>([])
   const [capabilities, setCapabilities] = useState<api.EffectiveAccess['capabilities']>({})
+  const [connectionState, setConnectionState] = useState<'ONLINE' | 'DEGRADED' | 'OFFLINE'>(navigator.onLine ? 'ONLINE' : 'OFFLINE')
+  const [operationMode, setOperationModeState] = useState<'COUNTER' | 'TAKEAWAY'>('COUNTER')
 
   const [products, setProducts] = useState<api.SellableProduct[]>([])
   const [categories, setCategories] = useState<api.Category[]>([])
@@ -109,6 +114,38 @@ export const PosProvider: React.FC<{
   const showToast = useCallback((type: 'success' | 'error' | 'info', text: string) => {
     setToast({ type, text })
     setTimeout(() => setToast(null), 4000)
+  }, [])
+
+  const setOperationMode = useCallback((mode: 'COUNTER' | 'TAKEAWAY') => {
+    if (currentSale && currentSale.items.length > 0 && currentSale.status !== 'COMPLETED' && currentSale.status !== 'CANCELED') {
+      showToast('error', 'Finalize ou cancele a operação atual antes de trocar o modo.')
+      return
+    }
+    setOperationModeState(mode)
+  }, [currentSale, showToast])
+
+  useEffect(() => {
+    let active = true
+    const inspect = async () => {
+      if (!navigator.onLine) {
+        if (active) setConnectionState('OFFLINE')
+        return
+      }
+      const response = await api.fetchHealth().catch(() => null)
+      if (active) setConnectionState(response ? 'ONLINE' : 'DEGRADED')
+    }
+    const online = () => void inspect()
+    const offline = () => setConnectionState('OFFLINE')
+    window.addEventListener('online', online)
+    window.addEventListener('offline', offline)
+    void inspect()
+    const interval = window.setInterval(inspect, 15000)
+    return () => {
+      active = false
+      window.clearInterval(interval)
+      window.removeEventListener('online', online)
+      window.removeEventListener('offline', offline)
+    }
   }, [])
 
   const getHeaders = useCallback((): Record<string, string> => {
@@ -201,9 +238,30 @@ export const PosProvider: React.FC<{
     }
   }, [tenant, store, refreshData])
 
+  useEffect(() => {
+    if (!tenant || !store || !register || !operatorId) return
+    const headers = { 'X-Tenant-ID': tenant.id, 'X-Store-ID': store.id }
+    api.fetchActiveSale(headers, store.id, register.id, operatorId)
+      .then((sale) => {
+        if (!sale) return
+        setCurrentSale(sale)
+        setOperationModeState(sale.operation_mode)
+        if (sale.status === 'AWAITING_PAYMENT') {
+          api.fetchSalePayments(headers, sale.id)
+            .then((payments) => setConfirmedPayments(payments.filter((payment) => payment.status === 'CONFIRMED')))
+            .catch(() => setConnectionState(navigator.onLine ? 'DEGRADED' : 'OFFLINE'))
+        }
+      })
+      .catch(() => setConnectionState(navigator.onLine ? 'DEGRADED' : 'OFFLINE'))
+  }, [tenant, store, register, operatorId])
+
   const startNewSale = async () => {
-    if (!store) {
-      showToast('error', 'Loja não selecionada.')
+    if (!store || !register) {
+      showToast('error', 'Unidade e terminal precisam estar selecionados.')
+      return
+    }
+    if (connectionState !== 'ONLINE') {
+      showToast('error', 'Operação indisponível sem conexão confirmada. Nenhum dado foi descartado.')
       return
     }
     if (!cashSession || cashSession.status !== 'OPEN') {
@@ -213,7 +271,7 @@ export const PosProvider: React.FC<{
     try {
       setActionLoading(true)
       const hdrs = getHeaders()
-      const newSale = await api.createSale(hdrs, store.id)
+      const newSale = await api.createSale(hdrs, store.id, register.id, operatorId, operationMode)
       setCurrentSale(newSale)
       setConfirmedPayments([])
       setFiscalDoc(null)
@@ -229,8 +287,12 @@ export const PosProvider: React.FC<{
   }
 
   const addItemToCart = async (productId: string, quantity: number = 1): Promise<boolean> => {
-    if (!store) {
-      showToast('error', 'Loja não configurada.')
+    if (!store || !register) {
+      showToast('error', 'Unidade e terminal não configurados.')
+      return false
+    }
+    if (connectionState !== 'ONLINE') {
+      showToast('error', 'Sem conexão confirmada. A operação persistida continua segura no servidor.')
       return false
     }
     if (!cashSession || cashSession.status !== 'OPEN') {
@@ -246,7 +308,7 @@ export const PosProvider: React.FC<{
 
       // If no current sale or sale is finished/canceled, create a new sale first
       if (saleNeedsCreation(saleToUse?.status)) {
-        saleToUse = await api.createSale(hdrs, store.id)
+        saleToUse = await api.createSale(hdrs, store.id, register.id, operatorId, operationMode)
         setConfirmedPayments([])
         setFiscalDoc(null)
       }
@@ -567,6 +629,8 @@ export const PosProvider: React.FC<{
         health,
         permissions,
         capabilities,
+        connectionState,
+        operationMode,
         products,
         categories,
         prices,
@@ -585,6 +649,7 @@ export const PosProvider: React.FC<{
         actionLoading,
         toast,
         showToast,
+        setOperationMode,
         startNewSale,
         addItemToCart,
         updateItemQuantity,

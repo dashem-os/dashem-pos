@@ -9,7 +9,10 @@ import {
   Unlock,
   ChevronUp,
   LogOut,
-  X
+  X,
+  Wifi,
+  WifiOff,
+  UtensilsCrossed
 } from 'lucide-react'
 import { usePos } from '../context/PosContext'
 import { useAuth } from '../context/AuthContext'
@@ -33,6 +36,9 @@ export const PosLayout: React.FC<{ canManage?: boolean }> = ({ canManage = false
     operatorId,
     cashSession,
     currentSale,
+    connectionState,
+    operationMode,
+    setOperationMode,
     openCash,
     actionLoading,
     openPaymentModal
@@ -88,6 +94,12 @@ export const PosLayout: React.FC<{ canManage?: boolean }> = ({ canManage = false
 
         {/* Right Status Pill & Navigation */}
         <div className="flex items-center space-x-2.5">
+          <div className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[10px] font-bold border ${
+            connectionState === 'ONLINE' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-800 border-amber-200'
+          }`}>
+            {connectionState === 'ONLINE' ? <Wifi className="w-3.5 h-3.5" /> : <WifiOff className="w-3.5 h-3.5" />}
+            <span>{connectionState === 'ONLINE' ? 'Online' : connectionState === 'OFFLINE' ? 'Offline' : 'Degradado'}</span>
+          </div>
           {/* Cash Status Pill */}
           <div
             className={`flex items-center space-x-1.5 px-3 py-1 rounded-xl text-xs font-bold border ${
@@ -129,6 +141,14 @@ export const PosLayout: React.FC<{ canManage?: boolean }> = ({ canManage = false
           </button>
         </div>
       </header>
+
+      {connectionState !== 'ONLINE' && (
+        <div role="alert" className="px-4 py-2 bg-amber-100 border-b border-amber-300 text-amber-900 text-xs font-bold text-center">
+          {connectionState === 'OFFLINE'
+            ? 'Sem rede: novas operações estão bloqueadas. A venda já persistida permanece segura no servidor.'
+            : 'Conexão com a API instável: aguarde a confirmação online antes de continuar.'}
+        </div>
+      )}
 
       {/* ========================================================================= */}
       {/* CASH CLOSED BLOCKING STATE                                                */}
@@ -182,6 +202,20 @@ export const PosLayout: React.FC<{ canManage?: boolean }> = ({ canManage = false
         <main className="flex-1 flex flex-col lg:flex-row overflow-hidden p-3 sm:p-4 gap-3 sm:gap-4 max-w-[1920px] w-full mx-auto">
           {/* LEFT COLUMN: Search + Category Tabs + Touch Product Grid */}
           <div className="flex-1 flex flex-col space-y-3 overflow-y-auto min-w-0 pr-0.5">
+            <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl p-1.5 w-fit" aria-label="Modo da operação">
+              {(['COUNTER', 'TAKEAWAY'] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setOperationMode(mode)}
+                  disabled={Boolean(currentSale?.items.length)}
+                  className={`h-8 px-3 rounded-lg text-xs font-bold flex items-center gap-1.5 disabled:cursor-not-allowed ${operationMode === mode ? 'bg-rose-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+                >
+                  {mode === 'TAKEAWAY' && <UtensilsCrossed className="w-3.5 h-3.5" />}
+                  <span>{mode === 'COUNTER' ? 'Balcão' : 'Retirada'}</span>
+                </button>
+              ))}
+            </div>
             <ProductSearch />
             <QuickProductGrid />
           </div>

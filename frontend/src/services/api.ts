@@ -130,8 +130,12 @@ export interface Sale {
   id: string
   tenant_id: string
   store_id: string
+  register_id?: string
   customer_id?: string
   seller_id?: string
+  operation_mode: 'COUNTER' | 'TAKEAWAY'
+  operator_action_count: number
+  last_activity_at: string
   status: 'DRAFT' | 'CHECKOUT' | 'AWAITING_PAYMENT' | 'PAID' | 'COMPLETED' | 'CANCELED'
   discount_type?: 'PERCENTAGE' | 'FIXED'
   requested_discount: number
@@ -887,13 +891,29 @@ export async function getSale(headers: Record<string, string>, saleId: string): 
   return res.json()
 }
 
-export async function createSale(headers: Record<string, string>, storeId: string, customerId?: string, notes?: string): Promise<Sale> {
+export async function createSale(
+  headers: Record<string, string>, storeId: string, registerId?: string,
+  sellerId?: string, operationMode: 'COUNTER' | 'TAKEAWAY' = 'COUNTER',
+  customerId?: string, notes?: string
+): Promise<Sale> {
   const res = await fetch(`${API_BASE_URL}/api/v1/sales`, {
     method: 'POST',
     headers: { ...headers, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ store_id: storeId, customer_id: customerId, notes })
+    body: JSON.stringify({
+      store_id: storeId, register_id: registerId, seller_id: sellerId,
+      operation_mode: operationMode, customer_id: customerId, notes
+    })
   })
   if (!res.ok) throw new Error('Erro ao criar venda')
+  return res.json()
+}
+
+export async function fetchActiveSale(
+  headers: Record<string, string>, storeId: string, registerId: string, sellerId: string
+): Promise<Sale | null> {
+  const params = new URLSearchParams({ store_id: storeId, register_id: registerId, seller_id: sellerId })
+  const res = await fetch(`${API_BASE_URL}/api/v1/sales/active?${params}`, { headers })
+  if (!res.ok) throw new Error('Erro ao recuperar operação em andamento')
   return res.json()
 }
 

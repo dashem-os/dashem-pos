@@ -3,11 +3,11 @@ from decimal import Decimal
 from datetime import datetime
 from typing import List, Optional
 from fastapi import APIRouter, Depends, Header, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlmodel import Session
 from app.core.database import get_session
 from app.core.context import TenantContext, get_tenant_context
-from app.models.sale import Customer, Sale, SaleItem, SaleStatusEnum, DiscountTypeEnum
+from app.models.sale import Customer, Sale, SaleItem, SaleStatusEnum, DiscountTypeEnum, SaleOperationModeEnum
 from app.services import sale_service, reliability_service
 
 router = APIRouter()
@@ -20,8 +20,10 @@ class CustomerCreateDTO(BaseModel):
 
 class SaleCreateDTO(BaseModel):
     store_id: uuid.UUID
+    register_id: Optional[uuid.UUID] = None
     customer_id: Optional[uuid.UUID] = None
     seller_id: Optional[uuid.UUID] = None
+    operation_mode: SaleOperationModeEnum = SaleOperationModeEnum.COUNTER
     notes: Optional[str] = None
 
 class SaleItemAddDTO(BaseModel):
@@ -35,6 +37,7 @@ class SaleCheckoutDTO(BaseModel):
     discount_type: Optional[DiscountTypeEnum] = None
 
 class SaleItemReadDTO(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID
     tenant_id: uuid.UUID
     sale_id: uuid.UUID
@@ -51,15 +54,17 @@ class SaleItemReadDTO(BaseModel):
     net_total: Decimal
     created_at: datetime
 
-    class Config:
-        from_attributes = True
-
 class SaleReadDTO(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID
     tenant_id: uuid.UUID
     store_id: uuid.UUID
+    register_id: Optional[uuid.UUID] = None
     customer_id: Optional[uuid.UUID] = None
     seller_id: Optional[uuid.UUID] = None
+    operation_mode: SaleOperationModeEnum = SaleOperationModeEnum.COUNTER
+    operator_action_count: int = 0
+    last_activity_at: datetime
     status: SaleStatusEnum
     discount_type: Optional[DiscountTypeEnum] = None
     requested_discount: Decimal
@@ -71,9 +76,6 @@ class SaleReadDTO(BaseModel):
     created_at: datetime
     updated_at: datetime
     items: List[SaleItemReadDTO] = []
-
-    class Config:
-        from_attributes = True
 
 class SaleDiscountDTO(BaseModel):
     discount_type: DiscountTypeEnum = DiscountTypeEnum.FIXED
@@ -111,7 +113,9 @@ def create_sale_endpoint(
     session: Session = Depends(get_session)
 ):
     return sale_service.create_sale(
-        session, context, store_id=data.store_id, customer_id=data.customer_id, seller_id=data.seller_id, notes=data.notes
+        session, context, store_id=data.store_id, customer_id=data.customer_id,
+        seller_id=data.seller_id, notes=data.notes, actor_id=data.seller_id or context.user_id,
+        register_id=data.register_id, operation_mode=data.operation_mode,
     )
 
 @router.get("", response_model=List[SaleReadDTO])
@@ -122,6 +126,17 @@ def list_sales_endpoint(
     session: Session = Depends(get_session)
 ):
     return sale_service.list_sales(session, context, store_id=store_id, status_filter=status)
+
+
+@router.get("/active", response_model=Optional[SaleReadDTO])
+def get_active_sale_endpoint(
+    store_id: uuid.UUID,
+    register_id: uuid.UUID,
+    seller_id: uuid.UUID,
+    context: TenantContext = Depends(get_tenant_context),
+    session: Session = Depends(get_session),
+):
+    return sale_service.get_active_sale(session, context, store_id, register_id, seller_id)
 
 @router.get("/{sale_id}", response_model=SaleReadDTO)
 def get_sale_endpoint(
@@ -257,4 +272,3 @@ def checkout_sale_endpoint(
 
     session.commit()
     return response_data
-

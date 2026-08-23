@@ -10,7 +10,8 @@ export const SaleTotals: React.FC = () => {
     openDiscountModal,
     openCancelModal,
     actionLoading,
-    cashSession
+    cashSession,
+    permissions
   } = usePos()
 
   const items = currentSale?.items || []
@@ -20,6 +21,9 @@ export const SaleTotals: React.FC = () => {
   const netTotal = Number(currentSale?.net_total || 0)
   const isAwaitingPayment = currentSale?.status === 'AWAITING_PAYMENT'
   const isCashOpen = cashSession?.status === 'OPEN'
+  const canDiscount = permissions.includes('sale.discount')
+  const canCancel = permissions.includes('sale.cancel')
+  const canCheckout = permissions.includes('sale.checkout')
 
   return (
     <div className="bg-white border-t border-slate-200 pt-3 flex flex-col space-y-2.5 shrink-0 select-none">
@@ -34,7 +38,8 @@ export const SaleTotals: React.FC = () => {
           <button
             type="button"
             onClick={openDiscountModal}
-            disabled={!hasItems || !isCashOpen || actionLoading}
+            disabled={!hasItems || !isCashOpen || actionLoading || !canDiscount}
+            title={canDiscount ? 'Aplicar desconto' : 'Seu perfil não possui permissão para desconto'}
             className="flex items-center space-x-1 font-bold text-emerald-600 hover:text-emerald-700 disabled:opacity-40"
           >
             <Tag className="w-3 h-3" />
@@ -70,7 +75,7 @@ export const SaleTotals: React.FC = () => {
         <button
           type="button"
           onClick={openCancelModal}
-          disabled={!hasItems || !isCashOpen || actionLoading}
+          disabled={!hasItems || !isCashOpen || actionLoading || !canCancel}
           className="col-span-1 h-13 rounded-xl bg-slate-100 hover:bg-rose-50 hover:text-rose-600 text-slate-500 border border-slate-200 flex flex-col items-center justify-center text-[10px] font-bold transition-all disabled:opacity-30 active:scale-95"
           title="Cancelar venda atual"
         >
@@ -82,9 +87,9 @@ export const SaleTotals: React.FC = () => {
         <button
           type="button"
           onClick={openPaymentModal}
-          disabled={!hasItems || !isCashOpen || actionLoading}
+          disabled={!hasItems || !isCashOpen || actionLoading || !canCheckout}
           className={`col-span-3 h-13 rounded-xl font-black text-sm sm:text-base flex items-center justify-center space-x-2 transition-all shadow-sm active:scale-[0.98] ${
-            hasItems && isCashOpen
+            hasItems && isCashOpen && canCheckout
               ? isAwaitingPayment
                 ? 'bg-amber-600 hover:bg-amber-500 text-white shadow-amber-600/30'
                 : 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-600/30'

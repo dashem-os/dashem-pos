@@ -4,7 +4,8 @@ import { usePos } from '../../context/PosContext'
 import { formatCurrency, formatStock } from '../../utils/format'
 
 export const QuickProductGrid: React.FC = () => {
-  const { products, categories, prices, balances, addItemToCart, actionLoading } = usePos()
+  const { products, categories, prices, balances, addItemToCart, actionLoading, permissions, connectionState } = usePos()
+  const canSell = permissions.includes('sale.create') && connectionState === 'ONLINE'
   const [activeTab, setActiveTab] = useState<string>('FAVORITES')
 
   // Per-member, per-store quick access persisted by the backend.
@@ -94,7 +95,7 @@ export const QuickProductGrid: React.FC = () => {
             <button
               key={product.id}
               onClick={() => addItemToCart(product.id, 1)}
-              disabled={actionLoading}
+              disabled={actionLoading || !canSell}
               className="group relative flex flex-col justify-between p-3 sm:p-3.5 rounded-2xl bg-white border border-slate-200 hover:border-rose-400 hover:shadow-md active:scale-[0.98] transition-all text-left min-h-[120px] shadow-sm select-none"
             >
               {/* Header: Category & Stock */}

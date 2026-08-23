@@ -4,11 +4,13 @@ from datetime import datetime
 from typing import List, Optional, Tuple, Dict, Any
 from sqlmodel import Session, select
 from sqlalchemy.orm import selectinload
+from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException, status
 from app.core.context import TenantContext, scope_tenant_query
 from app.models.identity import Store
+from app.models.payment import Register
 from app.models.catalog import Product, ProductPrice
-from app.models.sale import Customer, Sale, SaleItem, SaleStatusEnum, DiscountTypeEnum
+from app.models.sale import Customer, Sale, SaleItem, SaleStatusEnum, DiscountTypeEnum, SaleOperationModeEnum
 from app.models.payment import Payment, PaymentStatusEnum
 from app.services import reliability_service
 
@@ -67,7 +69,9 @@ def create_sale(
     customer_id: Optional[uuid.UUID] = None,
     seller_id: Optional[uuid.UUID] = None,
     notes: Optional[str] = None,
-    actor_id: Optional[uuid.UUID] = None
+    actor_id: Optional[uuid.UUID] = None,
+    register_id: Optional[uuid.UUID] = None,
+    operation_mode: SaleOperationModeEnum = SaleOperationModeEnum.COUNTER,
 ) -> Sale:
     # Verify Store belongs to Tenant
     store = session.get(Store, store_id)
@@ -87,34 +91,57 @@ def create_sale(
                 detail=f"Customer '{customer_id}' not found for this tenant."
             )
 
+    if register_id:
+        register = session.get(Register, register_id)
+        if not register or register.tenant_id != context.tenant_id or register.store_id != store_id or not register.is_active:
+            raise HTTPException(status_code=403, detail="Terminal não pertence à unidade ativa.")
+
+    effective_seller = seller_id or context.user_id
+    if context.user_id and effective_seller != context.user_id:
+        raise HTTPException(status_code=403, detail="Operador não corresponde à identidade autenticada.")
+    if register_id and effective_seller:
+        active = get_active_sale(session, context, store_id, register_id, effective_seller)
+        if active:
+            return active
+
     sale = Sale(
         tenant_id=context.tenant_id,
         store_id=store_id,
+        register_id=register_id,
         customer_id=customer_id,
-        seller_id=seller_id,
+        seller_id=effective_seller,
+        operation_mode=operation_mode,
         status=SaleStatusEnum.DRAFT,
         notes=notes
     )
     session.add(sale)
-    session.flush()
 
     # Emit Lifecycle Event: sale.created
-    if actor_id:
+    event_actor = actor_id or effective_seller
+    if event_actor:
         reliability_service.write_audit_and_outbox(
             session=session,
             tenant_id=context.tenant_id,
             store_id=store_id,
-            actor_id=actor_id,
+            actor_id=event_actor,
             action="sale.create",
             target=f"SALE-{sale.id}",
-            audit_payload={"sale_id": str(sale.id), "status": sale.status.value},
+            audit_payload={"sale_id": str(sale.id), "status": sale.status.value, "register_id": str(register_id) if register_id else None, "operation_mode": operation_mode.value},
             aggregate_type="sale",
             aggregate_id=str(sale.id),
             event_type="sale.created",
-            outbox_payload={"tenant_id": str(context.tenant_id), "store_id": str(store_id), "sale_id": str(sale.id)}
+            outbox_payload={"tenant_id": str(context.tenant_id), "store_id": str(store_id), "sale_id": str(sale.id), "register_id": str(register_id) if register_id else None, "operation_mode": operation_mode.value}
         )
 
-    session.commit()
+    try:
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        if register_id and effective_seller:
+            active = get_active_sale(session, context, store_id, register_id, effective_seller)
+            if active:
+                return active
+        raise HTTPException(status_code=409, detail="Já existe uma operação ativa neste terminal para o operador.") from exc
     session.refresh(sale)
     return sale
 
@@ -145,7 +172,11 @@ def add_sale_item(
         session.add(sale)
 
     # Verify Product belongs to tenant
-    prod_query = select(Product).where(Product.id == product_id)
+    prod_query = select(Product).where(
+        Product.id == product_id,
+        Product.is_active.is_(True),
+        Product.available_for_sale.is_(True),
+    )
     prod_query = scope_tenant_query(prod_query, Product, context)
     product = session.exec(prod_query).first()
     if not product:
@@ -214,6 +245,13 @@ def add_sale_item(
     session.refresh(item)
     return item
 
+def _touch_sale(sale: Sale) -> None:
+    now = datetime.utcnow()
+    sale.updated_at = now
+    sale.last_activity_at = now
+    sale.operator_action_count += 1
+
+
 def recalculate_sale_totals(session: Session, sale: Sale) -> None:
     items_query = select(SaleItem).where(SaleItem.sale_id == sale.id)
     items = session.exec(items_query).all()
@@ -224,7 +262,7 @@ def recalculate_sale_totals(session: Session, sale: Sale) -> None:
     sale.gross_total = gross
     sale.discount_total = item_discounts + sale.approved_discount
     sale.net_total = max(Decimal("0.00"), gross - sale.discount_total)
-    sale.updated_at = datetime.utcnow()
+    _touch_sale(sale)
     session.add(sale)
 
 def update_sale_item(
@@ -343,7 +381,7 @@ def apply_sale_discount(
     sale.gross_total = gross_total
     sale.discount_total = total_discount
     sale.net_total = max(Decimal("0.00"), gross_total - total_discount)
-    sale.updated_at = datetime.utcnow()
+    _touch_sale(sale)
     
     session.add(sale)
     session.commit()
@@ -372,7 +410,7 @@ def cancel_sale(
         
     sale.status = SaleStatusEnum.CANCELED
     sale.notes = f"{sale.notes or ''} [Cancelada: {reason or 'Sem motivo especificado'}]".strip()
-    sale.updated_at = datetime.utcnow()
+    _touch_sale(sale)
     session.add(sale)
     
     if actor_id:
@@ -393,6 +431,27 @@ def cancel_sale(
     session.commit()
     session.refresh(sale)
     return sale
+
+def get_active_sale(
+    session: Session,
+    context: TenantContext,
+    store_id: uuid.UUID,
+    register_id: uuid.UUID,
+    seller_id: uuid.UUID,
+) -> Optional[Sale]:
+    if context.store_id and store_id != context.store_id:
+        raise HTTPException(status_code=403, detail="Consulta fora da unidade ativa.")
+    if context.user_id and seller_id != context.user_id:
+        raise HTTPException(status_code=403, detail="Operador não corresponde à identidade autenticada.")
+    query = select(Sale).options(selectinload(Sale.items)).where(
+        Sale.tenant_id == context.tenant_id,
+        Sale.store_id == store_id,
+        Sale.register_id == register_id,
+        Sale.seller_id == seller_id,
+        Sale.status.in_((SaleStatusEnum.DRAFT, SaleStatusEnum.CHECKOUT, SaleStatusEnum.AWAITING_PAYMENT)),
+    ).order_by(Sale.last_activity_at.desc())
+    return session.exec(query).first()
+
 
 def list_sales(
     session: Session,
@@ -459,7 +518,7 @@ def checkout_sale(
     sale.discount_total = total_discount
     sale.net_total = net_total
     sale.status = SaleStatusEnum.AWAITING_PAYMENT
-    sale.updated_at = datetime.utcnow()
+    _touch_sale(sale)
     session.add(sale)
 
     # Atomic Reliability Integration: AuditEvent("sale.checkout") + OutboxEvent("sale.awaiting_payment")
@@ -502,4 +561,3 @@ def get_sale(session: Session, context: TenantContext, sale_id: uuid.UUID) -> Sa
     if not sale:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sale not found for this tenant.")
     return sale
-
