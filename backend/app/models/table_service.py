@@ -3,7 +3,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional
 
-from sqlalchemy import JSON, Column, Text
+from sqlalchemy import JSON, CheckConstraint, Column, Index, Text, text
 from sqlmodel import Field, SQLModel, UniqueConstraint
 
 from app.core.db_types import EnumString
@@ -35,6 +35,8 @@ class ServiceTable(SQLModel, table=True):
     __table_args__ = (
         UniqueConstraint("tenant_id", "store_id", "code", name="uq_service_table_store_code"),
         UniqueConstraint("tenant_id", "creation_idempotency_key", name="uq_service_table_creation_key"),
+        CheckConstraint("capacity > 0", name="ck_service_table_capacity_positive"),
+        CheckConstraint("version > 0", name="ck_service_table_version_positive"),
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
@@ -60,6 +62,20 @@ class TableSession(SQLModel, table=True):
     __tablename__ = "table_sessions"
     __table_args__ = (
         UniqueConstraint("tenant_id", "open_idempotency_key", name="uq_table_session_open_key"),
+        CheckConstraint("version > 0", name="ck_table_session_version_positive"),
+        CheckConstraint(
+            "(kind = 'TABLE' AND service_table_id IS NOT NULL) OR "
+            "(kind = 'INDIVIDUAL_TAB' AND service_table_id IS NULL)",
+            name="ck_table_session_kind_resource",
+        ),
+        Index(
+            "uq_active_table_session", "tenant_id", "store_id", "service_table_id",
+            unique=True,
+            postgresql_where=text(
+                "service_table_id IS NOT NULL AND status IN "
+                "('OPEN', 'IN_SERVICE', 'PARTIALLY_PAID', 'CLOSING')"
+            ),
+        ),
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
