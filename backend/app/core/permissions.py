@@ -113,6 +113,10 @@ def route_requirement(method: str, path: str) -> RouteRequirement:
         return RouteRequirement("production.operate")
     if path.startswith("/api/v1/transfers"):
         return RouteRequirement("transfer.read" if method == "GET" else "transfer.execute")
+    if path.startswith("/api/v1/channel-catalog"):
+        if method == "GET": return RouteRequirement("channel.catalog.read")
+        if "/settlements" in path: return RouteRequirement("channel.settlement.manage")
+        return RouteRequirement("channel.catalog.manage")
     if path.startswith("/api/v1/fiscal"):
         if method == "GET":
             return RouteRequirement("fiscal.read")

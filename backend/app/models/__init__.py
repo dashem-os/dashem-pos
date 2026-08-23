@@ -56,6 +56,7 @@ from app.models.production import (
     ProductionTicketStatusEnum, ProductionOperationEnum, ProductionTransition,
 )
 from app.models.transfer import TransferRecord, TransferTypeEnum
+from app.models.channel_catalog import ChannelCatalogMapping,ChannelCatalogOffer,ChannelPublicationBatch,ChannelPublicationItem,MarketplaceSettlement,MarketplaceSettlementPayment,CatalogEntityTypeEnum,PublicationStatusEnum,PublicationItemStatusEnum,SettlementStatusEnum
 
 __all__ = [
     "Tenant",
@@ -186,4 +187,5 @@ __all__ = [
     "ProductionTransition",
     "TransferRecord",
     "TransferTypeEnum",
+    "ChannelCatalogMapping","ChannelCatalogOffer","ChannelPublicationBatch","ChannelPublicationItem","MarketplaceSettlement","MarketplaceSettlementPayment","CatalogEntityTypeEnum","PublicationStatusEnum","PublicationItemStatusEnum","SettlementStatusEnum",
 ]

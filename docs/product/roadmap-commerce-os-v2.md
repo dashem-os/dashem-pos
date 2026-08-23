@@ -2,7 +2,7 @@
 
 Status: **diretriz canônica para a próxima fase de construção**  
 Data: 23 de agosto de 2026  
-Revisão: **S12 concluído — próximo gate S13 Channel Catalog e Marketplace Reconciliation**
+Revisão: **S13 concluído — próximo gate S14 Crediário e Receivables**
 Substitui como referência de execução qualquer sequência anterior que conflite com este documento.
 
 ## 1. Por que este roadmap existe
@@ -1117,7 +1117,7 @@ e aparece como `não configurada`, nunca como pronta.
 | Canal externo capaz de duplicar lógica de Order | S10 | inbox + normalização + deduplicação | resolvido no S10 |
 | Produção representada apenas como estado visual do item | S11 | tickets e allocations persistidos | resolvido no S11 |
 | Transferência capaz de apagar origem | S12 | linhagem e conservação imutáveis | resolvido no S12 |
-| Catálogo duplicado por marketplace | S13 | mapeamento canônico por canal | aberto |
+| Catálogo duplicado por marketplace | S13 | mapeamento canônico por canal | resolvido no S13 |
 | Crediário tratado como pagamento recebido | S14 | recebível e allocation distintos | aberto |
 | Renegociação capaz de alterar documento original | S15 | acordo e ledger imutáveis | aberto |
 | Caixa/fiscal/provider sem conciliação unificada | S16 | fatos vinculados sem reescrita | aberto |
@@ -1166,11 +1166,10 @@ Ao concluir:
 O próximo ciclo de implementação deve ser:
 
 ```text
-S13 — Channel Catalog e Marketplace Reconciliation
+S14 — Crediário e Receivables
 ```
 
-S0–S12 estão concluídos nos gates internos. O S12 introduziu o ADR-008 e o
-`TransferRecord` imutável. Quantidade e valor são conservados por itens derivados;
-concorrência, pagamento e produção incompatível são tratados explicitamente. O
-S13 passa a sincronizar identidades do catálogo canônico e separar venda aceita
-do repasse financeiro do marketplace.
+S0–S13 estão concluídos nos gates internos. O S13 introduziu o ADR-009,
+mapeamentos por merchant, ofertas versionadas, publicação item a item e documentos
+de repasse independentes do Order. Falha parcial e diferença financeira ficam
+observáveis. O próximo gate canônico é o S14, fora do loop S8–S13 autorizado.

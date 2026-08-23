@@ -399,6 +399,10 @@ export interface ChannelInboxEvent {
   processed_at?: string
 }
 
+export interface ChannelCatalogOffer { id:string; merchant_connection_id:string; product_id:string; price:number; available:boolean; stock_quantity?:number; desired_version:number; published_version:number; last_publication_status:'PENDING'|'SUCCEEDED'|'FAILED'; updated_at:string }
+export interface ChannelPublicationBatch { id:string; merchant_connection_id:string; status:'PENDING'|'PROCESSING'|'PARTIAL'|'SUCCEEDED'|'FAILED'; created_at:string; updated_at:string }
+export interface MarketplaceSettlement { id:string; merchant_connection_id:string; provider_document_ref:string; external_order_id?:string; order_id?:string; competence_date:string; gross_amount:number; commission_amount:number; fee_amount:number; promotion_amount:number; adjustment_amount:number; expected_net_amount:number; paid_amount:number; status:'PENDING'|'PARTIAL'|'PAID'|'DIVERGENT'; updated_at:string }
+
 export interface ProductionPoint {
   id: string
   tenant_id: string
@@ -1512,6 +1516,9 @@ export async function fetchChannelInbox(headers: Record<string, string>): Promis
   if (!res.ok) throw await apiError(res, 'Não foi possível carregar a caixa de entrada externa.')
   return res.json()
 }
+
+export async function fetchChannelCatalogState(headers:Record<string,string>):Promise<{offers:ChannelCatalogOffer[];batches:ChannelPublicationBatch[]}>{const res=await fetch(`${API_BASE_URL}/api/v1/channel-catalog/catalog`,{headers});if(!res.ok)throw await apiError(res,'Não foi possível carregar o catálogo por canal.');return res.json()}
+export async function fetchMarketplaceSettlements(headers:Record<string,string>):Promise<MarketplaceSettlement[]>{const res=await fetch(`${API_BASE_URL}/api/v1/channel-catalog/settlements`,{headers});if(!res.ok)throw await apiError(res,'Não foi possível carregar os repasses.');return res.json()}
 
 export async function fetchProductionPoints(headers: Record<string, string>): Promise<ProductionPoint[]> {
   const res = await fetch(`${API_BASE_URL}/api/v1/production/points`, { headers })

@@ -132,7 +132,7 @@ A sequência oficial de construção das experiências do cliente, dos domínios
 Food Service, do motor financeiro e da conclusão do Control Plane está em
 [`docs/product/roadmap-commerce-os-v2.md`](docs/product/roadmap-commerce-os-v2.md).
 
-Os gates **S0–S12** consolidaram contratos, shells, autorização, catálogo,
+Os gates **S0–S13** consolidaram contratos, shells, autorização, catálogo,
 Frente de Caixa, `Order Foundation` e Mesas & Comandas. `ServiceTable`,
 `TableSession` e `Order` são contratos distintos, com concorrência,
 idempotência, RLS, auditoria e interface operacional baseada somente em dados
@@ -152,7 +152,10 @@ real com concorrência otimista, ator, dispositivo, auditoria e outbox. O próxi
 O **S12 — Transferências e Comandas Avançadas** conserva quantidade e valor por
 itens derivados, registra linhagem imutável, exige versões concorrentes e bloqueia
 cobertura financeira/produção incompatível. O próximo gate é o **S13 — Channel
-Catalog e Marketplace Reconciliation**.
+Catalog e Marketplace Reconciliation** mantém identidade única do produto,
+publicação versionada item a item e repasses separados da venda operacional. O
+próximo gate canônico é o **S14 — Crediário e Receivables**; ele não faz parte
+deste loop autorizado.
 
 ## Trilha pendente: conclusão do Console Owner
 

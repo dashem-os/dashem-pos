@@ -1,0 +1,4 @@
+import assert from'node:assert/strict';import{readFileSync}from'node:fs';import{join}from'node:path';import test from'node:test'
+const root=join(import.meta.dirname,'..','src');const api=readFileSync(join(root,'services','api.ts'),'utf8');const hub=readFileSync(join(root,'components','management','ChannelHubWorkspace.tsx'),'utf8')
+test('projects real catalog publication backlog and marketplace settlements',()=>{assert.match(api,/\/api\/v1\/channel-catalog\/catalog/);assert.match(api,/\/api\/v1\/channel-catalog\/settlements/);assert.match(hub,/last_publication_status/);assert.match(hub,/Venda e liquidação financeira são fatos separados/)})
+test('never assumes empty marketplace data is synchronized or paid',()=>{assert.match(hub,/não aparecem conciliadas por suposição/);assert.match(hub,/fonte canônica/);assert.doesNotMatch(hub,/Sincronizado com sucesso.*0|mock|fixture/i)})
