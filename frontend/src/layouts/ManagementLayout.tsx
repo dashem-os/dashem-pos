@@ -5,7 +5,6 @@ import {
   FileText,
   Package,
   Banknote,
-  Activity,
   LogOut,
   Store as StoreIcon,
   CheckCircle2,
@@ -19,7 +18,7 @@ import { DashboardBI } from '../components/management/DashboardBI'
 import { SalesHistory } from '../components/management/SalesHistory'
 import { CatalogManager } from '../components/management/CatalogManager'
 import { CashManager } from '../components/management/CashManager'
-import { Diagnostics } from '../components/management/Diagnostics'
+import { navigateTo } from '../utils/navigation'
 
 export const ManagementLayout: React.FC = () => {
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false)
@@ -27,7 +26,6 @@ export const ManagementLayout: React.FC = () => {
   const {
     activeBiTab,
     setActiveBiTab,
-    switchView,
     store,
     register,
     cashSession
@@ -40,7 +38,6 @@ export const ManagementLayout: React.FC = () => {
     { id: 'sales', label: 'Vendas & Histórico', icon: FileText },
     { id: 'catalog', label: 'Catálogo & Estoque', icon: Package },
     { id: 'cash', label: 'Caixa & Tesouraria', icon: Banknote },
-    { id: 'diagnostics', label: 'Diagnóstico & API', icon: Activity },
   ] as const
 
   const navigationButtons = navigation.map(item => {
@@ -75,8 +72,6 @@ export const ManagementLayout: React.FC = () => {
         return <CatalogManager />
       case 'cash':
         return <CashManager />
-      case 'diagnostics':
-        return <Diagnostics />
       default:
         return <DashboardBI />
     }
@@ -114,7 +109,7 @@ export const ManagementLayout: React.FC = () => {
             Frente de Caixa
           </span>
           <button
-            onClick={() => switchView('pdv')}
+            onClick={() => navigateTo('/pos')}
             className="w-full h-11 rounded-xl bg-dashem-red hover:bg-dashem-red-light text-white text-xs font-black flex items-center justify-center space-x-2 transition-all shadow-md shadow-dashem-red/30 active:scale-95"
           >
             <ShoppingCart className="w-4 h-4" />
@@ -133,7 +128,7 @@ export const ManagementLayout: React.FC = () => {
             </div>
             <nav className="space-y-1.5">{navigationButtons}</nav>
             <div className="mt-auto space-y-3 border-t border-dashem-border pt-5">
-              <button onClick={() => switchView('pdv')} className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-dashem-red text-sm font-black"><ShoppingCart className="h-4 w-4" />Abrir PDV / Caixa</button>
+              <button onClick={() => navigateTo('/pos')} className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-dashem-red text-sm font-black"><ShoppingCart className="h-4 w-4" />Abrir PDV / Caixa</button>
               <button onClick={signOut} className="flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-dashem-border text-sm font-black text-dashem-muted"><LogOut className="h-4 w-4" />Encerrar sessão</button>
             </div>
           </aside>
@@ -150,9 +145,9 @@ export const ManagementLayout: React.FC = () => {
             <button onClick={() => setMobileNavigationOpen(true)} className="flex h-11 w-11 items-center justify-center rounded-xl border border-dashem-border text-white md:hidden" aria-label="Abrir menu de gestão"><Menu className="h-5 w-5" /></button>
             <div className="flex items-center space-x-2 text-xs font-bold text-dashem-muted">
               <StoreIcon className="w-4 h-4 text-dashem-red" />
-              <span className="text-white">{store?.name || 'Loja Principal'}</span>
+              <span className="text-white">{store?.name || 'Unidade não selecionada'}</span>
               <span className="hidden sm:inline">•</span>
-              <span className="hidden sm:inline">{register?.name || 'Terminal 01'}</span>
+              <span className="hidden sm:inline">{register?.name || 'Terminal não selecionado'}</span>
             </div>
           </div>
 
@@ -180,7 +175,7 @@ export const ManagementLayout: React.FC = () => {
 
             {/* Quick Button to PDV */}
             <button
-              onClick={() => switchView('pdv')}
+              onClick={() => navigateTo('/pos')}
               title="Ir para o PDV"
               aria-label="Ir para o PDV"
               className="h-9 px-4 rounded-xl bg-dashem-red hover:bg-dashem-red-light text-white text-xs font-black flex items-center space-x-1.5 transition-all shadow-md active:scale-95"

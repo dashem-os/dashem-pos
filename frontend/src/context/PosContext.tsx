@@ -15,8 +15,7 @@ interface PosContextType {
   cashSession: api.CashSession | null
   operatorId: string
   health: api.ApiHealth | null
-  activeView: 'pdv' | 'bi'
-  activeBiTab: 'dashboard' | 'sales' | 'catalog' | 'cash' | 'diagnostics'
+  activeBiTab: 'dashboard' | 'sales' | 'catalog' | 'cash'
 
   // Data state
   products: api.Product[]
@@ -42,8 +41,7 @@ interface PosContextType {
   toast: ToastInfo | null
 
   // Actions
-  switchView: (view: 'pdv' | 'bi') => void
-  setActiveBiTab: (tab: 'dashboard' | 'sales' | 'catalog' | 'cash' | 'diagnostics') => void
+  setActiveBiTab: (tab: 'dashboard' | 'sales' | 'catalog' | 'cash') => void
   showToast: (type: 'success' | 'error' | 'info', text: string) => void
   startNewSale: () => Promise<void>
   addItemToCart: (productId: string, quantity?: number) => Promise<boolean>
@@ -73,8 +71,7 @@ interface PosContextType {
 const PosContext = createContext<PosContextType | undefined>(undefined)
 
 export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [activeView, setActiveView] = useState<'pdv' | 'bi'>('pdv')
-  const [activeBiTab, setActiveBiTab] = useState<'dashboard' | 'sales' | 'catalog' | 'cash' | 'diagnostics'>('dashboard')
+  const [activeBiTab, setActiveBiTab] = useState<'dashboard' | 'sales' | 'catalog' | 'cash'>('dashboard')
 
   const [tenant, setTenant] = useState<api.Tenant | null>(null)
   const [store, setStore] = useState<api.Store | null>(null)
@@ -194,10 +191,6 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       refreshData()
     }
   }, [tenant, store, refreshData])
-
-  const switchView = (view: 'pdv' | 'bi') => {
-    setActiveView(view)
-  }
 
   const startNewSale = async () => {
     if (!store) {
@@ -563,7 +556,6 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         cashSession,
         operatorId,
         health,
-        activeView,
         activeBiTab,
         products,
         categories,
@@ -582,7 +574,6 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         loading,
         actionLoading,
         toast,
-        switchView,
         setActiveBiTab,
         showToast,
         startNewSale,

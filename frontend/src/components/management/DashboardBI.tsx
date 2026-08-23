@@ -11,9 +11,10 @@ import {
   Receipt
 } from 'lucide-react'
 import { usePos } from '../../context/PosContext'
+import { navigateTo } from '../../utils/navigation'
 
 export const DashboardBI: React.FC = () => {
-  const { salesHistory, products, balances, cashSession, switchView } = usePos()
+  const { salesHistory, products, balances, cashSession } = usePos()
 
   // Compute Real Metrics
   const completedSales = salesHistory.filter((s) => s.status === 'COMPLETED' || s.status === 'PAID')
@@ -38,7 +39,7 @@ export const DashboardBI: React.FC = () => {
         </div>
 
         <button
-          onClick={() => switchView('pdv')}
+          onClick={() => navigateTo('/pos')}
           className="h-12 px-6 rounded-2xl bg-dashem-red hover:bg-dashem-red-light text-white text-xs font-black flex items-center justify-center space-x-2 transition-all shadow-lg shadow-dashem-red/30 active:scale-95 shrink-0"
         >
           <ShoppingCart className="w-4 h-4" />

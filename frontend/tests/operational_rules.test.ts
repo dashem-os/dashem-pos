@@ -18,8 +18,9 @@ test('routes platform identities only to the owner control plane', () => {
 
 test('keeps tenant identities out of owner and preserves an allowed tenant shell', () => {
   assert.equal(normalizeAuthenticatedRoute('/owner', null), '/pos')
-  assert.equal(normalizeAuthenticatedRoute('/manage', null), '/manage')
-  assert.equal(normalizeAuthenticatedRoute('/kds', null), '/kds')
+  assert.equal(normalizeAuthenticatedRoute('/manage', null, false), '/pos')
+  assert.equal(normalizeAuthenticatedRoute('/manage', null, true), '/manage')
+  assert.equal(normalizeAuthenticatedRoute('/kds', null, false, true), '/kds')
 })
 
 test('auto-selects organizational context only when there is exactly one option', () => {

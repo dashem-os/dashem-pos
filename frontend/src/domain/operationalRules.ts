@@ -6,10 +6,17 @@ export function authenticatedHome(platformRole?: string | null): ShellRoute {
   return platformRole && PLATFORM_ROLES.has(platformRole) ? '/owner' : '/pos'
 }
 
-export function normalizeAuthenticatedRoute(pathname: string, platformRole?: string | null): ShellRoute {
+export function normalizeAuthenticatedRoute(
+  pathname: string,
+  platformRole?: string | null,
+  canManage = false,
+  canUseKds = false,
+): ShellRoute {
   const home = authenticatedHome(platformRole)
   if (home === '/owner') return '/owner'
-  if (pathname === '/manage' || pathname === '/pos' || pathname === '/kds') return pathname
+  if (pathname === '/manage') return canManage ? '/manage' : '/pos'
+  if (pathname === '/kds') return canUseKds ? '/kds' : '/pos'
+  if (pathname === '/pos') return '/pos'
   return '/pos'
 }
 

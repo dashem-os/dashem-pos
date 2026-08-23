@@ -1,22 +1,18 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { Loader2, LogOut, ShieldAlert } from 'lucide-react'
-import { PosProvider, usePos } from './context/PosContext'
-import { PosLayout } from './layouts/PosLayout'
-import { ManagementLayout } from './layouts/ManagementLayout'
-import { Toast } from './components/common/Toast'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { SignInScreen } from './components/auth/SignInScreen'
 import { OwnerMfaScreen, PasswordSetupScreen } from './components/auth/FirstAccessSecurity'
-import { PlatformOwnerConsole } from './components/owner/PlatformOwnerConsole'
 import { AuthMe, fetchMe } from './services/api'
+import { normalizeAuthenticatedRoute, ShellRoute } from './domain/operationalRules'
+
+const OwnerConsole = lazy(() => import('./components/owner/PlatformOwnerConsole').then((module) => ({ default: module.PlatformOwnerConsole })))
+const ManageShell = lazy(() => import('./shells/ManageShell'))
+const PosShell = lazy(() => import('./shells/PosShell'))
+const KdsShell = lazy(() => import('./shells/KdsShell'))
 
 const PLATFORM_CONSOLE_ROLES = new Set(['PLATFORM_OWNER', 'PLATFORM_ADMIN'])
-
-const AppContent: React.FC = () => {
-  const { activeView, loading, toast } = usePos()
-  if (loading) return <FullScreenLoader label="Carregando ambiente operacional..." />
-  return <><Toast toast={toast} />{activeView === 'pdv' ? <PosLayout /> : <ManagementLayout />}</>
-}
+const MANAGEMENT_ROLES = new Set(['OWNER', 'TENANT_OWNER', 'ADMIN', 'MANAGER'])
 
 export default function App() {
   return <AuthProvider><IdentityRouter /></AuthProvider>
@@ -27,6 +23,18 @@ function IdentityRouter() {
   const [me, setMe] = useState<AuthMe | null>(null)
   const [identityLoading, setIdentityLoading] = useState(false)
   const [identityError, setIdentityError] = useState<string | null>(null)
+  const [pathname, setPathname] = useState(window.location.pathname)
+
+  useEffect(() => {
+    const syncPath = () => setPathname(window.location.pathname)
+    window.addEventListener('popstate', syncPath)
+    return () => window.removeEventListener('popstate', syncPath)
+  }, [])
+
+  const replacePath = useCallback((path: ShellRoute) => {
+    if (window.location.pathname === path) return
+    window.history.replaceState({}, '', path)
+  }, [])
 
   const loadIdentity = useCallback(async () => {
     if (!session) return
@@ -43,12 +51,7 @@ function IdentityRouter() {
   }, [session])
 
   useEffect(() => { if (session) loadIdentity(); else setMe(null) }, [session, loadIdentity])
-
-  useEffect(() => {
-    if (!loading && !session && window.location.pathname !== '/login') {
-      window.history.replaceState({}, '', '/login')
-    }
-  }, [loading, session])
+  useEffect(() => { if (!loading && !session) replacePath('/login') }, [loading, session, replacePath])
 
   if (loading) return <FullScreenLoader label="Validando sessão..." />
   if (!session) return <SignInScreen />
@@ -59,24 +62,36 @@ function IdentityRouter() {
 
   if (identityLoading && !me) return <FullScreenLoader label="Reconhecendo identidade e permissões..." />
   if (identityError || !me) return <AccessState message={identityError ?? 'Seu usuário ainda não possui acesso ao Dashem POS.'} onSignOut={signOut} onRetry={loadIdentity} />
-
-  // Email invitations for both platform and tenant users converge here. The
-  // backend activates INVITED memberships only after this transition.
   if (me.password_setup_required) return <PasswordSetupScreen onComplete={loadIdentity} />
 
   const platformRole = me.platform_role ?? ''
   if (PLATFORM_CONSOLE_ROLES.has(platformRole)) {
     if (me.mfa_required) return <OwnerMfaScreen onComplete={loadIdentity} />
-    if (window.location.pathname !== '/owner') window.history.replaceState({}, '', '/owner')
-    return <PlatformOwnerConsole me={me} />
+    if (pathname !== '/owner') replacePath('/owner')
+    return <ShellSuspense label="Carregando Dashem Control..."><OwnerConsole me={me} /></ShellSuspense>
   }
 
   if (platformRole && !me.memberships?.length) {
     return <AccessState message="Seu papel de plataforma está autenticado, mas este módulo do Console ainda não foi liberado para o perfil atual." onSignOut={signOut} onRetry={loadIdentity} />
   }
 
-  if (window.location.pathname === '/owner') window.history.replaceState({}, '', '/')
-  return <PosProvider><AppContent /></PosProvider>
+  const activeMemberships = (me.memberships ?? []).filter((membership) => membership.status === 'ACTIVE')
+  if (!activeMemberships.length) {
+    return <AccessState message="Sua identidade não possui membership ativa em um tenant." onSignOut={signOut} onRetry={loadIdentity} />
+  }
+
+  const canManage = activeMemberships.some((membership) => MANAGEMENT_ROLES.has(membership.role))
+  const canUseKds = activeMemberships.length > 0
+  const route = normalizeAuthenticatedRoute(pathname, platformRole, canManage, canUseKds)
+  if (route !== pathname) replacePath(route)
+
+  if (route === '/manage') return <ShellSuspense label="Carregando Dashem Gestão..."><ManageShell /></ShellSuspense>
+  if (route === '/kds') return <ShellSuspense label="Carregando Dashem KDS..."><KdsShell canManage={canManage} /></ShellSuspense>
+  return <ShellSuspense label="Carregando frente de caixa..."><PosShell canManage={canManage} /></ShellSuspense>
+}
+
+function ShellSuspense({ label, children }: { label: string; children: React.ReactNode }) {
+  return <Suspense fallback={<FullScreenLoader label={label} />}>{children}</Suspense>
 }
 
 function FullScreenLoader({ label }: { label: string }) {
