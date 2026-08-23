@@ -88,6 +88,7 @@ class OrderItem(SQLModel, table=True):
     notes: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     production_destination: Optional[str] = Field(default=None, max_length=80)
     production_state: ProductionStateEnum = Field(sa_column=Column(EnumString(ProductionStateEnum), nullable=False, index=True))
+    production_version: int = Field(default=1, ge=1)
     status: OrderItemStatusEnum = Field(default=OrderItemStatusEnum.ACTIVE, sa_column=Column(EnumString(OrderItemStatusEnum), nullable=False, index=True))
     added_by: uuid.UUID = Field(index=True)
     canceled_by: Optional[uuid.UUID] = Field(default=None, index=True)

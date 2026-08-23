@@ -50,6 +50,11 @@ from app.models.channel_hub import (
     ChannelInboxStatusEnum, ExternalOrderMapping, ChannelOutboundMessage,
     ChannelOutboundStatusEnum,
 )
+from app.models.production import (
+    ProductionPoint, ProductionPointTypeEnum, ProductionRoutingRule,
+    ProductionDispatch, ProductionTicket, ProductionTicketItem,
+    ProductionTicketStatusEnum, ProductionOperationEnum, ProductionTransition,
+)
 
 __all__ = [
     "Tenant",
@@ -169,4 +174,13 @@ __all__ = [
     "ExternalOrderMapping",
     "ChannelOutboundMessage",
     "ChannelOutboundStatusEnum",
+    "ProductionPoint",
+    "ProductionPointTypeEnum",
+    "ProductionRoutingRule",
+    "ProductionDispatch",
+    "ProductionTicket",
+    "ProductionTicketItem",
+    "ProductionTicketStatusEnum",
+    "ProductionOperationEnum",
+    "ProductionTransition",
 ]

@@ -173,6 +173,7 @@ class Modifier(SQLModel, table=True):
     group_id: uuid.UUID = Field(foreign_key="modifier_groups.id", ondelete="CASCADE", index=True)
     name: str = Field(max_length=160)
     price_delta: Decimal = Field(default=Decimal("0.00"), sa_column=Column(Numeric(14, 4), nullable=False, default=0.0))
+    production_destination: Optional[str] = Field(default=None, max_length=80)
     is_active: bool = Field(default=True, index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

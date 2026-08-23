@@ -105,6 +105,12 @@ def route_requirement(method: str, path: str) -> RouteRequirement:
         if "/connections" in path:
             return RouteRequirement("channel.configure")
         return RouteRequirement("channel.manage")
+    if path.startswith("/api/v1/production"):
+        if method == "GET":
+            return RouteRequirement("production.read")
+        if "/points" in path or "/rules" in path:
+            return RouteRequirement("production.configure")
+        return RouteRequirement("production.operate")
     if path.startswith("/api/v1/fiscal"):
         if method == "GET":
             return RouteRequirement("fiscal.read")

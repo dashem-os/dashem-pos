@@ -2,7 +2,7 @@
 
 Status: **diretriz canônica para a próxima fase de construção**  
 Data: 23 de agosto de 2026  
-Revisão: **S10 concluído — próximo gate S11 Production Routing e KDS**
+Revisão: **S11 concluído — próximo gate S12 Transferências e Comandas Avançadas**
 Substitui como referência de execução qualquer sequência anterior que conflite com este documento.
 
 ## 1. Por que este roadmap existe
@@ -1115,7 +1115,7 @@ e aparece como `não configurada`, nunca como pronta.
 | Pagamento atual sem negociação canônica de Orders/sessão | S8 | `CheckoutNegotiation` + allocations | resolvido e testado |
 | Provider/TEF acoplável à regra de venda | S9 | adapter + bridge + reconciliação | resolvido no gate interno; homologação externa pendente |
 | Canal externo capaz de duplicar lógica de Order | S10 | inbox + normalização + deduplicação | resolvido no S10 |
-| Produção representada apenas como estado visual do item | S11 | tickets e allocations persistidos | aberto |
+| Produção representada apenas como estado visual do item | S11 | tickets e allocations persistidos | resolvido no S11 |
 | Transferência capaz de apagar origem | S12 | linhagem e conservação imutáveis | aberto |
 | Catálogo duplicado por marketplace | S13 | mapeamento canônico por canal | aberto |
 | Crediário tratado como pagamento recebido | S14 | recebível e allocation distintos | aberto |
@@ -1166,12 +1166,11 @@ Ao concluir:
 O próximo ciclo de implementação deve ser:
 
 ```text
-S11 — Production Routing e KDS
+S12 — Transferências e Comandas Avançadas
 ```
 
-S0–S10 estão concluídos nos gates internos. O S10 introduziu o ADR-006,
-`MerchantConnection`, inbox durável, autenticação HMAC, deduplicação por evento e
-pedido externo, quarentena e normalização para o `Order Engine` canônico. Nenhum
-provider comercial é declarado homologado: esse gate externo continua dependente
-de contrato, credenciais e certificação. O S11 encaminhará itens de balcão, mesa e
-canal externo pela mesma regra persistida de produção.
+S0–S11 estão concluídos nos gates internos. O S11 introduziu o ADR-007, pontos e
+regras persistidos, dispatch idempotente, allocations versionadas e KDS com
+concorrência otimista. Balcão, mesa e canal externo usam o mesmo roteador sem
+alterar snapshot comercial ou negociação. O S12 passa a mover responsabilidade
+operacional preservando origem, quantidade, valor e trajetória.

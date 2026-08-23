@@ -132,7 +132,7 @@ A sequência oficial de construção das experiências do cliente, dos domínios
 Food Service, do motor financeiro e da conclusão do Control Plane está em
 [`docs/product/roadmap-commerce-os-v2.md`](docs/product/roadmap-commerce-os-v2.md).
 
-Os gates **S0–S10** consolidaram contratos, shells, autorização, catálogo,
+Os gates **S0–S11** consolidaram contratos, shells, autorização, catálogo,
 Frente de Caixa, `Order Foundation` e Mesas & Comandas. `ServiceTable`,
 `TableSession` e `Order` são contratos distintos, com concorrência,
 idempotência, RLS, auditoria e interface operacional baseada somente em dados
@@ -146,7 +146,10 @@ por segredo com hash, heartbeat/telemetria e reconciliação de estados
 configurado/offline” sem simular homologação. O **S10 — Dashem Channel Hub e
 External Order Inbox** recebe, autentica, persiste, deduplica e normaliza pedidos
 externos no mesmo `Order Engine`, sem fingir conexão com providers ainda não
-homologados. O próximo gate é o **S11 — Production Routing e KDS**.
+homologados. O **S11 — Production Routing e KDS** adiciona pontos e regras
+persistidos, dispatch idempotente, tickets por versão/operação e uma fila KDS
+real com concorrência otimista, ator, dispositivo, auditoria e outbox. O próximo
+gate é o **S12 — Transferências e Comandas Avançadas**.
 
 ## Trilha pendente: conclusão do Console Owner
 

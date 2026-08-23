@@ -163,6 +163,7 @@ export interface OrderItem {
   notes?: string
   production_destination?: string
   production_state: 'NOT_REQUIRED' | 'PENDING' | 'IN_PREPARATION' | 'READY' | 'DELIVERED' | 'CANCELED'
+  production_version: number
   status: 'ACTIVE' | 'CANCELED'
   added_by: string
   canceled_by?: string
@@ -389,6 +390,48 @@ export interface ChannelInboxEvent {
   received_at: string
   acknowledged_at?: string
   processed_at?: string
+}
+
+export interface ProductionPoint {
+  id: string
+  tenant_id: string
+  store_id: string
+  code: string
+  name: string
+  point_type: 'KITCHEN' | 'BAR' | 'PANTRY' | 'EXPEDITION' | 'PRINTER'
+  is_active: boolean
+  printer_configuration_ref?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface ProductionTicketItem {
+  id: string
+  order_item_id: string
+  item_version: number
+  operation: 'CREATE' | 'UPDATE' | 'CANCEL'
+  quantity: number
+  product_name_snapshot: string
+  modifier_snapshot: Array<Record<string, unknown>>
+  notes_snapshot?: string
+  created_at: string
+}
+
+export interface ProductionTicketProjection {
+  ticket: {
+    id: string
+    tenant_id: string
+    store_id: string
+    order_id: string
+    production_point_id: string
+    status: 'NEW' | 'ACCEPTED' | 'PREPARING' | 'READY' | 'DELIVERED' | 'CANCELED'
+    priority: number
+    version: number
+    created_at: string
+    updated_at: string
+  }
+  point: ProductionPoint
+  items: ProductionTicketItem[]
 }
 
 export interface Register {
@@ -1451,6 +1494,30 @@ export async function validateMerchantConnection(headers: Record<string, string>
 export async function fetchChannelInbox(headers: Record<string, string>): Promise<ChannelInboxEvent[]> {
   const res = await fetch(`${API_BASE_URL}/api/v1/channels/inbox`, { headers })
   if (!res.ok) throw await apiError(res, 'Não foi possível carregar a caixa de entrada externa.')
+  return res.json()
+}
+
+export async function fetchProductionPoints(headers: Record<string, string>): Promise<ProductionPoint[]> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/production/points`, { headers })
+  if (!res.ok) throw await apiError(res, 'Não foi possível carregar os pontos de produção.')
+  return res.json()
+}
+
+export async function fetchProductionTickets(headers: Record<string, string>, pointId?: string): Promise<ProductionTicketProjection[]> {
+  const suffix = pointId ? `?point_id=${pointId}` : ''
+  const res = await fetch(`${API_BASE_URL}/api/v1/production/tickets${suffix}`, { headers })
+  if (!res.ok) throw await apiError(res, 'Não foi possível carregar a fila de produção.')
+  return res.json()
+}
+
+export async function transitionProductionTicket(
+  headers: Record<string, string>, ticketId: string, idempotencyKey: string,
+  data: { target: ProductionTicketProjection['ticket']['status']; expected_version: number; actor_id: string; device_id: string },
+): Promise<ProductionTicketProjection> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/production/tickets/${ticketId}/transition`, {
+    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(data),
+  })
+  if (!res.ok) throw await apiError(res, 'A fila mudou em outra tela. Atualize antes de continuar.')
   return res.json()
 }
 

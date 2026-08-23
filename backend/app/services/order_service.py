@@ -306,7 +306,7 @@ def update_item(
     item = session.exec(select(OrderItem).where(OrderItem.tenant_id == context.tenant_id, OrderItem.order_id == order_id, OrderItem.id == item_id)).first()
     if not item or item.status != OrderItemStatusEnum.ACTIVE: raise HTTPException(status_code=404, detail="Item ativo não encontrado.")
     actor = _actor(context, actor_id)
-    item.quantity = quantity; item.notes = notes; item.updated_at = datetime.utcnow()
+    item.quantity = quantity; item.notes = notes; item.production_version += 1; item.updated_at = datetime.utcnow()
     _record_command(session, context, order.id, idempotency_key, "UPDATE_ITEM", payload, item.id, actor)
     order.updated_at = item.updated_at
     _event(session, context, order, actor, "order.item.updated", {"order_item_id": str(item.id), "quantity": str(quantity)})
@@ -330,6 +330,7 @@ def cancel_item(
     actor = _actor(context, actor_id)
     item.status = OrderItemStatusEnum.CANCELED
     item.production_state = ProductionStateEnum.CANCELED
+    item.production_version += 1
     item.canceled_by = actor; item.cancellation_reason = reason.strip(); item.canceled_at = datetime.utcnow(); item.updated_at = item.canceled_at
     _record_command(session, context, order.id, idempotency_key, "CANCEL_ITEM", payload, item.id, actor)
     order.updated_at = item.updated_at
