@@ -19,7 +19,7 @@ interface PosContextType {
   capabilities: api.EffectiveAccess['capabilities']
 
   // Data state
-  products: api.Product[]
+  products: api.SellableProduct[]
   categories: api.Category[]
   prices: Record<string, number>
   balances: Record<string, number>
@@ -86,7 +86,7 @@ export const PosProvider: React.FC<{
   const [permissions, setPermissions] = useState<string[]>([])
   const [capabilities, setCapabilities] = useState<api.EffectiveAccess['capabilities']>({})
 
-  const [products, setProducts] = useState<api.Product[]>([])
+  const [products, setProducts] = useState<api.SellableProduct[]>([])
   const [categories, setCategories] = useState<api.Category[]>([])
   const [prices, setPrices] = useState<Record<string, number>>({})
   const [balances, setBalances] = useState<Record<string, number>>({})
@@ -165,25 +165,22 @@ export const PosProvider: React.FC<{
     if (!tenant || !store) return
     try {
       const hdrs = getHeaders()
-      const prods = await api.fetchProducts(hdrs)
+      const catalog = await api.fetchSellableProducts(hdrs, { pageSize: 100 })
+      const prods = catalog.items
       setProducts(prods)
 
       const cats = await api.fetchCategories(hdrs).catch(() => [])
       setCategories(cats)
 
-      // Fetch real product prices
-      const fetchedPrices = await api.fetchProductPrices(hdrs, store.id).catch(() => [])
       const priceMap: Record<string, number> = {}
-      for (const p of fetchedPrices) {
-        priceMap[p.product_id] = Number(p.sale_price)
+      for (const product of prods) {
+        priceMap[product.id] = Number(product.sale_price)
       }
       setPrices(priceMap)
 
       const balMap: Record<string, number> = {}
-      for (const p of prods) {
-        // Fetch balance
-        const b = await api.fetchInventoryBalance(hdrs, store.id, p.id).catch(() => null)
-        balMap[p.id] = b ? Number(b.quantity) : 0
+      for (const product of prods) {
+        balMap[product.id] = Number(product.quantity)
       }
       setBalances(balMap)
 

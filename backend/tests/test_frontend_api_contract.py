@@ -19,10 +19,13 @@ CONTRACTS = [
     ("POST", "/api/v1/catalog/categories", "/api/v1/catalog/categories`"),
     ("GET", "/api/v1/catalog/products", "/api/v1/catalog/products`"),
     ("POST", "/api/v1/catalog/products", "/api/v1/catalog/products`"),
+    ("GET", "/api/v1/catalog/sellable-products", "/api/v1/catalog/sellable-products?"),
+    ("PUT", "/api/v1/catalog/quick-access/{product_id}", "/api/v1/catalog/quick-access/${productId}`"),
     ("GET", "/api/v1/catalog/prices", "/api/v1/catalog/prices`"),
     ("POST", "/api/v1/catalog/prices", "/api/v1/catalog/prices`"),
     ("GET", "/api/v1/inventory/balance", "/api/v1/inventory/balance?"),
     ("POST", "/api/v1/inventory/adjust", "/api/v1/inventory/adjust`"),
+    ("PUT", "/api/v1/inventory/minimum", "/api/v1/inventory/minimum`"),
     ("GET", "/api/v1/inventory/movements", "/api/v1/inventory/movements`"),
     ("GET", "/api/v1/sales", "/api/v1/sales`"),
     ("POST", "/api/v1/sales", "/api/v1/sales`"),
@@ -59,6 +62,7 @@ def test_every_tenant_critical_contract_keeps_context_headers_in_client():
     source = FRONTEND_API.read_text(encoding="utf-8")
     for function_name in (
         "fetchProducts",
+        "fetchSellableProducts",
         "fetchInventoryBalance",
         "createSale",
         "addItemToSale",

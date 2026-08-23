@@ -23,6 +23,12 @@ class StockAdjustResponse(BaseModel):
     balance: InventoryBalance
     movement_created: bool
 
+
+class MinimumStockDTO(BaseModel):
+    store_id: uuid.UUID
+    product_id: uuid.UUID
+    minimum_stock: float
+
 @router.post("/adjust", response_model=StockAdjustResponse)
 def adjust_stock_endpoint(
     data: StockAdjustDTO,
@@ -95,3 +101,16 @@ def list_movements_endpoint(
     session: Session = Depends(get_session)
 ):
     return inventory_service.list_movements(session, context, store_id=store_id, product_id=product_id)
+
+
+@router.put("/minimum", response_model=InventoryBalance)
+def set_minimum_stock_endpoint(
+    data: MinimumStockDTO,
+    context: TenantContext = Depends(get_tenant_context),
+    session: Session = Depends(get_session),
+):
+    if data.minimum_stock < 0:
+        raise HTTPException(status_code=400, detail="minimum_stock não pode ser negativo.")
+    return inventory_service.set_minimum_stock(
+        session, context, data.store_id, data.product_id, data.minimum_stock,
+    )

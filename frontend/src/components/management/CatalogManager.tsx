@@ -1,11 +1,15 @@
-import React, { useState } from 'react'
-import { Package, Plus, Search, Edit3, ArrowUpDown, Wrench, CheckCircle2 } from 'lucide-react'
+import React, { useEffect, useState } from 'react'
+import { Package, Plus, Search, ArrowUpDown, CheckCircle2, Star } from 'lucide-react'
 import { usePos } from '../../context/PosContext'
 import { Modal } from '../common/Modal'
+import * as api from '../../services/api'
 
 export const CatalogManager: React.FC = () => {
-  const { products, prices, balances, createNewProduct, adjustStock, actionLoading } = usePos()
+  const { tenant, store, products, createNewProduct, adjustStock, actionLoading } = usePos()
   const [searchQuery, setSearchQuery] = useState('')
+  const [catalogItems, setCatalogItems] = useState<api.SellableProduct[]>([])
+  const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(1)
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
   const [isStockModalOpen, setIsStockModalOpen] = useState(false)
   const [selectedProductForStock, setSelectedProductForStock] = useState<string | null>(null)
@@ -16,19 +20,30 @@ export const CatalogManager: React.FC = () => {
   const [barcode, setBarcode] = useState('')
   const [itemType, setItemType] = useState<'PRODUCT' | 'SERVICE'>('PRODUCT')
   const [priceInput, setPriceInput] = useState('')
-  const [stockInput, setStockInput] = useState('10')
+  const [stockInput, setStockInput] = useState('')
 
   // Adjust Stock Form
   const [adjustQty, setAdjustQty] = useState('')
   const [adjustType, setAdjustType] = useState<'PURCHASE' | 'LOSS' | 'ADJUSTMENT'>('PURCHASE')
   const [adjustReason, setAdjustReason] = useState('Entrada de Mercadoria')
+  const [minimumStock, setMinimumStock] = useState('')
 
-  const filtered = products.filter(
-    (p) =>
-      p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.sku.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (p.barcode && p.barcode.includes(searchQuery))
-  )
+  useEffect(() => {
+    if (!tenant || !store) return
+    const timer = window.setTimeout(() => {
+      api.fetchSellableProducts(
+        { 'X-Tenant-ID': tenant.id, 'X-Store-ID': store.id },
+        { page, pageSize: 25, search: searchQuery.trim() || undefined }
+      ).then((result) => {
+        setCatalogItems(result.items)
+        setTotal(result.total)
+      }).catch(() => {
+        setCatalogItems([])
+        setTotal(0)
+      })
+    }, 250)
+    return () => window.clearTimeout(timer)
+  }, [tenant, store, page, searchQuery, products])
 
   const handleCreateProduct = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -44,7 +59,7 @@ export const CatalogManager: React.FC = () => {
     setSku('')
     setBarcode('')
     setPriceInput('')
-    setStockInput('10')
+    setStockInput('')
     setIsAddModalOpen(false)
   }
 
@@ -53,9 +68,33 @@ export const CatalogManager: React.FC = () => {
     if (!selectedProductForStock || !adjustQty) return
 
     await adjustStock(selectedProductForStock, parseFloat(adjustQty), adjustType, adjustReason)
+    if (tenant && store && minimumStock !== '') {
+      await api.setMinimumStock(
+        { 'X-Tenant-ID': tenant.id, 'X-Store-ID': store.id },
+        store.id,
+        selectedProductForStock,
+        parseFloat(minimumStock)
+      )
+    }
     setAdjustQty('')
+    setMinimumStock('')
     setSelectedProductForStock(null)
     setIsStockModalOpen(false)
+  }
+
+  const handleQuickAccess = async (product: api.SellableProduct) => {
+    if (!tenant || !store) return
+    const headers = { 'X-Tenant-ID': tenant.id, 'X-Store-ID': store.id }
+    if (product.quick_position != null) {
+      await api.removeQuickAccess(headers, product.id)
+      setCatalogItems((items) => items.map((item) => item.id === product.id ? { ...item, quick_position: undefined } : item))
+      return
+    }
+    const used = new Set(catalogItems.flatMap((item) => item.quick_position == null ? [] : [item.quick_position]))
+    let position = 1
+    while (used.has(position)) position += 1
+    await api.setQuickAccess(headers, product.id, position)
+    setCatalogItems((items) => items.map((item) => item.id === product.id ? { ...item, quick_position: position } : item))
   }
 
   return (
@@ -87,7 +126,7 @@ export const CatalogManager: React.FC = () => {
         <input
           type="text"
           value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
+          onChange={(e) => { setSearchQuery(e.target.value); setPage(1) }}
           placeholder="Buscar produto por nome, SKU ou código de barras..."
           className="w-full h-11 pl-11 pr-4 rounded-xl bg-dashem-surface border border-dashem-border text-white text-xs font-medium focus:border-dashem-red outline-none"
         />
@@ -103,14 +142,14 @@ export const CatalogManager: React.FC = () => {
                 <th className="px-4 py-3.5">SKU / EAN</th>
                 <th className="px-4 py-3.5">Tipo</th>
                 <th className="px-4 py-3.5 text-right">Preço de Venda</th>
-                <th className="px-4 py-3.5 text-right">Estoque Atual</th>
+                <th className="px-4 py-3.5 text-right">Atual / Mínimo</th>
                 <th className="px-5 py-3.5 text-center">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-dashem-border/50 font-medium">
-              {filtered.map((prod) => {
-                const price = prices[prod.id] || 0
-                const stock = balances[prod.id] || 0
+              {catalogItems.map((prod) => {
+                const price = Number(prod.sale_price)
+                const stock = Number(prod.quantity)
                 const isService = prod.item_type === 'SERVICE'
 
                 return (
@@ -141,22 +180,32 @@ export const CatalogManager: React.FC = () => {
                       ) : (
                         <span
                           className={`font-bold px-2 py-0.5 rounded-md text-[11px] ${
-                            stock > 5
+                            !prod.is_low_stock
                               ? 'text-emerald-400 bg-emerald-950/40'
                               : stock > 0
                               ? 'text-amber-400 bg-amber-950/40'
                               : 'text-rose-400 bg-rose-950/40'
                           }`}
                         >
-                          {stock} un
+                          {stock} / {Number(prod.minimum_stock)} {prod.unit.toLowerCase()}
                         </span>
                       )}
                     </td>
                     <td className="px-5 py-3.5 text-center">
-                      {!isService && (
+                      <div className="inline-flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleQuickAccess(prod)}
+                          title={prod.quick_position != null ? 'Remover do acesso rápido' : 'Adicionar ao acesso rápido'}
+                          className="p-2 rounded-lg bg-dashem-surface-elevated border border-dashem-border"
+                        >
+                          <Star className={`w-3.5 h-3.5 ${prod.quick_position != null ? 'fill-amber-400 text-amber-400' : 'text-dashem-muted'}`} />
+                        </button>
+                        {!isService && (
                         <button
                           onClick={() => {
                             setSelectedProductForStock(prod.id)
+                            setMinimumStock(String(prod.minimum_stock))
                             setIsStockModalOpen(true)
                           }}
                           className="px-3 py-1.5 rounded-lg bg-dashem-surface-elevated hover:bg-dashem-border text-white text-[11px] font-bold transition-all border border-dashem-border inline-flex items-center space-x-1"
@@ -164,13 +213,23 @@ export const CatalogManager: React.FC = () => {
                           <ArrowUpDown className="w-3.5 h-3.5 text-dashem-red" />
                           <span>Ajustar</span>
                         </button>
-                      )}
+                        )}
+                      </div>
                     </td>
                   </tr>
                 )
               })}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between text-xs text-dashem-muted">
+        <span>{total} item(ns) no catálogo</span>
+        <div className="flex gap-2">
+          <button type="button" disabled={page === 1} onClick={() => setPage((value) => value - 1)} className="px-3 py-2 rounded-lg border border-dashem-border disabled:opacity-30">Anterior</button>
+          <span className="px-3 py-2">Página {page}</span>
+          <button type="button" disabled={page * 25 >= total} onClick={() => setPage((value) => value + 1)} className="px-3 py-2 rounded-lg border border-dashem-border disabled:opacity-30">Próxima</button>
         </div>
       </div>
 
@@ -311,6 +370,19 @@ export const CatalogManager: React.FC = () => {
               type="text"
               value={adjustReason}
               onChange={(e) => setAdjustReason(e.target.value)}
+              className="w-full h-11 px-3.5 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-white text-xs font-semibold focus:border-dashem-red outline-none"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-white block">Estoque mínimo desta unidade</label>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              required
+              value={minimumStock}
+              onChange={(e) => setMinimumStock(e.target.value)}
               className="w-full h-11 px-3.5 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-white text-xs font-semibold focus:border-dashem-red outline-none"
             />
           </div>

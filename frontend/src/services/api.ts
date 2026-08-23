@@ -37,6 +37,8 @@ export interface Category {
   tenant_id: string
   name: string
   slug: string
+  parent_id?: string
+  is_active: boolean
 }
 
 export interface Product {
@@ -50,6 +52,30 @@ export interface Product {
   item_type: 'PRODUCT' | 'SERVICE'
   tracks_inventory: boolean
   requires_fulfillment: boolean
+  image_url?: string
+  unit: string
+  is_active: boolean
+  available_for_sale: boolean
+  allows_multi_flavor: boolean
+  production_destination?: string
+}
+
+export interface SellableProduct extends Omit<Product, 'tenant_id' | 'is_active'> {
+  category_name?: string
+  sale_price: number
+  cost_price: number
+  margin_percent: number
+  quantity: number
+  minimum_stock: number
+  is_low_stock: boolean
+  quick_position?: number
+}
+
+export interface SellableProductPage {
+  items: SellableProduct[]
+  total: number
+  page: number
+  page_size: number
 }
 
 export interface ProductPrice {
@@ -67,6 +93,7 @@ export interface InventoryBalance {
   store_id: string
   product_id: string
   quantity: number
+  minimum_stock: number
 }
 
 export interface InventoryMovement {
@@ -707,6 +734,34 @@ export async function fetchProducts(headers: Record<string, string>, search?: st
   return res.json()
 }
 
+export async function fetchSellableProducts(
+  headers: Record<string, string>,
+  options: { page?: number; pageSize?: number; search?: string; categoryId?: string; quickAccess?: boolean } = {}
+): Promise<SellableProductPage> {
+  const params = new URLSearchParams({
+    page: String(options.page || 1),
+    page_size: String(options.pageSize || 50)
+  })
+  if (options.search) params.set('search', options.search)
+  if (options.categoryId) params.set('category_id', options.categoryId)
+  if (options.quickAccess) params.set('quick_access', 'true')
+  const res = await fetch(`${API_BASE_URL}/api/v1/catalog/sellable-products?${params}`, { headers })
+  if (!res.ok) throw new Error('Erro ao carregar catálogo operacional')
+  return res.json()
+}
+
+export async function setQuickAccess(headers: Record<string, string>, productId: string, position: number): Promise<void> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/catalog/quick-access/${productId}`, {
+    method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ position })
+  })
+  if (!res.ok) throw new Error('Erro ao salvar acesso rápido')
+}
+
+export async function removeQuickAccess(headers: Record<string, string>, productId: string): Promise<void> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/catalog/quick-access/${productId}`, { method: 'DELETE', headers })
+  if (!res.ok) throw new Error('Erro ao remover acesso rápido')
+}
+
 export async function createProduct(
   headers: Record<string, string>,
   product: { name: string; sku: string; barcode?: string; description?: string; category_id?: string; item_type?: 'PRODUCT' | 'SERVICE'; tracks_inventory?: boolean; requires_fulfillment?: boolean }
@@ -784,6 +839,17 @@ export async function adjustInventory(
     body: JSON.stringify(data)
   })
   if (!res.ok) throw new Error('Erro ao ajustar estoque')
+  return res.json()
+}
+
+export async function setMinimumStock(
+  headers: Record<string, string>, storeId: string, productId: string, minimumStock: number
+): Promise<InventoryBalance> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/inventory/minimum`, {
+    method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ store_id: storeId, product_id: productId, minimum_stock: minimumStock })
+  })
+  if (!res.ok) throw new Error('Erro ao definir estoque mínimo')
   return res.json()
 }
 

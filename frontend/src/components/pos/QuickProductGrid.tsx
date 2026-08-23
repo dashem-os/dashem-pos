@@ -7,16 +7,15 @@ export const QuickProductGrid: React.FC = () => {
   const { products, categories, prices, balances, addItemToCart, actionLoading } = usePos()
   const [activeTab, setActiveTab] = useState<string>('FAVORITES')
 
-  // Top 6 Fast-Access / Favorite products for counter sales
+  // Per-member, per-store quick access persisted by the backend.
   const favoriteProducts = useMemo(() => {
-    // Pick the first 6 items or items marked as fast access
-    return products.slice(0, 6)
+    return products.filter((product) => product.quick_position != null)
   }, [products])
 
   const filteredProducts = useMemo(() => {
     if (activeTab === 'FAVORITES') return favoriteProducts
     if (activeTab === 'ALL') return products
-    return products.filter((p) => p.category_id === activeTab || p.description === activeTab)
+    return products.filter((p) => p.category_id === activeTab)
   }, [products, favoriteProducts, activeTab])
 
   if (products.length === 0) {
@@ -64,7 +63,7 @@ export const QuickProductGrid: React.FC = () => {
 
         {/* Real Categories from Backend */}
         {categories.map((cat) => {
-          const count = products.filter((p) => p.category_id === cat.id || p.description === cat.name).length
+          const count = products.filter((p) => p.category_id === cat.id).length
           const isSelected = activeTab === cat.id
           return (
             <button
@@ -89,7 +88,7 @@ export const QuickProductGrid: React.FC = () => {
           const price = prices[product.id] ?? 0
           const stock = balances[product.id] ?? 0
           const isService = product.item_type === 'SERVICE'
-          const catName = categories.find((c) => c.id === product.category_id)?.name || product.description || (isService ? 'Serviço' : 'Geral')
+          const catName = product.category_name || (isService ? 'Serviço' : 'Sem categoria')
 
           return (
             <button
@@ -107,7 +106,7 @@ export const QuickProductGrid: React.FC = () => {
                 {!isService && (
                   <span
                     className={`text-[10px] font-bold px-2 py-0.5 rounded-md shrink-0 ${
-                      stock > 5
+                      !product.is_low_stock
                         ? 'bg-slate-100 text-slate-600'
                         : stock > 0
                         ? 'bg-amber-50 text-amber-700 border border-amber-200'

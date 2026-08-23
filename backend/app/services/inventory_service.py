@@ -21,6 +21,9 @@ def adjust_stock(
 ) -> Tuple[Optional[InventoryMovement], InventoryBalance, bool]:
     qty_dec = Decimal(str(quantity))
 
+    if context.store_id and store_id != context.store_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Movimentação fora da unidade ativa.")
+
     # 1. Verify Product exists and belongs to tenant
     product_query = select(Product).where(Product.id == product_id)
     product_query = scope_tenant_query(product_query, Product, context)
@@ -169,3 +172,43 @@ def list_movements(
         query = query.where(InventoryMovement.product_id == product_id)
     query = query.order_by(InventoryMovement.created_at.desc())
     return session.exec(query).all()
+
+
+def set_minimum_stock(
+    session: Session,
+    context: TenantContext,
+    store_id: uuid.UUID,
+    product_id: uuid.UUID,
+    minimum_stock: Union[float, Decimal],
+) -> InventoryBalance:
+    if context.store_id and store_id != context.store_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Configuração fora da unidade ativa.")
+    product_query = scope_tenant_query(select(Product).where(Product.id == product_id), Product, context)
+    product = session.exec(product_query).first()
+    if not product or not product.tracks_inventory:
+        raise HTTPException(status_code=404, detail="Produto com controle de estoque não encontrado.")
+    minimum = Decimal(str(minimum_stock))
+    balance = session.exec(scope_tenant_query(select(InventoryBalance).where(
+        InventoryBalance.store_id == store_id,
+        InventoryBalance.product_id == product_id,
+    ), InventoryBalance, context)).first()
+    if not balance:
+        balance = InventoryBalance(
+            tenant_id=context.tenant_id, store_id=store_id, product_id=product_id,
+            quantity=Decimal("0"), minimum_stock=minimum,
+        )
+        session.add(balance)
+    else:
+        balance.minimum_stock = minimum
+        balance.updated_at = datetime.utcnow()
+    reliability_service.write_audit_and_outbox(
+        session=session, tenant_id=context.tenant_id, store_id=store_id,
+        actor_id=context.user_id or uuid.UUID("00000000-0000-0000-0000-000000000000"),
+        action="inventory.minimum_stock.updated", target=f"PRODUCT-{product_id}",
+        audit_payload={"product_id": str(product_id), "minimum_stock": str(minimum)},
+        aggregate_type="product", aggregate_id=str(product_id),
+        event_type="inventory.minimum_stock.updated",
+        outbox_payload={"tenant_id": str(context.tenant_id), "store_id": str(store_id), "product_id": str(product_id), "minimum_stock": str(minimum)},
+    )
+    session.commit(); session.refresh(balance)
+    return balance

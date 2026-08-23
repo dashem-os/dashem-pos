@@ -17,7 +17,11 @@ from app.models.intelligence import (
     ToolCallStatusEnum, ApprovalRequest, ApprovalStatusEnum,
 )
 from app.models.reliability import OutboxEvent, AuditEvent, IdempotencyRecord, OutboxStatusEnum, ServiceHeartbeat
-from app.models.catalog import Category, Product, ProductPrice, InventoryMovement, InventoryBalance, ItemTypeEnum, MovementTypeEnum
+from app.models.catalog import (
+    Category, Product, ProductPrice, InventoryMovement, InventoryBalance,
+    QuickAccessProduct, ModifierGroup, Modifier, ProductModifierGroup,
+    Combo, ComboItem, ItemTypeEnum, MovementTypeEnum,
+)
 from app.models.sale import (
     Customer, Sale, SaleItem, SaleStatusEnum, DiscountTypeEnum,
     FulfillmentTypeEnum, SyncStatusEnum,
@@ -78,6 +82,12 @@ __all__ = [
     "ProductPrice",
     "InventoryMovement",
     "InventoryBalance",
+    "QuickAccessProduct",
+    "ModifierGroup",
+    "Modifier",
+    "ProductModifierGroup",
+    "Combo",
+    "ComboItem",
     "ItemTypeEnum",
     "MovementTypeEnum",
     "Customer",

@@ -1,13 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { Search, Barcode, X, CornerDownLeft, CheckCircle2, ChevronRight } from 'lucide-react'
 import { usePos } from '../../context/PosContext'
-import { Product } from '../../services/api'
+import { SellableProduct } from '../../services/api'
+import * as api from '../../services/api'
 import { formatCurrency, formatStock } from '../../utils/format'
 
 export const ProductSearch: React.FC = () => {
-  const { products, prices, balances, addItemToCart, showToast, actionLoading, cashSession } = usePos()
+  const { tenant, store, prices, balances, addItemToCart, showToast, actionLoading, cashSession } = usePos()
   const [query, setQuery] = useState('')
-  const [searchResults, setSearchResults] = useState<Product[]>([])
+  const [searchResults, setSearchResults] = useState<SellableProduct[]>([])
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -53,7 +54,7 @@ export const ProductSearch: React.FC = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  const handleSelectProduct = async (product: Product) => {
+  const handleSelectProduct = async (product: SellableProduct) => {
     playBeep()
     const ok = await addItemToCart(product.id, 1)
     if (ok) {
@@ -69,24 +70,29 @@ export const ProductSearch: React.FC = () => {
     const clean = query.trim()
     if (!clean || !isCashOpen || actionLoading) return
 
+    if (!tenant || !store) return
+    const result = await api.fetchSellableProducts(
+      { 'X-Tenant-ID': tenant.id, 'X-Store-ID': store.id },
+      { search: clean, pageSize: 20 }
+    ).catch(() => null)
+    const matches = result?.items || []
+
     // 1. Exact match by Barcode (EAN)
-    const exactBarcode = products.find((p) => p.barcode && p.barcode.toLowerCase() === clean.toLowerCase())
+    const exactBarcode = matches.find((p) => p.barcode && p.barcode.toLowerCase() === clean.toLowerCase())
     if (exactBarcode) {
       await handleSelectProduct(exactBarcode)
       return
     }
 
     // 2. Exact match by SKU
-    const exactSku = products.find((p) => p.sku.toLowerCase() === clean.toLowerCase())
+    const exactSku = matches.find((p) => p.sku.toLowerCase() === clean.toLowerCase())
     if (exactSku) {
       await handleSelectProduct(exactSku)
       return
     }
 
     // 3. Match by partial query
-    const matched = products.filter(
-      (p) => p.name.toLowerCase().includes(clean.toLowerCase()) || p.sku.toLowerCase().includes(clean.toLowerCase())
-    )
+    const matched = matches
 
     if (matched.length === 1) {
       await handleSelectProduct(matched[0])
