@@ -99,6 +99,12 @@ def route_requirement(method: str, path: str) -> RouteRequirement:
         if "/configurations" in path or "/bridge/terminals" in path:
             return RouteRequirement("provider.configure")
         return RouteRequirement("provider.execute")
+    if path.startswith("/api/v1/channels"):
+        if method == "GET":
+            return RouteRequirement("channel.read")
+        if "/connections" in path:
+            return RouteRequirement("channel.configure")
+        return RouteRequirement("channel.manage")
     if path.startswith("/api/v1/fiscal"):
         if method == "GET":
             return RouteRequirement("fiscal.read")

@@ -45,6 +45,11 @@ from app.models.provider import (
     TefBridgeTerminal, BridgeTerminalStatusEnum, ProviderTransaction,
     ProviderTransactionStatusEnum, ProviderTransactionEvent,
 )
+from app.models.channel_hub import (
+    MerchantConnection, MerchantConnectionStatusEnum, ChannelInboxEvent,
+    ChannelInboxStatusEnum, ExternalOrderMapping, ChannelOutboundMessage,
+    ChannelOutboundStatusEnum,
+)
 
 __all__ = [
     "Tenant",
@@ -157,4 +162,11 @@ __all__ = [
     "ProviderTransaction",
     "ProviderTransactionStatusEnum",
     "ProviderTransactionEvent",
+    "MerchantConnection",
+    "MerchantConnectionStatusEnum",
+    "ChannelInboxEvent",
+    "ChannelInboxStatusEnum",
+    "ExternalOrderMapping",
+    "ChannelOutboundMessage",
+    "ChannelOutboundStatusEnum",
 ]

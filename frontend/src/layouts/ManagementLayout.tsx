@@ -12,9 +12,10 @@ import { CatalogManager } from '../components/management/CatalogManager'
 import { CashManager } from '../components/management/CashManager'
 import { TeamManager } from '../components/management/TeamManager'
 import { TableServiceWorkspace } from '../components/tables/TableServiceWorkspace'
+import { ChannelHubWorkspace } from '../components/management/ChannelHubWorkspace'
 import { navigateTo } from '../utils/navigation'
 
-type ModuleId = 'overview' | 'sales' | 'orders' | 'tables' | 'cash' | 'products' | 'categories' | 'inventory' | 'customers' | 'receipts' | 'movements' | 'stores' | 'team' | 'permissions' | 'payments' | 'printers' | 'fiscal' | 'integrations'
+type ModuleId = 'overview' | 'sales' | 'orders' | 'tables' | 'channels' | 'cash' | 'products' | 'categories' | 'inventory' | 'customers' | 'receipts' | 'movements' | 'stores' | 'team' | 'permissions' | 'payments' | 'printers' | 'fiscal' | 'integrations'
 
 interface NavigationItem {
   id: ModuleId
@@ -32,6 +33,7 @@ const GROUPS: Array<{ label: string; items: NavigationItem[] }> = [
     { id: 'sales', label: 'Vendas', icon: FileText, permission: 'sale.read', capability: 'counter_order', active: true },
     { id: 'orders', label: 'Pedidos', icon: Receipt, permission: 'sale.read', capability: 'counter_order', active: false, sprint: 'S6' },
     { id: 'tables', label: 'Mesas & Comandas', icon: ChefHat, permission: 'table.read', capability: 'table_service', active: true },
+    { id: 'channels', label: 'Channel Hub', icon: Plug, permission: 'channel.read', capability: 'delivery_orders', active: true },
     { id: 'cash', label: 'Caixas', icon: Banknote, permission: 'cash.read', capability: 'cash_management', active: true },
   ] },
   { label: 'Cadastros', items: [
@@ -79,6 +81,7 @@ export const ManagementLayout: React.FC = () => {
       case 'products': case 'categories': case 'inventory': return <CatalogManager />
       case 'cash': return <CashManager />
       case 'tables': return <TableServiceWorkspace />
+      case 'channels': return <ChannelHubWorkspace />
       case 'team': return <TeamManager />
       default: return <ModuleBoundary item={selected} />
     }

@@ -154,7 +154,8 @@ async def test_s8_split_failure_retry_and_explicit_finalization_are_authoritativ
         allocations = db.exec(select(PaymentAllocation).where(PaymentAllocation.negotiation_id == negotiation_id)).all()
         sales = db.exec(select(Sale).where(Sale.id == persisted.sale_id)).all()
         payments = db.exec(select(Payment).where(Payment.sale_id == persisted.sale_id)).all()
-        movements = db.exec(select(CashMovement).where(CashMovement.id == intents[0].cash_movement_id)).all()
+        cash_intent = next(intent for intent in intents if intent.method.value == "CASH")
+        movements = db.exec(select(CashMovement).where(CashMovement.id == cash_intent.cash_movement_id)).all()
         assert len(intents) == 4
         assert len(allocations) == 4
         assert len(sales) == 1

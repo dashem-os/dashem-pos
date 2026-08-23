@@ -359,6 +359,38 @@ export interface ProviderTransaction {
   failure_reason?: string
 }
 
+export interface MerchantConnection {
+  id: string
+  tenant_id: string
+  store_id: string
+  channel_id: string
+  provider_code: string
+  adapter_version: string
+  merchant_external_id: string
+  status: 'NOT_CONNECTED' | 'VALIDATING' | 'CONNECTED' | 'DEGRADED' | 'SUSPENDED'
+  last_validated_at?: string
+  last_event_at?: string
+  last_error_code?: string
+  last_error_message?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface ChannelInboxEvent {
+  id: string
+  merchant_connection_id: string
+  provider_event_id: string
+  external_order_id: string
+  event_type: string
+  status: 'RECEIVED' | 'NORMALIZED' | 'PROCESSED' | 'QUARANTINED' | 'DUPLICATE'
+  order_id?: string
+  quarantine_code?: string
+  quarantine_reason?: string
+  received_at: string
+  acknowledged_at?: string
+  processed_at?: string
+}
+
 export interface Register {
   id: string
   tenant_id: string
@@ -1388,6 +1420,37 @@ export async function executeProviderTransaction(
     method: 'POST', headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey, 'X-Correlation-ID': crypto.randomUUID() }, body: JSON.stringify(data),
   })
   if (!res.ok) throw await apiError(res, 'Não foi possível iniciar a transação no provider.')
+  return res.json()
+}
+
+export async function fetchMerchantConnections(headers: Record<string, string>): Promise<MerchantConnection[]> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/channels/connections`, { headers })
+  if (!res.ok) throw await apiError(res, 'Não foi possível carregar as conexões de canais.')
+  return res.json()
+}
+
+export async function createMerchantConnection(
+  headers: Record<string, string>, idempotencyKey: string,
+  data: { store_id: string; provider_code: string; merchant_external_id: string; channel_name: string; credentials_ref?: string; actor_id?: string },
+): Promise<{ connection: MerchantConnection; webhook_secret: string }> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/channels/connections`, {
+    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(data),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível cadastrar a conexão.')
+  return res.json()
+}
+
+export async function validateMerchantConnection(headers: Record<string, string>, connectionId: string, idempotencyKey: string, actorId?: string): Promise<MerchantConnection> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/channels/connections/${connectionId}/validate`, {
+    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify({ actor_id: actorId }),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível validar a conexão externa.')
+  return res.json()
+}
+
+export async function fetchChannelInbox(headers: Record<string, string>): Promise<ChannelInboxEvent[]> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/channels/inbox`, { headers })
+  if (!res.ok) throw await apiError(res, 'Não foi possível carregar a caixa de entrada externa.')
   return res.json()
 }
 

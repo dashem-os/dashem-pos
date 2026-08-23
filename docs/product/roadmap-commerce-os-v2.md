@@ -2,7 +2,7 @@
 
 Status: **diretriz canônica para a próxima fase de construção**  
 Data: 23 de agosto de 2026  
-Revisão: **pós-S7 — Negotiation, Payment Orchestrator, TEF e Channel Hub**
+Revisão: **S10 concluído — próximo gate S11 Production Routing e KDS**
 Substitui como referência de execução qualquer sequência anterior que conflite com este documento.
 
 ## 1. Por que este roadmap existe
@@ -1114,7 +1114,7 @@ e aparece como `não configurada`, nunca como pronta.
 | Uma mesa tratada como um único pedido | S7 | `ServiceTable → TableSession → Orders` | resolvido e testado |
 | Pagamento atual sem negociação canônica de Orders/sessão | S8 | `CheckoutNegotiation` + allocations | resolvido e testado |
 | Provider/TEF acoplável à regra de venda | S9 | adapter + bridge + reconciliação | resolvido no gate interno; homologação externa pendente |
-| Canal externo capaz de duplicar lógica de Order | S10 | inbox + normalização + deduplicação | aberto |
+| Canal externo capaz de duplicar lógica de Order | S10 | inbox + normalização + deduplicação | resolvido no S10 |
 | Produção representada apenas como estado visual do item | S11 | tickets e allocations persistidos | aberto |
 | Transferência capaz de apagar origem | S12 | linhagem e conservação imutáveis | aberto |
 | Catálogo duplicado por marketplace | S13 | mapeamento canônico por canal | aberto |
@@ -1166,12 +1166,12 @@ Ao concluir:
 O próximo ciclo de implementação deve ser:
 
 ```text
-S10 — Dashem Channel Hub e External Order Inbox
+S11 — Production Routing e KDS
 ```
 
-S0–S9 estão concluídos nos gates internos. O S9 introduziu o ADR-005,
-`ProviderTransaction`, configuração segura, bridge pareado, heartbeat, resultado
-autenticado e reconciliação sem aprovação presumida. Nenhum provider comercial é
-declarado homologado: esse gate externo depende de contrato, credenciais e
-hardware. O S10 parte do Order Engine canônico para receber canais externos sem
-duplicar a lógica local.
+S0–S10 estão concluídos nos gates internos. O S10 introduziu o ADR-006,
+`MerchantConnection`, inbox durável, autenticação HMAC, deduplicação por evento e
+pedido externo, quarentena e normalização para o `Order Engine` canônico. Nenhum
+provider comercial é declarado homologado: esse gate externo continua dependente
+de contrato, credenciais e certificação. O S11 encaminhará itens de balcão, mesa e
+canal externo pela mesma regra persistida de produção.
