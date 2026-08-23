@@ -270,6 +270,51 @@ export interface TableSessionSummary {
   consolidated_total: number
 }
 
+export type CheckoutNegotiationStatus = 'OPEN' | 'PARTIALLY_COVERED' | 'COVERED' | 'INVALIDATED' | 'FINALIZED' | 'CANCELED'
+export type PaymentIntentStatus = 'PENDING' | 'PROCESSING' | 'CONFIRMED' | 'FAILED' | 'CANCELED'
+export type NegotiationPaymentMethod = 'CASH' | 'PIX' | 'CREDIT_CARD' | 'DEBIT_CARD' | 'STORE_CREDIT'
+
+export interface NegotiationPaymentIntent {
+  id: string
+  method: NegotiationPaymentMethod
+  status: PaymentIntentStatus
+  amount: number
+  tendered_amount?: number
+  change_amount: number
+  provider: string
+  failure_code?: string
+  failure_reason?: string
+  created_at: string
+  confirmed_at?: string
+  failed_at?: string
+}
+
+export interface CheckoutNegotiation {
+  id: string
+  tenant_id: string
+  store_id: string
+  table_session_id?: string
+  sale_id?: string
+  status: CheckoutNegotiationStatus
+  subtotal: number
+  discount_total: number
+  surcharge_total: number
+  tax_total: number
+  total_due: number
+  confirmed_amount: number
+  processing_amount: number
+  failed_amount: number
+  remaining_amount: number
+  source_version: number
+  version: number
+  created_at: string
+  updated_at: string
+  finalized_at?: string
+  orders: Array<{ id: string; order_id: string; amount_snapshot: number }>
+  intents: NegotiationPaymentIntent[]
+  allocations: Array<{ id: string; payment_intent_id: string; order_id?: string; order_item_id?: string; amount: number }>
+}
+
 export interface Register {
   id: string
   tenant_id: string
@@ -1223,6 +1268,58 @@ export async function closeEmptyTableSession(
     method: 'POST', headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(data),
   })
   if (!res.ok) throw await apiError(res, 'Não foi possível encerrar a sessão.')
+  return res.json()
+}
+
+// ----------------------------------------------------------------------
+// CHECKOUT NEGOTIATION & PAYMENT ORCHESTRATOR
+// ----------------------------------------------------------------------
+
+export async function openCheckoutNegotiation(
+  headers: Record<string, string>, idempotencyKey: string,
+  data: { store_id: string; table_session_id?: string; order_ids?: string[]; actor_id?: string },
+): Promise<CheckoutNegotiation> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/negotiations`, {
+    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(data),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível abrir a negociação da conta.')
+  return res.json()
+}
+
+export async function getCheckoutNegotiation(headers: Record<string, string>, negotiationId: string): Promise<CheckoutNegotiation> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/negotiations/${negotiationId}`, { headers })
+  if (!res.ok) throw await apiError(res, 'Não foi possível atualizar a negociação.')
+  return res.json()
+}
+
+export async function createNegotiationPaymentIntent(
+  headers: Record<string, string>, negotiationId: string, idempotencyKey: string,
+  data: { method: NegotiationPaymentMethod; amount: number; cash_session_id?: string; tendered_amount?: number; allocations?: Array<{ amount: number; order_id?: string; order_item_id?: string }>; actor_id?: string },
+): Promise<CheckoutNegotiation> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/negotiations/${negotiationId}/intents`, {
+    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(data),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível registrar a parcela.')
+  return res.json()
+}
+
+export async function confirmNegotiationPaymentIntent(
+  headers: Record<string, string>, intentId: string, idempotencyKey: string, actorId?: string,
+): Promise<CheckoutNegotiation> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/negotiations/intents/${intentId}/confirm`, {
+    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify({ actor_id: actorId }),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível confirmar a parcela.')
+  return res.json()
+}
+
+export async function finalizeCheckoutNegotiation(
+  headers: Record<string, string>, negotiationId: string, idempotencyKey: string, expectedVersion: number, actorId?: string,
+): Promise<CheckoutNegotiation> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/negotiations/${negotiationId}/finalize`, {
+    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify({ expected_version: expectedVersion, actor_id: actorId }),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível finalizar a conta.')
   return res.json()
 }
 

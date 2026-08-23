@@ -85,6 +85,14 @@ def route_requirement(method: str, path: str) -> RouteRequirement:
         if method == "GET":
             return RouteRequirement("payment.read")
         return RouteRequirement("payment.confirm" if path.endswith("/confirm") else "payment.create")
+    if path.startswith("/api/v1/negotiations"):
+        if method == "GET":
+            return RouteRequirement("checkout.read")
+        if path.endswith("/finalize"):
+            return RouteRequirement("checkout.finalize")
+        if "/intents" in path:
+            return RouteRequirement("checkout.payment")
+        return RouteRequirement("checkout.open")
     if path.startswith("/api/v1/fiscal"):
         if method == "GET":
             return RouteRequirement("fiscal.read")

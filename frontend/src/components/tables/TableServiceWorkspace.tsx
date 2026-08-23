@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  Armchair, Clock3, Loader2, Plus, Receipt, RefreshCw, X,
+  Armchair, CheckCircle2, Clock3, CreditCard, Loader2, Plus, Receipt, RefreshCw, WalletCards, X,
 } from 'lucide-react'
 
 import { usePos } from '../../context/PosContext'
@@ -23,7 +23,7 @@ const statusClass: Record<api.ServiceTable['status'], string> = {
 }
 
 export function TableServiceWorkspace() {
-  const { tenant, store, operatorId, products, permissions, showToast } = usePos()
+  const { tenant, store, operatorId, products, permissions, cashSession, showToast } = usePos()
   const [tables, setTables] = useState<api.ServiceTableProjection[]>([])
   const [sessions, setSessions] = useState<api.TableSessionSummary[]>([])
   const [selected, setSelected] = useState<api.TableSession | null>(null)
@@ -101,7 +101,7 @@ export function TableServiceWorkspace() {
         <div className="mb-4 flex items-center justify-between"><div><h2 className="font-black">Mapa operacional</h2><p className="text-xs text-slate-500">{tables.length} mesas persistidas nesta unidade</p></div>{loading && <Loader2 className="h-5 w-5 animate-spin text-slate-400" />}</div>
         {!loading && tables.length === 0 ? <EmptyState canCreate={permissions.includes('table.manage')} onCreate={() => setDialog('TABLE')} /> : <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">{tables.map((table) => <button key={table.id} disabled={busy || ['RESERVED', 'BLOCKED'].includes(table.status)} onClick={() => void openTable(table)} className={`min-h-36 rounded-2xl border-2 p-4 text-left transition hover:-translate-y-0.5 hover:shadow-md disabled:cursor-not-allowed disabled:hover:translate-y-0 ${statusClass[table.status]}`}><div className="flex items-start justify-between gap-2"><Armchair className="h-5 w-5" /><span className="rounded-full bg-white/70 px-2 py-1 text-[10px] font-black uppercase">{statusLabel[table.status]}</span></div><p className="mt-4 text-lg font-black">{table.name}</p><p className="text-[11px] opacity-70">{table.area || 'Área geral'} · {table.capacity} lugares</p>{table.active_session_id && <div className="mt-3 border-t border-current/15 pt-2 text-[11px] font-bold"><p>{table.item_count} itens · {table.order_count} comandas</p><p className="mt-0.5 text-sm font-black">{formatCurrency(Number(table.consolidated_total))}</p></div>}</button>)}</div>}
       </section>
-      <SessionPanel session={selected} headers={headers} products={products} operatorId={operatorId} permissions={permissions} busy={busy} setBusy={setBusy} onChanged={async (sessionId) => { setSelected(await api.getTableSession(headers, sessionId)); await load(false) }} onClosed={async () => { setSelected(null); await load(false) }} onClose={() => setSelected(null)} showToast={showToast} />
+      <SessionPanel session={selected} headers={headers} products={products} operatorId={operatorId} permissions={permissions} cashSession={cashSession} busy={busy} setBusy={setBusy} onChanged={async (sessionId) => { setSelected(await api.getTableSession(headers, sessionId)); await load(false) }} onClosed={async () => { setSelected(null); await load(false) }} onClose={() => setSelected(null)} showToast={showToast} />
     </div>
 
     {dialog === 'TABLE' && store && <CreateTableDialog storeId={store.id} actorId={operatorId} headers={headers} onClose={() => setDialog(null)} onCreated={async () => { setDialog(null); await load(false) }} showToast={showToast} />}
@@ -109,13 +109,16 @@ export function TableServiceWorkspace() {
   </section>
 }
 
-function SessionPanel({ session, headers, products, operatorId, permissions, busy, setBusy, onChanged, onClosed, onClose, showToast }: {
-  session: api.TableSession | null; headers: Record<string, string>; products: api.SellableProduct[]; operatorId: string; permissions: string[]; busy: boolean; setBusy: (value: boolean) => void; onChanged: (sessionId: string) => Promise<void>; onClosed: () => Promise<void>; onClose: () => void; showToast: (type: 'success' | 'error' | 'info', text: string) => void
+function SessionPanel({ session, headers, products, operatorId, permissions, cashSession, busy, setBusy, onChanged, onClosed, onClose, showToast }: {
+  session: api.TableSession | null; headers: Record<string, string>; products: api.SellableProduct[]; operatorId: string; permissions: string[]; cashSession: api.CashSession | null; busy: boolean; setBusy: (value: boolean) => void; onChanged: (sessionId: string) => Promise<void>; onClosed: () => Promise<void>; onClose: () => void; showToast: (type: 'success' | 'error' | 'info', text: string) => void
 }) {
   const [orderId, setOrderId] = useState('')
   const [productId, setProductId] = useState('')
   const [quantity, setQuantity] = useState('1')
-  useEffect(() => { setOrderId(session?.orders[0]?.id || '') }, [session?.id, session?.orders.length])
+  const [negotiation, setNegotiation] = useState<api.CheckoutNegotiation | null>(null)
+  const [paymentMethod, setPaymentMethod] = useState<api.NegotiationPaymentMethod>('PIX')
+  const [paymentAmount, setPaymentAmount] = useState('')
+  useEffect(() => { setOrderId(session?.orders[0]?.id || ''); setNegotiation(null); setPaymentAmount('') }, [session?.id, session?.orders.length])
   if (!session) return <aside className="flex min-h-[480px] items-center justify-center rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center"><div><Receipt className="mx-auto h-10 w-10 text-slate-300" /><h2 className="mt-4 font-black">Selecione uma mesa ou comanda</h2><p className="mt-2 text-sm leading-6 text-slate-500">A conta consolidada e o histórico real aparecerão aqui.</p></div></aside>
   const activeOrders = session.orders.filter((order) => order.status === 'OPEN')
   const addItem = async () => {
@@ -137,10 +140,51 @@ function SessionPanel({ session, headers, products, operatorId, permissions, bus
     catch (error) { showToast('error', error instanceof Error ? error.message : 'Não foi possível encerrar a sessão.') }
     finally { setBusy(false) }
   }
+  const openCheckout = async () => {
+    setBusy(true)
+    try {
+      const opened = await api.openCheckoutNegotiation(headers, crypto.randomUUID(), {
+        store_id: session.store_id, table_session_id: session.id, actor_id: operatorId,
+      })
+      setNegotiation(opened); setPaymentAmount(String(Number(opened.remaining_amount).toFixed(2)))
+      showToast('success', 'Conta congelada em um snapshot financeiro autoritativo.')
+    } catch (error) { showToast('error', error instanceof Error ? error.message : 'Não foi possível abrir a conta.') }
+    finally { setBusy(false) }
+  }
+  const addAndConfirmPayment = async () => {
+    if (!negotiation || Number(paymentAmount) <= 0) return
+    if (paymentMethod === 'CASH' && cashSession?.status !== 'OPEN') { showToast('error', 'Abra uma sessão de caixa para receber em dinheiro.'); return }
+    setBusy(true)
+    try {
+      const created = await api.createNegotiationPaymentIntent(headers, negotiation.id, crypto.randomUUID(), {
+        method: paymentMethod, amount: Number(paymentAmount),
+        cash_session_id: paymentMethod === 'CASH' ? cashSession?.id : undefined,
+        tendered_amount: paymentMethod === 'CASH' ? Number(paymentAmount) : undefined,
+        actor_id: operatorId,
+      })
+      const pending = [...created.intents].reverse().find((item) => item.status === 'PENDING')
+      if (!pending) throw new Error('A parcela persistida não ficou disponível para confirmação.')
+      const confirmed = await api.confirmNegotiationPaymentIntent(headers, pending.id, crypto.randomUUID(), operatorId)
+      setNegotiation(confirmed); setPaymentAmount(String(Number(confirmed.remaining_amount).toFixed(2)))
+      showToast('success', `Parcela confirmada. Falta ${formatCurrency(Number(confirmed.remaining_amount))}.`)
+    } catch (error) { showToast('error', error instanceof Error ? error.message : 'Não foi possível confirmar a parcela.') }
+    finally { setBusy(false) }
+  }
+  const finalize = async () => {
+    if (!negotiation) return
+    setBusy(true)
+    try {
+      const finalized = await api.finalizeCheckoutNegotiation(headers, negotiation.id, crypto.randomUUID(), negotiation.version, operatorId)
+      setNegotiation(finalized); showToast('success', 'Venda materializada, conta finalizada e mesa liberada.'); await onClosed()
+    } catch (error) { showToast('error', error instanceof Error ? error.message : 'Não foi possível finalizar a conta.') }
+    finally { setBusy(false) }
+  }
   return <aside className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-start justify-between gap-3"><div><p className="text-[10px] font-black uppercase tracking-[.16em] text-orange-600">{session.kind === 'TABLE' ? 'Sessão de mesa' : 'Comanda individual'}</p><h2 className="mt-1 text-xl font-black">{session.display_label}</h2><p className="mt-1 flex items-center gap-1 text-xs text-slate-500"><Clock3 className="h-3.5 w-3.5" />Aberta em {new Date(session.opened_at).toLocaleString('pt-BR')}</p></div><button onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 text-slate-500"><X className="h-4 w-4" /></button></div><div className="mt-4 grid grid-cols-3 gap-2 rounded-2xl bg-slate-50 p-3 text-center"><Metric label="Comandas" value={String(session.order_count)} /><Metric label="Itens" value={String(session.active_item_count)} /><Metric label="Total" value={formatCurrency(Number(session.consolidated_total))} /></div>
-    {permissions.includes('table.session.update') && <div className="mt-4 space-y-3 rounded-2xl border border-slate-200 p-3"><div className="flex items-center justify-between"><p className="text-xs font-black">Lançamento incremental</p><button disabled={busy} onClick={() => void addOrder()} className="flex items-center gap-1 text-xs font-black text-orange-600"><Plus className="h-3.5 w-3.5" />Nova comanda</button></div><select value={orderId} onChange={(event) => setOrderId(event.target.value)} className="h-10 w-full rounded-xl border border-slate-300 px-3 text-sm">{activeOrders.map((order, index) => <option key={order.id} value={order.id}>{order.notes || `Comanda ${index + 1}`}</option>)}</select><div className="grid grid-cols-[1fr_76px] gap-2"><select value={productId} onChange={(event) => setProductId(event.target.value)} className="h-11 min-w-0 rounded-xl border border-slate-300 px-3 text-sm"><option value="">Selecione um produto real</option>{products.filter((product) => product.available_for_sale).map((product) => <option key={product.id} value={product.id}>{product.name} · {formatCurrency(Number(product.sale_price))}</option>)}</select><input aria-label="Quantidade" type="number" min="0.001" step="0.001" value={quantity} onChange={(event) => setQuantity(event.target.value)} className="h-11 rounded-xl border border-slate-300 px-3 text-sm" /></div><button disabled={busy || !orderId || !productId} onClick={() => void addItem()} className="h-11 w-full rounded-xl bg-orange-500 text-sm font-black text-white disabled:opacity-40">Lançar na comanda</button></div>}
+    {permissions.includes('table.session.update') && !negotiation && <div className="mt-4 space-y-3 rounded-2xl border border-slate-200 p-3"><div className="flex items-center justify-between"><p className="text-xs font-black">Lançamento incremental</p><button disabled={busy} onClick={() => void addOrder()} className="flex items-center gap-1 text-xs font-black text-orange-600"><Plus className="h-3.5 w-3.5" />Nova comanda</button></div><select value={orderId} onChange={(event) => setOrderId(event.target.value)} className="h-10 w-full rounded-xl border border-slate-300 px-3 text-sm">{activeOrders.map((order, index) => <option key={order.id} value={order.id}>{order.notes || `Comanda ${index + 1}`}</option>)}</select><div className="grid grid-cols-[1fr_76px] gap-2"><select value={productId} onChange={(event) => setProductId(event.target.value)} className="h-11 min-w-0 rounded-xl border border-slate-300 px-3 text-sm"><option value="">Selecione um produto real</option>{products.filter((product) => product.available_for_sale).map((product) => <option key={product.id} value={product.id}>{product.name} · {formatCurrency(Number(product.sale_price))}</option>)}</select><input aria-label="Quantidade" type="number" min="0.001" step="0.001" value={quantity} onChange={(event) => setQuantity(event.target.value)} className="h-11 rounded-xl border border-slate-300 px-3 text-sm" /></div><button disabled={busy || !orderId || !productId} onClick={() => void addItem()} className="h-11 w-full rounded-xl bg-orange-500 text-sm font-black text-white disabled:opacity-40">Lançar na comanda</button></div>}
     <div className="mt-4 max-h-72 space-y-3 overflow-y-auto">{session.orders.map((order, index) => <article key={order.id} className="rounded-2xl border border-slate-200 p-3"><div className="flex items-center justify-between"><p className="text-xs font-black">{order.notes || `Comanda ${index + 1}`}</p><span className="text-[10px] font-bold text-slate-400">{order.status}</span></div>{order.items.filter((item) => item.status === 'ACTIVE').length === 0 ? <p className="mt-2 text-xs text-slate-400">Sem lançamentos.</p> : <div className="mt-2 space-y-2">{order.items.filter((item) => item.status === 'ACTIVE').map((item) => <div key={item.id} className="flex justify-between gap-3 text-xs"><span><b>{Number(item.quantity)}×</b> {item.product_name}</span><b>{formatCurrency(Number(item.unit_price) * Number(item.quantity))}</b></div>)}</div>}</article>)}</div>
     {session.active_item_count === 0 && permissions.includes('table.session.close') && <button disabled={busy} onClick={() => void close()} className="mt-4 h-10 w-full rounded-xl border border-slate-300 text-xs font-black text-slate-600">Encerrar sessão vazia</button>}
+    {session.active_item_count > 0 && permissions.includes('checkout.open') && !negotiation && <button disabled={busy} onClick={() => void openCheckout()} className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 text-sm font-black text-white"><WalletCards className="h-4 w-4" />Fechar conta</button>}
+    {negotiation && <section className="mt-4 space-y-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-3"><div className="flex items-center justify-between"><div><p className="text-[10px] font-black uppercase tracking-wider text-emerald-700">Negociação persistida</p><p className="text-sm font-black">{negotiation.status === 'COVERED' ? 'Conta integralmente coberta' : 'Pagamento parcial em andamento'}</p></div><CreditCard className="h-5 w-5 text-emerald-700" /></div><div className="grid grid-cols-3 gap-2 rounded-xl bg-white p-3 text-center"><Metric label="Total" value={formatCurrency(Number(negotiation.total_due))} /><Metric label="Confirmado" value={formatCurrency(Number(negotiation.confirmed_amount))} /><Metric label="Falta" value={formatCurrency(Number(negotiation.remaining_amount))} /></div>{negotiation.intents.length > 0 && <div className="space-y-1">{negotiation.intents.map((intent) => <div key={intent.id} className="flex items-center justify-between rounded-lg bg-white px-3 py-2 text-[11px]"><span>{intent.method} · {intent.status}</span><b>{formatCurrency(Number(intent.amount))}</b></div>)}</div>}{negotiation.status !== 'COVERED' && permissions.includes('checkout.payment') && <div className="grid grid-cols-[1fr_110px] gap-2"><select aria-label="Meio de pagamento" value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as api.NegotiationPaymentMethod)} className="h-11 rounded-xl border border-emerald-200 bg-white px-3 text-xs font-bold"><option value="CASH">Dinheiro</option><option value="PIX">PIX manual</option><option value="CREDIT_CARD">Crédito manual</option><option value="DEBIT_CARD">Débito manual</option></select><input aria-label="Valor da parcela" type="number" min="0.01" step="0.01" value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} className="h-11 rounded-xl border border-emerald-200 px-3 text-sm font-black" /><button disabled={busy || Number(paymentAmount) <= 0} onClick={() => void addAndConfirmPayment()} className="col-span-2 h-11 rounded-xl bg-emerald-700 text-xs font-black text-white disabled:opacity-40">Registrar e confirmar parcela</button></div>}{negotiation.status === 'COVERED' && permissions.includes('checkout.finalize') && <button disabled={busy} onClick={() => void finalize()} className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-emerald-700 text-sm font-black text-white"><CheckCircle2 className="h-4 w-4" />Finalizar venda e liberar mesa</button>}</section>}
   </aside>
 }
 

@@ -36,6 +36,10 @@ from app.models.table_service import (
     ServiceTable, ServiceTableStatusEnum, TableSession, TableSessionCommand,
     TableSessionEvent, TableSessionKindEnum, TableSessionStatusEnum,
 )
+from app.models.negotiation import (
+    CheckoutNegotiation, CheckoutNegotiationStatusEnum, NegotiationOrder,
+    PaymentIntent, PaymentIntentStatusEnum, PaymentAllocation, NegotiationEvent,
+)
 
 __all__ = [
     "Tenant",
@@ -134,4 +138,11 @@ __all__ = [
     "TableSessionEvent",
     "TableSessionKindEnum",
     "TableSessionStatusEnum",
+    "CheckoutNegotiation",
+    "CheckoutNegotiationStatusEnum",
+    "NegotiationOrder",
+    "PaymentIntent",
+    "PaymentIntentStatusEnum",
+    "PaymentAllocation",
+    "NegotiationEvent",
 ]

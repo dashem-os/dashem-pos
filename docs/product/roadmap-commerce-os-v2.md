@@ -1112,7 +1112,7 @@ e aparece como `não configurada`, nunca como pronta.
 | Favorito, estoque mínimo ou categoria por fallback visual | S4 | dados persistidos reais | resolvido e testado |
 | Order confundido com Sale | S6 | agregados separados | resolvido e testado |
 | Uma mesa tratada como um único pedido | S7 | `ServiceTable → TableSession → Orders` | resolvido e testado |
-| Pagamento atual sem negociação canônica de Orders/sessão | S8 | `CheckoutNegotiation` + allocations | aberto |
+| Pagamento atual sem negociação canônica de Orders/sessão | S8 | `CheckoutNegotiation` + allocations | resolvido e testado |
 | Provider/TEF acoplável à regra de venda | S9 | adapter + bridge + reconciliação | aberto |
 | Canal externo capaz de duplicar lógica de Order | S10 | inbox + normalização + deduplicação | aberto |
 | Produção representada apenas como estado visual do item | S11 | tickets e allocations persistidos | aberto |
@@ -1166,11 +1166,11 @@ Ao concluir:
 O próximo ciclo de implementação deve ser:
 
 ```text
-S8 — Checkout Negotiation e Payment Orchestrator
+S9 — Payment Providers e Dashem TEF Bridge
 ```
 
-S0–S7 estão concluídos e protegidos pelo CI. O S8 deve começar por testes de
-caracterização do motor de pagamentos já existente e pelo ADR de
-`CheckoutNegotiation`, preservando split, parcial, troco, caixa, idempotência e
-concorrência antes de integrar Orders e TableSession. O S9 só começa após o
-saldo e as allocations do S8 serem autoridades server-side verificadas.
+S0–S8 estão concluídos e protegidos pelos gates locais. O S8 introduziu o ADR-004,
+`CheckoutNegotiation`, `PaymentIntent` e `PaymentAllocation`, preservando split,
+parcial, falha independente, troco, caixa, idempotência e concorrência. O S9
+começa com saldo e allocations server-side já verificados e deve manter provider
+externo fora da transação local de venda.
