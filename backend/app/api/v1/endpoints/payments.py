@@ -17,7 +17,7 @@ class PaymentCreateDTO(BaseModel):
     amount: float
     cash_session_id: Optional[uuid.UUID] = None
     tendered_amount: Optional[float] = None
-    provider: str = "FAKE_PSP"
+    provider: str = "MANUAL_OPERATOR"
     provider_event_id: Optional[str] = None
 
 class PaymentConfirmDTO(BaseModel):
@@ -100,4 +100,3 @@ def list_payments_endpoint(
     session: Session = Depends(get_session)
 ):
     return payment_service.list_payments(session, context, sale_id=sale_id)
-

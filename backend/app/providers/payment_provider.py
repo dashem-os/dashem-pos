@@ -17,7 +17,7 @@ class BasePaymentProvider(ABC):
         """Returns (success, transaction_ref, message)"""
         pass
 
-class FakePaymentProvider(BasePaymentProvider):
+class ManualOperatorPaymentProvider(BasePaymentProvider):
     def process_payment(
         self,
         tenant_id: uuid.UUID,
@@ -26,8 +26,7 @@ class FakePaymentProvider(BasePaymentProvider):
         amount: Decimal,
         metadata: Optional[Dict[str, Any]] = None
     ) -> Tuple[bool, str, str]:
-        tx_ref = f"FAKE-TX-{method.value}-{uuid.uuid4().hex[:8].upper()}"
-        return True, tx_ref, f"Payment of R$ {amount:.2f} via {method.value} approved successfully by FakePaymentProvider."
+        tx_ref = f"MANUAL-{method.value}-{uuid.uuid4().hex[:12].upper()}"
+        return True, tx_ref, "Pagamento confirmado manualmente pelo operador."
 
-# Global singleton instance
-payment_provider = FakePaymentProvider()
+payment_provider = ManualOperatorPaymentProvider()

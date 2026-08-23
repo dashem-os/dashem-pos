@@ -132,7 +132,7 @@ A sequência oficial de construção das experiências do cliente, dos domínios
 Food Service, do motor financeiro e da conclusão do Control Plane está em
 [`docs/product/roadmap-commerce-os-v2.md`](docs/product/roadmap-commerce-os-v2.md).
 
-Os gates **S0–S8** consolidaram contratos, shells, autorização, catálogo,
+Os gates **S0–S9** consolidaram contratos, shells, autorização, catálogo,
 Frente de Caixa, `Order Foundation` e Mesas & Comandas. `ServiceTable`,
 `TableSession` e `Order` são contratos distintos, com concorrência,
 idempotência, RLS, auditoria e interface operacional baseada somente em dados
@@ -140,7 +140,11 @@ persistidos. O próximo gate é o **S8 — Checkout Negotiation e Payment
 Orchestrator** agora é a autoridade server-side para snapshot, split, parcelas,
 allocations e saldo restante. Pagamentos confirmados são preservados diante de
 falha posterior; saldo zero não libera a mesa sem finalização explícita. O
-próximo gate é o **S9 — Payment Providers e Dashem TEF Bridge**.
+O S9 adiciona `ProviderTransaction`, adapters intercambiáveis, pareamento local
+por segredo com hash, heartbeat/telemetria e reconciliação de estados
+`PROCESSING`/`UNKNOWN`. A UI distingue cartão manual de TEF e mostra “não
+configurado/offline” sem simular homologação. O próximo gate é o **S10 — Dashem
+Channel Hub e External Order Inbox**.
 
 ## Trilha pendente: conclusão do Console Owner
 

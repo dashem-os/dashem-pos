@@ -382,7 +382,7 @@ def confirm_intent(
         if intent.confirm_idempotency_key != idempotency_key or intent.confirm_request_hash != request_hash:
             raise HTTPException(status_code=409, detail="Confirmação já registrada com outro comando.")
         return projection(session, context, intent.negotiation_id, validate=False)
-    if intent.status != PaymentIntentStatusEnum.PENDING:
+    if intent.status not in {PaymentIntentStatusEnum.PENDING, PaymentIntentStatusEnum.PROCESSING}:
         raise HTTPException(status_code=409, detail="A parcela não está pendente para confirmação.")
     negotiation = _locked_negotiation(session, context, intent.negotiation_id)
     if negotiation.status not in ACTIVE_NEGOTIATIONS:
@@ -455,7 +455,7 @@ def fail_intent(
         if intent.failure_idempotency_key != idempotency_key or intent.failure_request_hash != request_hash:
             raise HTTPException(status_code=409, detail="Falha já registrada com outro comando.")
         return projection(session, context, intent.negotiation_id, validate=False)
-    if intent.status != PaymentIntentStatusEnum.PENDING:
+    if intent.status not in {PaymentIntentStatusEnum.PENDING, PaymentIntentStatusEnum.PROCESSING}:
         raise HTTPException(status_code=409, detail="Somente parcelas pendentes podem falhar.")
     negotiation = _locked_negotiation(session, context, intent.negotiation_id)
     intent.status = PaymentIntentStatusEnum.FAILED

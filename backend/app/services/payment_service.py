@@ -21,7 +21,7 @@ def create_payment(
     amount: Decimal,
     cash_session_id: Optional[uuid.UUID] = None,
     tendered_amount: Optional[Decimal] = None,
-    provider: str = "FAKE_PSP",
+    provider: str = "MANUAL_OPERATOR",
     provider_event_id: Optional[str] = None
 ) -> Payment:
     # Verify Sale with pessimistic lock or scoped query
@@ -251,4 +251,3 @@ def list_payments(
     if sale_id:
         query = query.where(Payment.sale_id == sale_id)
     return session.exec(query.order_by(Payment.created_at.asc())).all()
-

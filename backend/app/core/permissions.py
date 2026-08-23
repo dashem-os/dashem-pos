@@ -93,6 +93,12 @@ def route_requirement(method: str, path: str) -> RouteRequirement:
         if "/intents" in path:
             return RouteRequirement("checkout.payment")
         return RouteRequirement("checkout.open")
+    if path.startswith("/api/v1/providers"):
+        if method == "GET":
+            return RouteRequirement("provider.read")
+        if "/configurations" in path or "/bridge/terminals" in path:
+            return RouteRequirement("provider.configure")
+        return RouteRequirement("provider.execute")
     if path.startswith("/api/v1/fiscal"):
         if method == "GET":
             return RouteRequirement("fiscal.read")

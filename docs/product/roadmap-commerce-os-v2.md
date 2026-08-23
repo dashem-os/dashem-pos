@@ -1113,7 +1113,7 @@ e aparece como `não configurada`, nunca como pronta.
 | Order confundido com Sale | S6 | agregados separados | resolvido e testado |
 | Uma mesa tratada como um único pedido | S7 | `ServiceTable → TableSession → Orders` | resolvido e testado |
 | Pagamento atual sem negociação canônica de Orders/sessão | S8 | `CheckoutNegotiation` + allocations | resolvido e testado |
-| Provider/TEF acoplável à regra de venda | S9 | adapter + bridge + reconciliação | aberto |
+| Provider/TEF acoplável à regra de venda | S9 | adapter + bridge + reconciliação | resolvido no gate interno; homologação externa pendente |
 | Canal externo capaz de duplicar lógica de Order | S10 | inbox + normalização + deduplicação | aberto |
 | Produção representada apenas como estado visual do item | S11 | tickets e allocations persistidos | aberto |
 | Transferência capaz de apagar origem | S12 | linhagem e conservação imutáveis | aberto |
@@ -1166,11 +1166,12 @@ Ao concluir:
 O próximo ciclo de implementação deve ser:
 
 ```text
-S9 — Payment Providers e Dashem TEF Bridge
+S10 — Dashem Channel Hub e External Order Inbox
 ```
 
-S0–S8 estão concluídos e protegidos pelos gates locais. O S8 introduziu o ADR-004,
-`CheckoutNegotiation`, `PaymentIntent` e `PaymentAllocation`, preservando split,
-parcial, falha independente, troco, caixa, idempotência e concorrência. O S9
-começa com saldo e allocations server-side já verificados e deve manter provider
-externo fora da transação local de venda.
+S0–S9 estão concluídos nos gates internos. O S9 introduziu o ADR-005,
+`ProviderTransaction`, configuração segura, bridge pareado, heartbeat, resultado
+autenticado e reconciliação sem aprovação presumida. Nenhum provider comercial é
+declarado homologado: esse gate externo depende de contrato, credenciais e
+hardware. O S10 parte do Order Engine canônico para receber canais externos sem
+duplicar a lógica local.

@@ -315,6 +315,50 @@ export interface CheckoutNegotiation {
   allocations: Array<{ id: string; payment_intent_id: string; order_id?: string; order_item_id?: string; amount: number }>
 }
 
+export interface PaymentProviderConfiguration {
+  id: string
+  tenant_id: string
+  store_id: string
+  provider_code: string
+  adapter_version: string
+  status: 'NOT_CONFIGURED' | 'ACTIVE' | 'SUSPENDED'
+  timeout_seconds: number
+  created_at: string
+  updated_at: string
+}
+
+export interface TefBridgeTerminal {
+  id: string
+  tenant_id: string
+  store_id: string
+  register_id: string
+  provider_configuration_id: string
+  terminal_code: string
+  bridge_version?: string
+  protocol_version: string
+  status: 'UNPAIRED' | 'OFFLINE' | 'ONLINE' | 'DEGRADED'
+  last_heartbeat_at?: string
+  last_operation_at?: string
+  last_error_code?: string
+  last_error_message?: string
+}
+
+export interface ProviderTransaction {
+  id: string
+  payment_intent_id: string
+  provider_code: string
+  status: 'CREATED' | 'PROCESSING' | 'CONFIRMED' | 'FAILED' | 'CANCELED' | 'UNKNOWN' | 'REFUNDED'
+  external_transaction_id?: string
+  nsu?: string
+  authorization_code?: string
+  acquirer?: string
+  card_brand?: string
+  correlation_id: string
+  sanitized_payload: Record<string, unknown>
+  failure_code?: string
+  failure_reason?: string
+}
+
 export interface Register {
   id: string
   tenant_id: string
@@ -1320,6 +1364,30 @@ export async function finalizeCheckoutNegotiation(
     method: 'POST', headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify({ expected_version: expectedVersion, actor_id: actorId }),
   })
   if (!res.ok) throw await apiError(res, 'Não foi possível finalizar a conta.')
+  return res.json()
+}
+
+export async function fetchPaymentProviderConfigurations(headers: Record<string, string>): Promise<PaymentProviderConfiguration[]> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/providers/configurations`, { headers })
+  if (!res.ok) throw await apiError(res, 'Não foi possível consultar os providers.')
+  return res.json()
+}
+
+export async function fetchTefBridgeTerminals(headers: Record<string, string>, registerId?: string): Promise<TefBridgeTerminal[]> {
+  const suffix = registerId ? `?register_id=${registerId}` : ''
+  const res = await fetch(`${API_BASE_URL}/api/v1/providers/bridge/terminals${suffix}`, { headers })
+  if (!res.ok) throw await apiError(res, 'Não foi possível consultar o Dashem TEF Bridge.')
+  return res.json()
+}
+
+export async function executeProviderTransaction(
+  headers: Record<string, string>, idempotencyKey: string,
+  data: { payment_intent_id: string; provider_configuration_id: string; bridge_terminal_id: string; actor_id?: string },
+): Promise<{ transaction: ProviderTransaction; negotiation: CheckoutNegotiation }> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/providers/transactions`, {
+    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey, 'X-Correlation-ID': crypto.randomUUID() }, body: JSON.stringify(data),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível iniciar a transação no provider.')
   return res.json()
 }
 

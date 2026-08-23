@@ -40,6 +40,11 @@ from app.models.negotiation import (
     CheckoutNegotiation, CheckoutNegotiationStatusEnum, NegotiationOrder,
     PaymentIntent, PaymentIntentStatusEnum, PaymentAllocation, NegotiationEvent,
 )
+from app.models.provider import (
+    PaymentProviderConfiguration, ProviderConfigurationStatusEnum,
+    TefBridgeTerminal, BridgeTerminalStatusEnum, ProviderTransaction,
+    ProviderTransactionStatusEnum, ProviderTransactionEvent,
+)
 
 __all__ = [
     "Tenant",
@@ -145,4 +150,11 @@ __all__ = [
     "PaymentIntentStatusEnum",
     "PaymentAllocation",
     "NegotiationEvent",
+    "PaymentProviderConfiguration",
+    "ProviderConfigurationStatusEnum",
+    "TefBridgeTerminal",
+    "BridgeTerminalStatusEnum",
+    "ProviderTransaction",
+    "ProviderTransactionStatusEnum",
+    "ProviderTransactionEvent",
 ]

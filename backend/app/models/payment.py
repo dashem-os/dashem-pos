@@ -103,7 +103,7 @@ class Payment(SQLModel, table=True):
     amount: Decimal = Field(sa_column=Column(Numeric(14, 4), nullable=False))
     tendered_amount: Optional[Decimal] = Field(default=None, sa_column=Column(Numeric(14, 4), nullable=True))
     change_amount: Optional[Decimal] = Field(default=None, sa_column=Column(Numeric(14, 4), nullable=True))
-    provider: str = Field(default="FAKE_PSP", index=True)
+    provider: str = Field(default="MANUAL_OPERATOR", index=True)
     provider_event_id: Optional[str] = Field(default=None, index=True)
     transaction_ref: Optional[str] = Field(default=None, index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
