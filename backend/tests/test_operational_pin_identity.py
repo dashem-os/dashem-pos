@@ -6,14 +6,14 @@ from sqlmodel import Session, select
 
 from app.api.v1.endpoints.identity import get_me
 from app.api.v1.endpoints.team import OperationalMemberCreate, create_operational_member
-from app.core.context import TenantContext
+from app.core.context import TenantContext, authorize_tenant_context
 from app.core.database import engine
 from app.core.security import AuthPrincipal, decode_access_token
 from app.core.tenancy import set_platform_db_context, set_tenant_db_context
-from app.models.identity import Employee, Membership, MembershipStatusEnum, OperationalCredential, RoleEnum, Store, Tenant, TenantStatusEnum, User
+from app.models.identity import Employee, Membership, MembershipStatusEnum, OperationalCredential, OperationalSession, OperationalSessionStatusEnum, RoleEnum, Store, Tenant, TenantStatusEnum, User
 from app.models.device import OperationalDevice, OperationalDeviceStatusEnum, OperationalDeviceTypeEnum
 from app.models.payment import Register
-from app.services import operational_access_service
+from app.services import device_service, operational_access_service
 
 
 def test_operational_member_has_no_fake_email_and_activates_store_scoped_token():
@@ -27,8 +27,14 @@ def test_operational_member_has_no_fake_email_and_activates_store_scoped_token()
         session.add(store); session.flush()
         register = Register(tenant_id=tenant.id, store_id=store.id, name="Caixa", code=f"CX-{suffix}")
         session.add(register)
+        session.flush()
+        device = OperationalDevice(
+            tenant_id=tenant.id, store_id=store.id, code=f"POS-{suffix}", name="Caixa",
+            device_type=OperationalDeviceTypeEnum.POS, register_id=register.id,
+        )
+        session.add(device)
         session.add(Membership(user_id=admin.id, tenant_id=tenant.id, role=RoleEnum.ADMIN, status=MembershipStatusEnum.ACTIVE))
-        tenant_id, store_id, register_id, admin_id = tenant.id, store.id, register.id, admin.id
+        tenant_id, store_id, register_id, device_id, admin_id = tenant.id, store.id, register.id, device.id, admin.id
         session.commit()
 
     context = TenantContext(tenant_id=tenant_id, store_id=store_id, user_id=admin_id, role=RoleEnum.ADMIN)
@@ -57,16 +63,18 @@ def test_operational_member_has_no_fake_email_and_activates_store_scoped_token()
             operational_access_service.activate(
                 session, context, employee_code="ATD-01", pin="6782", store_id=store_id, register_id=register_id,
             )
-        assert wrong.value.status_code == 401
+        assert wrong.value.status_code == 403
 
-        activated = operational_access_service.activate(
-            session, context, employee_code="atd-01", pin="4826", store_id=store_id, register_id=register_id,
+        authorization = operational_access_service.authorize_terminal(session, context, device_id)
+        activated = operational_access_service.activate_from_terminal(
+            session, terminal_token=authorization["terminal_token"], employee_code="atd-01", pin="4826",
         )
         claims = decode_access_token(activated["access_token"])
         assert claims["tenant_id"] == str(tenant_id)
         assert claims["store_id"] == str(store_id)
         assert claims["register_id"] == str(register_id)
         assert claims["role"] == "OPERATOR"
+        assert claims["device_id"] == str(device_id)
         assert claims["app_metadata"]["provider"] == "operational"
         principal = AuthPrincipal(
             subject=claims["sub"], email=None, session_id=claims["session_id"],
@@ -128,11 +136,75 @@ def test_public_pin_exchange_requires_an_active_manager_authorized_terminal():
         claims = decode_access_token(operational["access_token"])
         assert claims["register_id"] == str(status["register_id"])
         assert claims["tenant_id"] == str(tenant_id)
+        persisted = session.get(OperationalSession, uuid.UUID(claims["session_id"]))
+        assert persisted is not None and persisted.status == OperationalSessionStatusEnum.ACTIVE
 
-        device = session.get(OperationalDevice, device_id)
-        assert device is not None
-        device.status = OperationalDeviceStatusEnum.PAUSED
-        session.add(device); session.commit()
+        principal = AuthPrincipal(
+            subject=claims["sub"], email=None, session_id=claims["session_id"],
+            assurance_level="pin", claims=claims, provider="operational",
+            legacy_user_id=uuid.UUID(claims["sub"]),
+        )
+        authorized = authorize_tenant_context(session, principal, tenant_id, store_id, "POST", "/api/v1/operational-access/session/end")
+        assert authorized.device_id == device_id
+        assert authorized.operational_session_id == persisted.id
+
+        manager_context = TenantContext(tenant_id=tenant_id, store_id=store_id, user_id=admin_id, role=RoleEnum.ADMIN)
+        device_service.update_device(
+            session, manager_context, device_id, name=None,
+            status=OperationalDeviceStatusEnum.PAUSED, configuration_ref=None,
+            actor_id=None, reason="Teste de revogação",
+        )
         with pytest.raises(HTTPException) as revoked:
             operational_access_service.terminal_status(session, terminal_token)
         assert revoked.value.status_code == 403
+        with pytest.raises(HTTPException) as ended:
+            authorize_tenant_context(session, principal, tenant_id, store_id, "POST", "/api/v1/operational-access/session/end")
+        assert ended.value.status_code == 403
+
+        device_service.update_device(
+            session, manager_context, device_id, name=None,
+            status=OperationalDeviceStatusEnum.ACTIVE, configuration_ref=None,
+            actor_id=None, reason="Teste de reativação",
+        )
+        with pytest.raises(HTTPException) as stale_after_reactivation:
+            operational_access_service.terminal_status(session, terminal_token)
+        assert stale_after_reactivation.value.status_code == 403
+
+        new_authorization = operational_access_service.authorize_terminal(session, manager_context, device_id)
+        new_operational = operational_access_service.activate_from_terminal(
+            session, terminal_token=new_authorization["terminal_token"], employee_code="ATD-17", pin="4826",
+        )
+        new_claims = decode_access_token(new_operational["access_token"])
+        new_principal = AuthPrincipal(
+            subject=new_claims["sub"], email=None, session_id=new_claims["session_id"],
+            assurance_level="pin", claims=new_claims, provider="operational",
+            legacy_user_id=uuid.UUID(new_claims["sub"]),
+        )
+        new_context = authorize_tenant_context(
+            session, new_principal, tenant_id, store_id, "POST", "/api/v1/operational-access/session/end",
+        )
+        assert new_context.operational_session_id is not None
+
+        replacement_authorization = operational_access_service.authorize_terminal(session, manager_context, device_id)
+        with pytest.raises(HTTPException) as replaced:
+            authorize_tenant_context(session, new_principal, tenant_id, store_id, "POST", "/api/v1/operational-access/session/end")
+        assert replaced.value.status_code == 403
+        replaced_session = session.get(OperationalSession, new_context.operational_session_id)
+        assert replaced_session is not None and replaced_session.status == OperationalSessionStatusEnum.REVOKED
+
+        final_operational = operational_access_service.activate_from_terminal(
+            session, terminal_token=replacement_authorization["terminal_token"], employee_code="ATD-17", pin="4826",
+        )
+        final_claims = decode_access_token(final_operational["access_token"])
+        final_principal = AuthPrincipal(
+            subject=final_claims["sub"], email=None, session_id=final_claims["session_id"],
+            assurance_level="pin", claims=final_claims, provider="operational",
+            legacy_user_id=uuid.UUID(final_claims["sub"]),
+        )
+        final_context = authorize_tenant_context(
+            session, final_principal, tenant_id, store_id, "POST", "/api/v1/operational-access/session/end",
+        )
+        operational_access_service.end_operational_session(session, final_context, reason="Fim de turno")
+        with pytest.raises(HTTPException) as logged_out:
+            authorize_tenant_context(session, final_principal, tenant_id, store_id, "POST", "/api/v1/operational-access/session/end")
+        assert logged_out.value.status_code == 403

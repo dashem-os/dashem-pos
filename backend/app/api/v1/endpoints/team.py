@@ -267,6 +267,15 @@ def update_employee(employee_id: uuid.UUID, data: EmployeeWrite, context: Tenant
             user.full_name = employee.full_name
             user.is_active = employee.status == EmployeeStatusEnum.ACTIVE
             session.add(user)
+    if previous_status != EmployeeStatusEnum(employee.status).value:
+        employee_credentials = session.exec(select(OperationalCredential).where(
+            OperationalCredential.employee_id == employee.id,
+        )).all()
+        for employee_credential in employee_credentials:
+            operational_access_service.revoke_credential_sessions(
+                session, employee_credential,
+                reason=f"Cadastro funcional alterado para {EmployeeStatusEnum(employee.status).value}",
+            )
     session.add(employee)
     _audit_employee(session, context, employee, "tenant.employee.updated", {
         "employee_id": str(employee.id), "previous_status": previous_status,
@@ -371,7 +380,10 @@ def update_team_member(membership_id: uuid.UUID, data: TeamAccessUpdate, context
     session.add(membership)
     if credential:
         assert data.store_id is not None
-        credential.store_id = data.store_id; credential.updated_at = datetime.utcnow(); session.add(credential)
+        credential.store_id = data.store_id
+        operational_access_service.revoke_credential_sessions(
+            session, credential, reason=f"Acesso alterado: {data.reason}",
+        )
     payload = {"membership_id": str(membership.id), "previous": previous, "current": {"role": data.role.value, "status": data.status.value, "store_id": str(data.store_id) if data.store_id else None}, "reason": data.reason}
     _audit(session, context, membership, "tenant.team.access_updated", payload)
     session.commit(); session.refresh(membership)
@@ -387,7 +399,9 @@ def reset_operational_pin(membership_id: uuid.UUID, data: TeamPinReset, context:
     salt, pin_hash, iterations = operational_access_service.new_pin_secret(data.pin)
     credential.pin_salt = salt; credential.pin_hash = pin_hash; credential.pin_iterations = iterations
     credential.failed_attempts = 0; credential.locked_until = None; credential.updated_at = datetime.utcnow()
-    session.add(credential)
+    operational_access_service.revoke_credential_sessions(
+        session, credential, reason=f"PIN redefinido: {data.reason}",
+    )
     _audit(session, context, membership, "tenant.team.pin_reset", {"membership_id": str(membership.id), "reason": data.reason})
     session.commit()
     return _member_read(session, membership)

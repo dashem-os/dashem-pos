@@ -4,7 +4,7 @@ from app.models.identity import (
     TenantSubscription, TenantCustomerTypeEnum, SubscriptionStatusEnum,
     Permission, RoleProfile, RoleProfilePermission, MembershipRoleProfile,
     PermissionGrant, PermissionGrantEffectEnum, Employee, EmployeeStatusEnum,
-    OperationalCredential,
+    OperationalCredential, OperationalSession, OperationalSessionStatusEnum,
 )
 from app.models.platform import (
     Lead, LeadStatusEnum, PlatformMembership, PlatformRoleEnum,
@@ -99,7 +99,7 @@ __all__ = [
     "PermissionGrantEffectEnum",
     "Employee",
     "EmployeeStatusEnum",
-    "OperationalCredential",
+    "OperationalCredential", "OperationalSession", "OperationalSessionStatusEnum",
     "Lead",
     "LeadStatusEnum",
     "PlatformMembership",

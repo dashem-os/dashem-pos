@@ -28,6 +28,10 @@ class DeviceDTO(BaseModel):
     register_id: Optional[uuid.UUID]
     production_point_id: Optional[uuid.UUID]
     configuration_ref: Optional[str]
+    authorization_version: int
+    authorized_at: Optional[datetime]
+    authorized_by: Optional[uuid.UUID]
+    authorization_expires_at: Optional[datetime]
     last_seen_at: Optional[datetime]
     created_at: datetime
     updated_at: datetime

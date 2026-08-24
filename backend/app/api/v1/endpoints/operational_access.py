@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlmodel import Session
 
@@ -34,6 +34,11 @@ class TerminalTokenInput(BaseModel):
 class TerminalLoginInput(TerminalTokenInput):
     employee_code: str = Field(min_length=3, max_length=20)
     pin: str = Field(min_length=4, max_length=8)
+
+
+class OperationalSessionEndInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    reason: str = Field(default="Encerramento voluntário do turno", min_length=3, max_length=500)
 
 
 class TerminalContextRead(BaseModel):
@@ -74,3 +79,13 @@ def terminal_login(data: TerminalLoginInput, session: Session = Depends(get_sess
         employee_code=data.employee_code,
         pin=data.pin,
     )
+
+
+@router.post("/session/end", status_code=status.HTTP_204_NO_CONTENT)
+def end_operational_session(
+    data: OperationalSessionEndInput,
+    context: TenantContext = Depends(get_tenant_context),
+    session: Session = Depends(get_session),
+):
+    operational_access_service.end_operational_session(session, context, reason=data.reason)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

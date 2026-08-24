@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import type { Factor, Session } from '@supabase/supabase-js'
-import { setApiAccessTokenProvider } from '../services/api'
+import { endOperationalSession, setApiAccessTokenProvider } from '../services/api'
 import { hasSupabaseConfig, supabase } from '../services/supabase'
 import { clearRecoveryModeFromBrowser } from '../utils/authUrl'
 
@@ -174,6 +174,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     signOut: async () => {
       setPasswordRecovery(false)
       if (operationalToken) {
+        await endOperationalSession(operationalToken).catch(() => undefined)
         sessionStorage.removeItem('dashem.operational_token')
         setOperationalToken(null)
         setApiAccessTokenProvider(async () => session?.access_token ?? null)

@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 from typing import Optional, Type, TypeVar
 
 from fastapi import Depends, Header, HTTPException, Request, status
@@ -12,8 +13,9 @@ from app.core.permissions import enforce_effective_access
 from app.core.security import AuthPrincipal, get_current_principal
 from app.core.tenancy import set_tenant_db_context
 from app.models.identity import (
-    AuthIdentity, Membership, MembershipStatusEnum, RoleEnum, Store, Tenant,
-    TenantStatusEnum, User,
+    AuthIdentity, Employee, EmployeeStatusEnum, Membership, MembershipStatusEnum,
+    OperationalCredential, OperationalSession, OperationalSessionStatusEnum,
+    RoleEnum, Store, Tenant, TenantStatusEnum, User,
 )
 from app.models.device import OperationalDevice, OperationalDeviceStatusEnum
 
@@ -31,6 +33,9 @@ class TenantContext(BaseModel):
     capabilities: tuple[str, ...] = ()
     auth_subject: Optional[str] = None
     assurance_level: str = "aal1"
+    device_id: Optional[uuid.UUID] = None
+    register_id: Optional[uuid.UUID] = None
+    operational_session_id: Optional[uuid.UUID] = None
 
 
 def resolve_actor(
@@ -126,20 +131,39 @@ def authorize_tenant_context(
         token_store_id = claims.get("store_id")
         if not store_id or token_store_id != str(store_id):
             raise HTTPException(status_code=403, detail="Operational session belongs to another store.")
-        token_device_id = claims.get("device_id")
-        if token_device_id:
-            try:
-                device = session.get(OperationalDevice, uuid.UUID(str(token_device_id)))
-            except ValueError as exc:
-                raise HTTPException(status_code=401, detail="Operational session has no valid terminal.") from exc
-            if (
-                not device
-                or device.tenant_id != tenant_id
-                or device.store_id != store_id
-                or device.status != OperationalDeviceStatusEnum.ACTIVE
-                or str(device.register_id) != str(claims.get("register_id"))
-            ):
-                raise HTTPException(status_code=403, detail="Operational terminal was paused, revoked or changed.")
+        try:
+            device_id = uuid.UUID(str(claims["device_id"]))
+            register_id = uuid.UUID(str(claims["register_id"]))
+            session_id = uuid.UUID(str(claims["session_id"]))
+            credential_id = uuid.UUID(str(claims["credential_id"]))
+            membership_id = uuid.UUID(str(claims["membership_id"]))
+            terminal_version = int(claims["terminal_authorization_version"])
+            credential_version = int(claims["credential_version"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise HTTPException(status_code=401, detail="Operational session has no valid authority context.") from exc
+        device = session.get(OperationalDevice, device_id)
+        authority = session.get(OperationalSession, session_id)
+        credential = session.get(OperationalCredential, credential_id)
+        employee = session.get(Employee, credential.employee_id) if credential else None
+        if (
+            not device or device.tenant_id != tenant_id or device.store_id != store_id
+            or device.status != OperationalDeviceStatusEnum.ACTIVE or device.register_id != register_id
+            or device.authorization_version != terminal_version
+            or not device.authorization_expires_at or device.authorization_expires_at <= datetime.utcnow()
+            or not authority or authority.status != OperationalSessionStatusEnum.ACTIVE
+            or authority.expires_at <= datetime.utcnow() or authority.tenant_id != tenant_id
+            or authority.store_id != store_id or authority.device_id != device_id
+            or authority.register_id != register_id or authority.user_id != user.id
+            or authority.membership_id != membership_id or authority.credential_id != credential_id
+            or authority.terminal_authorization_version != terminal_version
+            or authority.credential_version != credential_version
+            or not credential or credential.tenant_id != tenant_id or credential.store_id != store_id
+            or credential.user_id != user.id or credential.membership_id != membership_id
+            or credential.session_version != credential_version
+            or not employee or employee.tenant_id != tenant_id or employee.user_id != user.id
+            or employee.status != EmployeeStatusEnum.ACTIVE
+        ):
+            raise HTTPException(status_code=403, detail="Operational authority was ended, revoked, expired or changed.")
     tenant = session.get(Tenant, tenant_id)
     if not tenant or tenant.status not in {TenantStatusEnum.TRIAL, TenantStatusEnum.ACTIVE}:
         raise HTTPException(status_code=403, detail="Tenant is unavailable.")
@@ -155,10 +179,7 @@ def authorize_tenant_context(
         Membership.status == MembershipStatusEnum.ACTIVE,
     )
     if principal.provider == "operational":
-        try:
-            membership_query = membership_query.where(Membership.id == uuid.UUID(str(principal.claims.get("membership_id"))))
-        except (TypeError, ValueError) as exc:
-            raise HTTPException(status_code=401, detail="Operational session has no valid membership.") from exc
+        membership_query = membership_query.where(Membership.id == membership_id)
     if store_id:
         membership_query = membership_query.where(
             or_(Membership.store_id.is_(None), Membership.store_id == store_id)
@@ -171,6 +192,7 @@ def authorize_tenant_context(
 
     role = RoleEnum(membership.role)
     access = enforce_effective_access(session, membership, store_id, method, path)
+    operational_claims = principal.claims if principal.provider == "operational" else {}
     return TenantContext(
         tenant_id=tenant_id,
         store_id=store_id,
@@ -181,6 +203,9 @@ def authorize_tenant_context(
         capabilities=access.capabilities,
         auth_subject=principal.subject,
         assurance_level=principal.assurance_level,
+        device_id=uuid.UUID(operational_claims["device_id"]) if operational_claims.get("device_id") else None,
+        register_id=uuid.UUID(operational_claims["register_id"]) if operational_claims.get("register_id") else None,
+        operational_session_id=uuid.UUID(operational_claims["session_id"]) if operational_claims.get("session_id") else None,
     )
 
 

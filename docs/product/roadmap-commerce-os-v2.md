@@ -1424,19 +1424,21 @@ autenticada ou um service actor persistido pelo servidor. Identificadores
 declarados pelo cliente não concedem autoria e divergências são recusadas antes
 da mutação.
 
-### Gate B — próximo gate, ainda não iniciado
+### Gate B — autoridade operacional persistida
 
-Será iniciado somente após o Gate A permanecer verde no CI. Seu escopo deve
-partir do contrato de sessão operacional e das credenciais de dispositivo, sem
-reabrir login PIN global nem misturar pessoa, terminal, TEF Bridge ou Print
-Bridge.
+Implementa o ADR-021. A autorização do terminal e o turno PIN deixam de depender
+somente de JWT e passam a possuir versões e registros server-side revogáveis.
+Pausa, reativação, reautorização, redefinição de PIN, alteração funcional e fim
+de turno invalidam a autoridade anterior. Pessoa, turno, POS, TEF Bridge e Print
+Bridge continuam identidades independentes. Os dez critérios de aceite do
+ADR-021 são o gate objetivo deste ciclo.
 
 ## 12. Próximo passo autorizado por este roadmap
 
 O próximo ciclo de implementação deve concluir:
 
 ```text
-Gate B — contrato operacional posterior ao fechamento verde do Gate A
+Gate B — autoridade operacional persistida, versionada e revogável
 ```
 
 S0–S21, S17.1–S17.3, S21.1 e o Gate A estão concluídos nos gates internos,
@@ -1454,4 +1456,5 @@ histórico. O S17.2 preserva a sessão gerencial na ida ao PDV e separa a ficha 
 funcionário de suas credenciais. O S17.3 autoriza o terminal antes de expor o
 login operacional. O S18 conclui os contratos próprios do Control sem invadir a
 equipe cotidiana do tenant. S19–S21 consolidam profiles, hardening e prontidão
-interna; o próximo trabalho autorizado é o Gate B, depois do CI verde do Gate A.
+interna. O Gate B somente é concluído após migration, testes negativos e CI
+verde; homologações TEF e Print Bridge continuam gates próprios posteriores.

@@ -52,6 +52,13 @@ class EmployeeStatusEnum(str, Enum):
     TERMINATED = "TERMINATED"
 
 
+class OperationalSessionStatusEnum(str, Enum):
+    ACTIVE = "ACTIVE"
+    ENDED = "ENDED"
+    REVOKED = "REVOKED"
+    EXPIRED = "EXPIRED"
+
+
 class PermissionGrantEffectEnum(str, Enum):
     ALLOW = "ALLOW"
     DENY = "DENY"
@@ -326,11 +333,38 @@ class OperationalCredential(SQLModel, table=True):
     pin_salt: str = Field(max_length=64, exclude=True)
     pin_hash: str = Field(max_length=128, exclude=True)
     pin_iterations: int = Field(default=210_000)
+    session_version: int = Field(default=1)
     failed_attempts: int = Field(default=0)
     locked_until: Optional[datetime] = Field(default=None, index=True)
     last_used_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class OperationalSession(SQLModel, table=True):
+    """Server-side authority for one collaborator shift on one authorized POS."""
+
+    __tablename__ = "operational_sessions"
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(foreign_key="tenants.id", index=True)
+    store_id: uuid.UUID = Field(foreign_key="stores.id", index=True)
+    register_id: uuid.UUID = Field(foreign_key="registers.id", index=True)
+    device_id: uuid.UUID = Field(foreign_key="operational_devices.id", index=True)
+    user_id: uuid.UUID = Field(foreign_key="users.id", index=True)
+    membership_id: uuid.UUID = Field(foreign_key="memberships.id", ondelete="CASCADE", index=True)
+    credential_id: uuid.UUID = Field(foreign_key="operational_credentials.id", ondelete="CASCADE", index=True)
+    terminal_authorization_version: int
+    credential_version: int
+    status: OperationalSessionStatusEnum = Field(
+        default=OperationalSessionStatusEnum.ACTIVE,
+        sa_column=Column(String, nullable=False, index=True),
+    )
+    started_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    expires_at: datetime = Field(index=True)
+    last_seen_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    ended_at: Optional[datetime] = Field(default=None, index=True)
+    end_reason: Optional[str] = Field(default=None, max_length=500)
 
 
 class Permission(SQLModel, table=True):

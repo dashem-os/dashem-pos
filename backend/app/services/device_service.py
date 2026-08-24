@@ -7,6 +7,7 @@ from sqlmodel import Session, select
 
 from app.core.context import TenantContext, resolve_actor, scope_tenant_query
 from app.models.device import OperationalDevice, OperationalDeviceStatusEnum, OperationalDeviceTypeEnum
+from app.models.identity import OperationalSession, OperationalSessionStatusEnum
 from app.models.payment import Register
 from app.models.production import ProductionPoint, ProductionPointTypeEnum
 from app.services import reliability_service
@@ -101,6 +102,20 @@ def update_device(
     if name is not None:
         device.name = name.strip()
     if status is not None:
+        if status != device.status:
+            device.authorization_version += 1
+            device.authorized_at = None
+            device.authorized_by = None
+            device.authorization_expires_at = None
+            active_sessions = session.exec(select(OperationalSession).where(
+                OperationalSession.device_id == device.id,
+                OperationalSession.status == OperationalSessionStatusEnum.ACTIVE,
+            ).with_for_update()).all()
+            for active_session in active_sessions:
+                active_session.status = OperationalSessionStatusEnum.REVOKED
+                active_session.ended_at = datetime.utcnow()
+                active_session.end_reason = f"Dispositivo alterado para {status.value}: {reason}"[:500]
+                session.add(active_session)
         device.status = status
     if configuration_ref is not None:
         device.configuration_ref = configuration_ref.strip() or None

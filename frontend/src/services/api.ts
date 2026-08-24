@@ -542,6 +542,10 @@ export interface OperationalDevice {
   register_id?: string
   production_point_id?: string
   configuration_ref?: string
+  authorization_version: number
+  authorized_at?: string
+  authorized_by?: string
+  authorization_expires_at?: string
   last_seen_at?: string
   created_at: string
   updated_at: string
@@ -1147,6 +1151,23 @@ export async function loginOperationalTerminal(
   })
   if (!res.ok) throw await apiError(res, 'Código ou PIN inválido para este terminal.')
   return res.json()
+}
+
+export async function endOperationalSession(accessToken: string): Promise<void> {
+  const claims = JSON.parse(atob(accessToken.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))) as {
+    tenant_id: string; store_id: string
+  }
+  const res = await fetch(`${API_BASE_URL}/api/v1/operational-access/session/end`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+      'X-Tenant-ID': claims.tenant_id,
+      'X-Store-ID': claims.store_id,
+    },
+    body: JSON.stringify({ reason: 'Encerramento voluntário do turno' }),
+  })
+  if (!res.ok && res.status !== 409) throw await apiError(res, 'Não foi possível encerrar o turno operacional.')
 }
 
 export async function updateTeamMember(
