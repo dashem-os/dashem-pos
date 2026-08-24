@@ -2,7 +2,7 @@
 
 Status: **diretriz canônica para a próxima fase de construção**  
 Data: 23 de agosto de 2026  
-Revisão: **S13.1 concluído — próximo gate S14 Crediário e Receivables**
+Revisão: **S14 concluído — próximo gate S15 Recebimentos, Cobrança e Renegociação**
 Substitui como referência de execução qualquer sequência anterior que conflite com este documento.
 
 ## 1. Por que este roadmap existe
@@ -907,6 +907,15 @@ Gate:
 
 ### S14 — Crediário e Receivables
 
+Estado: **concluído no gate interno**. A implementação mantém política e limite
+por cliente no tenant, calcula exposição sob lock pessimista, cobre a negociação
+com `ReceivableAllocation` e persiste Sale + título em uma única transação. O
+principal é imutável; saldo/status são projeções do ledger. Estorno exige motivo,
+ator e idempotência. Crédito não gera `Payment` nem numerário no caixa. A
+capability `receivables` e as permissions canônicas delimitam leitura, emissão,
+política e reversão. O mesmo trabalho corrigiu `source_version` para `BIGINT`,
+necessário aos Orders de balcão que usam versão temporal em microssegundos.
+
 Objetivo: converter parte autorizada do saldo em obrigação financeira sem
 disfarçar ausência de pagamento.
 
@@ -1205,12 +1214,13 @@ Ao concluir:
 O próximo ciclo de implementação deve ser:
 
 ```text
-S14 — Crediário e Receivables
+S15 — Recebimentos, Cobrança e Renegociação
 ```
 
-S0–S13.1 estão concluídos nos gates internos. O S13 introduziu o ADR-009,
+S0–S14 estão concluídos nos gates internos. O S13 introduziu o ADR-009,
 mapeamentos por merchant, ofertas versionadas, publicação item a item e documentos
 de repasse independentes do Order. Falha parcial e diferença financeira ficam
 observáveis. O S13.1 completa a primeira retaguarda operacional do tenant e fixa
-a fronteira Gestão → PDV/KDS, nunca no sentido inverso. O próximo gate canônico é
-o S14.
+a fronteira Gestão → PDV/KDS, nunca no sentido inverso. O S14 fecha o primeiro
+contrato de crediário sem tratar obrigação como recebimento. O próximo gate
+canônico é o S15.

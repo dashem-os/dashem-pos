@@ -4,7 +4,7 @@ from decimal import Decimal
 from enum import Enum
 from typing import Optional
 
-from sqlalchemy import CheckConstraint, Column, Index, JSON, Numeric, Text, text
+from sqlalchemy import BigInteger, CheckConstraint, Column, Index, JSON, Numeric, Text, text
 from sqlmodel import Field, SQLModel, UniqueConstraint
 
 from app.core.db_types import EnumString
@@ -56,7 +56,7 @@ class CheckoutNegotiation(SQLModel, table=True):
     surcharge_total: Decimal = Field(default=Decimal("0"), sa_column=Column(Numeric(14, 4), nullable=False))
     tax_total: Decimal = Field(default=Decimal("0"), sa_column=Column(Numeric(14, 4), nullable=False))
     total_due: Decimal = Field(sa_column=Column(Numeric(14, 4), nullable=False))
-    source_version: int = Field(ge=1)
+    source_version: int = Field(ge=1, sa_column=Column(BigInteger, nullable=False))
     version: int = Field(default=1, ge=1)
     opened_by: uuid.UUID = Field(index=True)
     finalized_by: Optional[uuid.UUID] = Field(default=None, index=True)

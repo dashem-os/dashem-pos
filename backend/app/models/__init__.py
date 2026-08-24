@@ -59,6 +59,10 @@ from app.models.production import (
 from app.models.transfer import TransferRecord, TransferTypeEnum
 from app.models.channel_catalog import ChannelCatalogMapping,ChannelCatalogOffer,ChannelPublicationBatch,ChannelPublicationItem,MarketplaceSettlement,MarketplaceSettlementPayment,CatalogEntityTypeEnum,PublicationStatusEnum,PublicationItemStatusEnum,SettlementStatusEnum
 from app.models.device import OperationalDevice, OperationalDeviceTypeEnum, OperationalDeviceStatusEnum
+from app.models.receivable import (
+    CustomerCreditPolicy, CreditPolicyStatusEnum, Receivable, ReceivableStatusEnum,
+    ReceivableAllocation, ReceivableLedgerEntry, ReceivableEntryTypeEnum,
+)
 
 __all__ = [
     "Tenant",
@@ -195,4 +199,6 @@ __all__ = [
     "TransferTypeEnum",
     "ChannelCatalogMapping","ChannelCatalogOffer","ChannelPublicationBatch","ChannelPublicationItem","MarketplaceSettlement","MarketplaceSettlementPayment","CatalogEntityTypeEnum","PublicationStatusEnum","PublicationItemStatusEnum","SettlementStatusEnum",
     "OperationalDevice", "OperationalDeviceTypeEnum", "OperationalDeviceStatusEnum",
+    "CustomerCreditPolicy", "CreditPolicyStatusEnum", "Receivable", "ReceivableStatusEnum",
+    "ReceivableAllocation", "ReceivableLedgerEntry", "ReceivableEntryTypeEnum",
 ]

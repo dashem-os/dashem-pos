@@ -160,8 +160,13 @@ impressoras; PDV e KDS não oferecem retorno administrativo. A atendente somente
 opera mesas existentes, pode sinalizar impedimento e precisa confirmar uma
 reserva identificada antes de abrir a sessão. Dispositivo e estrutura vinculada
 nascem na mesma transação e todo ciclo de pausa/revogação permanece auditável. O
-próximo gate canônico é o **S14 — Crediário e Receivables**; ele não faz parte
-deste loop autorizado.
+**S14 — Crediário e Receivables** acrescenta política de crédito versionada,
+limite e exposição calculada sob lock, `Receivable`, allocation explícita da
+negociação e ledger imutável. A venda a prazo e o título são gravados na mesma
+transação; o valor financiado não cria `Payment` nem movimento de caixa. A
+Gestão possui workspace real de crediário, protegido por permission e pela
+capability `receivables`. O próximo gate canônico deste loop é o **S15 —
+Recebimentos, Cobrança e Renegociação**.
 
 ## Trilha pendente: conclusão do Console Owner
 

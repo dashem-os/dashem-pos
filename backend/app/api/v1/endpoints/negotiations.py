@@ -98,6 +98,7 @@ class NegotiationProjectionDTO(BaseModel):
     tax_total: Decimal
     total_due: Decimal
     confirmed_amount: Decimal
+    receivable_amount: Decimal
     processing_amount: Decimal
     failed_amount: Decimal
     remaining_amount: Decimal

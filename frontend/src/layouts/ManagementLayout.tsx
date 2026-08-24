@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react'
 import {
-  Banknote, Boxes, ChefHat, FileText, Home, LogOut, Menu, Monitor,
+  BadgeDollarSign, Banknote, Boxes, ChefHat, FileText, Home, LogOut, Menu, Monitor,
   Package, Plug, ShoppingCart, Store as StoreIcon, Tags, Users, X,
 } from 'lucide-react'
 import { usePos } from '../context/PosContext'
@@ -15,9 +15,10 @@ import { ServiceSetupManager } from '../components/management/ServiceSetupManage
 import { DeviceManager } from '../components/management/DeviceManager'
 import { CategoryManager } from '../components/management/CategoryManager'
 import { InventoryManager } from '../components/management/InventoryManager'
+import { ReceivablesManager } from '../components/management/ReceivablesManager'
 import { navigateTo } from '../utils/navigation'
 
-type ModuleId = 'overview' | 'sales' | 'tables' | 'channels' | 'cash' | 'products' | 'categories' | 'inventory' | 'team' | 'devices'
+type ModuleId = 'overview' | 'sales' | 'tables' | 'channels' | 'cash' | 'receivables' | 'products' | 'categories' | 'inventory' | 'team' | 'devices'
 
 interface NavigationItem {
   id: ModuleId
@@ -33,6 +34,9 @@ const GROUPS: Array<{ label: string; items: NavigationItem[] }> = [
     { id: 'sales', label: 'Vendas', icon: FileText, permission: 'sale.read', capability: 'counter_order' },
     { id: 'cash', label: 'Caixas', icon: Banknote, permission: 'cash.read', capability: 'cash_management' },
     { id: 'channels', label: 'Canais de venda', icon: Plug, permission: 'channel.read', capability: 'delivery_orders' },
+  ] },
+  { label: 'Financeiro', items: [
+    { id: 'receivables', label: 'Crediário e recebíveis', icon: BadgeDollarSign, permission: 'receivable.read', capability: 'receivables' },
   ] },
   { label: 'Mercadorias', items: [
     { id: 'products', label: 'Produtos e preços', icon: Package, permission: 'catalog.read', capability: 'catalog' },
@@ -71,6 +75,7 @@ export const ManagementLayout: React.FC = () => {
       case 'categories': return <CategoryManager />
       case 'inventory': return <InventoryManager />
       case 'cash': return <CashManager />
+      case 'receivables': return <ReceivablesManager />
       case 'tables': return <ServiceSetupManager />
       case 'devices': return <DeviceManager />
       case 'channels': return <ChannelHubWorkspace />

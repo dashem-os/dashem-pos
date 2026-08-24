@@ -32,6 +32,48 @@ export interface Store {
   is_active?: boolean
 }
 
+export interface Customer {
+  id: string
+  tenant_id: string
+  name: string
+  cpf_cnpj?: string
+  phone?: string
+  email?: string
+  created_at: string
+}
+
+export interface Receivable {
+  id: string
+  tenant_id: string
+  store_id: string
+  customer_id: string
+  negotiation_id: string
+  sale_id?: string
+  status: 'OPEN' | 'PARTIALLY_PAID' | 'PAID' | 'OVERDUE' | 'REVERSED' | 'RENEGOTIATED'
+  principal_amount: number
+  paid_amount: number
+  balance: number
+  issued_at: string
+  due_at: string
+  version: number
+  reversed_at?: string
+}
+
+export interface CreditPolicyProjection {
+  policy: {
+    id: string
+    customer_id: string
+    status: 'ACTIVE' | 'BLOCKED'
+    credit_limit: number
+    terms_days: number
+    allow_overdue: boolean
+    version: number
+    updated_at: string
+  }
+  exposure: number
+  available: number
+}
+
 export interface Category {
   id: string
   tenant_id: string
@@ -875,6 +917,35 @@ export async function updateTeamMember(
 export async function fetchManagementOverview(headers: Record<string, string>): Promise<ManagementOverview> {
   const res = await fetch(`${API_BASE_URL}/api/v1/management/overview`, { headers })
   if (!res.ok) throw await apiError(res, 'Não foi possível carregar os indicadores gerenciais.')
+  return res.json()
+}
+
+export async function fetchCustomers(headers: Record<string, string>): Promise<Customer[]> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/sales/customers`, { headers })
+  if (!res.ok) throw await apiError(res, 'Não foi possível carregar os clientes.')
+  return res.json()
+}
+
+export async function fetchReceivables(headers: Record<string, string>): Promise<Receivable[]> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/receivables`, { headers })
+  if (!res.ok) throw await apiError(res, 'Não foi possível carregar as contas a receber.')
+  return res.json()
+}
+
+export async function fetchCreditPolicy(headers: Record<string, string>, customerId: string): Promise<CreditPolicyProjection> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/receivables/customers/${customerId}/policy`, { headers })
+  if (!res.ok) throw await apiError(res, 'Política de crédito ainda não configurada.')
+  return res.json()
+}
+
+export async function saveCreditPolicy(
+  headers: Record<string, string>, customerId: string,
+  input: { credit_limit: number; terms_days: number; allow_overdue: boolean; status: 'ACTIVE' | 'BLOCKED'; expected_version?: number },
+): Promise<CreditPolicyProjection> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/receivables/customers/${customerId}/policy`, {
+    method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível salvar a política de crédito.')
   return res.json()
 }
 

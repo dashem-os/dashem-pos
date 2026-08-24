@@ -4,6 +4,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from typing import Iterable, Optional
 
 from fastapi import HTTPException, status
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
@@ -21,6 +22,7 @@ from app.models.payment import (
 from app.models.sale import (
     FulfillmentTypeEnum, Sale, SaleItem, SaleOperationModeEnum, SaleStatusEnum,
 )
+from app.models.receivable import Receivable, ReceivableAllocation
 from app.models.table_service import (
     ServiceTable, ServiceTableStatusEnum, TableSession, TableSessionStatusEnum,
 )
@@ -151,10 +153,17 @@ def _totals(session: Session, negotiation: CheckoutNegotiation) -> dict:
         PaymentIntentStatusEnum.PENDING, PaymentIntentStatusEnum.PROCESSING,
     }), Decimal("0")))
     failed = _money(sum((item.amount for item in intents if item.status == PaymentIntentStatusEnum.FAILED), Decimal("0")))
-    remaining = max(Decimal("0"), _money(negotiation.total_due - confirmed))
+    receivable_covered = _money(session.exec(select(
+        func.coalesce(func.sum(ReceivableAllocation.amount), 0)
+    ).where(
+        ReceivableAllocation.tenant_id == negotiation.tenant_id,
+        ReceivableAllocation.negotiation_id == negotiation.id,
+    )).one())
+    remaining = max(Decimal("0"), _money(negotiation.total_due - confirmed - receivable_covered))
     return {
         "confirmed_amount": confirmed, "processing_amount": processing,
-        "failed_amount": failed, "remaining_amount": remaining, "intents": intents,
+        "failed_amount": failed, "receivable_amount": receivable_covered,
+        "remaining_amount": remaining, "intents": intents,
     }
 
 
@@ -478,6 +487,7 @@ def fail_intent(
 def finalize_negotiation(
     session: Session, context: TenantContext, negotiation_id: uuid.UUID, *,
     expected_version: int, actor_id: Optional[uuid.UUID], idempotency_key: str,
+    commit: bool = True,
 ) -> dict:
     actor = _actor(context, actor_id)
     payload = {"negotiation_id": str(negotiation_id), "expected_version": expected_version, "actor_id": str(actor)}
@@ -495,12 +505,24 @@ def finalize_negotiation(
     totals = _totals(session, negotiation)
     if totals["remaining_amount"] != 0:
         raise HTTPException(status_code=409, detail="Saldo restante impede a finalização.")
+    receivable_allocation = session.exec(select(ReceivableAllocation).where(
+        ReceivableAllocation.tenant_id == context.tenant_id,
+        ReceivableAllocation.negotiation_id == negotiation.id,
+    )).first()
+    receivable = None
+    if receivable_allocation:
+        receivable = session.exec(select(Receivable).where(
+            Receivable.id == receivable_allocation.receivable_id,
+            Receivable.tenant_id == context.tenant_id,
+        ).with_for_update()).first()
     sale = Sale(
         tenant_id=context.tenant_id, store_id=negotiation.store_id,
         source_type="ORDER_CHECKOUT", idempotency_key=f"negotiation:{negotiation.id}",
         fulfillment_type=FulfillmentTypeEnum.DINE_IN if negotiation.table_session_id else FulfillmentTypeEnum.COUNTER,
         operation_mode=SaleOperationModeEnum.COUNTER, seller_id=actor,
-        status=SaleStatusEnum.PAID, gross_total=negotiation.subtotal,
+        customer_id=receivable.customer_id if receivable else None,
+        status=SaleStatusEnum.COMPLETED if receivable else SaleStatusEnum.PAID,
+        gross_total=negotiation.subtotal,
         discount_total=negotiation.discount_total, approved_discount=negotiation.discount_total,
         net_total=negotiation.total_due, occurred_at=datetime.utcnow(),
         notes=f"Finalizada pela negociação {negotiation.id}",
@@ -568,6 +590,9 @@ def finalize_negotiation(
                 service_table.version += 1
                 service_table.updated_at = datetime.utcnow()
     negotiation.sale_id = sale.id
+    if receivable:
+        receivable.sale_id = sale.id
+        receivable.updated_at = datetime.utcnow()
     negotiation.status = CheckoutNegotiationStatusEnum.FINALIZED
     negotiation.finalized_by = actor
     negotiation.finalized_at = datetime.utcnow()
@@ -578,6 +603,10 @@ def finalize_negotiation(
     _event(session, negotiation, actor, "checkout.negotiation.finalized", {
         "sale_id": str(sale.id), "total_due": str(negotiation.total_due),
         "payment_intent_ids": [str(item.id) for item in confirmed_intents],
+        "receivable_id": str(receivable.id) if receivable else None,
     })
-    session.commit()
+    if commit:
+        session.commit()
+    else:
+        session.flush()
     return projection(session, context, negotiation.id, validate=False)

@@ -131,6 +131,14 @@ def route_requirement(method: str, path: str) -> RouteRequirement:
         if path.endswith("/cancel"):
             return RouteRequirement("fiscal.cancel")
         return RouteRequirement("fiscal.issue")
+    if path.startswith("/api/v1/receivables"):
+        if method == "GET":
+            return RouteRequirement("receivable.read")
+        if "/policy" in path:
+            return RouteRequirement("credit.policy.manage")
+        if path.endswith("/reverse"):
+            return RouteRequirement("receivable.reverse")
+        return RouteRequirement("receivable.issue")
     raise HTTPException(status_code=403, detail="No canonical permission protects this operation.")
 
 
