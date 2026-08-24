@@ -273,7 +273,7 @@ class OperationalCredential(SQLModel, table=True):
     tenant_id: uuid.UUID = Field(foreign_key="tenants.id", index=True)
     store_id: uuid.UUID = Field(foreign_key="stores.id", index=True)
     user_id: uuid.UUID = Field(foreign_key="users.id", index=True)
-    membership_id: uuid.UUID = Field(foreign_key="memberships.id", index=True)
+    membership_id: uuid.UUID = Field(foreign_key="memberships.id", ondelete="CASCADE", index=True)
     employee_code: str = Field(index=True, max_length=20)
     pin_salt: str = Field(max_length=64, exclude=True)
     pin_hash: str = Field(max_length=128, exclude=True)
