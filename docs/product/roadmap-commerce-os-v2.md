@@ -1164,6 +1164,14 @@ Gate:
 - suporte possui motivo, prazo, escopo, aprovação e auditoria;
 - saúde desconhecida aparece como não instrumentada, nunca verde presumido.
 
+Estado: **concluído no gate interno**. O Control possui contratos comerciais
+versionados amarrados aos entitlements vigentes, checkpoints de onboarding com
+evidência, timeline de entrega sem tokens, suporte temporário com escopo,
+aprovação e expiração, incidentes sanitizados e visão operacional por tenant.
+Componentes sem heartbeat são projetados como `UNINSTRUMENTED`. O Resend
+permanece um gate externo desativado até existir domínio próprio validado; o
+transporte temporário não é representado como infraestrutura pronta.
+
 ### S19 — Capability Profiles e Module Contributions
 
 Objetivo: compor verticais e experiências sem forks, menus hardcoded ou módulos
@@ -1305,7 +1313,7 @@ e aparece como `não configurada`, nunca como pronta.
 | Renegociação capaz de alterar documento original | S15 | acordo e ledger imutáveis | resolvido no S15 |
 | Caixa/fiscal/provider sem conciliação unificada | S16 | fatos vinculados sem reescrita | resolvido no S16 |
 | BI agregado ou inventado no browser | S17 | read models rastreáveis | resolvido e testado no S17 |
-| Endpoint de identidade e saúde ainda amplos | S18 | routers e observabilidade por domínio | residual |
+| Endpoint de identidade e saúde ainda amplos | S18 | routers e observabilidade por domínio | resolvido: router Control e instrumentação explícita |
 | Segurança/confiabilidade deixadas para o fim | contínuo + S20 | gate por sprint e prova combinada | política corrigida |
 
 ## 10. Política de execução
@@ -1349,10 +1357,10 @@ Ao concluir:
 O próximo ciclo de implementação deve ser:
 
 ```text
-S18 — Dashem Control Completion
+S19 — Capability Profiles e Module Contributions
 ```
 
-S0–S17 e os gates corretivos S17.1–S17.2 estão concluídos nos gates internos. O S13 introduziu o ADR-009,
+S0–S18 e os gates corretivos S17.1–S17.3 estão concluídos nos gates internos. O S13 introduziu o ADR-009,
 mapeamentos por merchant, ofertas versionadas, publicação item a item e documentos
 de repasse independentes do Order. Falha parcial e diferença financeira ficam
 observáveis. O S13.1 completa a primeira retaguarda operacional do tenant e fixa
@@ -1363,4 +1371,6 @@ com fatos compensatórios e sem reescrita. O S17 cria projeções incrementais e
 reconstruíveis, com fórmulas, lag e drill-down rastreáveis. O S17.1 fixa a
 fronteira e-mail/PIN, o papel Supervisor e a chegada de reservas sem apagar
 histórico. O S17.2 preserva a sessão gerencial na ida ao PDV e separa a ficha do
-funcionário de suas credenciais. O próximo gate canônico é o S18.
+funcionário de suas credenciais. O S17.3 autoriza o terminal antes de expor o
+login operacional. O S18 conclui os contratos próprios do Control sem invadir a
+equipe cotidiana do tenant. O próximo gate canônico é o S19.

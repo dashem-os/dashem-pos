@@ -28,6 +28,7 @@ from app.models.identity import (
 from app.models.platform import (
     Lead, LeadStatusEnum, PlatformRoleEnum, TenantCapability, CapabilityDefinition,
     CapabilityScopeEnum, CapabilityStatusEnum, EntitlementStatusEnum,
+    IdentityDeliveryEvent,
 )
 from app.models.reliability import AuditEvent, OutboxEvent, OutboxStatusEnum
 from app.models.reliability import ServiceHeartbeat
@@ -1163,6 +1164,14 @@ def invite_platform_tenant_user(
     )
     user = session.get(User, membership.user_id)
     assert user is not None
+    local, domain = email.split("@", 1)
+    masked = f"{local[:2]}{'*' * max(1, len(local) - 2)}@{domain}"
+    session.add(IdentityDeliveryEvent(
+        tenant_id=tenant_id, membership_id=membership.id, kind="CONTRACT_ADMIN_INVITE",
+        recipient_masked=masked, provider="SUPABASE_SMTP", status=delivery_status,
+        sanitized_detail="Convite solicitado pelo Dashem Control; credenciais e tokens não são armazenados.",
+    ))
+    session.commit()
     return PlatformTenantInviteResult(
         access=_tenant_access_read(membership, user, store), delivery_status=delivery_status,
     )

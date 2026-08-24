@@ -3,7 +3,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
 
-from sqlalchemy import Column, JSON, String
+from sqlalchemy import Column, JSON, String, Text
 from sqlmodel import Field, SQLModel, UniqueConstraint
 
 from app.core.db_types import EnumString
@@ -43,6 +43,20 @@ class EntitlementStatusEnum(str, Enum):
     CONFIGURED = "CONFIGURED"
     ACTIVE = "ACTIVE"
     SUSPENDED = "SUSPENDED"
+
+
+class ControlStatusEnum(str, Enum):
+    OPEN = "OPEN"
+    IN_PROGRESS = "IN_PROGRESS"
+    RESOLVED = "RESOLVED"
+    CANCELED = "CANCELED"
+
+
+class SupportGrantStatusEnum(str, Enum):
+    PENDING = "PENDING"
+    APPROVED = "APPROVED"
+    REVOKED = "REVOKED"
+    EXPIRED = "EXPIRED"
 
 
 class PlatformMembership(SQLModel, table=True):
@@ -176,4 +190,100 @@ class StoreCapabilityOverride(SQLModel, table=True):
     configuration: dict[str, Any] = Field(
         default_factory=dict, sa_column=Column(JSON, nullable=False, default=dict)
     )
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class TenantContract(SQLModel, table=True):
+    """Versioned commercial contract snapshot owned by the Control plane."""
+
+    __tablename__ = "tenant_contracts"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "version", name="uq_tenant_contract_version"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(foreign_key="tenants.id", index=True)
+    version: int = Field(default=1)
+    status: str = Field(default="DRAFT", index=True, max_length=32)
+    plan_id: Optional[uuid.UUID] = Field(default=None, foreign_key="service_plans.id", index=True)
+    limits: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON, nullable=False, default=dict))
+    capability_keys: list[str] = Field(default_factory=list, sa_column=Column(JSON, nullable=False, default=list))
+    starts_at: Optional[datetime] = None
+    ends_at: Optional[datetime] = None
+    reason: str = Field(sa_column=Column(Text, nullable=False))
+    created_by: uuid.UUID = Field(foreign_key="users.id", index=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+
+
+class TenantOnboardingCheckpoint(SQLModel, table=True):
+    __tablename__ = "tenant_onboarding_checkpoints"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "key", name="uq_tenant_onboarding_checkpoint"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(foreign_key="tenants.id", index=True)
+    key: str = Field(index=True, max_length=80)
+    label: str = Field(max_length=180)
+    status: str = Field(default="PENDING", index=True, max_length=32)
+    evidence: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON, nullable=False, default=dict))
+    completed_by: Optional[uuid.UUID] = Field(default=None, foreign_key="users.id", index=True)
+    completed_at: Optional[datetime] = None
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class IdentityDeliveryEvent(SQLModel, table=True):
+    """Sanitized identity/e-mail delivery history; provider tokens never enter this table."""
+
+    __tablename__ = "identity_delivery_events"
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(foreign_key="tenants.id", index=True)
+    membership_id: Optional[uuid.UUID] = Field(default=None, foreign_key="memberships.id", index=True)
+    kind: str = Field(index=True, max_length=60)
+    recipient_masked: str = Field(max_length=254)
+    provider: str = Field(default="SUPABASE_SMTP", max_length=60)
+    status: str = Field(index=True, max_length=32)
+    provider_message_id: Optional[str] = Field(default=None, max_length=180)
+    sanitized_detail: Optional[str] = Field(default=None, max_length=500)
+    occurred_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+
+
+class AssistedSupportGrant(SQLModel, table=True):
+    __tablename__ = "assisted_support_grants"
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(foreign_key="tenants.id", index=True)
+    requested_by: uuid.UUID = Field(foreign_key="users.id", index=True)
+    approved_by: Optional[uuid.UUID] = Field(default=None, foreign_key="users.id", index=True)
+    scope: list[str] = Field(default_factory=list, sa_column=Column(JSON, nullable=False, default=list))
+    reason: str = Field(sa_column=Column(Text, nullable=False))
+    status: SupportGrantStatusEnum = Field(
+        default=SupportGrantStatusEnum.PENDING,
+        sa_column=Column(EnumString(SupportGrantStatusEnum), nullable=False, index=True),
+    )
+    expires_at: datetime = Field(index=True)
+    approved_at: Optional[datetime] = None
+    revoked_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+
+
+class PlatformIncident(SQLModel, table=True):
+    __tablename__ = "platform_incidents"
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: Optional[uuid.UUID] = Field(default=None, foreign_key="tenants.id", index=True)
+    title: str = Field(max_length=180)
+    severity: str = Field(index=True, max_length=16)
+    status: ControlStatusEnum = Field(
+        default=ControlStatusEnum.OPEN,
+        sa_column=Column(EnumString(ControlStatusEnum), nullable=False, index=True),
+    )
+    component: str = Field(index=True, max_length=80)
+    sanitized_summary: str = Field(sa_column=Column(Text, nullable=False))
+    correlation_id: Optional[str] = Field(default=None, index=True, max_length=120)
+    opened_by: uuid.UUID = Field(foreign_key="users.id", index=True)
+    resolved_by: Optional[uuid.UUID] = Field(default=None, foreign_key="users.id", index=True)
+    opened_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    resolved_at: Optional[datetime] = None
     updated_at: datetime = Field(default_factory=datetime.utcnow)

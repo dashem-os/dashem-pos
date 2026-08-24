@@ -1,8 +1,9 @@
 from fastapi import APIRouter
-from app.api.v1.endpoints import identity, catalog, inventory, sales, cash, payments, fiscal, capabilities, team, management, orders, tables, negotiations, providers, channels, production, transfers, channel_catalog, devices, receivables, reconciliations, operational_access
+from app.api.v1.endpoints import identity, catalog, inventory, sales, cash, payments, fiscal, capabilities, team, management, orders, tables, negotiations, providers, channels, production, transfers, channel_catalog, devices, receivables, reconciliations, operational_access, control
 
 api_router = APIRouter()
 api_router.include_router(identity.router, prefix="/identity", tags=["Identity & Tenancy"])
+api_router.include_router(control.router, prefix="/control", tags=["Dashem Control"])
 api_router.include_router(catalog.router, prefix="/catalog", tags=["Catalog & Products"])
 api_router.include_router(inventory.router, prefix="/inventory", tags=["Inventory Ledger & Balances"])
 api_router.include_router(sales.router, prefix="/sales", tags=["Sales & Checkout Engine"])

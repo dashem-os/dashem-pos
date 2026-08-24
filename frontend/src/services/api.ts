@@ -879,7 +879,7 @@ export interface CapabilityCatalogItem {
 export interface HealthComponent {
   key: string
   label: string
-  status: 'HEALTHY' | 'DEGRADED' | 'UNHEALTHY' | 'UNKNOWN' | 'NOT_CONFIGURED'
+  status: 'HEALTHY' | 'DEGRADED' | 'UNHEALTHY' | 'UNKNOWN' | 'NOT_CONFIGURED' | 'UNINSTRUMENTED'
   latency_ms?: number
   details: Record<string, unknown>
 }
@@ -889,6 +889,27 @@ export interface PlatformSystemHealth {
   status: 'HEALTHY' | 'DEGRADED' | 'UNHEALTHY'
   components: HealthComponent[]
   totals: Record<string, number>
+}
+
+export interface ControlLead {
+  id: string
+  company_name: string
+  contact_name: string
+  email?: string
+  phone?: string
+  source?: string
+  status: 'NEW' | 'QUALIFIED' | 'ONBOARDING' | 'CONVERTED' | 'LOST'
+  converted_tenant_id?: string
+  created_at: string
+}
+
+export interface ControlHealthComponent {
+  key: string
+  label: string
+  status: string
+  last_seen_at?: string
+  age_seconds?: number
+  details: Record<string, unknown>
 }
 
 export interface TenantDailyMetric {
@@ -1246,6 +1267,18 @@ export async function fetchPlatformOverview(): Promise<PlatformOverview> {
 export async function fetchPlatformHealth(): Promise<PlatformSystemHealth> {
   const res = await fetch(`${API_BASE_URL}/api/v1/identity/platform/health`)
   if (!res.ok) throw await apiError(res, 'Não foi possível verificar a saúde da plataforma.')
+  return res.json()
+}
+
+export async function fetchControlLeads(): Promise<ControlLead[]> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/control/leads`)
+  if (!res.ok) throw await apiError(res, 'Não foi possível carregar o funil comercial.')
+  return res.json()
+}
+
+export async function fetchControlHealth(): Promise<{ checked_at: string; components: ControlHealthComponent[] }> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/control/health/components`)
+  if (!res.ok) throw await apiError(res, 'Não foi possível carregar a instrumentação do Control.')
   return res.json()
 }
 

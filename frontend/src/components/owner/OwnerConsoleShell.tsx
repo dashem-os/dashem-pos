@@ -2,18 +2,19 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Activity, AlertTriangle, ArrowRight, Building2, CheckCircle2, FileWarning,
   HeartPulse, LayoutGrid, Loader2, LogOut, Menu, Plus, RefreshCw, Search,
-  ShieldCheck, Store, Users, X,
+  ShieldCheck, Store, Users, Workflow, X,
 } from 'lucide-react'
 
 import { useAuth } from '../../context/AuthContext'
 import {
-  AuthMe, fetchPlatformHealth, fetchPlatformOverview, HealthComponent,
+  AuthMe, ControlHealthComponent, ControlLead, fetchControlHealth, fetchControlLeads,
+  fetchPlatformHealth, fetchPlatformOverview, HealthComponent,
   PlatformOverview, PlatformSystemHealth, PlatformTenantSummary,
 } from '../../services/api'
 import { CreateTenantPanel } from './CreateTenantPanel'
 import { TenantWorkspace } from './TenantWorkspace'
 
-type View = 'overview' | 'organizations' | 'health' | 'tenant'
+type View = 'overview' | 'organizations' | 'operations' | 'health' | 'tenant'
 type OrganizationFilter = 'ALL' | 'ACTIVE' | 'IMPLEMENTATION' | 'ATTENTION'
 
 const statusLabel: Record<string, string> = {
@@ -46,7 +47,7 @@ export function OwnerConsoleShell({ me }: { me: AuthMe }) {
     setView(next); setFilter(nextFilter); setSelected(null); setMobileNav(false); window.scrollTo({ top: 0 })
   }
   const openTenant = (tenant: PlatformTenantSummary) => { setSelected(tenant); setView('tenant'); window.scrollTo({ top: 0 }) }
-  const title = view === 'overview' ? 'Visão geral da plataforma' : view === 'organizations' ? 'Clientes e organizações' : view === 'health' ? 'Saúde da plataforma' : selected?.name || 'Cliente'
+  const title = view === 'overview' ? 'Visão geral da plataforma' : view === 'organizations' ? 'Clientes e organizações' : view === 'operations' ? 'Operações do Control' : view === 'health' ? 'Saúde da plataforma' : selected?.name || 'Cliente'
 
   return <div className="min-h-screen bg-[#f4f6f9] text-slate-950 lg:grid lg:grid-cols-[260px_minmax(0,1fr)]">
     <aside className={`${mobileNav ? 'flex' : 'hidden'} fixed inset-y-0 left-0 z-40 w-[280px] flex-col bg-[#081222] p-5 text-white shadow-2xl lg:static lg:flex lg:w-auto lg:shadow-none`}>
@@ -54,6 +55,7 @@ export function OwnerConsoleShell({ me }: { me: AuthMe }) {
       <nav className="mt-10 space-y-2">
         <NavButton active={view === 'overview'} icon={LayoutGrid} label="Visão geral" onClick={() => navigate('overview')} />
         <NavButton active={view === 'organizations' || view === 'tenant'} icon={Building2} label="Organizações" onClick={() => navigate('organizations')} />
+        <NavButton active={view === 'operations'} icon={Workflow} label="Operações do Control" onClick={() => navigate('operations')} />
         <NavButton active={view === 'health'} icon={HeartPulse} label="Saúde da plataforma" onClick={() => navigate('health')} />
       </nav>
       <div className="mt-auto rounded-2xl border border-white/10 bg-white/[.04] p-4"><div className="flex items-center gap-2 text-xs font-bold text-emerald-400"><ShieldCheck className="h-4 w-4" />Sessão Owner protegida</div><p className="mt-3 truncate text-sm font-bold">{me.user?.full_name}</p><p className="truncate text-xs text-slate-500">{me.user?.email}</p><button onClick={signOut} className="mt-4 flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-white/10 text-xs font-bold text-slate-300 hover:bg-white/10"><LogOut className="h-4 w-4" />Sair do Dashem Control</button></div>
@@ -65,6 +67,7 @@ export function OwnerConsoleShell({ me }: { me: AuthMe }) {
       {error && <div className="mx-auto mt-5 max-w-[1500px] px-5 sm:px-8"><p className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">{error}<button onClick={load} className="ml-3 underline">Tentar novamente</button></p></div>}
       {view === 'overview' && <OverviewView overview={overview} health={health} onOrganizations={nextFilter => navigate('organizations', nextFilter)} onHealth={() => navigate('health')} onTenant={openTenant} />}
       {view === 'organizations' && <OrganizationsView overview={overview} filter={filter} onFilter={setFilter} onTenant={openTenant} />}
+      {view === 'operations' && <ControlOperationsView />}
       {view === 'health' && <SystemHealthView health={health} onRefresh={load} />}
       {view === 'tenant' && selected && <TenantWorkspace tenant={selected} onBack={() => navigate('organizations')} onChanged={load} />}
     </main>
@@ -93,6 +96,25 @@ function OrganizationsView({ overview, filter, onFilter, onTenant }: { overview:
     return matchesFilter && matchesQuery
   }), [overview, filter, query])
   return <div className="mx-auto max-w-[1500px] p-5 sm:p-8"><div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between"><div><p className="text-xs font-black uppercase tracking-wider text-rose-600">Operação de clientes</p><h2 className="mt-2 text-3xl font-black">Organizações</h2><p className="mt-2 text-slate-500">Cadastros, ciclo de vida, estruturas, acessos e contrato.</p></div><label className="relative block lg:w-96"><Search className="absolute left-4 top-3.5 h-4 w-4 text-slate-400" /><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Nome, razão social, CNPJ ou slug" className="h-11 w-full rounded-xl border border-slate-300 bg-white pl-11 pr-4 font-semibold" /></label></div><div className="mt-6 flex flex-wrap gap-2">{([['ALL', 'Todos'], ['ACTIVE', 'Em operação'], ['IMPLEMENTATION', 'Em implantação'], ['ATTENTION', 'Requer atenção']] as Array<[OrganizationFilter, string]>).map(([key, label]) => <button key={key} onClick={() => onFilter(key)} className={`rounded-full px-4 py-2 text-sm font-black ${filter === key ? 'bg-slate-950 text-white' : 'border border-slate-300 bg-white text-slate-600'}`}>{label}</button>)}</div><section className="mt-5 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">{!overview ? <Loader2 className="mx-auto my-20 h-7 w-7 animate-spin text-rose-600" /> : <div className="overflow-x-auto"><table className="w-full min-w-[900px] text-left"><thead className="bg-slate-50 text-xs font-black uppercase tracking-wider text-slate-400"><tr><th className="p-4">Cliente</th><th className="p-4">Classificação</th><th className="p-4">Ciclo</th><th className="p-4">Estruturas</th><th className="p-4">Cadastro</th><th className="p-4" /></tr></thead><tbody className="divide-y divide-slate-100">{tenants.map(tenant => <tr key={tenant.id} className="hover:bg-slate-50"><td className="p-4"><button onClick={() => onTenant(tenant)} className="text-left"><p className="font-black">{tenant.name}</p><p className="text-sm text-slate-500">{tenant.legal_name || tenant.slug}</p><p className="mt-1 font-mono text-xs text-slate-400">{tenant.tax_id || 'CNPJ não informado'}</p></button></td><td className="p-4 text-sm font-black">{typeLabel[tenant.customer_type ?? 'TEST']}</td><td className="p-4"><span className={`rounded-full px-2.5 py-1 text-xs font-black ${tenant.status === 'ACTIVE' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{statusLabel[tenant.status]}</span></td><td className="p-4"><span className="flex items-center gap-2 font-bold"><Store className="h-4 w-4" />{tenant.store_count}</span></td><td className="p-4"><span className={`text-xs font-black ${tenant.profile_complete ? 'text-emerald-700' : 'text-amber-700'}`}>{tenant.profile_complete ? 'COMPLETO' : 'INCOMPLETO'}</span></td><td className="p-4"><button onClick={() => onTenant(tenant)} className="flex items-center gap-2 rounded-xl bg-slate-950 px-3 py-2 text-xs font-black text-white">Abrir <ArrowRight className="h-4 w-4" /></button></td></tr>)}</tbody></table>{tenants.length === 0 && <p className="py-16 text-center text-sm font-semibold text-slate-500">Nenhum cliente corresponde ao filtro.</p>}</div>}</section></div>
+}
+
+function ControlOperationsView() {
+  const [leads, setLeads] = useState<ControlLead[]>([])
+  const [components, setComponents] = useState<ControlHealthComponent[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const load = useCallback(async () => {
+    setLoading(true); setError(null)
+    const [leadResult, healthResult] = await Promise.allSettled([fetchControlLeads(), fetchControlHealth()])
+    if (leadResult.status === 'fulfilled') setLeads(leadResult.value)
+    else setError(leadResult.reason instanceof Error ? leadResult.reason.message : 'Falha no funil comercial.')
+    if (healthResult.status === 'fulfilled') setComponents(healthResult.value.components)
+    else setError(current => current || (healthResult.reason instanceof Error ? healthResult.reason.message : 'Falha na instrumentação.'))
+    setLoading(false)
+  }, [])
+  useEffect(() => { load() }, [load])
+  if (loading) return <Loader2 className="mx-auto my-32 h-8 w-8 animate-spin text-rose-600" />
+  return <div className="mx-auto max-w-[1500px] p-5 sm:p-8"><div className="flex items-start justify-between gap-4"><div><p className="text-xs font-black uppercase tracking-wider text-rose-600">Control plane</p><h2 className="mt-2 text-3xl font-black">Comercial, onboarding e instrumentação</h2><p className="mt-2 text-slate-500">Estado real do funil e das integrações. Ausência de telemetria nunca aparece como saudável.</p></div><button onClick={load} className="flex h-11 items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 text-sm font-black"><RefreshCw className="h-4 w-4" />Atualizar</button></div>{error && <p className="mt-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">{error}</p>}<section className="mt-6 grid gap-4 xl:grid-cols-[1.15fr_.85fr]"><article className="overflow-hidden rounded-2xl border border-slate-200 bg-white"><div className="border-b border-slate-100 p-5"><h3 className="font-black">Funil comercial</h3><p className="text-sm text-slate-500">Leads persistidos e conversões vinculadas ao tenant.</p></div><div className="divide-y divide-slate-100">{leads.map(lead => <div key={lead.id} className="flex items-center justify-between gap-4 p-4"><div><p className="font-black">{lead.company_name}</p><p className="text-sm text-slate-500">{lead.contact_name}{lead.email ? ` · ${lead.email}` : ''}</p></div><span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black">{lead.status}</span></div>)}{leads.length === 0 && <p className="p-10 text-center text-sm text-slate-500">Nenhum lead cadastrado.</p>}</div></article><article className="rounded-2xl border border-slate-200 bg-white p-5"><h3 className="font-black">Instrumentação obrigatória</h3><p className="text-sm text-slate-500">Heartbeat e última evidência por componente.</p><div className="mt-4 space-y-3">{components.map(component => <div key={component.key} className="flex items-center justify-between rounded-xl border border-slate-200 p-3"><div><p className="font-bold">{component.label}</p><p className="text-xs text-slate-500">{component.last_seen_at ? `Último sinal ${new Date(component.last_seen_at).toLocaleString('pt-BR')}` : 'Sem heartbeat registrado'}</p></div><span className={`rounded-full px-2.5 py-1 text-xs font-black ${component.status === 'HEALTHY' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{component.status}</span></div>)}</div></article></section></div>
 }
 
 function SystemHealthView({ health, onRefresh }: { health: PlatformSystemHealth | null; onRefresh: () => Promise<void> }) {

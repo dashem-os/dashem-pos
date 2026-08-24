@@ -11,6 +11,8 @@ from app.models.platform import (
     TenantCapability, CapabilityDefinition, CapabilityDependency,
     CapabilityProfile, CapabilityProfileItem, StoreCapabilityOverride,
     CapabilityScopeEnum, CapabilityStatusEnum, EntitlementStatusEnum,
+    TenantContract, TenantOnboardingCheckpoint, IdentityDeliveryEvent,
+    AssistedSupportGrant, PlatformIncident, ControlStatusEnum, SupportGrantStatusEnum,
 )
 from app.models.channel import SalesChannel, SalesChannelTypeEnum
 from app.models.intelligence import (
@@ -107,6 +109,8 @@ __all__ = [
     "CapabilityScopeEnum",
     "CapabilityStatusEnum",
     "EntitlementStatusEnum",
+    "TenantContract", "TenantOnboardingCheckpoint", "IdentityDeliveryEvent",
+    "AssistedSupportGrant", "PlatformIncident", "ControlStatusEnum", "SupportGrantStatusEnum",
     "SalesChannel",
     "SalesChannelTypeEnum",
     "ContextEdge",

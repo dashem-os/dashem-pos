@@ -186,13 +186,19 @@ supervisores/caixas/atendentes por PIN e corrige reservas legadas sem apagar
 histórico. O **S17.2 — Jornada Gerencial e Cadastro Funcional** preserva a
 identidade do gestor quando ele escolhe abrir o PDV, corrige a resolução RLS da
 sessão operacional, torna o portão de PIN instantâneo e separa ficha de
-funcionário de credencial. O próximo gate canônico é o **S18 — Dashem Control
-Completion**. Antes dele, o corretivo **S17.3 — Ativação de Terminal e Entrada
+funcionário de credencial. O corretivo **S17.3 — Ativação de Terminal e Entrada
 Operacional Pública** restaura a entrada por código e PIN na tela pública sem
 transformar o PIN em login global: um gestor autoriza este navegador contra um
 terminal POS persistido, e o backend assina tenant, unidade, caixa e dispositivo.
 Pausar ou revogar o dispositivo bloqueia novas entradas; o gestor autenticado
-continua abrindo o PDV diretamente, sem assumir uma identidade operacional.
+continua abrindo o PDV diretamente, sem assumir uma identidade operacional. O
+**S18 — Dashem Control Completion** separa o router do plano de controle e
+completa leads/conversão, contratos versionados, onboarding com evidências,
+timeline sanitizada de identidade, suporte assistido temporário e incidentes.
+Backlog, última sincronização e erros sanitizados vêm do banco; fiscal, TEF,
+canais, produção e e-mail sem heartbeat aparecem como `UNINSTRUMENTED`, jamais
+como saudáveis por presunção. O próximo gate canônico é o **S19 — Capability
+Profiles e Module Contributions**.
 
 ## Trilha pendente: conclusão do Console Owner
 
