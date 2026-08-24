@@ -1263,6 +1263,14 @@ Gate:
 - ausência de contrato/hardware externo não é mascarada por integração fake;
 - incidente crítico bloqueia expansão até correção e novo gate verde.
 
+Estado: **instrumentação interna concluída; validação comercial em campo
+pendente**. O Control persiste escopo, release de hardening, observações por
+tarefa e gates de incidente. O dossiê só inicia após hardening `PASSED` e profile
+`FOOD_SERVICE` ativo. TEF sem homologação e canal sem certificação são recusados.
+Conclusão exige evidência de venda, produção, pagamento, transferência e
+recuperação; SEV1/SEV2 bloqueia expansão. Nenhum cliente, hardware ou integração
+externa foi inventado para marcar este gate como comercialmente concluído.
+
 ## 8. Dependências e ordem de execução
 
 ```text

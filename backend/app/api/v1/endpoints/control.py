@@ -11,13 +11,14 @@ from sqlmodel import Session, select
 from app.core.access import require_platform_role
 from app.core.database import get_session
 from app.core.security import AuthPrincipal, get_current_principal
-from app.models.identity import ServicePlan, Tenant, User
+from app.models.identity import ServicePlan, Store, Tenant, User
 from app.models.platform import (
     AssistedSupportGrant, ControlStatusEnum, IdentityDeliveryEvent, Lead,
     LeadStatusEnum, PlatformIncident, PlatformRoleEnum, SupportGrantStatusEnum,
     TenantCapability, TenantContract, TenantOnboardingCheckpoint,
     CapabilityProfileRevision, CapabilityProfileRevisionItem, TenantProfileAssignment,
     OperationalHardeningRun, OperationalHardeningEvidence,
+    CommercialPilot, PilotObservation, PilotIncidentGate,
 )
 from app.models.reliability import AuditEvent, OutboxEvent, OutboxStatusEnum, ServiceHeartbeat
 from app.services import reliability_service
@@ -45,6 +46,7 @@ HARDENING_CHECKS = {
     "representative_load": "PERFORMANCE",
     "auth_session": "SECURITY",
 }
+PILOT_REQUIRED_TASKS = {"SALE", "PRODUCTION", "PAYMENT", "TRANSFER", "RECOVERY"}
 
 
 def _actor(session: Session, principal: AuthPrincipal) -> User:
@@ -158,6 +160,45 @@ class HardeningEvidenceInput(BaseModel):
     status: str = PydanticField(pattern=r"^(PASS|FAIL|BLOCKED)$")
     evidence_ref: str = PydanticField(min_length=8, max_length=500)
     observed: dict[str, Any] = PydanticField(min_length=1)
+
+
+class PilotScopeInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_registers: int = PydanticField(ge=1, le=3)
+    expected_employees: int = PydanticField(ge=5, le=15)
+    operating_modes: list[str] = PydanticField(min_length=3, max_length=8)
+    payment_methods: list[str] = PydanticField(min_length=1, max_length=8)
+    tef_homologated: bool = False
+    external_channels: list[str] = PydanticField(default_factory=list, max_length=8)
+    certified_external_channels: list[str] = PydanticField(default_factory=list, max_length=8)
+
+
+class PilotCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    tenant_id: uuid.UUID
+    store_id: uuid.UUID
+    hardening_run_id: uuid.UUID
+    scope: PilotScopeInput
+
+
+class PilotTransition(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    action: str = PydanticField(pattern=r"^(START_FIELD|COMPLETE_FIELD|RESUME_AFTER_INCIDENT)$")
+    reason: str = PydanticField(min_length=8, max_length=1000)
+
+
+class PilotObservationInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    task_type: str = PydanticField(pattern=r"^(SALE|PRODUCTION|PAYMENT|TRANSFER|RECOVERY|CANCELLATION|USABILITY)$")
+    source_ref: str = PydanticField(min_length=8, max_length=180)
+    metrics: dict[str, Any] = PydanticField(min_length=1)
+    notes: Optional[str] = PydanticField(default=None, max_length=2000)
+
+
+class PilotIncidentInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    incident_id: uuid.UUID
+    decision_reason: str = PydanticField(min_length=8, max_length=1000)
 
 
 def _hardening_projection(session: Session, run: OperationalHardeningRun) -> dict[str, Any]:
@@ -474,3 +515,166 @@ def record_hardening_evidence(run_id: uuid.UUID, check_key: str, data: Hardening
     })
     session.commit(); session.refresh(run)
     return _hardening_projection(session, run)
+
+
+def _pilot_projection(session: Session, pilot: CommercialPilot) -> dict[str, Any]:
+    observations = list(session.exec(select(PilotObservation).where(
+        PilotObservation.pilot_id == pilot.id
+    ).order_by(PilotObservation.observed_at)).all())
+    gates = list(session.exec(select(PilotIncidentGate).where(
+        PilotIncidentGate.pilot_id == pilot.id
+    ).order_by(PilotIncidentGate.created_at)).all())
+    coverage = {row.task_type for row in observations}
+    return {
+        "pilot": pilot,
+        "observations": observations,
+        "incident_gates": gates,
+        "required_tasks": sorted(PILOT_REQUIRED_TASKS),
+        "missing_tasks": sorted(PILOT_REQUIRED_TASKS - coverage),
+        "field_evidence": bool(observations),
+    }
+
+
+@router.post("/pilots", status_code=201)
+def create_commercial_pilot(data: PilotCreate, principal: AuthPrincipal = Depends(get_current_principal), session: Session = Depends(get_session)):
+    actor = _actor(session, principal)
+    tenant = _tenant(session, data.tenant_id)
+    store = session.get(Store, data.store_id)
+    if store is None or store.tenant_id != tenant.id or not store.is_active:
+        raise HTTPException(status_code=422, detail="Unidade do piloto não pertence ao tenant ativo.")
+    hardening = session.get(OperationalHardeningRun, data.hardening_run_id)
+    if hardening is None or hardening.status != "PASSED":
+        raise HTTPException(status_code=409, detail="Piloto exige hardening aprovado para a release.")
+    active_assignment = session.exec(select(TenantProfileAssignment).where(
+        TenantProfileAssignment.tenant_id == tenant.id,
+        TenantProfileAssignment.status == "ACTIVE",
+    )).first()
+    profile = session.get(CapabilityProfileRevision, active_assignment.revision_id) if active_assignment else None
+    if profile is None or profile.profile_key != "FOOD_SERVICE":
+        raise HTTPException(status_code=409, detail="Escopo inicial do piloto exige profile FOOD_SERVICE ativo.")
+    modes = set(data.scope.operating_modes)
+    if not {"COUNTER", "TABLE", "KITCHEN"}.issubset(modes):
+        raise HTTPException(status_code=422, detail="Piloto exige balcão, mesas e cozinha no escopo.")
+    payments = set(data.scope.payment_methods)
+    if not payments.issubset({"CASH", "PIX", "MANUAL_CARD", "TEF"}):
+        raise HTTPException(status_code=422, detail="Forma de pagamento fora do escopo inicial.")
+    if "TEF" in payments and not data.scope.tef_homologated:
+        raise HTTPException(status_code=422, detail="TEF só pode entrar no piloto quando homologado.")
+    uncertified = set(data.scope.external_channels) - set(data.scope.certified_external_channels)
+    if uncertified:
+        raise HTTPException(status_code=422, detail={"code": "CHANNEL_NOT_CERTIFIED", "channels": sorted(uncertified)})
+    existing_pilot = session.exec(select(CommercialPilot).where(
+        CommercialPilot.tenant_id == tenant.id,
+        CommercialPilot.store_id == store.id,
+        CommercialPilot.status.in_(("READY_FOR_FIELD_VALIDATION", "FIELD_VALIDATION", "BLOCKED")),
+    )).first()
+    if existing_pilot is not None:
+        raise HTTPException(status_code=409, detail="A unidade já possui um dossiê de piloto em andamento.")
+    pilot = CommercialPilot(
+        tenant_id=tenant.id, store_id=store.id, hardening_run_id=hardening.id,
+        scope=data.scope.model_dump(), created_by=actor.id,
+    )
+    session.add(pilot); session.flush()
+    _audit(session, actor, tenant.id, "control.pilot.ready_for_field", f"pilot:{pilot.id}", {
+        "store_id": str(store.id), "hardening_run_id": str(hardening.id), "scope": pilot.scope,
+    })
+    session.commit(); session.refresh(pilot)
+    return _pilot_projection(session, pilot)
+
+
+@router.get("/pilots/{pilot_id}")
+def get_commercial_pilot(pilot_id: uuid.UUID, principal: AuthPrincipal = Depends(get_current_principal), session: Session = Depends(get_session)):
+    _actor(session, principal)
+    pilot = session.get(CommercialPilot, pilot_id)
+    if pilot is None:
+        raise HTTPException(status_code=404, detail="Piloto não encontrado.")
+    return _pilot_projection(session, pilot)
+
+
+@router.get("/pilots")
+def list_commercial_pilots(tenant_id: Optional[uuid.UUID] = None, principal: AuthPrincipal = Depends(get_current_principal), session: Session = Depends(get_session)):
+    _actor(session, principal)
+    query = select(CommercialPilot).order_by(CommercialPilot.created_at.desc())
+    if tenant_id is not None:
+        query = query.where(CommercialPilot.tenant_id == tenant_id)
+    return [_pilot_projection(session, pilot) for pilot in session.exec(query).all()]
+
+
+@router.post("/pilots/{pilot_id}/observations", status_code=201)
+def record_pilot_observation(pilot_id: uuid.UUID, data: PilotObservationInput, principal: AuthPrincipal = Depends(get_current_principal), session: Session = Depends(get_session)):
+    actor = _actor(session, principal)
+    pilot = session.get(CommercialPilot, pilot_id)
+    if pilot is None:
+        raise HTTPException(status_code=404, detail="Piloto não encontrado.")
+    if pilot.status != "FIELD_VALIDATION":
+        raise HTTPException(status_code=409, detail="Observações reais exigem validação de campo iniciada.")
+    observation = PilotObservation(pilot_id=pilot.id, observed_by=actor.id, **data.model_dump())
+    session.add(observation); session.flush()
+    _audit(session, actor, pilot.tenant_id, "control.pilot.observed", f"pilot:{pilot.id}:observation:{observation.id}", {
+        "task_type": observation.task_type, "source_ref": observation.source_ref,
+        "metric_keys": sorted(observation.metrics),
+    })
+    session.commit(); session.refresh(observation)
+    return observation
+
+
+@router.post("/pilots/{pilot_id}/incidents", status_code=201)
+def link_pilot_incident(pilot_id: uuid.UUID, data: PilotIncidentInput, principal: AuthPrincipal = Depends(get_current_principal), session: Session = Depends(get_session)):
+    actor = _actor(session, principal)
+    pilot = session.get(CommercialPilot, pilot_id)
+    incident = session.get(PlatformIncident, data.incident_id)
+    if pilot is None or incident is None:
+        raise HTTPException(status_code=404, detail="Piloto ou incidente não encontrado.")
+    if incident.tenant_id not in {None, pilot.tenant_id}:
+        raise HTTPException(status_code=409, detail="Incidente pertence a outro tenant.")
+    blocks = incident.severity in {"SEV1", "SEV2"}
+    gate = PilotIncidentGate(
+        pilot_id=pilot.id, incident_id=incident.id, blocks_expansion=blocks,
+        decision_reason=data.decision_reason, decided_by=actor.id,
+    )
+    session.add(gate)
+    if blocks:
+        pilot.status = "BLOCKED"; pilot.updated_at = datetime.utcnow(); session.add(pilot)
+    _audit(session, actor, pilot.tenant_id, "control.pilot.incident_linked", f"pilot:{pilot.id}:incident:{incident.id}", {
+        "severity": incident.severity, "blocks_expansion": blocks, "reason": gate.decision_reason,
+    })
+    session.commit(); session.refresh(gate)
+    return {"gate": gate, "pilot_status": pilot.status}
+
+
+@router.patch("/pilots/{pilot_id}")
+def transition_commercial_pilot(pilot_id: uuid.UUID, data: PilotTransition, principal: AuthPrincipal = Depends(get_current_principal), session: Session = Depends(get_session)):
+    actor = _actor(session, principal)
+    pilot = session.get(CommercialPilot, pilot_id)
+    if pilot is None:
+        raise HTTPException(status_code=404, detail="Piloto não encontrado.")
+    if data.action == "START_FIELD":
+        if pilot.status != "READY_FOR_FIELD_VALIDATION":
+            raise HTTPException(status_code=409, detail="Piloto não está pronto para iniciar o campo.")
+        pilot.status = "FIELD_VALIDATION"; pilot.field_started_at = datetime.utcnow()
+    elif data.action == "RESUME_AFTER_INCIDENT":
+        gates = list(session.exec(select(PilotIncidentGate).where(
+            PilotIncidentGate.pilot_id == pilot.id, PilotIncidentGate.blocks_expansion.is_(True)
+        )).all())
+        open_incidents = [session.get(PlatformIncident, gate.incident_id) for gate in gates]
+        if any(item is not None and item.status != ControlStatusEnum.RESOLVED for item in open_incidents):
+            raise HTTPException(status_code=409, detail="Incidente crítico ainda não foi resolvido.")
+        pilot.status = "FIELD_VALIDATION"
+    else:
+        projection = _pilot_projection(session, pilot)
+        if pilot.status != "FIELD_VALIDATION" or projection["missing_tasks"]:
+            raise HTTPException(status_code=409, detail={"code": "FIELD_EVIDENCE_INCOMPLETE", "missing_tasks": projection["missing_tasks"]})
+        blocking = list(session.exec(select(PilotIncidentGate).where(
+            PilotIncidentGate.pilot_id == pilot.id, PilotIncidentGate.blocks_expansion.is_(True)
+        )).all())
+        if blocking:
+            incidents = [session.get(PlatformIncident, gate.incident_id) for gate in blocking]
+            if any(item is not None and item.status != ControlStatusEnum.RESOLVED for item in incidents):
+                raise HTTPException(status_code=409, detail="Incidente crítico bloqueia a conclusão.")
+        pilot.status = "COMPLETED"; pilot.field_completed_at = datetime.utcnow()
+    pilot.updated_at = datetime.utcnow(); session.add(pilot)
+    _audit(session, actor, pilot.tenant_id, "control.pilot.transitioned", f"pilot:{pilot.id}", {
+        "action": data.action, "status": pilot.status, "reason": data.reason,
+    })
+    session.commit(); session.refresh(pilot)
+    return _pilot_projection(session, pilot)

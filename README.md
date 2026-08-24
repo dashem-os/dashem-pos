@@ -207,7 +207,12 @@ atribuição anterior sem apagar histórico. O **S20 — Operational Hardening e
 Pilot Readiness** transforma prontidão em evidência persistida: nove checks
 mensuráveis, RPO/RTO, resposta a incidentes e prova de backup/restore no CI.
 Falha externa degrada apenas sua capability; integração ausente não recebe selo
-verde. O próximo gate canônico é o **S21 — Piloto Comercial**.
+verde. O **S21 — Piloto Comercial** cria o dossiê persistido de escopo,
+observações e incidentes. O software pode alcançar
+`READY_FOR_FIELD_VALIDATION`; `COMPLETED` exige tarefas observadas em campo e
+fontes rastreáveis. TEF/canal externo não homologado é recusado e SEV1/SEV2
+bloqueia expansão. A execução comercial real continua pendente de um
+estabelecimento parceiro — não foi simulada nem declarada concluída.
 
 ## Trilha pendente: conclusão do Console Owner
 

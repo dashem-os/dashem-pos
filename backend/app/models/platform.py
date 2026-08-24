@@ -408,3 +408,54 @@ class OperationalHardeningEvidence(SQLModel, table=True):
     observed: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON, nullable=False, default=dict))
     recorded_by: uuid.UUID = Field(foreign_key="users.id", index=True)
     measured_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+
+
+class CommercialPilot(SQLModel, table=True):
+    __tablename__ = "commercial_pilots"
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(foreign_key="tenants.id", index=True)
+    store_id: uuid.UUID = Field(foreign_key="stores.id", index=True)
+    hardening_run_id: uuid.UUID = Field(foreign_key="operational_hardening_runs.id", index=True)
+    status: str = Field(default="READY_FOR_FIELD_VALIDATION", index=True, max_length=40)
+    scope: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON, nullable=False, default=dict))
+    created_by: uuid.UUID = Field(foreign_key="users.id", index=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    field_started_at: Optional[datetime] = None
+    field_completed_at: Optional[datetime] = None
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class PilotObservation(SQLModel, table=True):
+    __tablename__ = "pilot_observations"
+    __table_args__ = (
+        UniqueConstraint("pilot_id", "source_ref", name="uq_pilot_observation_source"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    pilot_id: uuid.UUID = Field(
+        sa_column=Column(ForeignKey("commercial_pilots.id", ondelete="CASCADE"), nullable=False, index=True)
+    )
+    task_type: str = Field(index=True, max_length=60)
+    source_ref: str = Field(max_length=180)
+    metrics: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON, nullable=False, default=dict))
+    notes: Optional[str] = Field(default=None, sa_column=Column(Text))
+    observed_by: uuid.UUID = Field(foreign_key="users.id", index=True)
+    observed_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+
+
+class PilotIncidentGate(SQLModel, table=True):
+    __tablename__ = "pilot_incident_gates"
+    __table_args__ = (
+        UniqueConstraint("pilot_id", "incident_id", name="uq_pilot_incident_gate"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    pilot_id: uuid.UUID = Field(
+        sa_column=Column(ForeignKey("commercial_pilots.id", ondelete="CASCADE"), nullable=False, index=True)
+    )
+    incident_id: uuid.UUID = Field(foreign_key="platform_incidents.id", index=True)
+    blocks_expansion: bool = Field(default=True, index=True)
+    decision_reason: str = Field(sa_column=Column(Text, nullable=False))
+    decided_by: uuid.UUID = Field(foreign_key="users.id", index=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)

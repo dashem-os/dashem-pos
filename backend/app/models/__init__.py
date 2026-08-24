@@ -16,6 +16,7 @@ from app.models.platform import (
     CapabilityProfileRevision, CapabilityProfileRevisionItem, TenantProfileAssignment,
     ModuleContribution, CapabilityConflict,
     OperationalHardeningRun, OperationalHardeningEvidence,
+    CommercialPilot, PilotObservation, PilotIncidentGate,
 )
 from app.models.channel import SalesChannel, SalesChannelTypeEnum
 from app.models.intelligence import (
@@ -132,6 +133,9 @@ __all__ = [
     "ServiceHeartbeat",
     "OperationalHardeningRun",
     "OperationalHardeningEvidence",
+    "CommercialPilot",
+    "PilotObservation",
+    "PilotIncidentGate",
     "Category",
     "Product",
     "ProductPrice",
