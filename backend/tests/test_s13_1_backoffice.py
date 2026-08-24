@@ -40,10 +40,12 @@ async def test_s13_1_backoffice_separates_configuration_reservation_and_attendan
             **headers, "Idempotency-Key": f"reservation-{uuid.uuid4()}",
         }, json={
             "customer_name": "Marcelo Cliente", "customer_phone": "21999999999", "party_size": 3,
-            "reserved_for": (datetime.utcnow() + timedelta(hours=1)).isoformat(), "notes": "Janela", "actor_id": actor,
+            "reserved_for": (datetime.utcnow() + timedelta(minutes=10)).isoformat(),
+            "duration_minutes": 90, "notes": "Janela", "actor_id": actor,
         })
         assert reservation_response.status_code == 201, reservation_response.text
         reservation = reservation_response.json()
+        assert reservation["duration_minutes"] == 90
         projection = (await client.get("/api/v1/tables", headers=headers)).json()[0]
         assert projection["status"] == "RESERVED"
         assert projection["active_reservation"]["id"] == reservation["id"]
@@ -65,12 +67,45 @@ async def test_s13_1_backoffice_separates_configuration_reservation_and_attendan
         }, json={"expected_version": opened.json()["version"], "reason": "Atendimento de teste vazio", "actor_id": actor})
         assert closed.status_code == 200, closed.text
         available = (await client.get("/api/v1/tables", headers=headers)).json()[0]
+        reopened = await client.post("/api/v1/tables/sessions", headers={
+            **headers, "Idempotency-Key": f"open-again-{uuid.uuid4()}",
+        }, json={"store_id": store["id"], "service_table_id": table["id"], "actor_id": actor})
+        assert reopened.status_code == 200, reopened.text
+
+        future_start = datetime.utcnow() + timedelta(hours=4)
+        future = await client.post(f"/api/v1/tables/{table['id']}/reservations", headers={
+            **headers, "Idempotency-Key": f"future-reservation-{uuid.uuid4()}",
+        }, json={
+            "customer_name": "Reserva futura", "party_size": 2,
+            "reserved_for": future_start.isoformat(), "duration_minutes": 120, "actor_id": actor,
+        })
+        assert future.status_code == 201, future.text
+        occupied = (await client.get("/api/v1/tables", headers=headers)).json()[0]
+        assert occupied["status"] == "OCCUPIED"
+        assert occupied["active_reservation"]["id"] == future.json()["id"]
+
+        overlap = await client.post(f"/api/v1/tables/{table['id']}/reservations", headers={
+            **headers, "Idempotency-Key": f"overlap-reservation-{uuid.uuid4()}",
+        }, json={
+            "customer_name": "Conflito", "party_size": 2,
+            "reserved_for": (future_start + timedelta(minutes=30)).isoformat(),
+            "duration_minutes": 60, "actor_id": actor,
+        })
+        assert overlap.status_code == 409
+
         blocked = await client.post(f"/api/v1/tables/{table['id']}/state", headers=headers, json={
-            "expected_version": available["version"], "target": "BLOCKED", "reason": "Cadeira danificada", "actor_id": actor,
+            "expected_version": occupied["version"], "target": "BLOCKED", "reason": "Cadeira danificada", "actor_id": actor,
         })
         assert blocked.status_code == 200, blocked.text
-        assert blocked.json()["status"] == "BLOCKED"
+        assert blocked.json()["status"] == "OCCUPIED"
         assert blocked.json()["blocking_reason"] == "Cadeira danificada"
+
+        released = await client.post(f"/api/v1/tables/sessions/{reopened.json()['id']}/close", headers={
+            **headers, "Idempotency-Key": f"close-pending-block-{uuid.uuid4()}",
+        }, json={"expected_version": reopened.json()["version"], "reason": "Encerrar para manutenção", "actor_id": actor})
+        assert released.status_code == 200, released.text
+        final_table = (await client.get("/api/v1/tables", headers=headers)).json()[0]
+        assert final_table["status"] == "BLOCKED"
 
 
 @pytest.mark.asyncio

@@ -24,6 +24,8 @@ test('keeps table configuration in Gestão instead of the attendant workspace', 
   assert.doesNotMatch(workspace, /Cadastrar mesa/)
   assert.match(workspace, /Mesa reservada/)
   assert.match(workspace, /Sinalizar impedimento/)
+  assert.match(workspace, /Bloquear após fechamento/)
+  assert.doesNotMatch(workspace, /window\.prompt/)
 })
 
 test('renders real empty state and server-composed totals without fixtures', () => {

@@ -98,7 +98,7 @@ def merge_sessions(session:Session,context:TenantContext,*,source_session_id:uui
     source.status=TableSessionStatusEnum.CLOSED;source.closed_by=actor;source.close_reason=f"Unida à sessão {destination.id}: {reason.strip()}";source.closed_at=datetime.utcnow();source.version+=1;destination.version+=1
     if source.service_table_id:
         table=session.get(ServiceTable,source.service_table_id)
-        if table:table.status=ServiceTableStatusEnum.AVAILABLE;table.version+=1;table.updated_at=datetime.utcnow()
+        if table:table.status=ServiceTableStatusEnum.BLOCKED if table.blocking_reason else ServiceTableStatusEnum.AVAILABLE;table.version+=1;table.updated_at=datetime.utcnow()
     record=TransferRecord(tenant_id=context.tenant_id,store_id=source.store_id,transfer_type=TransferTypeEnum.SESSION_MERGE,
         source_session_id=source.id,destination_session_id=destination.id,source_version_before=expected_source_version,destination_version_before=expected_destination_version,
         actor_id=actor,reason=reason.strip(),idempotency_key=idempotency_key,request_hash=digest)

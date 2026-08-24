@@ -62,6 +62,7 @@ class TableReservationDTO(BaseModel):
     customer_phone: Optional[str]
     party_size: int
     reserved_for: datetime
+    duration_minutes: int
     notes: Optional[str]
     status: TableReservationStatusEnum
     created_by: uuid.UUID
@@ -135,6 +136,7 @@ class ReservationCreateDTO(BaseModel):
     customer_phone: Optional[str] = Field(default=None, max_length=40)
     party_size: int = Field(default=1, ge=1, le=100)
     reserved_for: datetime
+    duration_minutes: int = Field(default=120, ge=15, le=1440)
     notes: Optional[str] = Field(default=None, max_length=1000)
     actor_id: Optional[uuid.UUID] = None
 
@@ -285,7 +287,8 @@ def create_reservation_endpoint(table_id: uuid.UUID, data: ReservationCreateDTO,
     context: TenantContext = Depends(get_tenant_context), session: Session = Depends(get_session)):
     return table_service.create_reservation(session, context, table_id=table_id, customer_name=data.customer_name,
         customer_phone=data.customer_phone, party_size=data.party_size, reserved_for=data.reserved_for,
-        notes=data.notes, actor_id=data.actor_id, idempotency_key=idempotency_key)
+        duration_minutes=data.duration_minutes, notes=data.notes, actor_id=data.actor_id,
+        idempotency_key=idempotency_key)
 
 
 @router.post("/reservations/{reservation_id}/transition", response_model=TableReservationDTO)

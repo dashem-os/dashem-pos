@@ -18,6 +18,7 @@ test('models service topology, reservations and auditable device lifecycle in th
   const api = await source('../src/services/api.ts')
   assert.match(api, /fetchServiceAreas/)
   assert.match(api, /createTableReservation/)
+  assert.match(api, /duration_minutes/)
   assert.match(api, /setServiceTableState/)
   assert.match(api, /fetchOperationalDevices/)
   assert.match(api, /updateOperationalDevice/)

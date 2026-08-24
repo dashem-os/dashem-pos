@@ -18,8 +18,12 @@ test('routes platform identities only to the owner control plane', () => {
 
 test('keeps tenant identities out of owner and preserves an allowed tenant shell', () => {
   assert.equal(normalizeAuthenticatedRoute('/owner', null), '/pos')
+  assert.equal(authenticatedHome(null, true), '/manage')
+  assert.equal(normalizeAuthenticatedRoute('/login', null, true), '/manage')
+  assert.equal(normalizeAuthenticatedRoute('/', null, true), '/manage')
   assert.equal(normalizeAuthenticatedRoute('/manage', null, false), '/pos')
   assert.equal(normalizeAuthenticatedRoute('/manage', null, true), '/manage')
+  assert.equal(normalizeAuthenticatedRoute('/pos', null, true), '/pos')
   assert.equal(normalizeAuthenticatedRoute('/kds', null, false, true), '/kds')
 })
 

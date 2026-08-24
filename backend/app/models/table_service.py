@@ -102,6 +102,10 @@ class TableReservation(SQLModel, table=True):
     __tablename__ = "table_reservations"
     __table_args__ = (
         CheckConstraint("party_size > 0", name="ck_table_reservation_party_size_positive"),
+        CheckConstraint(
+            "duration_minutes BETWEEN 15 AND 1440",
+            name="ck_table_reservation_duration_range",
+        ),
         UniqueConstraint("tenant_id", "idempotency_key", name="uq_table_reservation_key"),
     )
 
@@ -113,6 +117,7 @@ class TableReservation(SQLModel, table=True):
     customer_phone: Optional[str] = Field(default=None, max_length=40)
     party_size: int = Field(default=1, ge=1)
     reserved_for: datetime = Field(index=True)
+    duration_minutes: int = Field(default=120, ge=15, le=1440)
     notes: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     status: TableReservationStatusEnum = Field(
         default=TableReservationStatusEnum.BOOKED,

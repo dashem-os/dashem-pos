@@ -1,7 +1,7 @@
 import hashlib
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Optional
 
@@ -30,6 +30,18 @@ ACTIVE_SESSION_STATUSES = (
     TableSessionStatusEnum.PARTIALLY_PAID,
     TableSessionStatusEnum.CLOSING,
 )
+
+RESERVATION_HOLD_WINDOW = timedelta(minutes=30)
+
+
+def _utc_naive(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def _reservation_end(reservation: TableReservation) -> datetime:
+    return _utc_naive(reservation.reserved_for) + timedelta(minutes=reservation.duration_minutes)
 
 
 def _hash(payload: dict[str, Any]) -> str:
@@ -311,20 +323,26 @@ def set_service_table_state(
         raise HTTPException(status_code=409, detail="A situação da mesa mudou. Atualize o mapa.")
     if target not in {ServiceTableStatusEnum.AVAILABLE, ServiceTableStatusEnum.BLOCKED}:
         raise HTTPException(status_code=400, detail="A operação manual aceita apenas disponível ou bloqueada.")
-    if table.status == ServiceTableStatusEnum.OCCUPIED:
-        raise HTTPException(status_code=409, detail="Mesa ocupada não pode ser bloqueada.")
     if table.status == ServiceTableStatusEnum.RESERVED:
         raise HTTPException(status_code=409, detail="Cancele ou conclua a reserva antes de alterar a mesa.")
     actor = _actor(context, actor_id); previous = table.status
-    table.status = target
-    table.blocking_reason = reason.strip() if target == ServiceTableStatusEnum.BLOCKED else None
+    if table.status == ServiceTableStatusEnum.OCCUPIED:
+        # Keep the account operational. The persisted reason is a pending
+        # transition applied atomically when the active session is released.
+        table.blocking_reason = reason.strip() if target == ServiceTableStatusEnum.BLOCKED else None
+    else:
+        table.status = target
+        table.blocking_reason = reason.strip() if target == ServiceTableStatusEnum.BLOCKED else None
     table.version += 1; table.updated_at = datetime.utcnow()
     reliability_service.write_audit_and_outbox(
         session=session, tenant_id=context.tenant_id, store_id=table.store_id, actor_id=actor,
         action="service_table.state_changed", target=f"SERVICE-TABLE-{table.id}",
-        audit_payload={"from": previous.value, "to": target.value, "reason": reason, "version": table.version},
+        audit_payload={"from": previous.value, "to": table.status.value, "requested_target": target.value,
+                       "pending_until_close": previous == ServiceTableStatusEnum.OCCUPIED,
+                       "reason": reason, "version": table.version},
         aggregate_type="service_table", aggregate_id=str(table.id), event_type="service_table.state_changed",
-        outbox_payload={"service_table_id": str(table.id), "from": previous.value, "to": target.value},
+        outbox_payload={"service_table_id": str(table.id), "from": previous.value,
+                        "to": table.status.value, "requested_target": target.value},
     )
     session.add(table); session.commit(); session.refresh(table)
     return table
@@ -338,7 +356,8 @@ def list_reservations(session: Session, context: TenantContext) -> list[TableRes
 
 def create_reservation(
     session: Session, context: TenantContext, *, table_id: uuid.UUID, customer_name: str,
-    customer_phone: Optional[str], party_size: int, reserved_for: datetime, notes: Optional[str],
+    customer_phone: Optional[str], party_size: int, reserved_for: datetime, duration_minutes: int,
+    notes: Optional[str],
     actor_id: Optional[uuid.UUID], idempotency_key: str,
 ) -> TableReservation:
     table = session.exec(scope_tenant_query(select(ServiceTable).where(ServiceTable.id == table_id), ServiceTable, context).with_for_update()).first()
@@ -346,7 +365,8 @@ def create_reservation(
         raise HTTPException(status_code=404, detail="Mesa não encontrada.")
     actor = _actor(context, actor_id)
     payload = {"table_id": str(table_id), "customer_name": customer_name.strip(), "customer_phone": customer_phone,
-               "party_size": party_size, "reserved_for": reserved_for.isoformat(), "notes": notes}
+               "party_size": party_size, "reserved_for": reserved_for.isoformat(),
+               "duration_minutes": duration_minutes, "notes": notes}
     request_hash = _hash(payload)
     existing = session.exec(scope_tenant_query(select(TableReservation).where(
         TableReservation.idempotency_key == idempotency_key,
@@ -355,21 +375,34 @@ def create_reservation(
         if existing.request_hash != request_hash:
             raise HTTPException(status_code=409, detail="Idempotency-Key já utilizada com outra reserva.")
         return existing
-    if table.status != ServiceTableStatusEnum.AVAILABLE:
-        raise HTTPException(status_code=409, detail="Somente uma mesa disponível pode ser reservada.")
+    if table.status == ServiceTableStatusEnum.BLOCKED:
+        raise HTTPException(status_code=409, detail="Mesa bloqueada não pode receber reservas.")
+    requested_start = _utc_naive(reserved_for)
+    requested_end = requested_start + timedelta(minutes=duration_minutes)
+    booked = list(session.exec(scope_tenant_query(select(TableReservation).where(
+        TableReservation.service_table_id == table.id,
+        TableReservation.status == TableReservationStatusEnum.BOOKED,
+    ), TableReservation, context).with_for_update()).all())
+    if any(_utc_naive(item.reserved_for) < requested_end and _reservation_end(item) > requested_start for item in booked):
+        raise HTTPException(status_code=409, detail="Já existe uma reserva para esta mesa nesse horário.")
     reservation = TableReservation(
         tenant_id=context.tenant_id, store_id=table.store_id, service_table_id=table.id,
         customer_name=customer_name.strip(), customer_phone=customer_phone.strip() if customer_phone else None,
-        party_size=party_size, reserved_for=reserved_for, notes=notes.strip() if notes else None,
+        party_size=party_size, reserved_for=reserved_for, duration_minutes=duration_minutes,
+        notes=notes.strip() if notes else None,
         created_by=actor, idempotency_key=idempotency_key, request_hash=request_hash,
     )
-    table.status = ServiceTableStatusEnum.RESERVED; table.version += 1; table.updated_at = datetime.utcnow()
+    if table.status == ServiceTableStatusEnum.AVAILABLE and requested_start <= datetime.utcnow() + RESERVATION_HOLD_WINDOW:
+        table.status = ServiceTableStatusEnum.RESERVED
+        table.version += 1
+        table.updated_at = datetime.utcnow()
     session.add(reservation); session.add(table)
     reliability_service.write_audit_and_outbox(
         session=session, tenant_id=context.tenant_id, store_id=table.store_id, actor_id=actor,
         action="table_reservation.created", target=f"TABLE-RESERVATION-{reservation.id}",
         audit_payload={"service_table_id": str(table.id), "customer_name": reservation.customer_name,
-                       "reserved_for": reserved_for.isoformat(), "party_size": party_size},
+                       "reserved_for": reserved_for.isoformat(), "duration_minutes": duration_minutes,
+                       "party_size": party_size},
         aggregate_type="table_reservation", aggregate_id=str(reservation.id), event_type="table_reservation.created",
         outbox_payload={"reservation_id": str(reservation.id), "service_table_id": str(table.id)},
     )
@@ -420,8 +453,10 @@ def list_service_tables(session: Session, context: TenantContext) -> list[dict[s
     reservations = list(session.exec(scope_tenant_query(select(TableReservation).where(
         TableReservation.service_table_id.in_(table_ids),
         TableReservation.status == TableReservationStatusEnum.BOOKED,
-    ), TableReservation, context)).all())
-    reservations_by_table = {item.service_table_id: item for item in reservations}
+    ), TableReservation, context).order_by(TableReservation.reserved_for)).all())
+    reservations_by_table: dict[uuid.UUID, TableReservation] = {}
+    for item in reservations:
+        reservations_by_table.setdefault(item.service_table_id, item)
     session_ids = [item.id for item in sessions]
     orders = list(session.exec(scope_tenant_query(select(Order).where(
         Order.table_session_id.in_(session_ids),
@@ -445,8 +480,13 @@ def list_service_tables(session: Session, context: TenantContext) -> list[dict[s
         session_orders = orders_by_session.get(active.id, []) if active else []
         session_items = [item for order in session_orders for item in items_by_order.get(order.id, [])]
         total = sum((Decimal(str(item.unit_price)) * Decimal(str(item.quantity)) for item in session_items), Decimal("0"))
+        projected_status = table.status
+        if (projected_status == ServiceTableStatusEnum.AVAILABLE and reservation
+                and _utc_naive(reservation.reserved_for) <= datetime.utcnow() + RESERVATION_HOLD_WINDOW):
+            projected_status = ServiceTableStatusEnum.RESERVED
         result.append({
             **table.model_dump(),
+            "status": projected_status,
             "active_session_id": active.id if active else None,
             "active_session_status": active.status if active else None,
             "active_session_label": active.display_label if active else None,
@@ -602,18 +642,22 @@ def open_table_session(
         table = session.exec(table_query).first()
         if not table:
             raise HTTPException(status_code=404, detail="Mesa não encontrada.")
+        booked_reservations = list(session.exec(scope_tenant_query(select(TableReservation).where(
+            TableReservation.service_table_id == table.id,
+            TableReservation.status == TableReservationStatusEnum.BOOKED,
+        ), TableReservation, context).order_by(TableReservation.reserved_for).with_for_update()).all())
+        due_reservation = next((item for item in booked_reservations
+                                if _utc_naive(item.reserved_for) <= datetime.utcnow() + RESERVATION_HOLD_WINDOW), None)
         reservation: Optional[TableReservation] = None
-        if table.status == ServiceTableStatusEnum.RESERVED:
+        if due_reservation:
             if not reservation_id:
                 raise HTTPException(status_code=409, detail="Mesa reservada. Confirme a reserva antes de abrir.")
-            reservation = session.exec(scope_tenant_query(select(TableReservation).where(
-                TableReservation.id == reservation_id,
-                TableReservation.service_table_id == table.id,
-                TableReservation.status == TableReservationStatusEnum.BOOKED,
-            ), TableReservation, context).with_for_update()).first()
-            if not reservation:
-                raise HTTPException(status_code=409, detail="Reserva pendente não encontrada para esta mesa.")
-        elif table.status != ServiceTableStatusEnum.AVAILABLE:
+            if reservation_id != due_reservation.id:
+                raise HTTPException(status_code=409, detail="Confirme a próxima reserva sinalizada para esta mesa.")
+            reservation = due_reservation
+        elif reservation_id:
+            raise HTTPException(status_code=409, detail="A reserva ainda não está na janela de confirmação.")
+        if table.status not in {ServiceTableStatusEnum.AVAILABLE, ServiceTableStatusEnum.RESERVED}:
             concurrent_retry = session.exec(select(TableSession).where(
                 TableSession.tenant_id == context.tenant_id,
                 TableSession.open_idempotency_key == idempotency_key,
@@ -844,7 +888,8 @@ def close_empty_session(
             ServiceTable.id == table_session.service_table_id,
         ), ServiceTable, context).with_for_update()).first()
         if table:
-            table.status = ServiceTableStatusEnum.AVAILABLE
+            table.status = (ServiceTableStatusEnum.BLOCKED if table.blocking_reason
+                            else ServiceTableStatusEnum.AVAILABLE)
             table.version += 1
             table.updated_at = table_session.updated_at
             seated = session.exec(scope_tenant_query(select(TableReservation).where(

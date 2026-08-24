@@ -245,6 +245,7 @@ export interface TableReservation {
   customer_phone?: string
   party_size: number
   reserved_for: string
+  duration_minutes: number
   notes?: string
   status: 'BOOKED' | 'SEATED' | 'COMPLETED' | 'CANCELED' | 'NO_SHOW'
   created_by: string
@@ -1477,7 +1478,7 @@ export async function fetchTableReservations(headers: Record<string, string>): P
 }
 
 export async function createTableReservation(headers: Record<string, string>, tableId: string, idempotencyKey: string, data: {
-  customer_name: string; customer_phone?: string; party_size: number; reserved_for: string; notes?: string; actor_id?: string
+  customer_name: string; customer_phone?: string; party_size: number; reserved_for: string; duration_minutes: number; notes?: string; actor_id?: string
 }): Promise<TableReservation> {
   const res = await fetch(`${API_BASE_URL}/api/v1/tables/${tableId}/reservations`, { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(data) })
   if (!res.ok) throw await apiError(res, 'Não foi possível registrar a reserva.')

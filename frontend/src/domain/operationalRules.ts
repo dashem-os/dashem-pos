@@ -2,8 +2,9 @@ export type ShellRoute = '/login' | '/owner' | '/manage' | '/pos' | '/tables' | 
 
 const PLATFORM_ROLES = new Set(['PLATFORM_OWNER', 'PLATFORM_ADMIN'])
 
-export function authenticatedHome(platformRole?: string | null): ShellRoute {
-  return platformRole && PLATFORM_ROLES.has(platformRole) ? '/owner' : '/pos'
+export function authenticatedHome(platformRole?: string | null, canManage = false): ShellRoute {
+  if (platformRole && PLATFORM_ROLES.has(platformRole)) return '/owner'
+  return canManage ? '/manage' : '/pos'
 }
 
 export function normalizeAuthenticatedRoute(
@@ -12,13 +13,13 @@ export function normalizeAuthenticatedRoute(
   canManage = false,
   canUseKds = false,
 ): ShellRoute {
-  const home = authenticatedHome(platformRole)
+  const home = authenticatedHome(platformRole, canManage)
   if (home === '/owner') return '/owner'
   if (pathname === '/manage') return canManage ? '/manage' : '/pos'
   if (pathname === '/kds') return canUseKds ? '/kds' : '/pos'
   if (pathname === '/tables') return '/tables'
   if (pathname === '/pos') return '/pos'
-  return '/pos'
+  return home
 }
 
 export function selectOnlyOption<T>(options: readonly T[]): T | null {

@@ -563,7 +563,8 @@ def finalize_negotiation(
                 ServiceTable.tenant_id == context.tenant_id,
             ).with_for_update()).first()
             if service_table:
-                service_table.status = ServiceTableStatusEnum.AVAILABLE
+                service_table.status = (ServiceTableStatusEnum.BLOCKED if service_table.blocking_reason
+                                        else ServiceTableStatusEnum.AVAILABLE)
                 service_table.version += 1
                 service_table.updated_at = datetime.utcnow()
     negotiation.sale_id = sale.id
