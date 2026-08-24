@@ -1,6 +1,6 @@
 import uuid
 from decimal import Decimal
-from typing import List, Optional
+from typing import List, Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlmodel import Session
@@ -32,11 +32,25 @@ class CloseCashSessionDTO(BaseModel):
     operator_id: uuid.UUID
     closing_balance: float
 
+class BeginCashCloseDTO(BaseModel):
+    operator_id: uuid.UUID
+    expected_version: int
+    blind_count: bool = False
+
+class FinalizeCashCloseDTO(BaseModel):
+    operator_id: uuid.UUID
+    expected_version: int
+    closing_balance: float
+    divergence_reason: Optional[str] = None
+
 class CashMovementDTO(BaseModel):
     actor_id: uuid.UUID
-    movement_type: CashMovementTypeEnum
+    movement_type: Literal[CashMovementTypeEnum.BLEED, CashMovementTypeEnum.REINFORCEMENT]
     amount: float
     notes: Optional[str] = None
+    source_type: Optional[str] = None
+    source_id: Optional[str] = None
+    idempotency_key: Optional[str] = None
 
 @router.post("/registers", response_model=Register)
 def create_register_endpoint(
@@ -114,6 +128,31 @@ def close_cash_session_endpoint(
         operator_id=data.operator_id
     )
 
+@router.post("/sessions/{session_id}/begin-close", response_model=CashSession)
+def begin_cash_close_endpoint(
+    session_id: uuid.UUID, data: BeginCashCloseDTO,
+    context: TenantContext = Depends(get_tenant_context),
+    session: Session = Depends(get_session),
+):
+    result = cash_service.begin_cash_close(
+        session, context, session_id, operator_id=data.operator_id,
+        expected_version=data.expected_version, blind_count=data.blind_count,
+    )
+    session.commit(); session.refresh(result)
+    return result
+
+@router.post("/sessions/{session_id}/finalize-close", response_model=CashSession)
+def finalize_cash_close_endpoint(
+    session_id: uuid.UUID, data: FinalizeCashCloseDTO,
+    context: TenantContext = Depends(get_tenant_context),
+    session: Session = Depends(get_session),
+):
+    return cash_service.finalize_cash_close(
+        session, context, session_id, operator_id=data.operator_id,
+        closing_balance=Decimal(str(data.closing_balance)), expected_version=data.expected_version,
+        divergence_reason=data.divergence_reason,
+    )
+
 @router.post("/sessions/{session_id}/movements", response_model=CashMovement)
 def add_cash_movement_endpoint(
     session_id: uuid.UUID,
@@ -128,7 +167,8 @@ def add_cash_movement_endpoint(
         actor_id=data.actor_id,
         movement_type=data.movement_type,
         amount=Decimal(str(data.amount)),
-        notes=data.notes
+        notes=data.notes, source_type=data.source_type, source_id=data.source_id,
+        idempotency_key=data.idempotency_key,
     )
 
 @router.get("/sessions/{session_id}/movements", response_model=List[CashMovement])

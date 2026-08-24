@@ -4,10 +4,12 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional, List
 from sqlmodel import SQLModel, Field, Relationship, UniqueConstraint, Column, Numeric
+from sqlalchemy import Text
 from app.core.db_types import EnumString
 
 class CashSessionStatusEnum(str, Enum):
     OPEN = "OPEN"
+    CLOSING = "CLOSING"
     CLOSED = "CLOSED"
 
 class CashMovementTypeEnum(str, Enum):
@@ -17,6 +19,7 @@ class CashMovementTypeEnum(str, Enum):
     REINFORCEMENT = "REINFORCEMENT"
     CLOSING = "CLOSING"
     RECEIVABLE_PAYMENT = "RECEIVABLE_PAYMENT"
+    REFUND = "REFUND"
 
 class PaymentMethodEnum(str, Enum):
     CASH = "CASH"
@@ -63,6 +66,11 @@ class CashSession(SQLModel, table=True):
     closing_balance: Optional[Decimal] = Field(default=None, sa_column=Column(Numeric(14, 4), nullable=True))
     expected_balance: Optional[Decimal] = Field(default=None, sa_column=Column(Numeric(14, 4), nullable=True))
     variance: Optional[Decimal] = Field(default=None, sa_column=Column(Numeric(14, 4), nullable=True))
+    version: int = Field(default=1)
+    blind_count: bool = Field(default=False)
+    closing_started_at: Optional[datetime] = Field(default=None)
+    closing_started_by: Optional[uuid.UUID] = Field(default=None, index=True)
+    divergence_reason: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     opened_at: datetime = Field(default_factory=datetime.utcnow, index=True)
     closed_at: Optional[datetime] = Field(default=None)
 
@@ -72,6 +80,9 @@ class CashSession(SQLModel, table=True):
 
 class CashMovement(SQLModel, table=True):
     __tablename__ = "cash_movements"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "idempotency_key", name="uq_tenant_cash_movement_key"),
+    )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     tenant_id: uuid.UUID = Field(index=True)
@@ -81,6 +92,9 @@ class CashMovement(SQLModel, table=True):
     movement_type: CashMovementTypeEnum = Field(sa_column=Column(EnumString(CashMovementTypeEnum), nullable=False, index=True))
     amount: Decimal = Field(sa_column=Column(Numeric(14, 4), nullable=False))
     notes: Optional[str] = None
+    source_type: Optional[str] = Field(default=None, index=True)
+    source_id: Optional[str] = Field(default=None, index=True)
+    idempotency_key: Optional[str] = Field(default=None, index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
 
     cash_session: Optional["CashSession"] = Relationship(back_populates="movements")

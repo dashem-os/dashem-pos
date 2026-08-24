@@ -410,6 +410,8 @@ def confirm_intent(
             cash_session_id=cash.id, actor_id=actor,
             movement_type=CashMovementTypeEnum.SALE_PAYMENT, amount=intent.amount,
             notes=f"Parcela da negociação {negotiation.id}",
+            source_type="PAYMENT_INTENT", source_id=str(intent.id),
+            idempotency_key=f"payment-intent:{intent.id}:cash",
         )
         session.add(movement)
         session.flush()

@@ -57,7 +57,7 @@ def update_register(
         raise HTTPException(status_code=404, detail="Terminal não encontrado.")
     if is_active is False and session.exec(scope_tenant_query(select(CashSession).where(
         CashSession.register_id == register.id,
-        CashSession.status == CashSessionStatusEnum.OPEN,
+        CashSession.status.in_([CashSessionStatusEnum.OPEN, CashSessionStatusEnum.CLOSING]),
     ), CashSession, context)).first():
         raise HTTPException(status_code=409, detail="Feche o caixa antes de pausar o terminal.")
     actor = actor_id or context.user_id
@@ -103,7 +103,7 @@ def open_cash_session(
     # Check for existing OPEN session on this register
     open_query = select(CashSession).where(
         CashSession.register_id == register_id,
-        CashSession.status == CashSessionStatusEnum.OPEN
+        CashSession.status.in_([CashSessionStatusEnum.OPEN, CashSessionStatusEnum.CLOSING])
     )
     open_query = scope_tenant_query(open_query, CashSession, context)
     if session.exec(open_query).first():
@@ -162,6 +162,37 @@ def close_cash_session(
     closing_balance: Decimal,
     operator_id: uuid.UUID
 ) -> CashSession:
+    cash_session = begin_cash_close(
+        session, context, session_id=session_id, operator_id=operator_id,
+        expected_version=None, blind_count=False,
+    )
+    return finalize_cash_close(
+        session, context, session_id=session_id, operator_id=operator_id,
+        closing_balance=closing_balance, expected_version=cash_session.version,
+        divergence_reason="Fechamento legado confirmado pelo operador",
+    )
+
+
+def _expected_cash_balance(session: Session, session_id: uuid.UUID) -> Decimal:
+    movements = session.exec(select(CashMovement).where(CashMovement.cash_session_id == session_id)).all()
+    positive = {
+        CashMovementTypeEnum.OPENING, CashMovementTypeEnum.SALE_PAYMENT,
+        CashMovementTypeEnum.RECEIVABLE_PAYMENT, CashMovementTypeEnum.REINFORCEMENT,
+    }
+    negative = {CashMovementTypeEnum.BLEED, CashMovementTypeEnum.REFUND}
+    expected = Decimal("0.00")
+    for movement in movements:
+        if movement.movement_type in positive:
+            expected += movement.amount
+        elif movement.movement_type in negative:
+            expected -= movement.amount
+    return expected
+
+
+def begin_cash_close(
+    session: Session, context: TenantContext, session_id: uuid.UUID, *,
+    operator_id: uuid.UUID, expected_version: Optional[int], blind_count: bool,
+) -> CashSession:
     query = select(CashSession).where(CashSession.id == session_id).with_for_update()
     query = scope_tenant_query(query, CashSession, context)
     cash_session = session.exec(query).first()
@@ -169,53 +200,66 @@ def close_cash_session(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cash session not found for this tenant.")
 
     if cash_session.status != CashSessionStatusEnum.OPEN:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cash session is not OPEN.")
-
-    closing_dec = Decimal(str(closing_balance))
-
-    # Calculate expected balance based on actual cash ledger entries
-    movs_query = select(CashMovement).where(CashMovement.cash_session_id == session_id)
-    movs = session.exec(movs_query).all()
-
-    expected = Decimal("0.00")
-    for m in movs:
-        if m.movement_type in (CashMovementTypeEnum.OPENING, CashMovementTypeEnum.SALE_PAYMENT, CashMovementTypeEnum.REINFORCEMENT):
-            expected += m.amount
-        elif m.movement_type == CashMovementTypeEnum.BLEED:
-            expected -= m.amount
-
-    variance = closing_dec - expected
-
-    cash_session.status = CashSessionStatusEnum.CLOSED
-    cash_session.expected_balance = expected
-    cash_session.closing_balance = closing_dec
-    cash_session.variance = variance
-    cash_session.closed_at = datetime.utcnow()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Sessão de caixa não está OPEN.")
+    if expected_version is not None and cash_session.version != expected_version:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Versão de caixa desatualizada.")
+    cash_session.status = CashSessionStatusEnum.CLOSING
+    cash_session.blind_count = blind_count
+    cash_session.closing_started_at = datetime.utcnow()
+    cash_session.closing_started_by = operator_id
+    cash_session.version += 1
     session.add(cash_session)
-
-    # Audit & Outbox (Without creating a duplicate CashMovement that inflates balance!)
     reliability_service.write_audit_and_outbox(
         session=session,
         tenant_id=context.tenant_id,
         store_id=cash_session.store_id,
         actor_id=operator_id,
-        action="cash_session.close",
+        action="cash_session.close_started",
         target=f"SESSION-{cash_session.id}",
-        audit_payload={
-            "session_id": str(cash_session.id),
-            "closing_balance": str(closing_dec),
-            "expected_balance": str(expected),
-            "variance": str(variance)
-        },
+        audit_payload={"session_id": str(cash_session.id), "version": cash_session.version, "blind_count": blind_count},
         aggregate_type="cash_session",
         aggregate_id=str(cash_session.id),
-        event_type="cash_session.closed",
-        outbox_payload={
-            "tenant_id": str(context.tenant_id),
-            "store_id": str(cash_session.store_id),
-            "session_id": str(cash_session.id),
-            "variance": str(variance)
-        }
+        event_type="cash_session.closing",
+        outbox_payload={"session_id": str(cash_session.id), "version": cash_session.version}
+    )
+    session.flush()
+    return cash_session
+
+
+def finalize_cash_close(
+    session: Session, context: TenantContext, session_id: uuid.UUID, *,
+    operator_id: uuid.UUID, closing_balance: Decimal, expected_version: int,
+    divergence_reason: Optional[str],
+) -> CashSession:
+    cash_session = session.exec(scope_tenant_query(select(CashSession).where(
+        CashSession.id == session_id,
+    ), CashSession, context).with_for_update()).first()
+    if not cash_session:
+        raise HTTPException(status_code=404, detail="Sessão de caixa não encontrada.")
+    if cash_session.status != CashSessionStatusEnum.CLOSING:
+        raise HTTPException(status_code=409, detail="Sessão de caixa não está em conferência.")
+    if cash_session.version != expected_version:
+        raise HTTPException(status_code=409, detail="Versão de fechamento desatualizada.")
+    expected = _expected_cash_balance(session, session_id)
+    counted = Decimal(str(closing_balance))
+    variance = counted - expected
+    if variance != 0 and not (divergence_reason or "").strip():
+        raise HTTPException(status_code=422, detail="Motivo é obrigatório quando há divergência de caixa.")
+    cash_session.status = CashSessionStatusEnum.CLOSED
+    cash_session.expected_balance = expected
+    cash_session.closing_balance = counted
+    cash_session.variance = variance
+    cash_session.divergence_reason = (divergence_reason or "").strip() or None
+    cash_session.closed_at = datetime.utcnow()
+    cash_session.version += 1
+    reliability_service.write_audit_and_outbox(
+        session=session, tenant_id=context.tenant_id, store_id=cash_session.store_id,
+        actor_id=operator_id, action="cash_session.close", target=f"SESSION-{cash_session.id}",
+        audit_payload={"session_id": str(cash_session.id), "closing_balance": str(counted),
+                       "expected_balance": str(expected), "variance": str(variance),
+                       "reason": cash_session.divergence_reason, "version": cash_session.version},
+        aggregate_type="cash_session", aggregate_id=str(cash_session.id), event_type="cash_session.closed",
+        outbox_payload={"session_id": str(cash_session.id), "variance": str(variance), "version": cash_session.version},
     )
 
     session.commit()
@@ -229,16 +273,25 @@ def add_cash_movement(
     actor_id: uuid.UUID,
     movement_type: CashMovementTypeEnum,
     amount: Decimal,
-    notes: Optional[str] = None
+    notes: Optional[str] = None,
+    source_type: Optional[str] = None,
+    source_id: Optional[str] = None,
+    idempotency_key: Optional[str] = None,
 ) -> CashMovement:
-    query = select(CashSession).where(CashSession.id == session_id)
+    if idempotency_key:
+        existing = session.exec(scope_tenant_query(select(CashMovement).where(
+            CashMovement.idempotency_key == idempotency_key,
+        ), CashMovement, context)).first()
+        if existing:
+            return existing
+    query = select(CashSession).where(CashSession.id == session_id).with_for_update()
     query = scope_tenant_query(query, CashSession, context)
     cash_session = session.exec(query).first()
     if not cash_session:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cash session not found for this tenant.")
 
     if cash_session.status != CashSessionStatusEnum.OPEN:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot add movement to CLOSED cash session.")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Movimentos exigem caixa OPEN.")
 
     amt_dec = Decimal(str(amount))
     movement = CashMovement(
@@ -248,9 +301,18 @@ def add_cash_movement(
         actor_id=actor_id,
         movement_type=movement_type,
         amount=amt_dec,
-        notes=notes
+        notes=notes, source_type=source_type, source_id=source_id,
+        idempotency_key=idempotency_key,
     )
     session.add(movement)
+    reliability_service.write_audit_and_outbox(
+        session=session, tenant_id=context.tenant_id, store_id=cash_session.store_id,
+        actor_id=actor_id, action="cash_movement.created", target=f"CASH-MOVEMENT-{movement.id}",
+        audit_payload={"movement_type": movement_type.value, "amount": str(amt_dec),
+                       "source_type": source_type, "source_id": source_id},
+        aggregate_type="cash_session", aggregate_id=str(cash_session.id),
+        event_type="cash.movement.created", outbox_payload={"cash_movement_id": str(movement.id)},
+    )
     session.commit()
     session.refresh(movement)
     return movement

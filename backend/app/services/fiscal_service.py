@@ -73,6 +73,9 @@ def issue_fiscal_document(
         doc.request_hash = req_hash
         doc.document_type = document_type
 
+    doc.attempt_count += 1
+    doc.last_attempt_at = datetime.utcnow()
+
     # Log Issuance Requested Event with Request Hash Snapshot
     event_req = FiscalEvent(
         tenant_id=context.tenant_id,
@@ -253,6 +256,47 @@ def issue_fiscal_document(
     session.refresh(doc)
     session.refresh(sale)
     return doc, sale, False
+
+
+def retry_fiscal_document(
+    session: Session, context: TenantContext, fiscal_document_id: uuid.UUID, *,
+    actor_id: uuid.UUID, simulate_status: Optional[str] = None,
+    correlation_id: Optional[str] = None,
+) -> FiscalDocument:
+    existing = session.exec(scope_tenant_query(select(FiscalDocument).where(
+        FiscalDocument.id == fiscal_document_id,
+    ), FiscalDocument, context)).first()
+    if not existing:
+        raise HTTPException(status_code=404, detail="Documento fiscal não encontrado.")
+    if existing.status not in {FiscalStatusEnum.PENDING, FiscalStatusEnum.REJECTED, FiscalStatusEnum.CONTINGENCY}:
+        raise HTTPException(status_code=409, detail="Documento fiscal não admite reprocessamento neste estado.")
+    document_id = existing.id
+    sale_id = existing.sale_id
+    document_type = existing.document_type
+    doc, _sale, _already = issue_fiscal_document(
+        session, context, sale_id=sale_id, actor_id=actor_id,
+        document_type=document_type, simulate_status=simulate_status,
+        correlation_id=correlation_id,
+    )
+    if doc.id != document_id:
+        raise HTTPException(status_code=500, detail="Contrato fiscal violado: reprocessamento criou outro documento.")
+    session.add(FiscalEvent(
+        tenant_id=context.tenant_id, store_id=doc.store_id,
+        fiscal_document_id=doc.id, actor_id=actor_id,
+        event_type=FiscalEventTypeEnum.RETRY_REQUESTED,
+        details=f"Reprocessamento da tentativa {doc.attempt_count}",
+    ))
+    reliability_service.write_audit_and_outbox(
+        session=session, tenant_id=context.tenant_id, store_id=doc.store_id,
+        actor_id=actor_id, action="fiscal.retry", target=f"FISCAL-{doc.id}",
+        audit_payload={"attempt_count": doc.attempt_count, "status": doc.status.value},
+        aggregate_type="fiscal_document", aggregate_id=str(doc.id),
+        event_type="fiscal.retry_requested",
+        outbox_payload={"fiscal_document_id": str(doc.id), "attempt_count": doc.attempt_count},
+        correlation_id=correlation_id,
+    )
+    session.commit(); session.refresh(doc)
+    return doc
 
 def cancel_fiscal_document(
     session: Session,

@@ -591,11 +591,14 @@ export interface CashSession {
   store_id: string
   register_id: string
   operator_id: string
-  status: 'OPEN' | 'CLOSED'
+  status: 'OPEN' | 'CLOSING' | 'CLOSED'
   opening_balance: number
   closing_balance?: number
   expected_balance?: number
   variance?: number
+  version: number
+  blind_count: boolean
+  divergence_reason?: string
   opened_at: string
   closed_at?: string
 }
@@ -606,9 +609,11 @@ export interface CashMovement {
   store_id: string
   cash_session_id: string
   actor_id: string
-  movement_type: 'OPENING' | 'SALE_PAYMENT' | 'BLEED' | 'REINFORCEMENT' | 'CLOSING'
+  movement_type: 'OPENING' | 'SALE_PAYMENT' | 'RECEIVABLE_PAYMENT' | 'BLEED' | 'REINFORCEMENT' | 'REFUND' | 'CLOSING'
   amount: number
   notes?: string
+  source_type?: string
+  source_id?: string
   created_at: string
 }
 
@@ -643,6 +648,28 @@ export interface FiscalDocument {
   rejection_reason?: string
   issued_at?: string
   canceled_at?: string
+  attempt_count: number
+  last_attempt_at?: string
+}
+
+export interface FinancialReconciliation {
+  id: string
+  tenant_id: string
+  store_id: string
+  sale_id: string
+  negotiation_id?: string
+  fiscal_document_id?: string
+  cash_session_id?: string
+  expected_amount: number
+  payment_total: number
+  receivable_total: number
+  provider_reported_total?: number
+  difference: number
+  status: 'MATCHED' | 'DIFFERENCE'
+  provider?: string
+  provider_reference?: string
+  version: number
+  checked_at: string
 }
 
 export interface ApiHealth {
@@ -1944,7 +1971,7 @@ export async function fetchActiveCashSession(headers: Record<string, string>, st
   return res.json()
 }
 
-export async function fetchCashSessions(headers: Record<string, string>, storeId?: string, status?: 'OPEN' | 'CLOSED'): Promise<CashSession[]> {
+export async function fetchCashSessions(headers: Record<string, string>, storeId?: string, status?: 'OPEN' | 'CLOSING' | 'CLOSED'): Promise<CashSession[]> {
   let url = `${API_BASE_URL}/api/v1/cash/sessions`
   const params = new URLSearchParams()
   if (storeId) params.append('store_id', storeId)
@@ -2010,6 +2037,29 @@ export async function addCashMovement(
 
 export async function fetchCashMovements(headers: Record<string, string>, sessionId: string): Promise<CashMovement[]> {
   const res = await fetch(`${API_BASE_URL}/api/v1/cash/sessions/${sessionId}/movements`, { headers })
+  if (!res.ok) return []
+  return res.json()
+}
+
+export async function reconcileSale(
+  headers: Record<string, string>, saleId: string, actorId: string,
+  input: { provider_reported_total?: number; provider?: string; provider_reference?: string; notes?: string } = {}
+): Promise<FinancialReconciliation> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/reconciliations/sales/${saleId}`, {
+    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actor_id: actorId, ...input })
+  })
+  if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error(err.detail || 'Erro ao conciliar venda') }
+  return res.json()
+}
+
+export async function fetchReconciliations(
+  headers: Record<string, string>, storeId?: string, status?: FinancialReconciliation['status']
+): Promise<FinancialReconciliation[]> {
+  const params = new URLSearchParams()
+  if (storeId) params.set('store_id', storeId)
+  if (status) params.set('status', status)
+  const res = await fetch(`${API_BASE_URL}/api/v1/reconciliations?${params.toString()}`, { headers })
   if (!res.ok) return []
   return res.json()
 }

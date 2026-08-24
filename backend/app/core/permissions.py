@@ -85,14 +85,14 @@ def route_requirement(method: str, path: str) -> RouteRequirement:
             return RouteRequirement("cash.configure")
         if path.endswith("/open"):
             return RouteRequirement("cash.open")
-        if path.endswith("/close"):
+        if path.endswith("/close") or path.endswith("/begin-close") or path.endswith("/finalize-close"):
             return RouteRequirement("cash.close")
         if path.endswith("/movements"):
             return RouteRequirement("cash.move")
     if path.startswith("/api/v1/payments"):
         if method == "GET":
             return RouteRequirement("payment.read")
-        return RouteRequirement("payment.confirm" if path.endswith("/confirm") else "payment.create")
+        return RouteRequirement("payment.confirm" if path.endswith("/confirm") or path.endswith("/refund") else "payment.create")
     if path.startswith("/api/v1/negotiations"):
         if method == "GET":
             return RouteRequirement("checkout.read")
@@ -145,6 +145,8 @@ def route_requirement(method: str, path: str) -> RouteRequirement:
         if path.endswith("/reverse"):
             return RouteRequirement("receivable.reverse")
         return RouteRequirement("receivable.issue")
+    if path.startswith("/api/v1/reconciliations"):
+        return RouteRequirement("reconciliation.read" if method == "GET" else "reconciliation.manage")
     raise HTTPException(status_code=403, detail="No canonical permission protects this operation.")
 
 

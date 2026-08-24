@@ -1,13 +1,27 @@
 import React, { useState } from 'react'
-import { FileText, Search, ChevronDown, ChevronUp, CheckCircle2, Ban, Clock, QrCode, Banknote, CreditCard } from 'lucide-react'
+import { FileText, Search, ChevronDown, ChevronUp, CheckCircle2, Ban, Clock, Scale } from 'lucide-react'
 import { usePos } from '../../context/PosContext'
 import { Sale } from '../../services/api'
+import * as api from '../../services/api'
 
 export const SalesHistory: React.FC = () => {
-  const { salesHistory } = usePos()
+  const { salesHistory, tenant, store, operatorId, permissions, showToast } = usePos()
   const [filterStatus, setFilterStatus] = useState<string>('ALL')
   const [searchQuery, setSearchQuery] = useState('')
   const [expandedSaleId, setExpandedSaleId] = useState<string | null>(null)
+  const [reconciliations, setReconciliations] = useState<Record<string, api.FinancialReconciliation>>({})
+  const [reconciling, setReconciling] = useState<string | null>(null)
+
+  const reconcile = async (sale: Sale) => {
+    if (!tenant || !store) return
+    setReconciling(sale.id)
+    try {
+      const result = await api.reconcileSale({ 'X-Tenant-ID': tenant.id, 'X-Store-ID': store.id }, sale.id, operatorId)
+      setReconciliations((current) => ({ ...current, [sale.id]: result }))
+      showToast(result.status === 'MATCHED' ? 'success' : 'info', result.status === 'MATCHED' ? 'Venda conciliada sem diferenças.' : `Diferença sinalizada: R$ ${Number(result.difference).toFixed(2)}`)
+    } catch (error) { showToast('error', error instanceof Error ? error.message : 'Falha na conciliação') }
+    finally { setReconciling(null) }
+  }
 
   const filtered = salesHistory.filter((s) => {
     if (filterStatus !== 'ALL' && s.status !== filterStatus) return false
@@ -188,6 +202,14 @@ export const SalesHistory: React.FC = () => {
                     {sale.notes && (
                       <div className="pt-2 text-xs text-dashem-muted border-t border-dashem-border">
                         <span className="font-bold text-white">Observações:</span> {sale.notes}
+                      </div>
+                    )}
+                    {permissions.includes('reconciliation.manage') && ['PAID', 'COMPLETED', 'PARTIALLY_REFUNDED', 'REFUNDED'].includes(sale.status) && (
+                      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-dashem-border pt-3">
+                        <div className="text-xs text-dashem-muted">
+                          {reconciliations[sale.id] ? <span className={reconciliations[sale.id].status === 'MATCHED' ? 'font-bold text-emerald-400' : 'font-bold text-amber-400'}>{reconciliations[sale.id].status === 'MATCHED' ? 'Conferência sem diferenças' : `Diferença de R$ ${Number(reconciliations[sale.id].difference).toFixed(2)}`}</span> : 'Compare venda, pagamentos, crediário e documento fiscal sem alterar os fatos.'}
+                        </div>
+                        <button type="button" onClick={() => reconcile(sale)} disabled={reconciling === sale.id} className="flex h-9 items-center gap-2 rounded-xl border border-dashem-border px-3 text-xs font-black text-white hover:border-dashem-red disabled:opacity-40"><Scale className="h-4 w-4" />{reconciling === sale.id ? 'Conferindo...' : 'Conciliar venda'}</button>
                       </div>
                     )}
                   </div>

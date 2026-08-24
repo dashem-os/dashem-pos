@@ -2,7 +2,7 @@
 
 Status: **diretriz canônica para a próxima fase de construção**  
 Data: 23 de agosto de 2026  
-Revisão: **S15 concluído — próximo gate S16 Cash, Fiscal e Financial Reconciliation**
+Revisão: **S16 concluído — próximo gate S17 Business Intelligence V1**
 Substitui como referência de execução qualquer sequência anterior que conflite com este documento.
 
 ## 1. Por que este roadmap existe
@@ -1175,9 +1175,9 @@ e aparece como `não configurada`, nunca como pronta.
 | Gestão sem retaguarda e PDV capaz de retornar à administração | S13.1 | workspaces persistidos e fronteira unidirecional | resolvido e testado |
 | Atendente capaz de cadastrar mesa ou abrir reserva sem confirmação | S13.1 | configuração exclusiva da Gestão + confirmação da reserva | resolvido e testado |
 | Terminal e caixa/ponto criados em chamadas independentes | S13.1 | provisionamento transacional do dispositivo | resolvido e testado |
-| Crediário tratado como pagamento recebido | S14 | recebível e allocation distintos | aberto |
-| Renegociação capaz de alterar documento original | S15 | acordo e ledger imutáveis | aberto |
-| Caixa/fiscal/provider sem conciliação unificada | S16 | fatos vinculados sem reescrita | aberto |
+| Crediário tratado como pagamento recebido | S14 | recebível e allocation distintos | resolvido no S14 |
+| Renegociação capaz de alterar documento original | S15 | acordo e ledger imutáveis | resolvido no S15 |
+| Caixa/fiscal/provider sem conciliação unificada | S16 | fatos vinculados sem reescrita | resolvido no S16 |
 | BI agregado ou inventado no browser | S17 | read models rastreáveis | parcial, gate completo em S17 |
 | Endpoint de identidade e saúde ainda amplos | S18 | routers e observabilidade por domínio | residual |
 | Segurança/confiabilidade deixadas para o fim | contínuo + S20 | gate por sprint e prova combinada | política corrigida |
@@ -1223,13 +1223,14 @@ Ao concluir:
 O próximo ciclo de implementação deve ser:
 
 ```text
-S16 — Cash, Fiscal e Financial Reconciliation Completion
+S17 — Business Intelligence V1
 ```
 
-S0–S15 estão concluídos nos gates internos. O S13 introduziu o ADR-009,
+S0–S16 estão concluídos nos gates internos. O S13 introduziu o ADR-009,
 mapeamentos por merchant, ofertas versionadas, publicação item a item e documentos
 de repasse independentes do Order. Falha parcial e diferença financeira ficam
 observáveis. O S13.1 completa a primeira retaguarda operacional do tenant e fixa
 a fronteira Gestão → PDV/KDS, nunca no sentido inverso. O S14 fecha o primeiro
-contrato de crediário sem tratar obrigação como recebimento. O próximo gate
-canônico é o S16.
+contrato de crediário sem tratar obrigação como recebimento. O S15 adiciona
+baixas e acordos imutáveis. O S16 fecha caixa, fiscal, estornos e conciliação
+com fatos compensatórios e sem reescrita. O próximo gate canônico é o S17.

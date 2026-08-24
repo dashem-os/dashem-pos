@@ -169,8 +169,13 @@ capability `receivables`. O **S15 — Recebimentos, Cobrança e Renegociação**
 adiciona liquidação multi-título pelo orquestrador, allocations com ajustes
 explícitos, histórico de cobrança e acordos cujas parcelas permanecem ligadas
 aos documentos originais. Retentativas não duplicam baixas e o principal nunca
-é reescrito. O próximo gate canônico deste loop é o **S16 — Cash, Fiscal e
-Financial Reconciliation Completion**.
+é reescrito. O **S16 — Cash, Fiscal e Financial Reconciliation Completion**
+completa o ciclo `OPEN → CLOSING → CLOSED` com versão concorrente, conferência
+cega e saldo derivado exclusivamente do ledger. Movimentos carregam origem
+idempotente; estorno preserva o pagamento confirmado e cria fato compensatório.
+Tentativas fiscais permanecem no mesmo `FiscalDocument`, enquanto a conciliação
+liga venda, negociação, recebível, caixa e fiscal e somente sinaliza diferenças.
+O próximo gate canônico deste loop é o **S17 — Business Intelligence V1**.
 
 ## Trilha pendente: conclusão do Console Owner
 

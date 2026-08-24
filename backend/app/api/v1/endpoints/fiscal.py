@@ -20,6 +20,10 @@ class FiscalCancelDTO(BaseModel):
     actor_id: uuid.UUID
     reason: str
 
+class FiscalRetryDTO(BaseModel):
+    actor_id: uuid.UUID
+    simulate_status: Optional[str] = None
+
 @router.post("/documents/issue")
 def issue_fiscal_document_endpoint(
     data: FiscalIssueDTO,
@@ -86,6 +90,18 @@ def cancel_fiscal_document_endpoint(
         actor_id=data.actor_id,
         reason=data.reason,
         correlation_id=x_correlation_id
+    )
+
+@router.post("/documents/{fiscal_document_id}/retry", response_model=FiscalDocument)
+def retry_fiscal_document_endpoint(
+    fiscal_document_id: uuid.UUID, data: FiscalRetryDTO,
+    context: TenantContext = Depends(get_tenant_context),
+    x_correlation_id: Optional[str] = Header(None, alias="X-Correlation-ID"),
+    session: Session = Depends(get_session),
+):
+    return fiscal_service.retry_fiscal_document(
+        session, context, fiscal_document_id, actor_id=data.actor_id,
+        simulate_status=data.simulate_status, correlation_id=x_correlation_id,
     )
 
 @router.get("/documents/{fiscal_document_id}", response_model=FiscalDocument)

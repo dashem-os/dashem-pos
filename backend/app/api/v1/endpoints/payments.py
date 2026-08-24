@@ -7,6 +7,7 @@ from sqlmodel import Session
 from app.core.database import get_session
 from app.core.context import TenantContext, get_tenant_context
 from app.models.payment import Payment, PaymentMethodEnum
+from app.models.reconciliation import PaymentRefund
 from app.services import payment_service, reliability_service
 
 router = APIRouter()
@@ -22,6 +23,13 @@ class PaymentCreateDTO(BaseModel):
 
 class PaymentConfirmDTO(BaseModel):
     actor_id: uuid.UUID
+
+class PaymentRefundDTO(BaseModel):
+    actor_id: uuid.UUID
+    amount: Decimal
+    reason: str
+    cash_session_id: Optional[uuid.UUID] = None
+    provider_reference: Optional[str] = None
 
 @router.post("", response_model=Payment)
 def create_payment_endpoint(
@@ -100,3 +108,16 @@ def list_payments_endpoint(
     session: Session = Depends(get_session)
 ):
     return payment_service.list_payments(session, context, sale_id=sale_id)
+
+@router.post("/{payment_id}/refund", response_model=PaymentRefund)
+def refund_payment_endpoint(
+    payment_id: uuid.UUID, data: PaymentRefundDTO,
+    context: TenantContext = Depends(get_tenant_context),
+    idempotency_key: str = Header(..., alias="Idempotency-Key"),
+    session: Session = Depends(get_session),
+):
+    return payment_service.refund_payment(
+        session, context, payment_id, actor_id=data.actor_id, amount=data.amount,
+        reason=data.reason, idempotency_key=idempotency_key,
+        cash_session_id=data.cash_session_id, provider_reference=data.provider_reference,
+    )

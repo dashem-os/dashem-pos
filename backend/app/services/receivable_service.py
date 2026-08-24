@@ -371,6 +371,8 @@ def settle(
             cash_session_id=cash.id, actor_id=actor,
             movement_type=CashMovementTypeEnum.RECEIVABLE_PAYMENT,
             amount=total, notes=f"Recebimento de crediário {receipt.id}",
+            source_type="RECEIVABLE_RECEIPT", source_id=str(receipt.id),
+            idempotency_key=f"receivable-receipt:{receipt.id}:cash",
         )
         session.add(movement); session.flush(); receipt.cash_movement_id = movement.id
     for title, principal, interest, fine, discount, abatement, net in prepared:

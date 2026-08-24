@@ -10,8 +10,72 @@ from app.models.sale import Sale, SaleStatusEnum, SaleItem
 from app.models.payment import (
     Payment, CashSession, CashMovement, PaymentMethodEnum, PaymentStatusEnum, CashMovementTypeEnum, CashSessionStatusEnum
 )
+from app.models.reconciliation import PaymentRefund
 from app.providers.payment_provider import payment_provider
 from app.services import inventory_service, reliability_service
+
+
+def refund_payment(
+    session: Session, context: TenantContext, payment_id: uuid.UUID, *,
+    actor_id: uuid.UUID, amount: Decimal, reason: str, idempotency_key: str,
+    cash_session_id: Optional[uuid.UUID], provider_reference: Optional[str],
+) -> PaymentRefund:
+    existing = session.exec(scope_tenant_query(select(PaymentRefund).where(
+        PaymentRefund.idempotency_key == idempotency_key,
+    ), PaymentRefund, context)).first()
+    if existing:
+        return existing
+    payment = session.exec(scope_tenant_query(select(Payment).where(
+        Payment.id == payment_id,
+    ), Payment, context).with_for_update()).first()
+    if not payment or payment.status != PaymentStatusEnum.CONFIRMED:
+        raise HTTPException(status_code=409, detail="Somente pagamento confirmado admite estorno.")
+    value = Decimal(str(amount)).quantize(Decimal("0.01"))
+    previous = session.exec(scope_tenant_query(select(PaymentRefund).where(
+        PaymentRefund.payment_id == payment.id,
+    ), PaymentRefund, context)).all()
+    if value <= 0 or sum((item.amount for item in previous), Decimal("0")) + value > payment.amount:
+        raise HTTPException(status_code=422, detail="Valor do estorno excede o saldo confirmado.")
+    cash = None
+    if payment.method == PaymentMethodEnum.CASH:
+        if not cash_session_id:
+            raise HTTPException(status_code=422, detail="Estorno em dinheiro exige caixa aberto.")
+        cash = session.exec(scope_tenant_query(select(CashSession).where(
+            CashSession.id == cash_session_id, CashSession.store_id == payment.store_id,
+        ), CashSession, context).with_for_update()).first()
+        if not cash or cash.status != CashSessionStatusEnum.OPEN:
+            raise HTTPException(status_code=409, detail="Caixa aberto não encontrado para o estorno.")
+    refund = PaymentRefund(
+        tenant_id=context.tenant_id, store_id=payment.store_id, payment_id=payment.id,
+        cash_session_id=cash_session_id, amount=value, provider_reference=provider_reference,
+        idempotency_key=idempotency_key, actor_id=actor_id, reason=reason,
+    )
+    session.add(refund); session.flush()
+    if cash:
+        movement = CashMovement(
+            tenant_id=context.tenant_id, store_id=payment.store_id, cash_session_id=cash.id,
+            actor_id=actor_id, movement_type=CashMovementTypeEnum.REFUND, amount=value,
+            notes=f"Estorno do pagamento {payment.id}: {reason}", source_type="PAYMENT_REFUND",
+            source_id=str(refund.id), idempotency_key=f"payment-refund:{refund.id}:cash",
+        )
+        session.add(movement); session.flush(); refund.cash_movement_id = movement.id
+    sale = session.exec(scope_tenant_query(select(Sale).where(Sale.id == payment.sale_id), Sale, context).with_for_update()).first()
+    sale_refunds = session.exec(scope_tenant_query(select(PaymentRefund).join(
+        Payment, PaymentRefund.payment_id == Payment.id,
+    ).where(Payment.sale_id == payment.sale_id), PaymentRefund, context)).all()
+    refunded_total = sum((item.amount for item in sale_refunds), Decimal("0"))
+    if sale:
+        sale.status = SaleStatusEnum.REFUNDED if refunded_total >= sale.net_total else SaleStatusEnum.PARTIALLY_REFUNDED
+        sale.updated_at = datetime.utcnow()
+    reliability_service.write_audit_and_outbox(
+        session=session, tenant_id=context.tenant_id, store_id=payment.store_id,
+        actor_id=actor_id, action="payment.refunded", target=f"PAYMENT-REFUND-{refund.id}",
+        audit_payload={"payment_id": str(payment.id), "amount": str(value), "reason": reason},
+        aggregate_type="payment_refund", aggregate_id=str(refund.id), event_type="payment.refunded",
+        outbox_payload={"payment_id": str(payment.id), "refund_id": str(refund.id), "amount": str(value)},
+    )
+    session.commit(); session.refresh(refund)
+    return refund
 
 def create_payment(
     session: Session,
@@ -160,7 +224,9 @@ def confirm_payment(
             actor_id=actor_id,
             movement_type=CashMovementTypeEnum.SALE_PAYMENT,
             amount=payment.amount,
-            notes=f"Pagamento Venda #{sale.id}"
+            notes=f"Pagamento Venda #{sale.id}",
+            source_type="PAYMENT", source_id=str(payment.id),
+            idempotency_key=f"payment:{payment.id}:cash",
         )
         session.add(cash_mov)
 

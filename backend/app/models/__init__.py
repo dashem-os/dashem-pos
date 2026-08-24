@@ -66,6 +66,7 @@ from app.models.receivable import (
     ReceivableAgreement, ReceivableAgreementItem, ReceivableAgreementStatusEnum,
     ReceivableCollectionEvent,
 )
+from app.models.reconciliation import FinancialReconciliation, ReconciliationEvent, ReconciliationStatusEnum, PaymentRefund
 
 __all__ = [
     "Tenant",
@@ -207,4 +208,5 @@ __all__ = [
     "ReceivableReceipt", "ReceivableReceiptAllocation", "ReceivableReceiptStatusEnum",
     "ReceivableAgreement", "ReceivableAgreementItem", "ReceivableAgreementStatusEnum",
     "ReceivableCollectionEvent",
+    "FinancialReconciliation", "ReconciliationEvent", "ReconciliationStatusEnum", "PaymentRefund",
 ]

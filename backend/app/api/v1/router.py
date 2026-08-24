@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.api.v1.endpoints import identity, catalog, inventory, sales, cash, payments, fiscal, capabilities, team, management, orders, tables, negotiations, providers, channels, production, transfers, channel_catalog, devices, receivables
+from app.api.v1.endpoints import identity, catalog, inventory, sales, cash, payments, fiscal, capabilities, team, management, orders, tables, negotiations, providers, channels, production, transfers, channel_catalog, devices, receivables, reconciliations
 
 api_router = APIRouter()
 api_router.include_router(identity.router, prefix="/identity", tags=["Identity & Tenancy"])
@@ -22,3 +22,4 @@ api_router.include_router(transfers.router, prefix="/transfers", tags=["Transfer
 api_router.include_router(channel_catalog.router, prefix="/channel-catalog", tags=["Channel Catalog & Reconciliation"])
 api_router.include_router(devices.router, prefix="/devices", tags=["Operational Devices"])
 api_router.include_router(receivables.router, prefix="/receivables", tags=["Credit & Receivables"])
+api_router.include_router(reconciliations.router, prefix="/reconciliations", tags=["Financial Reconciliation"])

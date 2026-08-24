@@ -27,6 +27,7 @@ class FiscalEventTypeEnum(str, Enum):
     CONTINGENCY_REGISTERED = "CONTINGENCY_REGISTERED"
     CANCELLATION_REQUESTED = "CANCELLATION_REQUESTED"
     CANCELED = "CANCELED"
+    RETRY_REQUESTED = "RETRY_REQUESTED"
 
 class FiscalDocument(SQLModel, table=True):
     __tablename__ = "fiscal_documents"
@@ -60,6 +61,8 @@ class FiscalDocument(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
     issued_at: Optional[datetime] = Field(default=None)
     canceled_at: Optional[datetime] = Field(default=None)
+    attempt_count: int = Field(default=0)
+    last_attempt_at: Optional[datetime] = Field(default=None, index=True)
 
     events: List["FiscalEvent"] = Relationship(back_populates="fiscal_document")
 
