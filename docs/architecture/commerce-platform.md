@@ -68,10 +68,15 @@ Dashem Control
     └── entrega o acesso ao administrador contratual
         └── o cliente organiza sua própria empresa
             ├── administradores
-            ├── gerentes e supervisores
-            ├── caixas e operadores
-            └── auditores
+            ├── gerentes
+            ├── supervisores
+            └── caixas e atendentes
 ```
+
+No Commerce Plane, administradores e gerentes usam identidade por e-mail.
+Supervisores, caixas e atendentes assumem o turno por código e PIN em terminal
+previamente autorizado. `AUDITOR`, quando existir no Control Plane, é função
+interna da plataforma e nunca papel da equipe do tenant.
 
 O Control Plane não atribui funções internas do cliente. Ele controla contrato,
 plano, limites, capabilities contratadas e ciclo de vida da organização. A

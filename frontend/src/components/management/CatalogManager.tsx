@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react'
-import { Package, Plus, Search, ArrowUpDown, CheckCircle2, Star } from 'lucide-react'
+import { Archive, Package, Plus, Search, ArrowUpDown, CheckCircle2, Star } from 'lucide-react'
 import { usePos } from '../../context/PosContext'
 import { Modal } from '../common/Modal'
 import * as api from '../../services/api'
 
 export const CatalogManager: React.FC = () => {
-  const { tenant, store, products, createNewProduct, adjustStock, actionLoading } = usePos()
+  const { tenant, store, products, createNewProduct, adjustStock, refreshData, actionLoading } = usePos()
   const [searchQuery, setSearchQuery] = useState('')
   const [catalogItems, setCatalogItems] = useState<api.SellableProduct[]>([])
   const [total, setTotal] = useState(0)
@@ -13,6 +13,7 @@ export const CatalogManager: React.FC = () => {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
   const [isStockModalOpen, setIsStockModalOpen] = useState(false)
   const [selectedProductForStock, setSelectedProductForStock] = useState<string | null>(null)
+  const [productToArchive, setProductToArchive] = useState<api.SellableProduct | null>(null)
 
   // New Product Form
   const [name, setName] = useState('')
@@ -95,6 +96,16 @@ export const CatalogManager: React.FC = () => {
     while (used.has(position)) position += 1
     await api.setQuickAccess(headers, product.id, position)
     setCatalogItems((items) => items.map((item) => item.id === product.id ? { ...item, quick_position: position } : item))
+  }
+
+  const archiveProduct = async () => {
+    if (!tenant || !store || !productToArchive) return
+    const headers = { 'X-Tenant-ID': tenant.id, 'X-Store-ID': store.id }
+    await api.updateProduct(headers, productToArchive.id, { is_active: false, available_for_sale: false })
+    setCatalogItems(items => items.filter(item => item.id !== productToArchive.id))
+    setTotal(value => Math.max(0, value - 1))
+    setProductToArchive(null)
+    await refreshData()
   }
 
   return (
@@ -193,6 +204,7 @@ export const CatalogManager: React.FC = () => {
                     </td>
                     <td className="px-5 py-3.5 text-center">
                       <div className="inline-flex gap-2">
+                        <button type="button" onClick={() => setProductToArchive(prod)} title="Arquivar e retirar do PDV" className="rounded-lg border border-amber-900 bg-amber-950/30 p-2 text-amber-300"><Archive className="h-3.5 w-3.5" /></button>
                         <button
                           type="button"
                           onClick={() => handleQuickAccess(prod)}
@@ -248,7 +260,7 @@ export const CatalogManager: React.FC = () => {
               required
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Ex: Cabo Flexível 2.5mm"
+              placeholder="Ex.: Hambúrguer artesanal, diária ou camiseta"
               className="w-full h-11 px-3.5 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-white text-xs font-semibold focus:border-dashem-red outline-none"
             />
           </div>
@@ -399,6 +411,8 @@ export const CatalogManager: React.FC = () => {
           </div>
         </form>
       </Modal>
+
+      <Modal isOpen={Boolean(productToArchive)} onClose={() => setProductToArchive(null)} title="Arquivar item do catálogo" subtitle="O item deixa o PDV sem apagar seu histórico."><div className="space-y-4"><p className="rounded-xl border border-amber-900/50 bg-amber-950/30 p-4 text-sm font-bold text-amber-200">{productToArchive?.name} será retirado da venda e do acesso rápido. Vendas, estoque e auditoria permanecem preservados.</p><div className="grid grid-cols-2 gap-3"><button onClick={() => setProductToArchive(null)} className="h-11 rounded-xl border border-dashem-border font-black text-white">Cancelar</button><button disabled={actionLoading} onClick={() => void archiveProduct()} className="h-11 rounded-xl bg-amber-600 font-black text-white disabled:opacity-40">Arquivar item</button></div></div></Modal>
     </div>
   )
 }

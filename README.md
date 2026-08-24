@@ -180,8 +180,11 @@ incrementais e isolados por tenant/unidade. Faturamento, vendas, recebimentos,
 estornos, recebíveis, mesas, produção, transferências, marketplace e ruptura são
 calculados no servidor; filtros e drill-down chegam à fonte persistida sem levar
 o histórico bruto ao navegador. Fórmulas, watermark, versão e atraso da projeção
-ficam explícitos na Gestão. O próximo gate canônico é o **S18 — Dashem Control
-Completion**.
+ficam explícitos na Gestão. O gate corretivo **S17.1 — Identidade Operacional e
+Correção da Jornada** separa administradores/gerentes por e-mail de
+supervisores/caixas/atendentes por PIN, exige assunção individual do PDV ou
+Mesas e corrige reservas legadas sem apagar histórico. O próximo gate canônico
+é o **S18 — Dashem Control Completion**.
 
 ## Trilha pendente: conclusão do Console Owner
 

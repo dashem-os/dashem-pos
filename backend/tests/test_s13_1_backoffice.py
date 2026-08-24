@@ -93,6 +93,12 @@ async def test_s13_1_backoffice_separates_configuration_reservation_and_attendan
         })
         assert overlap.status_code == 409
 
+        fake_reservation = await client.post(f"/api/v1/tables/{table['id']}/state", headers=headers, json={
+            "expected_version": occupied["version"], "target": "BLOCKED", "reason": "Reservado", "actor_id": actor,
+        })
+        assert fake_reservation.status_code == 422
+        assert "fluxo de reservas" in fake_reservation.json()["detail"]
+
         blocked = await client.post(f"/api/v1/tables/{table['id']}/state", headers=headers, json={
             "expected_version": occupied["version"], "target": "BLOCKED", "reason": "Cadeira danificada", "actor_id": actor,
         })

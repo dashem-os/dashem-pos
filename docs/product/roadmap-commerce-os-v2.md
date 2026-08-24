@@ -1031,6 +1031,46 @@ Implementação concluída:
   estabilidade dos totais são cobertos por testes automatizados;
 - a decisão de autoridade, atualização e descarte está registrada no ADR-011.
 
+### S17.1 — Identidade Operacional e Correção da Jornada
+
+Estado: **concluído no gate interno**. Este gate corretivo não acrescenta uma
+tela cosmética: separa as identidades da Gestão e da operação e corrige dados
+legados de reserva sem apagar histórico.
+
+Entregas:
+
+- administradores e gerentes entram por e-mail e permanecem na Gestão;
+- supervisor, caixa e atendente são cadastrados sem e-mail fictício, com unidade,
+  código de colaborador e PIN individual;
+- portão de PIN obrigatório ao assumir PDV ou Mesas em terminal autorizado;
+- token operacional curto e assinado, limitado a tenant, unidade, terminal,
+  membership e papel;
+- hash forte, salt individual, bloqueio temporário por tentativas e redefinição
+  auditável de PIN;
+- `SUPERVISOR` substitui `AUDITOR` nas memberships e interfaces do tenant;
+- reserva real continua em `RESERVED`; motivo de bloqueio não pode mais fingir
+  ser reserva;
+- registros legados cujo bloqueio dizia “Reservado” aparecem como reserva e
+  oferecem “Cliente chegou · abrir mesa”, corrigindo o estado e iniciando a
+  sessão em uma única jornada;
+- catálogo persistido pode ser arquivado pela Gestão sem apagar vendas, estoque
+  ou trilha histórica; o PDV deixa de oferecer o item arquivado.
+
+Gate:
+
+- operador sem e-mail autentica com código e PIN e recebe somente o escopo da
+  unidade e do terminal selecionados;
+- PIN incorreto não emite token e cinco erros bloqueiam temporariamente;
+- membership, usuário, tenant, unidade ou terminal inativos impedem ativação;
+- administrador não é redirecionado automaticamente para o PDV;
+- mesa reservada possui ação de chegada, enquanto mesa bloqueada exige motivo de
+  impedimento;
+- frontend, backend, migração completa, downgrade/upgrade e testes de isolamento
+  permanecem verdes.
+
+Decisão registrada no
+[`ADR-012`](../architecture/adr-012-operational-pin-identity.md).
+
 ### S18 — Dashem Control Completion
 
 Objetivo: concluir o plano de controle sem invadir a gestão cotidiana do tenant.
@@ -1242,7 +1282,7 @@ O próximo ciclo de implementação deve ser:
 S18 — Dashem Control Completion
 ```
 
-S0–S17 estão concluídos nos gates internos. O S13 introduziu o ADR-009,
+S0–S17 e o gate corretivo S17.1 estão concluídos nos gates internos. O S13 introduziu o ADR-009,
 mapeamentos por merchant, ofertas versionadas, publicação item a item e documentos
 de repasse independentes do Order. Falha parcial e diferença financeira ficam
 observáveis. O S13.1 completa a primeira retaguarda operacional do tenant e fixa
@@ -1250,5 +1290,6 @@ a fronteira Gestão → PDV/KDS, nunca no sentido inverso. O S14 fecha o primeir
 contrato de crediário sem tratar obrigação como recebimento. O S15 adiciona
 baixas e acordos imutáveis. O S16 fecha caixa, fiscal, estornos e conciliação
 com fatos compensatórios e sem reescrita. O S17 cria projeções incrementais e
-reconstruíveis, com fórmulas, lag e drill-down rastreáveis. O próximo gate
-canônico é o S18.
+reconstruíveis, com fórmulas, lag e drill-down rastreáveis. O S17.1 fixa a
+fronteira e-mail/PIN, o papel Supervisor e a chegada de reservas sem apagar
+histórico. O próximo gate canônico é o S18.

@@ -10,9 +10,9 @@ class RoleEnum(str, Enum):
     TENANT_OWNER = "TENANT_OWNER"
     ADMIN = "ADMIN"
     MANAGER = "MANAGER"
+    SUPERVISOR = "SUPERVISOR"
     CASHIER = "CASHIER"
     OPERATOR = "OPERATOR"
-    AUDITOR = "AUDITOR"
 
 class TenantStatusEnum(str, Enum):
     PROVISIONING = "PROVISIONING"
@@ -197,7 +197,7 @@ class User(SQLModel, table=True):
     __tablename__ = "users"
     
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-    email: str = Field(unique=True, index=True)
+    email: Optional[str] = Field(default=None, unique=True, index=True)
     full_name: str
     # Credentials are owned by the identity provider. Kept nullable only for
     # migration compatibility with the pre-Supabase prototype.
@@ -258,6 +258,31 @@ class Membership(SQLModel, table=True):
     user: Optional[User] = Relationship(back_populates="memberships")
     tenant: Optional[Tenant] = Relationship(back_populates="memberships")
     store: Optional[Store] = Relationship(back_populates="memberships")
+
+
+class OperationalCredential(SQLModel, table=True):
+    """Store-scoped PIN identity used only after a trusted terminal is opened."""
+
+    __tablename__ = "operational_credentials"
+    __table_args__ = (
+        UniqueConstraint("membership_id", name="uq_operational_credential_membership"),
+        UniqueConstraint("tenant_id", "store_id", "employee_code", name="uq_operational_employee_code"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(foreign_key="tenants.id", index=True)
+    store_id: uuid.UUID = Field(foreign_key="stores.id", index=True)
+    user_id: uuid.UUID = Field(foreign_key="users.id", index=True)
+    membership_id: uuid.UUID = Field(foreign_key="memberships.id", index=True)
+    employee_code: str = Field(index=True, max_length=20)
+    pin_salt: str = Field(max_length=64, exclude=True)
+    pin_hash: str = Field(max_length=128, exclude=True)
+    pin_iterations: int = Field(default=210_000)
+    failed_attempts: int = Field(default=0)
+    locked_until: Optional[datetime] = Field(default=None, index=True)
+    last_used_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class Permission(SQLModel, table=True):

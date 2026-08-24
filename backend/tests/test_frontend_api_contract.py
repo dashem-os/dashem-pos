@@ -19,6 +19,7 @@ CONTRACTS = [
     ("POST", "/api/v1/catalog/categories", "/api/v1/catalog/categories`"),
     ("GET", "/api/v1/catalog/products", "/api/v1/catalog/products`"),
     ("POST", "/api/v1/catalog/products", "/api/v1/catalog/products`"),
+    ("PATCH", "/api/v1/catalog/products/{product_id}", "/api/v1/catalog/products/${productId}`"),
     ("GET", "/api/v1/catalog/sellable-products", "/api/v1/catalog/sellable-products?"),
     ("PUT", "/api/v1/catalog/quick-access/{product_id}", "/api/v1/catalog/quick-access/${productId}`"),
     ("GET", "/api/v1/catalog/prices", "/api/v1/catalog/prices`"),
@@ -45,6 +46,9 @@ CONTRACTS = [
     ("GET", "/api/v1/capabilities/effective", "/api/v1/capabilities/effective`"),
     ("GET", "/api/v1/team", "/api/v1/team`"),
     ("POST", "/api/v1/team/invitations", "/api/v1/team/invitations`"),
+    ("POST", "/api/v1/team/operational", "/api/v1/team/operational`"),
+    ("POST", "/api/v1/team/{membership_id}/pin", "/api/v1/team/${membershipId}/pin`"),
+    ("POST", "/api/v1/operational-access/activate", "/api/v1/operational-access/activate`"),
     ("GET", "/api/v1/management/overview", "/api/v1/management/overview`"),
 ]
 
@@ -84,6 +88,9 @@ def test_every_tenant_critical_contract_keeps_context_headers_in_client():
         "fetchEffectiveAccess",
         "fetchTeam",
         "inviteTeamMember",
+        "createOperationalMember",
+        "resetOperationalPin",
+        "activateOperationalAccess",
         "fetchManagementOverview",
     ):
         start = source.index(f"export async function {function_name}")

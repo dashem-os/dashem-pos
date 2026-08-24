@@ -2,9 +2,10 @@ import { Toast } from '../components/common/Toast'
 import { PosProvider, usePos } from '../context/PosContext'
 import { PosLayout } from '../layouts/PosLayout'
 import { OperationalContextGate, OperationalSelection } from '../components/context/OperationalContextGate'
+import { OperationalPinGate } from '../components/auth/OperationalPinGate'
 
 export default function PosShell() {
-  return <OperationalContextGate requireTerminal>{(selection) => <SelectedPosShell selection={selection} />}</OperationalContextGate>
+  return <OperationalContextGate requireTerminal>{(selection) => <OperationalPinGate selection={selection}><SelectedPosShell selection={selection} /></OperationalPinGate>}</OperationalContextGate>
 }
 
 function SelectedPosShell({ selection }: { selection: OperationalSelection }) {

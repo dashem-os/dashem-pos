@@ -22,6 +22,9 @@ const statusClass: Record<api.ServiceTable['status'], string> = {
   BLOCKED: 'border-slate-300 bg-slate-100 text-slate-600',
 }
 
+const isLegacyReservationBlock = (table: api.ServiceTableProjection) =>
+  table.status === 'BLOCKED' && /reserv/i.test(table.blocking_reason || '')
+
 export function TableServiceWorkspace() {
   const { tenant, store, register, operatorId, products, permissions, cashSession, showToast } = usePos()
   const [tables, setTables] = useState<api.ServiceTableProjection[]>([])
@@ -102,6 +105,26 @@ export function TableServiceWorkspace() {
     finally { setBusy(false) }
   }
 
+  const repairLegacyReservationAndOpen = async (table: api.ServiceTableProjection) => {
+    if (!store || !permissions.includes('table.state.update') || !permissions.includes('table.session.open')) return
+    setBusy(true)
+    try {
+      await api.setServiceTableState(headers, table.id, {
+        expected_version: table.version,
+        target: 'AVAILABLE',
+        reason: 'Correção de registro legado: reserva gravada indevidamente como bloqueio',
+        actor_id: operatorId,
+      })
+      const opened = await api.openTableSession(headers, crypto.randomUUID(), {
+        store_id: store.id, service_table_id: table.id, actor_id: operatorId,
+      })
+      setSelected(opened)
+      showToast('success', `${table.name} corrigida e aberta para o atendimento.`)
+      await load(false)
+    } catch (error) { showToast('error', error instanceof Error ? error.message : 'Não foi possível corrigir e abrir a mesa.') }
+    finally { setBusy(false) }
+  }
+
   const changeTableState = async () => {
     const table = stateDialogTable
     if (!table || stateReason.trim().length < 3) return
@@ -131,7 +154,12 @@ export function TableServiceWorkspace() {
     <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_460px]">
       <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
         <div className="mb-4 flex items-center justify-between"><div><h2 className="font-black">Mapa operacional</h2><p className="text-xs text-slate-500">{tables.length} mesas persistidas nesta unidade</p></div>{loading && <Loader2 className="h-5 w-5 animate-spin text-slate-400" />}</div>
-        {!loading && tables.length === 0 ? <EmptyState /> : <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">{tables.map((table) => <article key={table.id} className={`overflow-hidden rounded-2xl border-2 transition hover:-translate-y-0.5 hover:shadow-md ${statusClass[table.status]}`}><button disabled={busy || table.status === 'BLOCKED'} onClick={() => void openTable(table)} className="min-h-32 w-full p-4 text-left disabled:cursor-not-allowed"><div className="flex items-start justify-between gap-2"><Armchair className="h-5 w-5" /><span className="rounded-full bg-white/70 px-2 py-1 text-[10px] font-black uppercase">{statusLabel[table.status]}</span></div><p className="mt-4 text-lg font-black">{table.name}</p><p className="text-[11px] opacity-70">{table.area || 'Área geral'} · {table.capacity} lugares</p>{table.blocking_reason && <p className="mt-2 rounded-lg bg-red-100/80 p-2 text-[10px] font-black text-red-800">{table.status === 'OCCUPIED' ? 'Bloquear ao fechar: ' : ''}{table.blocking_reason}</p>}{table.active_reservation && <div className="mt-3 rounded-lg bg-white/60 p-2 text-[11px] font-bold"><p>{table.active_reservation.customer_name} · {table.active_reservation.party_size} pessoas</p><p>{new Date(table.active_reservation.reserved_for).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p></div>}{table.active_session_id && <div className="mt-3 border-t border-current/15 pt-2 text-[11px] font-bold"><p>{table.item_count} itens · {table.order_count} comandas</p><p className="mt-0.5 text-sm font-black">{formatCurrency(Number(table.consolidated_total))}</p></div>}</button>{permissions.includes('table.state.update') && ['AVAILABLE', 'OCCUPIED', 'BLOCKED'].includes(table.status) && <button disabled={busy} onClick={() => { setStateDialogTable(table); setStateReason('') }} className="flex h-9 w-full items-center justify-center gap-1 border-t border-current/15 bg-white/40 text-[10px] font-black uppercase"><Ban className="h-3.5 w-3.5" />{table.status === 'BLOCKED' ? 'Liberar mesa' : table.status === 'OCCUPIED' && table.blocking_reason ? 'Cancelar bloqueio' : table.status === 'OCCUPIED' ? 'Bloquear ao fechar' : 'Sinalizar impedimento'}</button>}</article>)}</div>}
+        {tables.filter(table => table.status === 'RESERVED' && table.active_reservation).map(table => <button key={`arrival-${table.id}`} disabled={busy} onClick={() => setPendingReservationTable(table)} className="mb-4 mr-2 rounded-xl border border-sky-300 bg-sky-50 px-4 py-3 text-left text-xs font-black text-sky-900"><CalendarClock className="mr-2 inline h-4 w-4" />{table.name}: {table.active_reservation?.customer_name} chegou · confirmar abertura</button>)}
+        {!loading && tables.length === 0 ? <EmptyState /> : <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">{tables.map((table) => {
+          const legacyReservation = isLegacyReservationBlock(table)
+          const visualStatus = legacyReservation ? 'RESERVED' : table.status
+          return <article key={table.id} className={`overflow-hidden rounded-2xl border-2 transition hover:-translate-y-0.5 hover:shadow-md ${statusClass[visualStatus]}`}><button disabled={busy || table.status === 'BLOCKED'} onClick={() => void openTable(table)} className="min-h-32 w-full p-4 text-left disabled:cursor-not-allowed"><div className="flex items-start justify-between gap-2"><Armchair className="h-5 w-5" /><span className="rounded-full bg-white/70 px-2 py-1 text-[10px] font-black uppercase">{statusLabel[visualStatus]}</span></div><p className="mt-4 text-lg font-black">{table.name}</p><p className="text-[11px] opacity-70">{table.area || 'Área geral'} · {table.capacity} lugares</p>{table.blocking_reason && !legacyReservation && <p className="mt-2 rounded-lg bg-red-100/80 p-2 text-[10px] font-black text-red-800">{table.status === 'OCCUPIED' ? 'Bloquear ao fechar: ' : ''}{table.blocking_reason}</p>}{legacyReservation && <p className="mt-2 rounded-lg bg-sky-100/80 p-2 text-[10px] font-black text-sky-800">Reserva aguardando chegada</p>}{table.active_reservation && <div className="mt-3 rounded-lg bg-white/60 p-2 text-[11px] font-bold"><p>{table.active_reservation.customer_name} · {table.active_reservation.party_size} pessoas</p><p>{new Date(table.active_reservation.reserved_for).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p></div>}{table.active_session_id && <div className="mt-3 border-t border-current/15 pt-2 text-[11px] font-bold"><p>{table.item_count} itens · {table.order_count} comandas</p><p className="mt-0.5 text-sm font-black">{formatCurrency(Number(table.consolidated_total))}</p></div>}</button>{legacyReservation ? <button disabled={busy} onClick={() => void repairLegacyReservationAndOpen(table)} className="flex h-10 w-full items-center justify-center gap-1 border-t border-sky-200 bg-sky-600 text-[10px] font-black uppercase text-white disabled:opacity-40"><CheckCircle2 className="h-3.5 w-3.5" />Cliente chegou · abrir mesa</button> : permissions.includes('table.state.update') && ['AVAILABLE', 'OCCUPIED', 'BLOCKED'].includes(table.status) && <button disabled={busy} onClick={() => { setStateDialogTable(table); setStateReason('') }} className="flex h-9 w-full items-center justify-center gap-1 border-t border-current/15 bg-white/40 text-[10px] font-black uppercase"><Ban className="h-3.5 w-3.5" />{table.status === 'BLOCKED' ? 'Liberar mesa' : table.status === 'OCCUPIED' && table.blocking_reason ? 'Cancelar bloqueio' : table.status === 'OCCUPIED' ? 'Bloquear ao fechar' : 'Sinalizar impedimento'}</button>}</article>
+        })}</div>}
       </section>
       <SessionPanel session={selected} availableSessions={sessions} headers={headers} products={products} operatorId={operatorId} permissions={permissions} cashSession={cashSession} registerId={register?.id} busy={busy} setBusy={setBusy} onChanged={async (sessionId) => { setSelected(await api.getTableSession(headers, sessionId)); await load(false) }} onClosed={async () => { setSelected(null); await load(false) }} onClose={() => setSelected(null)} showToast={showToast} />
     </div>

@@ -44,6 +44,12 @@ def resolve_internal_user(session: Session, principal: AuthPrincipal) -> Optiona
     if principal.bypass:
         return session.get(User, principal.legacy_user_id) if principal.legacy_user_id else None
 
+    if principal.provider == "operational":
+        user = session.get(User, principal.legacy_user_id) if principal.legacy_user_id else None
+        if not user or not user.is_active:
+            raise HTTPException(status_code=403, detail="Operational identity is inactive or unavailable.")
+        return user
+
     identity = session.exec(
         select(AuthIdentity).where(
             AuthIdentity.provider == "supabase",
@@ -80,6 +86,13 @@ def authorize_tenant_context(
 
     user = resolve_internal_user(session, principal)
     assert user is not None
+    if principal.provider == "operational":
+        claims = principal.claims
+        if claims.get("tenant_id") != str(tenant_id):
+            raise HTTPException(status_code=403, detail="Operational session belongs to another tenant.")
+        token_store_id = claims.get("store_id")
+        if not store_id or token_store_id != str(store_id):
+            raise HTTPException(status_code=403, detail="Operational session belongs to another store.")
     set_tenant_db_context(session, tenant_id, store_id, user.id)
     tenant = session.get(Tenant, tenant_id)
     if not tenant or tenant.status not in {TenantStatusEnum.TRIAL, TenantStatusEnum.ACTIVE}:
@@ -95,6 +108,11 @@ def authorize_tenant_context(
         Membership.tenant_id == tenant_id,
         Membership.status == MembershipStatusEnum.ACTIVE,
     )
+    if principal.provider == "operational":
+        try:
+            membership_query = membership_query.where(Membership.id == uuid.UUID(str(principal.claims.get("membership_id"))))
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=401, detail="Operational session has no valid membership.") from exc
     if store_id:
         membership_query = membership_query.where(
             or_(Membership.store_id.is_(None), Membership.store_id == store_id)

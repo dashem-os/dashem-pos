@@ -35,6 +35,16 @@ def _unauthorized(detail: str) -> HTTPException:
 def decode_access_token(token: str) -> dict[str, Any]:
     """Validate a Supabase access token (or an isolated local test token)."""
     try:
+        unverified = jwt.decode(token, options={"verify_signature": False, "verify_aud": False})
+        if unverified.get("iss") == "dashem-operational":
+            return jwt.decode(
+                token,
+                settings.SECRET_KEY,
+                algorithms=["HS256"],
+                audience="dashem-pos",
+                issuer="dashem-operational",
+                options={"require": ["exp", "iat", "sub", "aud", "iss", "tenant_id", "store_id", "membership_id"]},
+            )
         if settings.AUTH_MODE == "test":
             if not settings.AUTH_TEST_SECRET:
                 raise RuntimeError("AUTH_TEST_SECRET is required in test auth mode")
@@ -108,4 +118,5 @@ def get_current_principal(
         assurance_level=claims.get("aal", "aal1"),
         claims=claims,
         provider=(claims.get("app_metadata") or {}).get("provider"),
+        legacy_user_id=uuid.UUID(str(subject)) if (claims.get("app_metadata") or {}).get("provider") == "operational" else None,
     )

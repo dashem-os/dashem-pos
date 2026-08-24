@@ -7,6 +7,9 @@ export interface OperationalSelection {
   tenantId: string
   storeId: string
   registerId?: string
+  tenantName?: string
+  storeName?: string
+  registerName?: string
 }
 
 export function OperationalContextGate({
@@ -69,7 +72,12 @@ export function OperationalContextGate({
   }, [requireTerminal, tenantId, storeId])
 
   const ready = Boolean(tenantId && storeId && (!requireTerminal || registerId))
-  const selection = useMemo(() => ready ? { tenantId, storeId, registerId: registerId || undefined } : null, [ready, tenantId, storeId, registerId])
+  const selection = useMemo(() => ready ? {
+    tenantId, storeId, registerId: registerId || undefined,
+    tenantName: tenants.find(item => item.id === tenantId)?.name,
+    storeName: stores.find(item => item.id === storeId)?.name,
+    registerName: registers.find(item => item.id === registerId)?.name,
+  } : null, [ready, tenantId, storeId, registerId, tenants, stores, registers])
 
   if (loading && tenants.length === 0) return <ContextState label="Carregando contextos autorizados..." />
   if (error) return <ContextState label={error} error />

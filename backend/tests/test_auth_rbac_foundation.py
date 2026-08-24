@@ -56,11 +56,12 @@ def test_test_mode_validates_signed_token_and_rejects_expired_token(monkeypatch)
     assert exc.value.status_code == 401
 
 
-def test_permission_matrix_denies_management_to_cashier_and_writes_to_auditor():
+def test_permission_matrix_denies_management_to_cashier_and_keeps_supervisor_operational():
     assert tenant_role_allows(RoleEnum.CASHIER, "POST", "/api/v1/sales")
     assert not tenant_role_allows(RoleEnum.CASHIER, "POST", "/api/v1/catalog/products")
-    assert tenant_role_allows(RoleEnum.AUDITOR, "GET", "/api/v1/sales")
-    assert not tenant_role_allows(RoleEnum.AUDITOR, "POST", "/api/v1/sales")
+    assert tenant_role_allows(RoleEnum.SUPERVISOR, "GET", "/api/v1/sales")
+    assert tenant_role_allows(RoleEnum.SUPERVISOR, "POST", "/api/v1/sales")
+    assert not tenant_role_allows(RoleEnum.SUPERVISOR, "POST", "/api/v1/team/operational")
 
 
 def test_membership_and_store_scope_block_cross_tenant_access():

@@ -22,15 +22,35 @@ interface AuthContextValue {
   listTotpFactors: () => Promise<{ factors: Factor[]; error: string | null }>
   enrollTotp: () => Promise<{ enrollment: TotpEnrollment | null; error: string | null }>
   verifyTotp: (factorId: string, code: string) => Promise<string | null>
+  operationalActive: boolean
+  activateOperationalSession: (token: string) => void
+  clearOperationalSession: () => void
   signOut: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 
+function readOperationalToken() {
+  const token = sessionStorage.getItem('dashem.operational_token')
+  if (!token) return null
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))) as { exp?: number }
+    if (!payload.exp || payload.exp * 1000 <= Date.now()) {
+      sessionStorage.removeItem('dashem.operational_token')
+      return null
+    }
+    return token
+  } catch {
+    sessionStorage.removeItem('dashem.operational_token')
+    return null
+  }
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
   const [passwordRecovery, setPasswordRecovery] = useState(false)
+  const [operationalToken, setOperationalToken] = useState<string | null>(readOperationalToken)
 
   useEffect(() => {
     if (!supabase) {
@@ -38,12 +58,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return
     }
     supabase.auth.getSession().then(({ data }) => {
-      setApiAccessTokenProvider(async () => data.session?.access_token ?? null)
+      const localOperationalToken = readOperationalToken()
+      setApiAccessTokenProvider(async () => localOperationalToken ?? data.session?.access_token ?? null)
       setSession(data.session)
       setLoading(false)
     })
     const { data } = supabase.auth.onAuthStateChange((event, nextSession) => {
-      setApiAccessTokenProvider(async () => nextSession?.access_token ?? null)
+      const localOperationalToken = readOperationalToken()
+      setApiAccessTokenProvider(async () => localOperationalToken ?? nextSession?.access_token ?? null)
       setSession(nextSession)
       setPasswordRecovery(event === 'PASSWORD_RECOVERY')
       if (event === 'SIGNED_OUT') clearRecoveryModeFromBrowser()
@@ -53,14 +75,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   useLayoutEffect(() => {
-    setApiAccessTokenProvider(async () => session?.access_token ?? null)
-  }, [session])
+    setApiAccessTokenProvider(async () => operationalToken ?? session?.access_token ?? null)
+  }, [session, operationalToken])
 
   const value = useMemo<AuthContextValue>(() => ({
     session,
     loading,
     configured: hasSupabaseConfig,
     passwordRecovery,
+    operationalActive: Boolean(operationalToken),
+    activateOperationalSession: token => {
+      sessionStorage.setItem('dashem.operational_token', token)
+      setOperationalToken(token)
+      setApiAccessTokenProvider(async () => token)
+    },
+    clearOperationalSession: () => {
+      sessionStorage.removeItem('dashem.operational_token')
+      setOperationalToken(null)
+      setApiAccessTokenProvider(async () => session?.access_token ?? null)
+    },
     signIn: async (email, password) => {
       if (!supabase) return 'Supabase Auth não está configurado.'
       const { error } = await supabase.auth.signInWithPassword({ email, password })
@@ -122,10 +155,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     },
     signOut: async () => {
       setPasswordRecovery(false)
+      if (operationalToken) {
+        sessionStorage.removeItem('dashem.operational_token')
+        setOperationalToken(null)
+        setApiAccessTokenProvider(async () => session?.access_token ?? null)
+        window.location.reload()
+        return
+      }
       if (supabase) await supabase.auth.signOut()
       clearRecoveryModeFromBrowser()
     },
-  }), [session, loading, passwordRecovery])
+  }), [session, loading, passwordRecovery, operationalToken])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

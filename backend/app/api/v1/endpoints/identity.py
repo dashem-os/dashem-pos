@@ -175,7 +175,7 @@ class PlatformTenantProvisioned(BaseModel):
 class PlatformTenantAccessRead(BaseModel):
     membership_id: uuid.UUID
     user_id: uuid.UUID
-    email: str
+    email: Optional[str] = None
     full_name: str
     role: str
     status: str
@@ -375,7 +375,7 @@ class UserCreate(BaseModel):
 class UserRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID
-    email: str
+    email: Optional[str] = None
     full_name: str
     is_active: bool
 

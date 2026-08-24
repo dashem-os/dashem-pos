@@ -4,7 +4,7 @@ import pytest
 from fastapi import HTTPException
 from sqlmodel import Session
 
-from app.api.v1.endpoints.team import TeamInvite, invite_team_member, list_team
+from app.api.v1.endpoints.team import OperationalMemberCreate, TeamInvite, create_operational_member, invite_team_member, list_team
 from app.core.context import TenantContext
 from app.core.database import engine
 from app.core.tenancy import set_platform_db_context, set_tenant_db_context
@@ -22,7 +22,7 @@ from app.models.identity import (
 )
 
 
-def test_tenant_admin_invites_team_with_store_scope_and_contract_limit(monkeypatch):
+def test_tenant_admin_creates_pin_operator_and_enforces_contract_limit(monkeypatch):
     suffix = uuid.uuid4().hex[:8]
     with Session(engine) as session:
         set_platform_db_context(session)
@@ -52,28 +52,30 @@ def test_tenant_admin_invites_team_with_store_scope_and_contract_limit(monkeypat
     )
     with Session(engine) as session:
         set_tenant_db_context(session, tenant_id, user_id=admin_id)
-        invited = invite_team_member(
-            data=TeamInvite(
-                email=f"cashier-{suffix}@example.test",
-                full_name="Cashier",
+        invited = create_operational_member(
+            data=OperationalMemberCreate(
+                full_name="Atendente do salão",
                 role=RoleEnum.CASHIER,
                 store_id=store_id,
+                employee_code=f"CX{suffix[:4]}",
+                pin="4826",
             ),
             context=context,
             session=session,
         )
         assert invited.role == RoleEnum.CASHIER
         assert invited.store_id == store_id
-        assert invited.status == MembershipStatusEnum.INVITED
+        assert invited.status == MembershipStatusEnum.ACTIVE
+        assert invited.access_mode == "PIN"
+        assert invited.email is None
         assert len(list_team(context=context, session=session)) == 2
 
         with pytest.raises(HTTPException) as limit:
             invite_team_member(
                 data=TeamInvite(
-                    email=f"second-{suffix}@example.test",
-                    full_name="Second",
-                    role=RoleEnum.OPERATOR,
-                    store_id=store_id,
+                    email=f"manager-{suffix}@example.test",
+                    full_name="Second manager",
+                    role=RoleEnum.MANAGER,
                 ),
                 context=context,
                 session=session,

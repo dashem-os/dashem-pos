@@ -11,8 +11,8 @@ def tenant_role_allows(role: RoleEnum, method: str, path: str) -> bool:
     method = method.upper()
     if role in FULL_ACCESS_ROLES:
         return True
-    if role == RoleEnum.AUDITOR:
-        return method == "GET"
+    if role == RoleEnum.SUPERVISOR:
+        return not path.startswith(("/api/v1/identity/memberships", "/api/v1/team"))
     if role == RoleEnum.MANAGER:
         return not path.startswith("/api/v1/identity/memberships")
     if role in {RoleEnum.CASHIER, RoleEnum.OPERATOR}:

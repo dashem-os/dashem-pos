@@ -32,6 +32,8 @@ def route_requirement(method: str, path: str) -> RouteRequirement:
     method = method.upper()
     if path == "/api/v1/capabilities/effective":
         return RouteRequirement("capability.read")
+    if path.startswith("/api/v1/operational-access"):
+        return RouteRequirement("operational.activate")
     if path.startswith("/api/v1/team"):
         return RouteRequirement("team.read" if method == "GET" else "team.manage")
     if path.startswith("/api/v1/management"):

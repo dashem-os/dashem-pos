@@ -688,7 +688,9 @@ export interface TeamMember {
   membership_id: string
   user_id: string
   full_name: string
-  email: string
+  email?: string
+  access_mode: 'EMAIL' | 'PIN'
+  employee_code?: string
   role: string
   status: string
   store_id?: string
@@ -737,7 +739,7 @@ export interface BiDrilldown {
 
 export interface AuthMe {
   mode: 'authenticated' | 'local-bypass'
-  user: { id: string; email: string; full_name: string; is_active: boolean } | null
+  user: { id: string; email?: string; full_name: string; is_active: boolean } | null
   platform_role?: string
   assurance_level?: string
   auth_provider?: string
@@ -975,6 +977,50 @@ export async function inviteTeamMember(
     method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(input),
   })
   if (!res.ok) throw await apiError(res, 'Não foi possível convidar o membro da equipe.')
+  return res.json()
+}
+
+export async function createOperationalMember(
+  headers: Record<string, string>,
+  input: { full_name: string; role: 'SUPERVISOR' | 'CASHIER' | 'OPERATOR'; store_id: string; employee_code: string; pin: string },
+): Promise<TeamMember> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/team/operational`, {
+    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível cadastrar o acesso por PIN.')
+  return res.json()
+}
+
+export async function resetOperationalPin(
+  headers: Record<string, string>, membershipId: string, input: { pin: string; reason: string },
+): Promise<TeamMember> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/team/${membershipId}/pin`, {
+    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível redefinir o PIN.')
+  return res.json()
+}
+
+export interface OperationalSession {
+  access_token: string
+  token_type: string
+  expires_at: string
+  user_id: string
+  membership_id: string
+  full_name: string
+  role: 'SUPERVISOR' | 'CASHIER' | 'OPERATOR'
+  store_id: string
+  register_id?: string
+}
+
+export async function activateOperationalAccess(
+  headers: Record<string, string>,
+  input: { employee_code: string; pin: string; store_id: string; register_id?: string },
+): Promise<OperationalSession> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/operational-access/activate`, {
+    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  })
+  if (!res.ok) throw await apiError(res, 'Código ou PIN inválido para esta unidade.')
   return res.json()
 }
 
@@ -1376,6 +1422,17 @@ export async function createCategory(headers: Record<string, string>, name: stri
 export async function updateCategory(headers: Record<string, string>, categoryId: string, data: { name?: string; slug?: string; parent_id?: string; is_active?: boolean }): Promise<Category> {
   const res = await fetch(`${API_BASE_URL}/api/v1/catalog/categories/${categoryId}`, { method: 'PATCH', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
   if (!res.ok) throw await apiError(res, 'Não foi possível atualizar a categoria.')
+  return res.json()
+}
+
+export async function updateProduct(
+  headers: Record<string, string>, productId: string,
+  data: { name?: string; sku?: string; barcode?: string; category_id?: string; is_active?: boolean; available_for_sale?: boolean },
+): Promise<Product> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/catalog/products/${productId}`, {
+    method: 'PATCH', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível atualizar o produto.')
   return res.json()
 }
 

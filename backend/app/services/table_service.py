@@ -323,6 +323,11 @@ def set_service_table_state(
         raise HTTPException(status_code=409, detail="A situação da mesa mudou. Atualize o mapa.")
     if target not in {ServiceTableStatusEnum.AVAILABLE, ServiceTableStatusEnum.BLOCKED}:
         raise HTTPException(status_code=400, detail="A operação manual aceita apenas disponível ou bloqueada.")
+    if target == ServiceTableStatusEnum.BLOCKED and "reserv" in reason.strip().lower():
+        raise HTTPException(
+            status_code=422,
+            detail="Reserva não é impedimento. Use o fluxo de reservas para preservar cliente, horário e chegada.",
+        )
     if table.status == ServiceTableStatusEnum.RESERVED:
         raise HTTPException(status_code=409, detail="Cancele ou conclua a reserva antes de alterar a mesa.")
     actor = _actor(context, actor_id); previous = table.status
