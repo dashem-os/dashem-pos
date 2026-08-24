@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel
 from sqlmodel import Session
 from app.core.database import get_session
-from app.core.context import TenantContext, get_tenant_context
+from app.core.context import TenantContext, get_tenant_context, resolve_actor
 from app.models.catalog import InventoryMovement, InventoryBalance, MovementTypeEnum
 from app.services import inventory_service, reliability_service
 
@@ -37,12 +37,13 @@ def adjust_stock_endpoint(
     x_correlation_id: Optional[str] = Header(None, alias="X-Correlation-ID"),
     session: Session = Depends(get_session)
 ):
+    actor_id = resolve_actor(context, data.actor_id)
     # Check Idempotency if key header is provided
     if x_idempotency_key:
         is_cached, status_code, body = reliability_service.check_idempotency(
             session=session,
             tenant_id=context.tenant_id,
-            actor_id=data.actor_id,
+            actor_id=actor_id,
             operation="POST /api/v1/inventory/adjust",
             idempotency_key=x_idempotency_key,
             request_payload=data.dict()
@@ -55,7 +56,7 @@ def adjust_stock_endpoint(
         context=context,
         store_id=data.store_id,
         product_id=data.product_id,
-        actor_id=data.actor_id,
+        actor_id=actor_id,
         movement_type=data.movement_type,
         quantity=data.quantity,
         reason=data.reason,
@@ -73,7 +74,7 @@ def adjust_stock_endpoint(
         reliability_service.save_idempotency_record(
             session=session,
             tenant_id=context.tenant_id,
-            actor_id=data.actor_id,
+            actor_id=actor_id,
             operation="POST /api/v1/inventory/adjust",
             idempotency_key=x_idempotency_key,
             request_payload=data.dict(),

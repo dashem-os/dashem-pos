@@ -4,7 +4,7 @@ from decimal import Decimal
 from typing import Optional
 from fastapi import HTTPException
 from sqlmodel import Session,select
-from app.core.context import TenantContext,scope_tenant_query
+from app.core.context import TenantContext,resolve_actor,scope_tenant_query
 from app.models.catalog import Product
 from app.models.channel_catalog import *
 from app.models.channel_hub import MerchantConnection
@@ -12,10 +12,7 @@ from app.models.order import Order
 from app.services import reliability_service
 
 def actor(context,actor_id):
- value=actor_id or context.user_id
- if not value:raise HTTPException(400,"actor_id é obrigatório.")
- if context.user_id and value!=context.user_id:raise HTTPException(403,"Ator inválido.")
- return value
+ return resolve_actor(context,actor_id)
 def connection(session,context,cid):
  row=session.exec(scope_tenant_query(select(MerchantConnection).where(MerchantConnection.id==cid),MerchantConnection,context)).first()
  if not row:raise HTTPException(404,"Conexão não encontrada.")

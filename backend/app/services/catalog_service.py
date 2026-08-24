@@ -8,7 +8,7 @@ from sqlalchemy import and_, case, func, or_
 from sqlalchemy.orm import aliased
 from sqlmodel import Session, select
 
-from app.core.context import TenantContext, scope_tenant_query
+from app.core.context import TenantContext, resolve_actor, scope_tenant_query
 from app.models.catalog import (
     Category, Combo, ComboItem, InventoryBalance, ItemTypeEnum, Modifier,
     ModifierGroup, Product, ProductModifierGroup, ProductPrice,
@@ -18,7 +18,7 @@ from app.services import reliability_service
 
 
 def _actor(context: TenantContext) -> uuid.UUID:
-    return context.user_id or uuid.UUID("00000000-0000-0000-0000-000000000000")
+    return resolve_actor(context)
 
 
 def _event(session: Session, context: TenantContext, action: str, aggregate: str, aggregate_id: uuid.UUID, payload: dict[str, Any]) -> None:

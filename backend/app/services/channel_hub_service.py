@@ -11,7 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from app.core.config import settings
-from app.core.context import TenantContext, scope_tenant_query
+from app.core.context import TenantContext, resolve_actor, scope_tenant_query
 from app.core.tenancy import set_tenant_db_context
 from app.models.catalog import Product, ProductPrice
 from app.models.channel import SalesChannel, SalesChannelTypeEnum
@@ -25,7 +25,7 @@ from app.services import order_service, reliability_service
 
 
 def _actor(context: TenantContext, actor_id: Optional[uuid.UUID]) -> uuid.UUID:
-    return actor_id or context.user_id or uuid.UUID("00000000-0000-0000-0000-000000000000")
+    return resolve_actor(context, actor_id)
 
 
 def _hash(payload: object) -> str:
@@ -201,7 +201,14 @@ def receive_event(
     session.add(event); session.commit(); session.refresh(event)
     # Acknowledgment is only recorded after the inbox row is durable.
     event.acknowledged_at = datetime.utcnow(); session.commit(); session.refresh(event)
-    context = TenantContext(tenant_id=tenant_id, store_id=store_id)
+    # The provider identity is server-issued and cannot be selected by the
+    # webhook payload.  Downstream services therefore see the persisted
+    # service principal as their authoritative context actor.
+    context = TenantContext(
+        tenant_id=tenant_id, store_id=store_id,
+        user_id=connection.service_actor_id,
+        auth_subject=f"service:channel:{connection.id}",
+    )
     mapping = session.exec(select(ExternalOrderMapping).where(
         ExternalOrderMapping.merchant_connection_id == connection.id,
         ExternalOrderMapping.external_order_id == external_order_id,

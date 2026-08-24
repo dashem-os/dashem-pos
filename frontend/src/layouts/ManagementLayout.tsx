@@ -16,9 +16,10 @@ import { DeviceManager } from '../components/management/DeviceManager'
 import { CategoryManager } from '../components/management/CategoryManager'
 import { InventoryManager } from '../components/management/InventoryManager'
 import { ReceivablesManager } from '../components/management/ReceivablesManager'
+import { CustomerManager } from '../components/management/CustomerManager'
 import { navigateTo } from '../utils/navigation'
 
-type ModuleId = 'overview' | 'sales' | 'tables' | 'channels' | 'cash' | 'receivables' | 'products' | 'categories' | 'inventory' | 'team' | 'devices'
+type ModuleId = 'overview' | 'sales' | 'tables' | 'channels' | 'cash' | 'receivables' | 'products' | 'categories' | 'inventory' | 'customers' | 'team' | 'devices'
 
 interface NavigationItem {
   id: ModuleId
@@ -29,7 +30,7 @@ interface NavigationItem {
 const MODULE_ICONS: Record<ModuleId, React.ComponentType<{ className?: string }>> = {
   overview: Home, sales: FileText, cash: Banknote, channels: Plug,
   receivables: BadgeDollarSign, products: Package, categories: Tags,
-  inventory: Boxes, tables: ChefHat, devices: Monitor, team: Users,
+  inventory: Boxes, customers: Users, tables: ChefHat, devices: Monitor, team: Users,
 }
 const MODULE_IDS = new Set<ModuleId>(Object.keys(MODULE_ICONS) as ModuleId[])
 
@@ -60,6 +61,7 @@ export const ManagementLayout: React.FC = () => {
       case 'products': return <CatalogManager />
       case 'categories': return <CategoryManager />
       case 'inventory': return <InventoryManager />
+      case 'customers': return <CustomerManager />
       case 'cash': return <CashManager />
       case 'receivables': return <ReceivablesManager />
       case 'tables': return <ServiceSetupManager />

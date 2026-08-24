@@ -182,6 +182,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       if (supabase) await supabase.auth.signOut()
       clearRecoveryModeFromBrowser()
+      if (terminalToken) window.location.assign('/operate')
     },
   }), [session, loading, passwordRecovery, operationalToken, terminalToken])
 

@@ -8,7 +8,7 @@ from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
-from app.core.context import TenantContext, scope_tenant_query
+from app.core.context import TenantContext, resolve_actor, scope_tenant_query
 from app.models.catalog import Product
 from app.models.negotiation import (
     CheckoutNegotiation, CheckoutNegotiationStatusEnum, NegotiationEvent,
@@ -46,7 +46,7 @@ def _money(value: Decimal | float | int | str) -> Decimal:
 
 
 def _actor(context: TenantContext, actor_id: Optional[uuid.UUID]) -> uuid.UUID:
-    return actor_id or context.user_id or uuid.UUID("00000000-0000-0000-0000-000000000000")
+    return resolve_actor(context, actor_id)
 
 
 def _ensure_store(context: TenantContext, store_id: uuid.UUID) -> None:

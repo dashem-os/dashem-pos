@@ -7,7 +7,7 @@ from typing import Optional
 from fastapi import HTTPException
 from sqlmodel import Session, delete, select
 
-from app.core.context import TenantContext, scope_tenant_query
+from app.core.context import TenantContext, resolve_actor, scope_tenant_query
 from app.models.bi import BiDailyFact, BiFactScopeEnum, BiProjectionState
 from app.models.catalog import InventoryBalance, Product
 from app.models.channel_catalog import MarketplaceSettlement
@@ -49,6 +49,7 @@ def refresh_daily_projection(
     session: Session, context: TenantContext, *, store_id: uuid.UUID,
     actor_id: uuid.UUID, start_date: Optional[date] = None, end_date: Optional[date] = None,
 ) -> BiProjectionState:
+    actor_id = resolve_actor(context, actor_id)
     state = session.exec(scope_tenant_query(select(BiProjectionState).where(
         BiProjectionState.store_id == store_id, BiProjectionState.projection_key == "BI_V1_DAILY",
     ), BiProjectionState, context).with_for_update()).first()
@@ -179,7 +180,7 @@ def summary(
         BiProjectionState.store_id == store_id, BiProjectionState.projection_key == "BI_V1_DAILY",
     ), BiProjectionState, context)).first()
     if not state or datetime.utcnow() - state.projected_at > timedelta(minutes=5):
-        state = refresh_daily_projection(session, context, store_id=store_id, actor_id=context.user_id or uuid.UUID(int=0))
+        state = refresh_daily_projection(session, context, store_id=store_id, actor_id=resolve_actor(context))
     end = datetime.utcnow().date(); start = end - timedelta(days=days - 1)
     query = select(BiDailyFact).where(
         BiDailyFact.tenant_id == context.tenant_id, BiDailyFact.store_id == store_id,

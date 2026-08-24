@@ -33,13 +33,13 @@ test('lets an authenticated tenant manager open POS without a second login', asy
   assert.doesNotMatch(gate, /window\.location\.reload\(\)/)
 })
 
-test('exposes PIN entry publicly only after manager authorization of a concrete terminal', async () => {
+test('keeps PIN away from the public management login and binds it to an authorized terminal', async () => {
   const app = await source('../src/App.tsx')
   const login = await source('../src/components/auth/SignInScreen.tsx')
   const entry = await source('../src/components/auth/OperationalEntryScreen.tsx')
   const devices = await source('../src/components/management/DeviceManager.tsx')
   assert.match(app, /pathname === '\/operate'/)
-  assert.match(login, /Entrar com código e PIN/)
+  assert.doesNotMatch(login, /navigateTo\('\/operate'\)|Entrar com código e PIN/)
   assert.match(entry, /resolveOperationalTerminal\(terminalToken\)/)
   assert.match(entry, /loginOperationalTerminal\(terminalToken/)
   assert.match(devices, /authorizeOperationalTerminal\(headers, device\.id\)/)
@@ -54,6 +54,25 @@ test('keeps employee registration independent from operational credentials', asy
   assert.match(team, /Cadastro de funcionários/)
   assert.match(api, /fetchEmployees/)
   assert.match(api, /employee_id: string/)
+})
+
+test('exposes real customer and employee workspaces in tenant management', async () => {
+  const management = await source('../src/layouts/ManagementLayout.tsx')
+  const customers = await source('../src/components/management/CustomerManager.tsx')
+  const team = await source('../src/components/management/TeamManager.tsx')
+  assert.match(management, /case 'customers': return <CustomerManager/)
+  assert.match(management, /case 'team': return <TeamManager/)
+  assert.match(customers, /fetchCustomers\(headers\)/)
+  assert.match(customers, /createCustomer\(headers/)
+  assert.match(customers, /updateCustomer\(headers/)
+  assert.match(team, /Cadastro de funcionários/)
+})
+
+test('keeps POS terminal management usable without kitchen routing', async () => {
+  const devices = await source('../src/components/management/DeviceManager.tsx')
+  assert.match(devices, /productionEnabled \? \['POS', 'KDS', 'PRINTER'\] : \['POS'\]/)
+  assert.match(devices, /if \(productionEnabled\)/)
+  assert.match(devices, /\{productionEnabled && <section/)
 })
 
 test('never derives operational context from the first item of an authorized list', async () => {

@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session
 
-from app.core.context import TenantContext, get_tenant_context
+from app.core.context import TenantContext, get_tenant_context, resolve_actor
 from app.core.database import get_session
 from app.services import bi_service
 
@@ -88,10 +88,9 @@ def refresh_projection(
     context: TenantContext = Depends(get_tenant_context),
     session: Session = Depends(get_session),
 ):
-    if context.user_id and data.actor_id != context.user_id:
-        raise HTTPException(status_code=403, detail="O ator da atualização deve ser o usuário autenticado.")
+    actor_id = resolve_actor(context, data.actor_id)
     return bi_service.refresh_daily_projection(
-        session, context, store_id=_store(context, store_id), actor_id=context.user_id or data.actor_id,
+        session, context, store_id=_store(context, store_id), actor_id=actor_id,
         start_date=data.start_date, end_date=data.end_date,
     )
 

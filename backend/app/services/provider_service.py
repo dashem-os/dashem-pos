@@ -11,7 +11,7 @@ from fastapi import HTTPException
 from sqlmodel import Session, select
 
 from app.core.config import settings
-from app.core.context import TenantContext, scope_tenant_query
+from app.core.context import TenantContext, resolve_actor, scope_tenant_query
 from app.core.tenancy import set_tenant_db_context
 from app.models.negotiation import PaymentIntent, PaymentIntentStatusEnum
 from app.models.payment import PaymentMethodEnum, Register
@@ -33,7 +33,7 @@ RECONCILABLE = {
 
 
 def _actor(context: TenantContext, actor_id: Optional[uuid.UUID]) -> uuid.UUID:
-    return actor_id or context.user_id or uuid.UUID("00000000-0000-0000-0000-000000000000")
+    return resolve_actor(context, actor_id)
 
 
 def _hash_secret(value: str) -> str:
@@ -403,7 +403,15 @@ def report_bridge_result(
     ).with_for_update()).first()
     if not transaction:
         raise HTTPException(status_code=404, detail="Comando não pertence a este bridge.")
-    context = TenantContext(tenant_id=tenant_id, store_id=store_id)
+    # O bridge autenticado pelo segredo de pareamento é o principal sistêmico
+    # desta callback. O usuário que o pareou não deve receber autoria por uma
+    # operação posterior executada pelo dispositivo.
+    context = TenantContext(
+        tenant_id=tenant_id,
+        store_id=store_id,
+        user_id=terminal.id,
+        auth_subject=f"service:tef-bridge:{terminal.id}",
+    )
     return _apply_result(session, context, transaction, ProviderResult(
         status=status_value,
         external_transaction_id=external_transaction_id or transaction.external_transaction_id,
@@ -411,4 +419,4 @@ def report_bridge_result(
         card_brand=card_brand, failure_code=failure_code,
         failure_reason=(failure_reason or "")[:300] or None,
         sanitized_payload={"reported_by_bridge": True, "protocol_version": terminal.protocol_version},
-    ), terminal.paired_by)
+    ), terminal.id)

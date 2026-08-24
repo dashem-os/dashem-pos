@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, select
 
-from app.core.context import TenantContext, scope_tenant_query
+from app.core.context import TenantContext, resolve_actor, scope_tenant_query
 from app.models.catalog import (
     Modifier, ModifierGroup, Product, ProductModifierGroup, ProductPrice,
 )
@@ -32,12 +32,7 @@ def _hash(payload: dict[str, Any]) -> str:
 
 
 def _actor(context: TenantContext, actor_id: Optional[uuid.UUID]) -> uuid.UUID:
-    effective = actor_id or context.user_id
-    if not effective:
-        raise HTTPException(status_code=400, detail="actor_id é obrigatório.")
-    if context.user_id and effective != context.user_id:
-        raise HTTPException(status_code=403, detail="Ator não corresponde à identidade autenticada.")
-    return effective
+    return resolve_actor(context, actor_id)
 
 
 def _event(session: Session, context: TenantContext, order: Order, actor_id: uuid.UUID, event_type: str, payload: dict[str, Any]) -> None:

@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import List, Optional
 from sqlmodel import Session, select
 from fastapi import HTTPException, status
-from app.core.context import TenantContext, scope_tenant_query
+from app.core.context import TenantContext, resolve_actor, scope_tenant_query
 from app.models.payment import (
     Register, CashSession, CashMovement, Payment, CashSessionStatusEnum, CashMovementTypeEnum, PaymentMethodEnum, PaymentStatusEnum
 )
@@ -60,11 +60,7 @@ def update_register(
         CashSession.status.in_([CashSessionStatusEnum.OPEN, CashSessionStatusEnum.CLOSING]),
     ), CashSession, context)).first():
         raise HTTPException(status_code=409, detail="Feche o caixa antes de pausar o terminal.")
-    actor = actor_id or context.user_id
-    if not actor:
-        raise HTTPException(status_code=400, detail="actor_id é obrigatório.")
-    if context.user_id and actor != context.user_id:
-        raise HTTPException(status_code=403, detail="Ator não corresponde à identidade autenticada.")
+    actor = resolve_actor(context, actor_id)
     if name is not None:
         register.name = name.strip()
     if is_active is not None:
@@ -87,6 +83,7 @@ def open_cash_session(
     operator_id: uuid.UUID,
     opening_balance: Decimal
 ) -> CashSession:
+    operator_id = resolve_actor(context, operator_id)
     # Pessimistic Lock on Register to prevent concurrent OPEN sessions
     reg_query = select(Register).where(
         Register.id == register_id,
@@ -193,6 +190,7 @@ def begin_cash_close(
     session: Session, context: TenantContext, session_id: uuid.UUID, *,
     operator_id: uuid.UUID, expected_version: Optional[int], blind_count: bool,
 ) -> CashSession:
+    operator_id = resolve_actor(context, operator_id)
     query = select(CashSession).where(CashSession.id == session_id).with_for_update()
     query = scope_tenant_query(query, CashSession, context)
     cash_session = session.exec(query).first()
@@ -231,6 +229,7 @@ def finalize_cash_close(
     operator_id: uuid.UUID, closing_balance: Decimal, expected_version: int,
     divergence_reason: Optional[str],
 ) -> CashSession:
+    operator_id = resolve_actor(context, operator_id)
     cash_session = session.exec(scope_tenant_query(select(CashSession).where(
         CashSession.id == session_id,
     ), CashSession, context).with_for_update()).first()
@@ -278,6 +277,7 @@ def add_cash_movement(
     source_id: Optional[str] = None,
     idempotency_key: Optional[str] = None,
 ) -> CashMovement:
+    actor_id = resolve_actor(context, actor_id)
     if idempotency_key:
         existing = session.exec(scope_tenant_query(select(CashMovement).where(
             CashMovement.idempotency_key == idempotency_key,

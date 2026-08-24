@@ -261,7 +261,10 @@ def activate(
         "app_metadata": {"provider": "operational"},
     }
     token = jwt.encode(claims, settings.SECRET_KEY, algorithm="HS256")
-    actor_id = context.user_id or user.id
+    # A ativação pertence ao colaborador cuja credencial foi validada pelo
+    # servidor; uma sessão gestora eventualmente presente não pode assumir a
+    # autoria do turno operacional.
+    actor_id = user.id
     reliability_service.write_audit_and_outbox(
         session=session, tenant_id=context.tenant_id, store_id=store_id, actor_id=actor_id,
         action="operational_access.activated", target=f"membership:{membership.id}",

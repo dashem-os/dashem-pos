@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Optional, Tuple, Dict, Any
 from sqlmodel import Session, select
 from fastapi import HTTPException, status
-from app.core.context import TenantContext, scope_tenant_query
+from app.core.context import TenantContext, resolve_actor, scope_tenant_query
 from app.models.sale import Sale, SaleStatusEnum
 from app.models.fiscal import (
     FiscalDocument, FiscalEvent, FiscalStatusEnum, FiscalDocumentTypeEnum, FiscalEventTypeEnum
@@ -26,6 +26,7 @@ def issue_fiscal_document(
     simulate_status: Optional[str] = None,
     correlation_id: Optional[str] = None
 ) -> Tuple[FiscalDocument, Sale, bool]:
+    actor_id = resolve_actor(context, actor_id)
     # GATE 2: Pre-condition check — Lock Sale with FOR UPDATE
     sale_query = select(Sale).where(
         Sale.id == sale_id,
@@ -263,6 +264,7 @@ def retry_fiscal_document(
     actor_id: uuid.UUID, simulate_status: Optional[str] = None,
     correlation_id: Optional[str] = None,
 ) -> FiscalDocument:
+    actor_id = resolve_actor(context, actor_id)
     existing = session.exec(scope_tenant_query(select(FiscalDocument).where(
         FiscalDocument.id == fiscal_document_id,
     ), FiscalDocument, context)).first()
@@ -306,6 +308,7 @@ def cancel_fiscal_document(
     reason: str,
     correlation_id: Optional[str] = None
 ) -> FiscalDocument:
+    actor_id = resolve_actor(context, actor_id)
     # GATE 13: Formal Fiscal Cancellation Flow
     doc_query = select(FiscalDocument).where(
         FiscalDocument.id == fiscal_document_id,

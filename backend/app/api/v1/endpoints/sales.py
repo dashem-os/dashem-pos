@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel, ConfigDict
 from sqlmodel import Session
 from app.core.database import get_session
-from app.core.context import TenantContext, get_tenant_context
+from app.core.context import TenantContext, get_tenant_context, resolve_actor
 from app.models.sale import Customer, Sale, SaleItem, SaleStatusEnum, DiscountTypeEnum, SaleOperationModeEnum
 from app.services import sale_service, reliability_service
 
@@ -14,6 +14,12 @@ router = APIRouter()
 
 class CustomerCreateDTO(BaseModel):
     name: str
+    cpf_cnpj: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+
+class CustomerUpdateDTO(BaseModel):
+    name: Optional[str] = None
     cpf_cnpj: Optional[str] = None
     phone: Optional[str] = None
     email: Optional[str] = None
@@ -105,6 +111,17 @@ def list_customers_endpoint(
     session: Session = Depends(get_session)
 ):
     return sale_service.list_customers(session, context)
+
+@router.patch("/customers/{customer_id}", response_model=Customer)
+def update_customer_endpoint(
+    customer_id: uuid.UUID,
+    data: CustomerUpdateDTO,
+    context: TenantContext = Depends(get_tenant_context),
+    session: Session = Depends(get_session),
+):
+    return sale_service.update_customer(
+        session, context, customer_id=customer_id, **data.model_dump(exclude_unset=True)
+    )
 
 @router.post("", response_model=SaleReadDTO)
 def create_sale_endpoint(
@@ -232,12 +249,13 @@ def checkout_sale_endpoint(
     x_correlation_id: Optional[str] = Header(None, alias="X-Correlation-ID"),
     session: Session = Depends(get_session)
 ):
+    actor_id = resolve_actor(context, data.actor_id)
     # Check Idempotency if key header is provided
     if x_idempotency_key:
         is_cached, status_code, body = reliability_service.check_idempotency(
             session=session,
             tenant_id=context.tenant_id,
-            actor_id=data.actor_id,
+            actor_id=actor_id,
             operation=f"POST /api/v1/sales/{sale_id}/checkout",
             idempotency_key=x_idempotency_key,
             request_payload=data.dict()
@@ -249,7 +267,7 @@ def checkout_sale_endpoint(
         session=session,
         context=context,
         sale_id=sale_id,
-        actor_id=data.actor_id,
+        actor_id=actor_id,
         requested_discount=Decimal(str(data.requested_discount)),
         discount_type=data.discount_type,
         correlation_id=x_correlation_id
@@ -262,7 +280,7 @@ def checkout_sale_endpoint(
         reliability_service.save_idempotency_record(
             session=session,
             tenant_id=context.tenant_id,
-            actor_id=data.actor_id,
+            actor_id=actor_id,
             operation=f"POST /api/v1/sales/{sale_id}/checkout",
             idempotency_key=x_idempotency_key,
             request_payload=data.dict(),

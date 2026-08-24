@@ -18,6 +18,9 @@ from app.models.identity import (
 from app.models.device import OperationalDevice, OperationalDeviceStatusEnum
 
 
+LOCAL_BYPASS_ACTOR_ID = uuid.uuid5(uuid.NAMESPACE_URL, "dashem-pos:local-auth-bypass")
+
+
 class TenantContext(BaseModel):
     tenant_id: uuid.UUID
     store_id: Optional[uuid.UUID] = None
@@ -28,6 +31,32 @@ class TenantContext(BaseModel):
     capabilities: tuple[str, ...] = ()
     auth_subject: Optional[str] = None
     assurance_level: str = "aal1"
+
+
+def resolve_actor(
+    context: TenantContext,
+    claimed_actor_id: Optional[uuid.UUID] = None,
+) -> uuid.UUID:
+    """Resolve mutation authorship from the authenticated server context.
+
+    A caller-supplied actor is accepted only as a compatibility assertion and
+    must match the authenticated principal.  The sole exception is the
+    explicitly disabled local-auth mode used by the integration test suite;
+    it never applies to an authenticated deployment.
+    """
+    if context.user_id:
+        if claimed_actor_id and claimed_actor_id != context.user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Ator não corresponde à identidade autenticada.",
+            )
+        return context.user_id
+    if context.auth_subject == "local-auth-bypass":
+        return claimed_actor_id or LOCAL_BYPASS_ACTOR_ID
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="A operação exige uma identidade autenticada.",
+    )
 
 
 def _parse_uuid(value: Optional[str], header: str, required: bool = False) -> Optional[uuid.UUID]:

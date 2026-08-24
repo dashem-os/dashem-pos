@@ -1271,6 +1271,41 @@ Conclusão exige evidência de venda, produção, pagamento, transferência e
 recuperação; SEV1/SEV2 bloqueia expansão. Nenhum cliente, hardware ou integração
 externa foi inventado para marcar este gate como comercialmente concluído.
 
+### S21.1 — Superfícies de acesso e identidades de dispositivo
+
+Objetivo: remover da validação comercial qualquer ambiguidade entre pessoa,
+terminal e periférico.
+
+Entregas:
+
+- novo login público, limpo e exclusivamente gerencial, por e-mail/OAuth;
+- código e PIN restritos à superfície `/operate` de um terminal previamente
+  autorizado, sem seleção de tenant ou unidade pelo colaborador;
+- administrador e gerente abrem o PDV diretamente com a sessão autenticada;
+- cadastro de **Clientes** na Gestão, com histórico comercial real;
+- **Funcionários e acessos** como módulos visíveis e distintos: ficha funcional
+  separada de convite por e-mail ou credencial operacional;
+- terminais POS independentes de `kitchen_routing`; KDS, impressão e roteamento
+  aparecem somente quando a capability está contratada;
+- TEF como bridge pareado ao caixa, sem login humano na maquininha;
+- especificação do Print Bridge para impressoras sem tela, com credencial de
+  dispositivo, heartbeat, revogação e confirmação de trabalhos.
+
+Gate:
+
+- `/login` não contém entrada por PIN nem navega para `/operate`;
+- `/operate` recusa código/PIN sem credencial válida de terminal;
+- gestor autenticado acessa `/pos` sem segundo login;
+- ausência de `kitchen_routing` não quebra a gestão de terminais;
+- Clientes e Funcionários aparecem somente por contribution, capability e
+  permission efetivas;
+- impressora não é declarada operacional antes do Print Bridge e do teste em
+  hardware real.
+
+Estado: **implementação corretiva em andamento**. Login, navegação gerencial,
+cadastros e desacoplamento da capability já possuem implementação; o protocolo
+seguro do Print Bridge e a homologação externa de TEF continuam pendentes.
+
 ## 8. Dependências e ordem de execução
 
 ```text
@@ -1301,7 +1336,7 @@ S2 + fontes de saúde de S8–S17 → S18 Dashem Control Completion
 capabilities reais de S9–S18 → S19 Capability Profiles
 
 PILOTO
-S8–S19 → S20 Hardening/Pilot Readiness → S21 Piloto Comercial
+S8–S19 → S20 Hardening/Pilot Readiness → S21.1 Acesso e dispositivos → S21 Piloto Comercial
 ```
 
 Os números registram a sequência recomendada de foco. S10 e partes internas do
@@ -1338,8 +1373,11 @@ e aparece como `não configurada`, nunca como pronta.
 | Renegociação capaz de alterar documento original | S15 | acordo e ledger imutáveis | resolvido no S15 |
 | Caixa/fiscal/provider sem conciliação unificada | S16 | fatos vinculados sem reescrita | resolvido no S16 |
 | BI agregado ou inventado no browser | S17 | read models rastreáveis | resolvido e testado no S17 |
+| Login gerencial misturado com PIN operacional | S21.1 | superfícies independentes e terminal autorizado | corrigido; validação responsiva pendente |
+| Impressora sem tela tratada como usuário ou referência suficiente | S21.1 | Print Bridge pareado e revogável | contrato definido; implementação/hardware pendentes |
 | Endpoint de identidade e saúde ainda amplos | S18 | routers e observabilidade por domínio | resolvido: router Control e instrumentação explícita |
 | Segurança/confiabilidade deixadas para o fim | contínuo + S20 | gate por sprint e prova combinada | política corrigida |
+| Cliente capaz de escolher o autor de uma mutação | Gate A | ator derivado do principal ou service actor emitido pelo servidor | resolvido e testado; retirada dos campos legados fica para evolução de contrato |
 
 ## 10. Política de execução
 
@@ -1377,15 +1415,32 @@ Ao concluir:
 6. capability sem gate externo concluído permanece desativada;
 7. “implementado” significa UI + API + persistência + autorização + testes, não mockup.
 
-## 11. Próximo passo autorizado por este roadmap
+## 11. Gates corretivos após S21.1
 
-O próximo ciclo de implementação deve ser:
+### Gate A — autoria server-side
+
+Conclui o ADR-020: auditoria, idempotência e eventos usam a identidade
+autenticada ou um service actor persistido pelo servidor. Identificadores
+declarados pelo cliente não concedem autoria e divergências são recusadas antes
+da mutação.
+
+### Gate B — próximo gate, ainda não iniciado
+
+Será iniciado somente após o Gate A permanecer verde no CI. Seu escopo deve
+partir do contrato de sessão operacional e das credenciais de dispositivo, sem
+reabrir login PIN global nem misturar pessoa, terminal, TEF Bridge ou Print
+Bridge.
+
+## 12. Próximo passo autorizado por este roadmap
+
+O próximo ciclo de implementação deve concluir:
 
 ```text
-S19 — Capability Profiles e Module Contributions
+Gate B — contrato operacional posterior ao fechamento verde do Gate A
 ```
 
-S0–S18 e os gates corretivos S17.1–S17.3 estão concluídos nos gates internos. O S13 introduziu o ADR-009,
+S0–S21, S17.1–S17.3, S21.1 e o Gate A estão concluídos nos gates internos,
+mas a validação comercial de campo continua pendente. O S13 introduziu o ADR-009,
 mapeamentos por merchant, ofertas versionadas, publicação item a item e documentos
 de repasse independentes do Order. Falha parcial e diferença financeira ficam
 observáveis. O S13.1 completa a primeira retaguarda operacional do tenant e fixa
@@ -1398,4 +1453,5 @@ fronteira e-mail/PIN, o papel Supervisor e a chegada de reservas sem apagar
 histórico. O S17.2 preserva a sessão gerencial na ida ao PDV e separa a ficha do
 funcionário de suas credenciais. O S17.3 autoriza o terminal antes de expor o
 login operacional. O S18 conclui os contratos próprios do Control sem invadir a
-equipe cotidiana do tenant. O próximo gate canônico é o S19.
+equipe cotidiana do tenant. S19–S21 consolidam profiles, hardening e prontidão
+interna; o próximo trabalho autorizado é o Gate B, depois do CI verde do Gate A.

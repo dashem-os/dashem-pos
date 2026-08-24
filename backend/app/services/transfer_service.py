@@ -4,7 +4,7 @@ from decimal import Decimal
 from typing import Optional
 from fastapi import HTTPException
 from sqlmodel import Session, select
-from app.core.context import TenantContext, scope_tenant_query
+from app.core.context import TenantContext, resolve_actor, scope_tenant_query
 from app.models.negotiation import PaymentAllocation
 from app.models.order import Order, OrderFulfillmentEnum, OrderItem, OrderItemStatusEnum, OrderOriginEnum, OrderStatusEnum, ProductionStateEnum
 from app.models.production import ProductionTicket, ProductionTicketItem, ProductionTicketStatusEnum
@@ -15,10 +15,7 @@ from app.services import reliability_service
 ACTIVE={TableSessionStatusEnum.OPEN,TableSessionStatusEnum.IN_SERVICE}
 
 def _actor(context: TenantContext, actor_id: Optional[uuid.UUID])->uuid.UUID:
-    actor=actor_id or context.user_id
-    if not actor: raise HTTPException(400,"actor_id é obrigatório.")
-    if context.user_id and actor!=context.user_id: raise HTTPException(403,"Ator inválido.")
-    return actor
+    return resolve_actor(context, actor_id)
 
 def _sessions(session: Session, context: TenantContext, source_id: uuid.UUID, destination_id: uuid.UUID):
     if source_id==destination_id: raise HTTPException(422,"Origem e destino devem ser diferentes.")

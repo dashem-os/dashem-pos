@@ -1149,17 +1149,6 @@ export async function loginOperationalTerminal(
   return res.json()
 }
 
-export async function activateOperationalAccess(
-  headers: Record<string, string>,
-  input: { employee_code: string; pin: string; store_id: string; register_id?: string },
-): Promise<OperationalSession> {
-  const res = await fetch(`${API_BASE_URL}/api/v1/operational-access/activate`, {
-    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(input),
-  })
-  if (!res.ok) throw await apiError(res, 'Código ou PIN inválido para esta unidade.')
-  return res.json()
-}
-
 export async function updateTeamMember(
   headers: Record<string, string>, membershipId: string,
   input: { role: string; status: string; store_id?: string; reason: string },
@@ -1206,6 +1195,27 @@ export async function fetchBiDrilldown(
 export async function fetchCustomers(headers: Record<string, string>): Promise<Customer[]> {
   const res = await fetch(`${API_BASE_URL}/api/v1/sales/customers`, { headers })
   if (!res.ok) throw await apiError(res, 'Não foi possível carregar os clientes.')
+  return res.json()
+}
+
+export async function createCustomer(
+  headers: Record<string, string>, input: { name: string; cpf_cnpj?: string; phone?: string; email?: string },
+): Promise<Customer> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/sales/customers`, {
+    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível cadastrar o cliente.')
+  return res.json()
+}
+
+export async function updateCustomer(
+  headers: Record<string, string>, customerId: string,
+  input: { name?: string; cpf_cnpj?: string; phone?: string; email?: string },
+): Promise<Customer> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/sales/customers/${customerId}`, {
+    method: 'PATCH', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível atualizar o cliente.')
   return res.json()
 }
 

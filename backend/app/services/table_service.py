@@ -9,7 +9,7 @@ from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
-from app.core.context import TenantContext, scope_tenant_query
+from app.core.context import TenantContext, resolve_actor, scope_tenant_query
 from app.models.identity import Store
 from app.models.order import (
     Order, OrderFulfillmentEnum, OrderItem, OrderItemStatusEnum, OrderOriginEnum,
@@ -50,12 +50,7 @@ def _hash(payload: dict[str, Any]) -> str:
 
 
 def _actor(context: TenantContext, actor_id: Optional[uuid.UUID]) -> uuid.UUID:
-    effective = actor_id or context.user_id
-    if not effective:
-        raise HTTPException(status_code=400, detail="actor_id é obrigatório.")
-    if context.user_id and effective != context.user_id:
-        raise HTTPException(status_code=403, detail="Ator não corresponde à identidade autenticada.")
-    return effective
+    return resolve_actor(context, actor_id)
 
 
 def _store(session: Session, context: TenantContext, store_id: uuid.UUID) -> Store:

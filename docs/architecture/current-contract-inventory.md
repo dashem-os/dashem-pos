@@ -30,7 +30,8 @@ migrations e testes.
 | Mesas e comandas | `ServiceTable`, `TableSession` e `Order` separados; sessão multi-comanda, projeção consolidada, concorrência e RLS |
 | Retaguarda do tenant | Gestão configura catálogo, estoque, ambientes, mesas, reservas, terminais e produção; POS/KDS não elevam para Gestão |
 | Reservas e impedimentos | `TableReservation` identificada e `ServiceTable` bloqueável com motivo; abertura reservada exige confirmação explícita |
-| Dispositivos | `OperationalDevice` provisiona POS/KDS/impressora com vínculo transacional, heartbeat e revogação auditável |
+| Dispositivos | `OperationalDevice` provisiona POS/KDS/impressora com vínculo transacional e revogação; TEF possui pareamento próprio e Print Bridge seguro permanece gate explícito |
+| Pessoas | Clientes, funcionários e credenciais são registros distintos; Gestão possui cadastros próprios e PIN só existe após autorização do terminal |
 
 ## Máquinas de estado protegidas
 

@@ -17,7 +17,8 @@ navegador contra um `OperationalDevice` do tipo POS, ativo e vinculado a um
 `Register`. O servidor emite uma credencial assinada de terminal com
 `device_id`, `tenant_id`, `store_id` e `register_id`.
 
-A rota pública `/operate` somente apresenta a identificação do colaborador
+O endereço `/operate` pertence à superfície do terminal e não é anunciado no
+login público de Gestão. Ele somente apresenta a identificação do colaborador
 quando essa credencial é válida. O endpoint de troca deriva o contexto
 exclusivamente dos claims assinados, revalida dispositivo e caixa no banco sob
 RLS e então verifica a credencial individual. O token operacional resultante é
@@ -33,6 +34,7 @@ pública. O bloqueio por tentativas continua pertencendo à credencial individua
 - um operador não escolhe nem envia o próprio tenant/unidade/caixa;
 - sair do turno não desautoriza o ponto físico;
 - gestores por e-mail continuam acessando o PDV diretamente;
+- o login público permanece exclusivamente gerencial;
 - reautorizar o navegador exige uma identidade gerencial e gera auditoria;
 - revogação do dispositivo é também revogação da entrada operacional daquele
   ponto, sem armazenar PIN ou senha no navegador.

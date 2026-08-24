@@ -30,6 +30,9 @@ CONTRACTS = [
     ("GET", "/api/v1/inventory/movements", "/api/v1/inventory/movements`"),
     ("GET", "/api/v1/sales", "/api/v1/sales`"),
     ("POST", "/api/v1/sales", "/api/v1/sales`"),
+    ("GET", "/api/v1/sales/customers", "/api/v1/sales/customers`"),
+    ("POST", "/api/v1/sales/customers", "/api/v1/sales/customers`"),
+    ("PATCH", "/api/v1/sales/customers/{customer_id}", "/api/v1/sales/customers/${customerId}`"),
     ("GET", "/api/v1/sales/active", "/api/v1/sales/active?"),
     ("GET", "/api/v1/orders", "/api/v1/orders${suffix}`"),
     ("POST", "/api/v1/orders", "/api/v1/orders`"),
@@ -51,7 +54,6 @@ CONTRACTS = [
     ("POST", "/api/v1/team/invitations", "/api/v1/team/invitations`"),
     ("POST", "/api/v1/team/operational", "/api/v1/team/operational`"),
     ("POST", "/api/v1/team/{membership_id}/pin", "/api/v1/team/${membershipId}/pin`"),
-    ("POST", "/api/v1/operational-access/activate", "/api/v1/operational-access/activate`"),
     ("POST", "/api/v1/operational-access/terminals/{device_id}/authorize", "/api/v1/operational-access/terminals/${deviceId}/authorize`"),
     ("POST", "/api/v1/operational-access/terminal/status", "/api/v1/operational-access/terminal/status`"),
     ("POST", "/api/v1/operational-access/terminal/login", "/api/v1/operational-access/terminal/login`"),
@@ -78,6 +80,9 @@ def test_every_tenant_critical_contract_keeps_context_headers_in_client():
     source = FRONTEND_API.read_text(encoding="utf-8")
     for function_name in (
         "fetchProducts",
+        "fetchCustomers",
+        "createCustomer",
+        "updateCustomer",
         "fetchSellableProducts",
         "fetchInventoryBalance",
         "createSale",
@@ -99,7 +104,6 @@ def test_every_tenant_critical_contract_keeps_context_headers_in_client():
         "inviteTeamMember",
         "createOperationalMember",
         "resetOperationalPin",
-        "activateOperationalAccess",
         "authorizeOperationalTerminal",
         "fetchManagementOverview",
     ):

@@ -6,7 +6,7 @@ from typing import Optional
 from fastapi import HTTPException
 from sqlmodel import Session, select
 
-from app.core.context import TenantContext, scope_tenant_query
+from app.core.context import TenantContext, resolve_actor, scope_tenant_query
 from app.models.fiscal import FiscalDocument
 from app.models.negotiation import CheckoutNegotiation, CheckoutNegotiationStatusEnum
 from app.models.payment import Payment, PaymentStatusEnum
@@ -25,6 +25,7 @@ def reconcile_sale(
     provider_reported_total: Optional[Decimal], provider: Optional[str],
     provider_reference: Optional[str], notes: Optional[str],
 ) -> FinancialReconciliation:
+    actor_id = resolve_actor(context, actor_id)
     sale = session.exec(scope_tenant_query(select(Sale).where(
         Sale.id == sale_id,
     ), Sale, context).with_for_update()).first()

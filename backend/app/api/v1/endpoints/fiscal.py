@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel
 from sqlmodel import Session, select
 from app.core.database import get_session
-from app.core.context import TenantContext, get_tenant_context
+from app.core.context import TenantContext, get_tenant_context, resolve_actor
 from app.models.fiscal import FiscalDocument, FiscalDocumentTypeEnum
 from app.services import fiscal_service, reliability_service
 
@@ -32,11 +32,12 @@ def issue_fiscal_document_endpoint(
     x_correlation_id: Optional[str] = Header(None, alias="X-Correlation-ID"),
     session: Session = Depends(get_session)
 ):
+    actor_id = resolve_actor(context, data.actor_id)
     if x_idempotency_key:
         is_cached, status_code, body = reliability_service.check_idempotency(
             session=session,
             tenant_id=context.tenant_id,
-            actor_id=data.actor_id,
+            actor_id=actor_id,
             operation=f"POST /api/v1/fiscal/documents/issue",
             idempotency_key=x_idempotency_key,
             request_payload=data.dict()
@@ -48,7 +49,7 @@ def issue_fiscal_document_endpoint(
         session=session,
         context=context,
         sale_id=data.sale_id,
-        actor_id=data.actor_id,
+        actor_id=actor_id,
         document_type=data.document_type,
         simulate_status=data.simulate_status,
         correlation_id=x_correlation_id
@@ -64,7 +65,7 @@ def issue_fiscal_document_endpoint(
         reliability_service.save_idempotency_record(
             session=session,
             tenant_id=context.tenant_id,
-            actor_id=data.actor_id,
+            actor_id=actor_id,
             operation=f"POST /api/v1/fiscal/documents/issue",
             idempotency_key=x_idempotency_key,
             request_payload=data.dict(),
@@ -83,11 +84,12 @@ def cancel_fiscal_document_endpoint(
     x_correlation_id: Optional[str] = Header(None, alias="X-Correlation-ID"),
     session: Session = Depends(get_session)
 ):
+    actor_id = resolve_actor(context, data.actor_id)
     return fiscal_service.cancel_fiscal_document(
         session=session,
         context=context,
         fiscal_document_id=fiscal_document_id,
-        actor_id=data.actor_id,
+        actor_id=actor_id,
         reason=data.reason,
         correlation_id=x_correlation_id
     )
@@ -99,8 +101,9 @@ def retry_fiscal_document_endpoint(
     x_correlation_id: Optional[str] = Header(None, alias="X-Correlation-ID"),
     session: Session = Depends(get_session),
 ):
+    actor_id = resolve_actor(context, data.actor_id)
     return fiscal_service.retry_fiscal_document(
-        session, context, fiscal_document_id, actor_id=data.actor_id,
+        session, context, fiscal_document_id, actor_id=actor_id,
         simulate_status=data.simulate_status, correlation_id=x_correlation_id,
     )
 

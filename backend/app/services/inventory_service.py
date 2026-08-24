@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import List, Optional, Tuple, Union
 from sqlmodel import Session, select, text
 from fastapi import HTTPException, status
-from app.core.context import TenantContext, scope_tenant_query
+from app.core.context import TenantContext, resolve_actor, scope_tenant_query
 from app.models.catalog import Product, InventoryMovement, InventoryBalance, MovementTypeEnum
 from app.services import reliability_service
 
@@ -19,6 +19,7 @@ def adjust_stock(
     reason: Optional[str] = None,
     correlation_id: Optional[str] = None
 ) -> Tuple[Optional[InventoryMovement], InventoryBalance, bool]:
+    actor_id = resolve_actor(context, actor_id)
     qty_dec = Decimal(str(quantity))
 
     if context.store_id and store_id != context.store_id:
@@ -203,7 +204,7 @@ def set_minimum_stock(
         balance.updated_at = datetime.utcnow()
     reliability_service.write_audit_and_outbox(
         session=session, tenant_id=context.tenant_id, store_id=store_id,
-        actor_id=context.user_id or uuid.UUID("00000000-0000-0000-0000-000000000000"),
+        actor_id=resolve_actor(context),
         action="inventory.minimum_stock.updated", target=f"PRODUCT-{product_id}",
         audit_payload={"product_id": str(product_id), "minimum_stock": str(minimum)},
         aggregate_type="product", aggregate_id=str(product_id),

@@ -6,7 +6,7 @@ from sqlmodel import Session, select
 from sqlalchemy.orm import selectinload
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException, status
-from app.core.context import TenantContext, scope_tenant_query
+from app.core.context import TenantContext, resolve_actor, scope_tenant_query
 from app.models.identity import Store
 from app.models.payment import Register
 from app.models.catalog import Product, ProductPrice
@@ -62,6 +62,32 @@ def list_customers(session: Session, context: TenantContext) -> List[Customer]:
     query = scope_tenant_query(query, Customer, context)
     return session.exec(query).all()
 
+def update_customer(
+    session: Session, context: TenantContext, *, customer_id: uuid.UUID,
+    name: Optional[str] = None, cpf_cnpj: Optional[str] = None,
+    phone: Optional[str] = None, email: Optional[str] = None,
+) -> Customer:
+    customer = session.exec(scope_tenant_query(
+        select(Customer).where(Customer.id == customer_id), Customer, context,
+    )).first()
+    if not customer:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cliente não encontrado.")
+    if cpf_cnpj and cpf_cnpj != customer.cpf_cnpj:
+        duplicate = session.exec(scope_tenant_query(
+            select(Customer).where(Customer.cpf_cnpj == cpf_cnpj), Customer, context,
+        )).first()
+        if duplicate:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="CPF/CNPJ já cadastrado neste tenant.")
+    if name is not None:
+        if len(name.strip()) < 2:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Nome do cliente é obrigatório.")
+        customer.name = name.strip()
+    if cpf_cnpj is not None: customer.cpf_cnpj = cpf_cnpj.strip() or None
+    if phone is not None: customer.phone = phone.strip() or None
+    if email is not None: customer.email = email.strip().lower() or None
+    session.add(customer); session.commit(); session.refresh(customer)
+    return customer
+
 def create_sale(
     session: Session,
     context: TenantContext,
@@ -73,6 +99,7 @@ def create_sale(
     register_id: Optional[uuid.UUID] = None,
     operation_mode: SaleOperationModeEnum = SaleOperationModeEnum.COUNTER,
 ) -> Sale:
+    event_actor = resolve_actor(context, actor_id)
     # Verify Store belongs to Tenant
     store = session.get(Store, store_id)
     if not store or store.tenant_id != context.tenant_id:
@@ -117,21 +144,19 @@ def create_sale(
     session.add(sale)
 
     # Emit Lifecycle Event: sale.created
-    event_actor = actor_id or effective_seller
-    if event_actor:
-        reliability_service.write_audit_and_outbox(
-            session=session,
-            tenant_id=context.tenant_id,
-            store_id=store_id,
-            actor_id=event_actor,
-            action="sale.create",
-            target=f"SALE-{sale.id}",
-            audit_payload={"sale_id": str(sale.id), "status": sale.status.value, "register_id": str(register_id) if register_id else None, "operation_mode": operation_mode.value},
-            aggregate_type="sale",
-            aggregate_id=str(sale.id),
-            event_type="sale.created",
-            outbox_payload={"tenant_id": str(context.tenant_id), "store_id": str(store_id), "sale_id": str(sale.id), "register_id": str(register_id) if register_id else None, "operation_mode": operation_mode.value}
-        )
+    reliability_service.write_audit_and_outbox(
+        session=session,
+        tenant_id=context.tenant_id,
+        store_id=store_id,
+        actor_id=event_actor,
+        action="sale.create",
+        target=f"SALE-{sale.id}",
+        audit_payload={"sale_id": str(sale.id), "status": sale.status.value, "register_id": str(register_id) if register_id else None, "operation_mode": operation_mode.value},
+        aggregate_type="sale",
+        aggregate_id=str(sale.id),
+        event_type="sale.created",
+        outbox_payload={"tenant_id": str(context.tenant_id), "store_id": str(store_id), "sale_id": str(sale.id), "register_id": str(register_id) if register_id else None, "operation_mode": operation_mode.value}
+    )
 
     try:
         session.commit()
@@ -395,6 +420,7 @@ def cancel_sale(
     actor_id: Optional[uuid.UUID] = None,
     reason: Optional[str] = None
 ) -> Sale:
+    event_actor = resolve_actor(context, actor_id)
     sale = get_sale(session, context, sale_id)
     if sale.status in (SaleStatusEnum.COMPLETED, SaleStatusEnum.CANCELED, SaleStatusEnum.PAID):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Cannot cancel sale in status '{sale.status}'.")
@@ -413,20 +439,19 @@ def cancel_sale(
     _touch_sale(sale)
     session.add(sale)
     
-    if actor_id:
-        reliability_service.write_audit_and_outbox(
-            session=session,
-            tenant_id=context.tenant_id,
-            store_id=sale.store_id,
-            actor_id=actor_id,
-            action="sale.cancel",
-            target=f"SALE-{sale.id}",
-            audit_payload={"sale_id": str(sale.id), "reason": reason},
-            aggregate_type="sale",
-            aggregate_id=str(sale.id),
-            event_type="sale.canceled",
-            outbox_payload={"tenant_id": str(context.tenant_id), "store_id": str(sale.store_id), "sale_id": str(sale.id)}
-        )
+    reliability_service.write_audit_and_outbox(
+        session=session,
+        tenant_id=context.tenant_id,
+        store_id=sale.store_id,
+        actor_id=event_actor,
+        action="sale.cancel",
+        target=f"SALE-{sale.id}",
+        audit_payload={"sale_id": str(sale.id), "reason": reason},
+        aggregate_type="sale",
+        aggregate_id=str(sale.id),
+        event_type="sale.canceled",
+        outbox_payload={"tenant_id": str(context.tenant_id), "store_id": str(sale.store_id), "sale_id": str(sale.id)}
+    )
         
     session.commit()
     session.refresh(sale)
@@ -475,6 +500,7 @@ def checkout_sale(
     discount_type: Optional[DiscountTypeEnum] = None,
     correlation_id: Optional[str] = None
 ) -> Sale:
+    actor_id = resolve_actor(context, actor_id)
     # PESSIMISTIC LOCKING: Lock the Sale record to prevent concurrent checkout race conditions
     sale_query = select(Sale).where(Sale.id == sale_id).with_for_update()
     sale_query = scope_tenant_query(sale_query, Sale, context)

@@ -52,11 +52,11 @@ def test_s19_profiles_are_versioned_shortcuts_and_contributions_are_effective():
 
         context = TenantContext(
             tenant_id=provisioned.tenant.id, store_id=provisioned.first_store.id,
-            user_id=owner.id, permissions=("management.read", "catalog.read", "sale.read", "cash.read", "inventory.read", "receivable.read", "team.read", "device.read", "table.read"),
+            user_id=owner.id, permissions=("management.read", "catalog.read", "sale.read", "cash.read", "inventory.read", "customer.read", "receivable.read", "team.read", "device.read", "table.read"),
         )
         effective = get_effective_capabilities(context=context, session=session)
         navigation = {item.contribution_key for item in effective["contributions"] if item.surface == "MANAGEMENT_NAV"}
-        assert {"overview", "sales", "cash", "products", "categories", "inventory", "receivables", "team", "devices"} <= navigation
+        assert {"overview", "sales", "cash", "products", "categories", "inventory", "customers", "receivables", "team", "devices"} <= navigation
         assert "tables" not in navigation
         assert effective["profile"] == {"key": "RETAIL", "version": "1.0.0"}
 

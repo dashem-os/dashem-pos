@@ -123,6 +123,9 @@ O contrato de isolamento no banco e migrations está em
 [`docs/architecture/database-tenancy-and-migrations.md`](docs/architecture/database-tenancy-and-migrations.md).
 O contrato inicial do Capability Mesh está em
 [`docs/architecture/capability-mesh.md`](docs/architecture/capability-mesh.md).
+A separação entre login de Gestão, PIN operacional, TEF Bridge e periféricos sem
+tela está em
+[`docs/architecture/adr-019-access-surfaces-and-peripheral-identities.md`](docs/architecture/adr-019-access-surfaces-and-peripheral-identities.md).
 A matriz responsiva validada está em
 [`docs/quality/responsive-audit-2026-08-21.md`](docs/quality/responsive-audit-2026-08-21.md).
 
@@ -346,6 +349,8 @@ docker compose exec -T -e TEST_BASE_URL=http://127.0.0.1:8000 dashem-pos-backend
 - O primeiro Platform Owner não é criado por cadastro público.
 - Toda autorização é revalidada no backend; esconder uma rota no frontend não
   constitui controle de acesso.
+- Toda autoria de mutação é derivada da identidade autenticada no servidor;
+  `actor_id` recebido do navegador nunca substitui o principal efetivo.
 - Filtros de ORM não constituem isolamento: tabelas de tenant e unidade devem
   ter RLS forçado e testes negativos no PostgreSQL.
 - A aplicação nunca serve requisições com a autoridade proprietária do schema.

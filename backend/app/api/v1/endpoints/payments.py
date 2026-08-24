@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel
 from sqlmodel import Session
 from app.core.database import get_session
-from app.core.context import TenantContext, get_tenant_context
+from app.core.context import TenantContext, get_tenant_context, resolve_actor
 from app.models.payment import Payment, PaymentMethodEnum
 from app.models.reconciliation import PaymentRefund
 from app.services import payment_service, reliability_service
@@ -58,12 +58,13 @@ def confirm_payment_endpoint(
     x_correlation_id: Optional[str] = Header(None, alias="X-Correlation-ID"),
     session: Session = Depends(get_session)
 ):
+    actor_id = resolve_actor(context, data.actor_id)
     # Check Idempotency if key header is provided
     if x_idempotency_key:
         is_cached, status_code, body = reliability_service.check_idempotency(
             session=session,
             tenant_id=context.tenant_id,
-            actor_id=data.actor_id,
+            actor_id=actor_id,
             operation=f"POST /api/v1/payments/{payment_id}/confirm",
             idempotency_key=x_idempotency_key,
             request_payload=data.dict()
@@ -75,7 +76,7 @@ def confirm_payment_endpoint(
         session=session,
         context=context,
         payment_id=payment_id,
-        actor_id=data.actor_id,
+        actor_id=actor_id,
         correlation_id=x_correlation_id
     )
 
@@ -90,7 +91,7 @@ def confirm_payment_endpoint(
         reliability_service.save_idempotency_record(
             session=session,
             tenant_id=context.tenant_id,
-            actor_id=data.actor_id,
+            actor_id=actor_id,
             operation=f"POST /api/v1/payments/{payment_id}/confirm",
             idempotency_key=x_idempotency_key,
             request_payload=data.dict(),
@@ -116,8 +117,9 @@ def refund_payment_endpoint(
     idempotency_key: str = Header(..., alias="Idempotency-Key"),
     session: Session = Depends(get_session),
 ):
+    actor_id = resolve_actor(context, data.actor_id)
     return payment_service.refund_payment(
-        session, context, payment_id, actor_id=data.actor_id, amount=data.amount,
+        session, context, payment_id, actor_id=actor_id, amount=data.amount,
         reason=data.reason, idempotency_key=idempotency_key,
         cash_session_id=data.cash_session_id, provider_reference=data.provider_reference,
     )

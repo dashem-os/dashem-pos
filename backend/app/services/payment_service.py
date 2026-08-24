@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import List, Optional, Tuple
 from sqlmodel import Session, select
 from fastapi import HTTPException, status
-from app.core.context import TenantContext, scope_tenant_query
+from app.core.context import TenantContext, resolve_actor, scope_tenant_query
 from app.models.catalog import MovementTypeEnum
 from app.models.sale import Sale, SaleStatusEnum, SaleItem
 from app.models.payment import (
@@ -20,6 +20,7 @@ def refund_payment(
     actor_id: uuid.UUID, amount: Decimal, reason: str, idempotency_key: str,
     cash_session_id: Optional[uuid.UUID], provider_reference: Optional[str],
 ) -> PaymentRefund:
+    actor_id = resolve_actor(context, actor_id)
     existing = session.exec(scope_tenant_query(select(PaymentRefund).where(
         PaymentRefund.idempotency_key == idempotency_key,
     ), PaymentRefund, context)).first()
@@ -174,6 +175,7 @@ def confirm_payment(
     actor_id: uuid.UUID,
     correlation_id: Optional[str] = None
 ) -> Tuple[Payment, Sale, bool]:
+    actor_id = resolve_actor(context, actor_id)
     # PESSIMISTIC LOCKING: Lock Payment record
     pay_query = select(Payment).where(
         Payment.id == payment_id,
