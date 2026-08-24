@@ -52,6 +52,9 @@ CONTRACTS = [
     ("POST", "/api/v1/team/operational", "/api/v1/team/operational`"),
     ("POST", "/api/v1/team/{membership_id}/pin", "/api/v1/team/${membershipId}/pin`"),
     ("POST", "/api/v1/operational-access/activate", "/api/v1/operational-access/activate`"),
+    ("POST", "/api/v1/operational-access/terminals/{device_id}/authorize", "/api/v1/operational-access/terminals/${deviceId}/authorize`"),
+    ("POST", "/api/v1/operational-access/terminal/status", "/api/v1/operational-access/terminal/status`"),
+    ("POST", "/api/v1/operational-access/terminal/login", "/api/v1/operational-access/terminal/login`"),
     ("GET", "/api/v1/management/overview", "/api/v1/management/overview`"),
 ]
 
@@ -97,6 +100,7 @@ def test_every_tenant_critical_contract_keeps_context_headers_in_client():
         "createOperationalMember",
         "resetOperationalPin",
         "activateOperationalAccess",
+        "authorizeOperationalTerminal",
         "fetchManagementOverview",
     ):
         start = source.index(f"export async function {function_name}")

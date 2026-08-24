@@ -1069,6 +1069,51 @@ export interface OperationalSession {
   register_id?: string
 }
 
+export interface TerminalAuthorizationContext {
+  device_id: string
+  device_name: string
+  tenant_id: string
+  tenant_name: string
+  store_id: string
+  store_name: string
+  register_id: string
+  register_name: string
+}
+
+export interface TerminalAuthorization extends TerminalAuthorizationContext {
+  terminal_token: string
+  expires_at: string
+}
+
+export async function authorizeOperationalTerminal(
+  headers: Record<string, string>, deviceId: string,
+): Promise<TerminalAuthorization> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/operational-access/terminals/${deviceId}/authorize`, {
+    method: 'POST', headers,
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível autorizar este terminal.')
+  return res.json()
+}
+
+export async function resolveOperationalTerminal(terminalToken: string): Promise<TerminalAuthorizationContext> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/operational-access/terminal/status`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ terminal_token: terminalToken }),
+  })
+  if (!res.ok) throw await apiError(res, 'Este terminal precisa ser autorizado por um gestor.')
+  return res.json()
+}
+
+export async function loginOperationalTerminal(
+  terminalToken: string, input: { employee_code: string; pin: string },
+): Promise<OperationalSession> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/operational-access/terminal/login`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ terminal_token: terminalToken, ...input }),
+  })
+  if (!res.ok) throw await apiError(res, 'Código ou PIN inválido para este terminal.')
+  return res.json()
+}
+
 export async function activateOperationalAccess(
   headers: Record<string, string>,
   input: { employee_code: string; pin: string; store_id: string; register_id?: string },

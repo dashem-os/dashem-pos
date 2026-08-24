@@ -23,34 +23,42 @@ interface AuthContextValue {
   enrollTotp: () => Promise<{ enrollment: TotpEnrollment | null; error: string | null }>
   verifyTotp: (factorId: string, code: string) => Promise<string | null>
   operationalActive: boolean
+  terminalActive: boolean
+  terminalToken: string | null
   activateOperationalSession: (token: string) => void
+  authorizeTerminal: (token: string) => void
+  clearTerminalAuthorization: () => void
   clearOperationalSession: () => void
   signOut: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 
-function readOperationalToken() {
-  const token = sessionStorage.getItem('dashem.operational_token')
+function readExpiringToken(storage: Storage, key: string) {
+  const token = storage.getItem(key)
   if (!token) return null
   try {
     const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))) as { exp?: number }
     if (!payload.exp || payload.exp * 1000 <= Date.now()) {
-      sessionStorage.removeItem('dashem.operational_token')
+      storage.removeItem(key)
       return null
     }
     return token
   } catch {
-    sessionStorage.removeItem('dashem.operational_token')
+    storage.removeItem(key)
     return null
   }
 }
+
+function readOperationalToken() { return readExpiringToken(sessionStorage, 'dashem.operational_token') }
+function readTerminalToken() { return readExpiringToken(localStorage, 'dashem.terminal_token') }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
   const [passwordRecovery, setPasswordRecovery] = useState(false)
   const [operationalToken, setOperationalToken] = useState<string | null>(readOperationalToken)
+  const [terminalToken, setTerminalToken] = useState<string | null>(readTerminalToken)
 
   useEffect(() => {
     if (!supabase) {
@@ -84,6 +92,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     configured: hasSupabaseConfig,
     passwordRecovery,
     operationalActive: Boolean(operationalToken),
+    terminalActive: Boolean(terminalToken),
+    terminalToken,
     activateOperationalSession: token => {
       sessionStorage.setItem('dashem.operational_token', token)
       setOperationalToken(token)
@@ -93,6 +103,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       sessionStorage.removeItem('dashem.operational_token')
       setOperationalToken(null)
       setApiAccessTokenProvider(async () => session?.access_token ?? null)
+    },
+    authorizeTerminal: token => {
+      localStorage.setItem('dashem.terminal_token', token)
+      setTerminalToken(token)
+    },
+    clearTerminalAuthorization: () => {
+      localStorage.removeItem('dashem.terminal_token')
+      setTerminalToken(null)
     },
     signIn: async (email, password) => {
       if (!supabase) return 'Supabase Auth não está configurado.'
@@ -159,13 +177,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         sessionStorage.removeItem('dashem.operational_token')
         setOperationalToken(null)
         setApiAccessTokenProvider(async () => session?.access_token ?? null)
-        window.location.reload()
+        window.location.assign('/operate')
         return
       }
       if (supabase) await supabase.auth.signOut()
       clearRecoveryModeFromBrowser()
     },
-  }), [session, loading, passwordRecovery, operationalToken])
+  }), [session, loading, passwordRecovery, operationalToken, terminalToken])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

@@ -15,6 +15,7 @@ from app.models.identity import (
     AuthIdentity, Membership, MembershipStatusEnum, RoleEnum, Store, Tenant,
     TenantStatusEnum, User,
 )
+from app.models.device import OperationalDevice, OperationalDeviceStatusEnum
 
 
 class TenantContext(BaseModel):
@@ -86,6 +87,9 @@ def authorize_tenant_context(
 
     user = resolve_internal_user(session, principal)
     assert user is not None
+    # Establish a restrictive RLS scope before validating any tenant-owned
+    # infrastructure referenced by an operational token.
+    set_tenant_db_context(session, tenant_id, store_id, user.id)
     if principal.provider == "operational":
         claims = principal.claims
         if claims.get("tenant_id") != str(tenant_id):
@@ -93,7 +97,20 @@ def authorize_tenant_context(
         token_store_id = claims.get("store_id")
         if not store_id or token_store_id != str(store_id):
             raise HTTPException(status_code=403, detail="Operational session belongs to another store.")
-    set_tenant_db_context(session, tenant_id, store_id, user.id)
+        token_device_id = claims.get("device_id")
+        if token_device_id:
+            try:
+                device = session.get(OperationalDevice, uuid.UUID(str(token_device_id)))
+            except ValueError as exc:
+                raise HTTPException(status_code=401, detail="Operational session has no valid terminal.") from exc
+            if (
+                not device
+                or device.tenant_id != tenant_id
+                or device.store_id != store_id
+                or device.status != OperationalDeviceStatusEnum.ACTIVE
+                or str(device.register_id) != str(claims.get("register_id"))
+            ):
+                raise HTTPException(status_code=403, detail="Operational terminal was paused, revoked or changed.")
     tenant = session.get(Tenant, tenant_id)
     if not tenant or tenant.status not in {TenantStatusEnum.TRIAL, TenantStatusEnum.ACTIVE}:
         raise HTTPException(status_code=403, detail="Tenant is unavailable.")

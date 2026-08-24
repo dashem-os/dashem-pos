@@ -1,4 +1,4 @@
-export type ShellRoute = '/login' | '/owner' | '/manage' | '/pos' | '/tables' | '/kds'
+export type ShellRoute = '/login' | '/operate' | '/owner' | '/manage' | '/pos' | '/tables' | '/kds'
 
 const PLATFORM_ROLES = new Set(['PLATFORM_OWNER', 'PLATFORM_ADMIN'])
 

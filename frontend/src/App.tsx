@@ -2,6 +2,7 @@ import React, { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { Loader2, LogOut, ShieldAlert } from 'lucide-react'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { SignInScreen } from './components/auth/SignInScreen'
+import { OperationalEntryScreen } from './components/auth/OperationalEntryScreen'
 import { OwnerMfaScreen, PasswordSetupScreen } from './components/auth/FirstAccessSecurity'
 import { AuthMe, fetchMe } from './services/api'
 import { normalizeAuthenticatedRoute, ShellRoute } from './domain/operationalRules'
@@ -20,7 +21,7 @@ export default function App() {
 }
 
 function IdentityRouter() {
-  const { session, loading, passwordRecovery, signOut } = useAuth()
+  const { session, operationalActive, loading, passwordRecovery, signOut } = useAuth()
   const [me, setMe] = useState<AuthMe | null>(null)
   const [identityLoading, setIdentityLoading] = useState(false)
   const [identityError, setIdentityError] = useState<string | null>(null)
@@ -38,7 +39,7 @@ function IdentityRouter() {
   }, [])
 
   const loadIdentity = useCallback(async () => {
-    if (!session) return
+    if (!session && !operationalActive) return
     setIdentityLoading(true)
     setIdentityError(null)
     try {
@@ -49,13 +50,14 @@ function IdentityRouter() {
     } finally {
       setIdentityLoading(false)
     }
-  }, [session])
+  }, [session, operationalActive])
 
-  useEffect(() => { if (session) loadIdentity(); else setMe(null) }, [session, loadIdentity])
-  useEffect(() => { if (!loading && !session) replacePath('/login') }, [loading, session, replacePath])
+  useEffect(() => { if (session || operationalActive) loadIdentity(); else setMe(null) }, [session, operationalActive, loadIdentity])
+  useEffect(() => { if (!loading && !session && !operationalActive && pathname !== '/operate') replacePath('/login') }, [loading, session, operationalActive, pathname, replacePath])
 
   if (loading) return <FullScreenLoader label="Validando sessão..." />
-  if (!session) return <SignInScreen />
+  if (pathname === '/operate' && !operationalActive) return <OperationalEntryScreen />
+  if (!session && !operationalActive) return <SignInScreen />
 
   if (passwordRecovery || new URLSearchParams(window.location.search).get('mode') === 'recovery') {
     return <PasswordSetupScreen recovery onComplete={async () => { window.location.assign('/login') }} />

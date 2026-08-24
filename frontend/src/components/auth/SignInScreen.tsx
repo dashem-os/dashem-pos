@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
-import { ArrowRight, Building2, Loader2, LockKeyhole, Mail, ShieldCheck } from 'lucide-react'
+import { ArrowRight, Building2, KeyRound, Loader2, LockKeyhole, Mail, ShieldCheck } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
+import { navigateTo } from '../../utils/navigation'
 
 export function SignInScreen() {
   const { configured, signIn, signInSocial, requestPasswordReset } = useAuth()
@@ -109,6 +110,7 @@ export function SignInScreen() {
               <button type="button" onClick={() => { setRecovery(!recovery); setError(null); setNotice(null) }} className="mt-4 flex min-h-11 w-full items-center justify-center text-center text-sm font-bold text-slate-500 hover:text-rose-600">
                 {recovery ? 'Voltar ao login' : 'Esqueci minha senha'}
               </button>
+              {!recovery && <><div className="my-5 flex items-center gap-3 text-xs font-bold uppercase tracking-wider text-slate-400"><span className="h-px flex-1 bg-slate-200" />ou operação<span className="h-px flex-1 bg-slate-200" /></div><button type="button" onClick={() => navigateTo('/operate')} className="flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white text-sm font-black text-slate-700 hover:border-rose-300 hover:text-rose-600"><KeyRound className="h-4 w-4" />Entrar com código e PIN</button><p className="mt-3 text-center text-[11px] leading-5 text-slate-400">Disponível somente em um terminal previamente autorizado pela gestão.</p></>}
             </>
           )}
         </div>

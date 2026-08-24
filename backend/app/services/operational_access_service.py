@@ -11,14 +11,18 @@ from sqlmodel import Session, select
 
 from app.core.config import settings
 from app.core.context import TenantContext
-from app.models.identity import Membership, MembershipStatusEnum, OperationalCredential, RoleEnum, User
+from app.core.tenancy import set_tenant_db_context
+from app.models.device import OperationalDevice, OperationalDeviceStatusEnum, OperationalDeviceTypeEnum
+from app.models.identity import Membership, MembershipStatusEnum, OperationalCredential, RoleEnum, Store, Tenant, User
 from app.models.payment import Register
 from app.services import reliability_service
 
 
 PIN_ITERATIONS = 210_000
 SESSION_HOURS = 12
+TERMINAL_SESSION_DAYS = 90
 OPERATIONAL_ROLES = {RoleEnum.SUPERVISOR, RoleEnum.CASHIER, RoleEnum.OPERATOR}
+MANAGEMENT_ROLES = {RoleEnum.OWNER, RoleEnum.TENANT_OWNER, RoleEnum.ADMIN, RoleEnum.MANAGER}
 
 
 def normalize_employee_code(value: str) -> str:
@@ -52,6 +56,144 @@ def _matches(credential: OperationalCredential, pin: str) -> bool:
     return hmac.compare_digest(candidate, credential.pin_hash)
 
 
+def authorize_terminal(
+    session: Session,
+    context: TenantContext,
+    device_id: uuid.UUID,
+) -> dict:
+    """Authorize this browser as a specific POS terminal.
+
+    The resulting credential identifies infrastructure, never a person. A PIN
+    exchange can only happen after this manager-controlled step.
+    """
+    if context.role not in MANAGEMENT_ROLES or not context.user_id:
+        raise HTTPException(status_code=403, detail="Somente gestores podem ativar um terminal.")
+    device = session.get(OperationalDevice, device_id)
+    if (
+        not device
+        or device.tenant_id != context.tenant_id
+        or device.store_id != context.store_id
+        or device.device_type != OperationalDeviceTypeEnum.POS
+        or device.status != OperationalDeviceStatusEnum.ACTIVE
+        or not device.register_id
+    ):
+        raise HTTPException(status_code=422, detail="Selecione um terminal POS ativo desta unidade.")
+    register = session.get(Register, device.register_id)
+    if not register or not register.is_active or register.store_id != device.store_id:
+        raise HTTPException(status_code=422, detail="O caixa vinculado ao terminal não está disponível.")
+
+    now = datetime.now(timezone.utc)
+    expires_at = now + timedelta(days=TERMINAL_SESSION_DAYS)
+    claims = {
+        "sub": str(device.id),
+        "aud": "dashem-terminal",
+        "iss": "dashem-terminal",
+        "iat": now,
+        "exp": expires_at,
+        "tenant_id": str(device.tenant_id),
+        "store_id": str(device.store_id),
+        "register_id": str(device.register_id),
+        "device_id": str(device.id),
+        "device_status": OperationalDeviceStatusEnum.ACTIVE.value,
+    }
+    token = jwt.encode(claims, settings.SECRET_KEY, algorithm="HS256")
+    device.last_seen_at = datetime.utcnow()
+    device.updated_at = device.last_seen_at
+    session.add(device)
+    reliability_service.write_audit_and_outbox(
+        session=session, tenant_id=context.tenant_id, store_id=device.store_id,
+        actor_id=context.user_id, action="operational_terminal.authorized",
+        target=f"DEVICE-{device.id}",
+        audit_payload={"register_id": str(device.register_id), "expires_at": expires_at.isoformat()},
+        aggregate_type="operational_terminal", aggregate_id=str(device.id),
+        event_type="operational_terminal.authorized",
+        outbox_payload={"device_id": str(device.id), "register_id": str(device.register_id)},
+    )
+    session.commit()
+    return {**_terminal_projection(session, device), "terminal_token": token, "expires_at": expires_at}
+
+
+def _decode_terminal_token(token: str) -> dict:
+    try:
+        return jwt.decode(
+            token,
+            settings.SECRET_KEY,
+            algorithms=["HS256"],
+            audience="dashem-terminal",
+            issuer="dashem-terminal",
+            options={"require": ["exp", "iat", "sub", "aud", "iss", "tenant_id", "store_id", "register_id", "device_id"]},
+        )
+    except jwt.ExpiredSignatureError as exc:
+        raise HTTPException(status_code=401, detail="A autorização deste terminal expirou. Solicite nova ativação ao gestor.") from exc
+    except jwt.InvalidTokenError as exc:
+        raise HTTPException(status_code=401, detail="Autorização de terminal inválida.") from exc
+
+
+def _terminal_projection(session: Session, device: OperationalDevice) -> dict:
+    tenant = session.get(Tenant, device.tenant_id)
+    store = session.get(Store, device.store_id)
+    register = session.get(Register, device.register_id) if device.register_id else None
+    return {
+        "device_id": device.id,
+        "device_name": device.name,
+        "tenant_id": device.tenant_id,
+        "tenant_name": tenant.name if tenant else "Tenant",
+        "store_id": device.store_id,
+        "store_name": store.name if store else "Unidade",
+        "register_id": device.register_id,
+        "register_name": register.name if register else "Terminal",
+    }
+
+
+def resolve_terminal(session: Session, token: str) -> tuple[TenantContext, OperationalDevice, dict]:
+    claims = _decode_terminal_token(token)
+    try:
+        tenant_id = uuid.UUID(claims["tenant_id"])
+        store_id = uuid.UUID(claims["store_id"])
+        device_id = uuid.UUID(claims["device_id"])
+        register_id = uuid.UUID(claims["register_id"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=401, detail="Escopo do terminal inválido.") from exc
+    set_tenant_db_context(session, tenant_id, store_id)
+    device = session.get(OperationalDevice, device_id)
+    if (
+        not device
+        or device.tenant_id != tenant_id
+        or device.store_id != store_id
+        or device.register_id != register_id
+        or device.device_type != OperationalDeviceTypeEnum.POS
+        or device.status != OperationalDeviceStatusEnum.ACTIVE
+    ):
+        raise HTTPException(status_code=403, detail="Este terminal foi pausado, revogado ou alterado pelo gestor.")
+    register = session.get(Register, register_id)
+    if not register or not register.is_active or register.tenant_id != tenant_id or register.store_id != store_id:
+        raise HTTPException(status_code=403, detail="O caixa deste terminal não está disponível.")
+    return TenantContext(tenant_id=tenant_id, store_id=store_id), device, _terminal_projection(session, device)
+
+
+def terminal_status(session: Session, token: str) -> dict:
+    _context, _device, projection = resolve_terminal(session, token)
+    return projection
+
+
+def activate_from_terminal(session: Session, *, terminal_token: str, employee_code: str, pin: str) -> dict:
+    context, device, _projection = resolve_terminal(session, terminal_token)
+    result = activate(
+        session,
+        context,
+        employee_code=employee_code,
+        pin=pin,
+        store_id=device.store_id,
+        register_id=device.register_id,
+        device_id=device.id,
+    )
+    device.last_seen_at = datetime.utcnow()
+    device.updated_at = device.last_seen_at
+    session.add(device)
+    session.commit()
+    return result
+
+
 def activate(
     session: Session,
     context: TenantContext,
@@ -60,6 +202,7 @@ def activate(
     pin: str,
     store_id: uuid.UUID,
     register_id: uuid.UUID | None,
+    device_id: uuid.UUID | None = None,
 ) -> dict:
     code = normalize_employee_code(employee_code)
     credential = session.exec(select(OperationalCredential).where(
@@ -112,6 +255,7 @@ def activate(
         "tenant_id": str(context.tenant_id),
         "store_id": str(store_id),
         "register_id": str(register_id) if register_id else None,
+        "device_id": str(device_id) if device_id else None,
         "membership_id": str(membership.id),
         "role": RoleEnum(membership.role).value,
         "app_metadata": {"provider": "operational"},

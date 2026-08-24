@@ -11,6 +11,7 @@ from app.core.database import engine
 from app.core.security import AuthPrincipal, decode_access_token
 from app.core.tenancy import set_platform_db_context, set_tenant_db_context
 from app.models.identity import Employee, Membership, MembershipStatusEnum, OperationalCredential, RoleEnum, Store, Tenant, TenantStatusEnum, User
+from app.models.device import OperationalDevice, OperationalDeviceStatusEnum, OperationalDeviceTypeEnum
 from app.models.payment import Register
 from app.services import operational_access_service
 
@@ -81,3 +82,57 @@ def test_pin_policy_rejects_repeated_and_sequential_values():
     for invalid in ("1111", "1234", "9876", "12AB"):
         with pytest.raises(HTTPException):
             operational_access_service.validate_pin(invalid)
+
+
+def test_public_pin_exchange_requires_an_active_manager_authorized_terminal():
+    suffix = uuid.uuid4().hex[:8]
+    with Session(engine) as session:
+        set_platform_db_context(session)
+        tenant = Tenant(name=f"Terminal {suffix}", slug=f"terminal-{suffix}", status=TenantStatusEnum.ACTIVE)
+        admin = User(email=f"terminal-admin-{suffix}@example.test", full_name="Gestora")
+        operator = User(full_name="Operadora")
+        session.add(tenant); session.add(admin); session.add(operator); session.flush()
+        store = Store(tenant_id=tenant.id, name="Matriz", code=f"TRM-{suffix}")
+        session.add(store); session.flush()
+        register = Register(tenant_id=tenant.id, store_id=store.id, name="Caixa 01", code=f"CX-{suffix}")
+        admin_membership = Membership(user_id=admin.id, tenant_id=tenant.id, role=RoleEnum.ADMIN, status=MembershipStatusEnum.ACTIVE)
+        operator_membership = Membership(user_id=operator.id, tenant_id=tenant.id, store_id=store.id, role=RoleEnum.OPERATOR, status=MembershipStatusEnum.ACTIVE)
+        employee = Employee(tenant_id=tenant.id, user_id=operator.id, home_store_id=store.id, employee_number="ATD-17", full_name="Operadora")
+        session.add(register); session.add(admin_membership); session.add(operator_membership); session.add(employee); session.flush()
+        salt, pin_hash, iterations = operational_access_service.new_pin_secret("4826")
+        session.add(OperationalCredential(
+            tenant_id=tenant.id, store_id=store.id, user_id=operator.id,
+            membership_id=operator_membership.id, employee_id=employee.id,
+            employee_code="ATD-17", pin_salt=salt, pin_hash=pin_hash, pin_iterations=iterations,
+        ))
+        device = OperationalDevice(
+            tenant_id=tenant.id, store_id=store.id, code="POS-01", name="Caixa principal",
+            device_type=OperationalDeviceTypeEnum.POS, register_id=register.id,
+        )
+        session.add(device); session.commit()
+        tenant_id, store_id, admin_id, device_id = tenant.id, store.id, admin.id, device.id
+
+    with Session(engine) as session:
+        set_tenant_db_context(session, tenant_id, store_id, admin_id)
+        authorization = operational_access_service.authorize_terminal(
+            session,
+            TenantContext(tenant_id=tenant_id, store_id=store_id, user_id=admin_id, role=RoleEnum.ADMIN),
+            device_id,
+        )
+        terminal_token = authorization["terminal_token"]
+        status = operational_access_service.terminal_status(session, terminal_token)
+        assert status["device_id"] == device_id
+        operational = operational_access_service.activate_from_terminal(
+            session, terminal_token=terminal_token, employee_code="ATD-17", pin="4826",
+        )
+        claims = decode_access_token(operational["access_token"])
+        assert claims["register_id"] == str(status["register_id"])
+        assert claims["tenant_id"] == str(tenant_id)
+
+        device = session.get(OperationalDevice, device_id)
+        assert device is not None
+        device.status = OperationalDeviceStatusEnum.PAUSED
+        session.add(device); session.commit()
+        with pytest.raises(HTTPException) as revoked:
+            operational_access_service.terminal_status(session, terminal_token)
+        assert revoked.value.status_code == 403

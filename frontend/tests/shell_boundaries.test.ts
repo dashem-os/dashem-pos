@@ -33,6 +33,19 @@ test('lets an authenticated tenant manager open POS without a second login', asy
   assert.doesNotMatch(gate, /window\.location\.reload\(\)/)
 })
 
+test('exposes PIN entry publicly only after manager authorization of a concrete terminal', async () => {
+  const app = await source('../src/App.tsx')
+  const login = await source('../src/components/auth/SignInScreen.tsx')
+  const entry = await source('../src/components/auth/OperationalEntryScreen.tsx')
+  const devices = await source('../src/components/management/DeviceManager.tsx')
+  assert.match(app, /pathname === '\/operate'/)
+  assert.match(login, /Entrar com código e PIN/)
+  assert.match(entry, /resolveOperationalTerminal\(terminalToken\)/)
+  assert.match(entry, /loginOperationalTerminal\(terminalToken/)
+  assert.match(devices, /authorizeOperationalTerminal\(headers, device\.id\)/)
+  assert.match(devices, /device\.device_type === 'POS'/)
+})
+
 test('keeps employee registration independent from operational credentials', async () => {
   const team = await source('../src/components/management/TeamManager.tsx')
   const api = await source('../src/services/api.ts')

@@ -2,7 +2,7 @@
 
 Status: **diretriz canônica para a próxima fase de construção**  
 Data: 23 de agosto de 2026  
-Revisão: **S17.2 concluído — próximo gate S18 Dashem Control Completion**
+Revisão: **S17.3 em validação — próximo gate S18 Dashem Control Completion**
 Substitui como referência de execução qualquer sequência anterior que conflite com este documento.
 
 ## 1. Por que este roadmap existe
@@ -1105,6 +1105,41 @@ Gate:
 Decisões registradas nos
 [`ADR-012`](../architecture/adr-012-operational-pin-identity.md) e
 [`ADR-013`](../architecture/adr-013-employee-access-boundary.md).
+
+### S17.3 — Ativação de Terminal e Entrada Operacional Pública
+
+Estado: **implementado; aguardando CI e validação do usuário**. Este gate fecha
+a lacuna em que a tela de PIN existia somente dentro de uma sessão por e-mail.
+
+Entregas:
+
+- `/operate` é uma entrada pública e explícita para código de colaborador + PIN;
+- código e PIN não formam um login global: a troca somente ocorre em navegador
+  previamente autorizado por administrador ou gerente;
+- a Gestão autoriza um `OperationalDevice` POS ativo e o backend assina tenant,
+  unidade, caixa e dispositivo em credencial de infraestrutura persistida no
+  navegador;
+- o endpoint público deriva todo o escopo da credencial assinada e nunca aceita
+  tenant, unidade ou caixa escolhidos pelo operador;
+- pausa, revogação, troca de vínculo ou desativação do caixa invalida novas
+  entradas imediatamente;
+- a identidade operacional continua curta, individual e armazenada apenas na
+  sessão; ao sair do turno, o terminal permanece autorizado para a próxima
+  pessoa;
+- o acesso por e-mail continua sendo a entrada de administradores e gerentes,
+  que podem abrir o PDV diretamente sem um segundo login.
+
+Gate:
+
+- sem autorização de terminal, `/operate` não oferece tentativa de PIN;
+- token de terminal adulterado, expirado, pausado, revogado ou fora do vínculo é
+  rejeitado antes da consulta à credencial do funcionário;
+- PIN válido em terminal autorizado emite token operacional limitado ao mesmo
+  tenant, unidade e caixa;
+- frontend, backend, contratos e testes de isolamento permanecem verdes.
+
+Decisão registrada no
+[`ADR-014`](../architecture/adr-014-terminal-authorization.md).
 
 ### S18 — Dashem Control Completion
 

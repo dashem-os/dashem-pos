@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { ChefHat, Monitor, PauseCircle, PlugZap, Printer, RefreshCw, Router, ShieldX } from 'lucide-react'
+import { ChefHat, KeyRound, Monitor, PauseCircle, PlugZap, Printer, RefreshCw, Router, ShieldX } from 'lucide-react'
 import { usePos } from '../../context/PosContext'
+import { useAuth } from '../../context/AuthContext'
 import { Modal } from '../common/Modal'
 import * as api from '../../services/api'
+import { navigateTo } from '../../utils/navigation'
 
 type DeviceKind = api.OperationalDevice['device_type']
 const typeMeta: Record<DeviceKind, { label: string; icon: React.ComponentType<{ className?: string }>; description: string }> = {
@@ -13,6 +15,7 @@ const typeMeta: Record<DeviceKind, { label: string; icon: React.ComponentType<{ 
 
 export function DeviceManager() {
   const { tenant, store, operatorId, products, permissions, showToast } = usePos()
+  const { authorizeTerminal } = useAuth()
   const [devices, setDevices] = useState<api.OperationalDevice[]>([])
   const [registers, setRegisters] = useState<api.Register[]>([])
   const [points, setPoints] = useState<api.ProductionPoint[]>([])
@@ -62,6 +65,17 @@ export function DeviceManager() {
     finally { setBusy(false) }
   }
 
+  const authorizeThisBrowser = async (device: api.OperationalDevice) => {
+    setBusy(true)
+    try {
+      const authorization = await api.authorizeOperationalTerminal(headers, device.id)
+      authorizeTerminal(authorization.terminal_token)
+      showToast('success', `${device.name} autorizado neste navegador.`)
+      navigateTo('/operate')
+    } catch (value) { showToast('error', value instanceof Error ? value.message : 'Falha ao autorizar este terminal.') }
+    finally { setBusy(false) }
+  }
+
   const createRule = async (event: React.FormEvent) => {
     event.preventDefault(); setBusy(true)
     try {
@@ -79,7 +93,7 @@ export function DeviceManager() {
       <div className="mt-6 grid gap-3 sm:grid-cols-3"><Metric label="Configurados" value={devices.length} hint={`${registers.length} caixas · ${points.length} pontos`} /><Metric label="Autorizados" value={active} hint={`${devices.length - active} pausados ou revogados`} /><Metric label="Presentes agora" value={online} hint="heartbeat nos últimos 90 segundos" /></div>
     </section>
 
-    <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{devices.map((device) => { const meta = typeMeta[device.device_type]; const Icon = meta.icon; const isOnline = Boolean(device.last_seen_at && Date.now() - new Date(device.last_seen_at).getTime() < 90_000); return <article key={device.id} className="rounded-2xl border border-dashem-border bg-dashem-surface p-5"><div className="flex items-start justify-between"><div className="flex h-11 w-11 items-center justify-center rounded-xl bg-sky-950/60 text-sky-300"><Icon className="h-5 w-5" /></div><span className={`rounded-full px-2 py-1 text-[10px] font-black ${device.status === 'ACTIVE' ? 'bg-emerald-950/60 text-emerald-300' : device.status === 'PAUSED' ? 'bg-amber-950/60 text-amber-300' : 'bg-red-950/60 text-red-300'}`}>{device.status}</span></div><h3 className="mt-4 font-black text-white">{device.name}</h3><p className="mt-1 text-xs text-dashem-muted">{meta.label} · {device.code}</p><div className="mt-4 flex items-center gap-2 rounded-xl bg-dashem-bg p-3"><span className={`h-2.5 w-2.5 rounded-full ${isOnline ? 'bg-emerald-400' : 'bg-slate-600'}`} /><p className="text-xs font-bold text-slate-300">{isOnline ? 'Online agora' : device.last_seen_at ? `Último contato ${new Date(device.last_seen_at).toLocaleString('pt-BR')}` : 'Ainda não pareado'}</p></div>{canConfigure && device.status !== 'REVOKED' && <div className="mt-4 flex gap-2">{device.status === 'ACTIVE' ? <button disabled={busy} onClick={() => void updateStatus(device, 'PAUSED')} className="rounded-lg border border-amber-900 px-3 py-2 text-[11px] font-black text-amber-300"><PauseCircle className="mr-1 inline h-4 w-4" />Pausar</button> : <button disabled={busy} onClick={() => void updateStatus(device, 'ACTIVE')} className="rounded-lg border border-emerald-900 px-3 py-2 text-[11px] font-black text-emerald-300"><PlugZap className="mr-1 inline h-4 w-4" />Reativar</button>}<button disabled={busy} onClick={() => void updateStatus(device, 'REVOKED')} className="rounded-lg px-3 py-2 text-[11px] font-black text-red-300"><ShieldX className="mr-1 inline h-4 w-4" />Revogar</button></div>}</article> })}</section>
+    <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{devices.map((device) => { const meta = typeMeta[device.device_type]; const Icon = meta.icon; const isOnline = Boolean(device.last_seen_at && Date.now() - new Date(device.last_seen_at).getTime() < 90_000); return <article key={device.id} className="rounded-2xl border border-dashem-border bg-dashem-surface p-5"><div className="flex items-start justify-between"><div className="flex h-11 w-11 items-center justify-center rounded-xl bg-sky-950/60 text-sky-300"><Icon className="h-5 w-5" /></div><span className={`rounded-full px-2 py-1 text-[10px] font-black ${device.status === 'ACTIVE' ? 'bg-emerald-950/60 text-emerald-300' : device.status === 'PAUSED' ? 'bg-amber-950/60 text-amber-300' : 'bg-red-950/60 text-red-300'}`}>{device.status}</span></div><h3 className="mt-4 font-black text-white">{device.name}</h3><p className="mt-1 text-xs text-dashem-muted">{meta.label} · {device.code}</p><div className="mt-4 flex items-center gap-2 rounded-xl bg-dashem-bg p-3"><span className={`h-2.5 w-2.5 rounded-full ${isOnline ? 'bg-emerald-400' : 'bg-slate-600'}`} /><p className="text-xs font-bold text-slate-300">{isOnline ? 'Online agora' : device.last_seen_at ? `Último contato ${new Date(device.last_seen_at).toLocaleString('pt-BR')}` : 'Ainda não pareado'}</p></div>{canConfigure && device.device_type === 'POS' && device.status === 'ACTIVE' && <button disabled={busy} onClick={() => void authorizeThisBrowser(device)} className="mt-4 flex w-full items-center justify-center rounded-lg bg-rose-600 px-3 py-2.5 text-[11px] font-black text-white"><KeyRound className="mr-2 h-4 w-4" />Autorizar este navegador</button>}{canConfigure && device.status !== 'REVOKED' && <div className="mt-3 flex gap-2">{device.status === 'ACTIVE' ? <button disabled={busy} onClick={() => void updateStatus(device, 'PAUSED')} className="rounded-lg border border-amber-900 px-3 py-2 text-[11px] font-black text-amber-300"><PauseCircle className="mr-1 inline h-4 w-4" />Pausar</button> : <button disabled={busy} onClick={() => void updateStatus(device, 'ACTIVE')} className="rounded-lg border border-emerald-900 px-3 py-2 text-[11px] font-black text-emerald-300"><PlugZap className="mr-1 inline h-4 w-4" />Reativar</button>}<button disabled={busy} onClick={() => void updateStatus(device, 'REVOKED')} className="rounded-lg px-3 py-2 text-[11px] font-black text-red-300"><ShieldX className="mr-1 inline h-4 w-4" />Revogar</button></div>}</article> })}</section>
     {!loading && devices.length === 0 && <div className="rounded-3xl border border-dashed border-dashem-border p-12 text-center"><Router className="mx-auto h-10 w-10 text-slate-600" /><h3 className="mt-4 font-black text-white">Nenhum dispositivo configurado</h3><p className="mt-2 text-sm text-dashem-muted">Comece pelo caixa principal, terminal da cozinha ou impressora de comandas.</p></div>}
 
     <section className="rounded-3xl border border-dashem-border bg-dashem-surface p-6"><div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center"><div><p className="text-xs font-black uppercase tracking-[.16em] text-sky-400">Roteamento</p><h2 className="mt-1 text-xl font-black text-white">Produto → ponto de produção</h2><p className="mt-1 text-sm text-dashem-muted">Cada item segue uma regra persistida para cozinha, bar, copa ou impressão.</p></div>{canConfigure && <button onClick={() => setDialog('RULE')} disabled={!points.length || !products.length} className="h-10 rounded-xl border border-sky-800 px-4 text-xs font-black text-sky-300 disabled:opacity-40">Nova regra</button>}</div><div className="mt-5 divide-y divide-dashem-border rounded-2xl border border-dashem-border">{rules.map((item) => <div key={item.id} className="grid gap-2 p-4 text-sm md:grid-cols-[1fr_auto_1fr_auto] md:items-center"><span className="font-bold text-white">{products.find((product) => product.id === item.product_id)?.name || 'Produto não carregado'}</span><span className="text-dashem-muted">→</span><span className="font-bold text-sky-300">{points.find((point) => point.id === item.production_point_id)?.name || 'Ponto arquivado'}</span><span className="text-xs text-dashem-muted">prioridade {item.priority}</span></div>)}{rules.length === 0 && <p className="p-6 text-center text-sm font-bold text-dashem-muted">Nenhuma regra de roteamento configurada.</p>}</div></section>
