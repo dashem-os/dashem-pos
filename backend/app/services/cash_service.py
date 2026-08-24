@@ -39,6 +39,46 @@ def create_register(
     session.refresh(register)
     return register
 
+
+def update_register(
+    session: Session,
+    context: TenantContext,
+    register_id: uuid.UUID,
+    *,
+    name: Optional[str],
+    is_active: Optional[bool],
+    actor_id: Optional[uuid.UUID],
+    reason: str,
+) -> Register:
+    register = session.exec(scope_tenant_query(select(Register).where(
+        Register.id == register_id,
+    ), Register, context).with_for_update()).first()
+    if not register:
+        raise HTTPException(status_code=404, detail="Terminal não encontrado.")
+    if is_active is False and session.exec(scope_tenant_query(select(CashSession).where(
+        CashSession.register_id == register.id,
+        CashSession.status == CashSessionStatusEnum.OPEN,
+    ), CashSession, context)).first():
+        raise HTTPException(status_code=409, detail="Feche o caixa antes de pausar o terminal.")
+    actor = actor_id or context.user_id
+    if not actor:
+        raise HTTPException(status_code=400, detail="actor_id é obrigatório.")
+    if context.user_id and actor != context.user_id:
+        raise HTTPException(status_code=403, detail="Ator não corresponde à identidade autenticada.")
+    if name is not None:
+        register.name = name.strip()
+    if is_active is not None:
+        register.is_active = is_active
+    reliability_service.write_audit_and_outbox(
+        session=session, tenant_id=context.tenant_id, store_id=register.store_id, actor_id=actor,
+        action="register.updated", target=f"REGISTER-{register.id}",
+        audit_payload={"name": register.name, "is_active": register.is_active, "reason": reason},
+        aggregate_type="register", aggregate_id=str(register.id), event_type="register.updated",
+        outbox_payload={"register_id": str(register.id), "is_active": register.is_active},
+    )
+    session.add(register); session.commit(); session.refresh(register)
+    return register
+
 def open_cash_session(
     session: Session,
     context: TenantContext,
@@ -264,4 +304,3 @@ def list_cash_movements(
         CashMovement.cash_session_id == session_id
     )
     return session.exec(query.order_by(CashMovement.created_at.asc())).all()
-

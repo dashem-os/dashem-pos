@@ -75,6 +75,32 @@ def list_points(session: Session, context: TenantContext) -> list[ProductionPoin
     return list(session.exec(scope_tenant_query(select(ProductionPoint).order_by(ProductionPoint.name), ProductionPoint, context)).all())
 
 
+def update_point(session: Session, context: TenantContext, point_id: uuid.UUID, *, name: Optional[str],
+                 is_active: Optional[bool], printer_configuration_ref: Optional[str],
+                 actor_id: Optional[uuid.UUID], reason: str) -> ProductionPoint:
+    point = _point(session, context, point_id); actor = _actor(context, actor_id)
+    if name is not None: point.name = name.strip()
+    if is_active is not None: point.is_active = is_active
+    if printer_configuration_ref is not None: point.printer_configuration_ref = printer_configuration_ref.strip() or None
+    if point.point_type == ProductionPointTypeEnum.PRINTER and not point.printer_configuration_ref:
+        raise HTTPException(status_code=422, detail="Impressora exige uma referência de configuração.")
+    point.updated_at = datetime.utcnow()
+    reliability_service.write_audit_and_outbox(
+        session, context.tenant_id, point.store_id, actor, "production.point.updated",
+        f"PRODUCTION-POINT-{point.id}", {"name": point.name, "is_active": point.is_active, "reason": reason},
+        "production_point", str(point.id), "production.point.updated",
+        {"point_id": str(point.id), "is_active": point.is_active},
+    )
+    session.add(point); session.commit(); session.refresh(point)
+    return point
+
+
+def list_rules(session: Session, context: TenantContext) -> list[ProductionRoutingRule]:
+    return list(session.exec(scope_tenant_query(select(ProductionRoutingRule).order_by(
+        ProductionRoutingRule.priority, ProductionRoutingRule.created_at,
+    ), ProductionRoutingRule, context)).all())
+
+
 def create_rule(session: Session, context: TenantContext, *, point_id: uuid.UUID,
                 product_id: Optional[uuid.UUID], modifier_id: Optional[uuid.UUID], fulfillment,
                 priority: int, actor_id: Optional[uuid.UUID], idempotency_key: str) -> ProductionRoutingRule:

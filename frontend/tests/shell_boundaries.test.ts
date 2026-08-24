@@ -17,10 +17,13 @@ test('keeps technical diagnostics outside the tenant management shell', async ()
   assert.doesNotMatch(management, /Diagnostics|Diagnóstico|API conectada/)
 })
 
-test('does not expose the management shortcut to an unauthorized POS operator', async () => {
+test('keeps tenant management one-way: Gestão opens POS but POS and KDS never open Gestão', async () => {
   const pos = await source('../src/layouts/PosLayout.tsx')
-  assert.match(pos, /canManage && <button/)
-  assert.match(pos, /navigateTo\('\/manage'\)/)
+  const kds = await source('../src/shells/KdsShell.tsx')
+  const management = await source('../src/layouts/ManagementLayout.tsx')
+  assert.doesNotMatch(pos, /navigateTo\('\/manage'\)/)
+  assert.doesNotMatch(kds, /navigateTo\('\/manage'\)/)
+  assert.match(management, /navigateTo\('\/pos'\)/)
 })
 
 test('never derives operational context from the first item of an authorized list', async () => {
@@ -43,8 +46,8 @@ test('filters every Gestão menu entry by backend permission and capability', as
   assert.match(management, /permissions\.includes\(item\.permission\)/)
   assert.match(management, /item\.capability in capabilities/)
   assert.match(management, /Equipe/)
-  assert.match(management, /Mesas & Comandas/)
-  assert.match(management, /Recebimentos/)
+  assert.match(management, /Ambientes e mesas/)
+  assert.match(management, /Terminais e produção/)
 })
 
 test('renders management metrics from the aggregate API instead of browser reductions', async () => {

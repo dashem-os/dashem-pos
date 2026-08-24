@@ -51,11 +51,19 @@ def route_requirement(method: str, path: str) -> RouteRequirement:
     if path.startswith("/api/v1/tables"):
         if method == "GET":
             return RouteRequirement("table.read")
+        if path.endswith("/state"):
+            return RouteRequirement("table.state.update")
+        if "/reservations" in path:
+            return RouteRequirement("table.reservation.manage")
         if path.endswith("/close"):
             return RouteRequirement("table.session.close")
         if "/sessions" in path:
             return RouteRequirement("table.session.open" if path.endswith("/sessions") else "table.session.update")
         return RouteRequirement("table.manage")
+    if path.startswith("/api/v1/devices"):
+        if path.endswith("/heartbeat"):
+            return RouteRequirement("device.heartbeat")
+        return RouteRequirement("device.read" if method == "GET" else "device.configure")
     if path.startswith("/api/v1/sales/customers"):
         return RouteRequirement("customer.read" if method == "GET" else "customer.update")
     if path.startswith("/api/v1/sales"):
@@ -73,7 +81,7 @@ def route_requirement(method: str, path: str) -> RouteRequirement:
     if path.startswith("/api/v1/cash"):
         if method == "GET":
             return RouteRequirement("cash.read")
-        if path.endswith("/registers"):
+        if "/registers" in path:
             return RouteRequirement("cash.configure")
         if path.endswith("/open"):
             return RouteRequirement("cash.open")

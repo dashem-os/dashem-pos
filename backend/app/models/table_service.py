@@ -16,6 +16,22 @@ class ServiceTableStatusEnum(str, Enum):
     BLOCKED = "BLOCKED"
 
 
+class ServiceAreaKindEnum(str, Enum):
+    INTERNAL = "INTERNAL"
+    EXTERNAL = "EXTERNAL"
+    COUNTER = "COUNTER"
+    TAKEAWAY = "TAKEAWAY"
+    FLEXIBLE = "FLEXIBLE"
+
+
+class TableReservationStatusEnum(str, Enum):
+    BOOKED = "BOOKED"
+    SEATED = "SEATED"
+    COMPLETED = "COMPLETED"
+    CANCELED = "CANCELED"
+    NO_SHOW = "NO_SHOW"
+
+
 class TableSessionKindEnum(str, Enum):
     TABLE = "TABLE"
     INDIVIDUAL_TAB = "INDIVIDUAL_TAB"
@@ -28,6 +44,27 @@ class TableSessionStatusEnum(str, Enum):
     CLOSING = "CLOSING"
     CLOSED = "CLOSED"
     CANCELED = "CANCELED"
+
+
+class ServiceArea(SQLModel, table=True):
+    __tablename__ = "service_areas"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "store_id", "code", name="uq_service_area_store_code"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(foreign_key="tenants.id", index=True)
+    store_id: uuid.UUID = Field(foreign_key="stores.id", index=True)
+    code: str = Field(max_length=40, index=True)
+    name: str = Field(max_length=120, index=True)
+    kind: ServiceAreaKindEnum = Field(
+        default=ServiceAreaKindEnum.INTERNAL,
+        sa_column=Column(EnumString(ServiceAreaKindEnum), nullable=False, index=True),
+    )
+    sort_order: int = Field(default=100, ge=0, index=True)
+    is_active: bool = Field(default=True, index=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class ServiceTable(SQLModel, table=True):
@@ -45,7 +82,10 @@ class ServiceTable(SQLModel, table=True):
     code: str = Field(max_length=40, index=True)
     name: str = Field(max_length=120, index=True)
     capacity: int = Field(default=1, ge=1)
+    area_id: Optional[uuid.UUID] = Field(default=None, foreign_key="service_areas.id", index=True)
     area: Optional[str] = Field(default=None, max_length=80, index=True)
+    sort_order: int = Field(default=100, ge=0, index=True)
+    blocking_reason: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     status: ServiceTableStatusEnum = Field(
         default=ServiceTableStatusEnum.AVAILABLE,
         sa_column=Column(EnumString(ServiceTableStatusEnum), nullable=False, index=True),
@@ -54,6 +94,33 @@ class ServiceTable(SQLModel, table=True):
     is_active: bool = Field(default=True, index=True)
     creation_idempotency_key: str = Field(max_length=160, index=True)
     creation_request_hash: str = Field(max_length=64)
+    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class TableReservation(SQLModel, table=True):
+    __tablename__ = "table_reservations"
+    __table_args__ = (
+        CheckConstraint("party_size > 0", name="ck_table_reservation_party_size_positive"),
+        UniqueConstraint("tenant_id", "idempotency_key", name="uq_table_reservation_key"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(foreign_key="tenants.id", index=True)
+    store_id: uuid.UUID = Field(foreign_key="stores.id", index=True)
+    service_table_id: uuid.UUID = Field(foreign_key="service_tables.id", index=True)
+    customer_name: str = Field(max_length=160, index=True)
+    customer_phone: Optional[str] = Field(default=None, max_length=40)
+    party_size: int = Field(default=1, ge=1)
+    reserved_for: datetime = Field(index=True)
+    notes: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    status: TableReservationStatusEnum = Field(
+        default=TableReservationStatusEnum.BOOKED,
+        sa_column=Column(EnumString(TableReservationStatusEnum), nullable=False, index=True),
+    )
+    created_by: uuid.UUID = Field(index=True)
+    idempotency_key: str = Field(max_length=160, index=True)
+    request_hash: str = Field(max_length=64)
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 

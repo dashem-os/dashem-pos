@@ -26,6 +26,13 @@ class PointDTO(BaseModel):
     point_type: ProductionPointTypeEnum; is_active: bool; printer_configuration_ref: Optional[str]
     created_at: datetime; updated_at: datetime
 
+class PointUpdateDTO(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=2, max_length=160)
+    is_active: Optional[bool] = None
+    printer_configuration_ref: Optional[str] = Field(default=None, max_length=255)
+    actor_id: Optional[uuid.UUID] = None
+    reason: str = Field(min_length=3, max_length=500)
+
 class RuleCreateDTO(BaseModel):
     production_point_id: uuid.UUID; product_id: Optional[uuid.UUID] = None; modifier_id: Optional[uuid.UUID] = None
     fulfillment: Optional[OrderFulfillmentEnum] = None; priority: int = Field(default=100, ge=1, le=999)
@@ -66,9 +73,18 @@ def create_point_endpoint(data: PointCreateDTO, idempotency_key: str = Header(al
 def list_points_endpoint(context: TenantContext = Depends(get_tenant_context), session: Session = Depends(get_session)):
     return production_service.list_points(session, context)
 
+@router.patch("/points/{point_id}", response_model=PointDTO)
+def update_point_endpoint(point_id: uuid.UUID, data: PointUpdateDTO, context: TenantContext = Depends(get_tenant_context), session: Session = Depends(get_session)):
+    return production_service.update_point(session, context, point_id, name=data.name, is_active=data.is_active,
+        printer_configuration_ref=data.printer_configuration_ref, actor_id=data.actor_id, reason=data.reason)
+
 @router.post("/rules", response_model=RuleDTO)
 def create_rule_endpoint(data: RuleCreateDTO, idempotency_key: str = Header(alias="Idempotency-Key", min_length=8, max_length=160), context: TenantContext = Depends(get_tenant_context), session: Session = Depends(get_session)):
     return production_service.create_rule(session, context, point_id=data.production_point_id, product_id=data.product_id, modifier_id=data.modifier_id, fulfillment=data.fulfillment, priority=data.priority, actor_id=data.actor_id, idempotency_key=idempotency_key)
+
+@router.get("/rules", response_model=list[RuleDTO])
+def list_rules_endpoint(context: TenantContext = Depends(get_tenant_context), session: Session = Depends(get_session)):
+    return production_service.list_rules(session, context)
 
 @router.post("/orders/{order_id}/dispatch", response_model=list[TicketProjectionDTO])
 def dispatch_order_endpoint(order_id: uuid.UUID, data: DispatchDTO, idempotency_key: str = Header(alias="Idempotency-Key", min_length=8, max_length=160), context: TenantContext = Depends(get_tenant_context), session: Session = Depends(get_session)):

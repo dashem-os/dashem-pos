@@ -3,18 +3,18 @@ import { PosProvider, usePos } from '../context/PosContext'
 import { PosLayout } from '../layouts/PosLayout'
 import { OperationalContextGate, OperationalSelection } from '../components/context/OperationalContextGate'
 
-export default function PosShell({ canManage }: { canManage: boolean }) {
-  return <OperationalContextGate requireTerminal>{(selection) => <SelectedPosShell selection={selection} canManage={canManage} />}</OperationalContextGate>
+export default function PosShell() {
+  return <OperationalContextGate requireTerminal>{(selection) => <SelectedPosShell selection={selection} />}</OperationalContextGate>
 }
 
-function SelectedPosShell({ selection, canManage }: { selection: OperationalSelection; canManage: boolean }) {
-  return <PosProvider {...selection}><PosSurface canManage={canManage} /></PosProvider>
+function SelectedPosShell({ selection }: { selection: OperationalSelection }) {
+  return <PosProvider {...selection}><PosSurface /></PosProvider>
 }
 
-function PosSurface({ canManage }: { canManage: boolean }) {
+function PosSurface() {
   const { loading, toast } = usePos()
   if (loading) return <ShellLoader label="Carregando frente de caixa..." />
-  return <><Toast toast={toast} /><PosLayout canManage={canManage} /></>
+  return <><Toast toast={toast} /><PosLayout /></>
 }
 
 function ShellLoader({ label }: { label: string }) {

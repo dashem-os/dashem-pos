@@ -1,7 +1,6 @@
 import React, { useState } from 'react'
 import {
   Store as StoreIcon,
-  LayoutDashboard,
   ShoppingBag,
   CheckCircle2,
   AlertCircle,
@@ -28,7 +27,7 @@ import { CancelModal } from '../components/pos/CancelModal'
 import { formatCurrency, formatQuantity } from '../utils/format'
 import { navigateTo } from '../utils/navigation'
 
-export const PosLayout: React.FC<{ canManage?: boolean }> = ({ canManage = false }) => {
+export const PosLayout: React.FC = () => {
   const { signOut } = useAuth()
   const {
     store,
@@ -122,16 +121,6 @@ export const PosLayout: React.FC<{ canManage?: boolean }> = ({ canManage = false
               </>
             )}
           </div>
-
-          {/* Discrete Switch to Management */}
-          {canManage && <button
-            onClick={() => navigateTo('/manage')}
-            className="h-9 px-3.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold flex items-center space-x-1.5 transition-colors border border-slate-200 active:scale-95"
-            title="Acessar Gestão e Retaguarda"
-          >
-            <LayoutDashboard className="w-3.5 h-3.5 text-slate-500" />
-            <span className="hidden sm:inline">Gestão</span>
-          </button>}
 
           {permissions.includes('table.read') && 'table_service' in capabilities && <button
             onClick={() => navigateTo('/tables')}

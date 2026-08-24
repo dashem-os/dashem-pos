@@ -6,7 +6,7 @@ import { formatCurrency, formatStock } from '../../utils/format'
 export const QuickProductGrid: React.FC = () => {
   const { products, categories, prices, balances, addItemToCart, actionLoading, permissions, connectionState } = usePos()
   const canSell = permissions.includes('sale.create') && connectionState === 'ONLINE'
-  const [activeTab, setActiveTab] = useState<string>('FAVORITES')
+  const [activeTab, setActiveTab] = useState<string>('ALL')
 
   // Per-member, per-store quick access persisted by the backend.
   const favoriteProducts = useMemo(() => {

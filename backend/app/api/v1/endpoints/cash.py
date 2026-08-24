@@ -16,6 +16,12 @@ class RegisterCreateDTO(BaseModel):
     name: str
     code: str
 
+class RegisterUpdateDTO(BaseModel):
+    name: Optional[str] = None
+    is_active: Optional[bool] = None
+    actor_id: Optional[uuid.UUID] = None
+    reason: str
+
 class OpenCashSessionDTO(BaseModel):
     store_id: uuid.UUID
     register_id: uuid.UUID
@@ -49,6 +55,16 @@ def list_registers_endpoint(
     session: Session = Depends(get_session)
 ):
     return cash_service.list_registers(session, context, store_id=store_id)
+
+@router.patch("/registers/{register_id}", response_model=Register)
+def update_register_endpoint(
+    register_id: uuid.UUID,
+    data: RegisterUpdateDTO,
+    context: TenantContext = Depends(get_tenant_context),
+    session: Session = Depends(get_session),
+):
+    return cash_service.update_register(session, context, register_id, name=data.name,
+        is_active=data.is_active, actor_id=data.actor_id, reason=data.reason)
 
 @router.get("/sessions/active", response_model=Optional[CashSession])
 def get_active_cash_session_endpoint(
@@ -122,4 +138,3 @@ def list_cash_movements_endpoint(
     session: Session = Depends(get_session)
 ):
     return cash_service.list_cash_movements(session, context, session_id=session_id)
-

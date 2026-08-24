@@ -87,9 +87,9 @@ function IdentityRouter() {
   if (route !== pathname) replacePath(route)
 
   if (route === '/manage') return <ShellSuspense label="Carregando Dashem Gestão..."><ManageShell /></ShellSuspense>
-  if (route === '/kds') return <ShellSuspense label="Carregando Dashem KDS..."><KdsShell canManage={canManage} /></ShellSuspense>
+  if (route === '/kds') return <ShellSuspense label="Carregando Dashem KDS..."><KdsShell /></ShellSuspense>
   if (route === '/tables') return <ShellSuspense label="Carregando mesas e comandas..."><TablesShell /></ShellSuspense>
-  return <ShellSuspense label="Carregando frente de caixa..."><PosShell canManage={canManage} /></ShellSuspense>
+  return <ShellSuspense label="Carregando frente de caixa..."><PosShell /></ShellSuspense>
 }
 
 function ShellSuspense({ label, children }: { label: string; children: React.ReactNode }) {

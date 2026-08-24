@@ -202,7 +202,10 @@ export interface ServiceTable {
   code: string
   name: string
   capacity: number
+  area_id?: string
   area?: string
+  sort_order: number
+  blocking_reason?: string
   status: 'AVAILABLE' | 'OCCUPIED' | 'RESERVED' | 'BLOCKED'
   version: number
   is_active: boolean
@@ -217,6 +220,36 @@ export interface ServiceTableProjection extends ServiceTable {
   order_count: number
   item_count: number
   consolidated_total: number
+  active_reservation?: TableReservation
+}
+
+export interface ServiceArea {
+  id: string
+  tenant_id: string
+  store_id: string
+  code: string
+  name: string
+  kind: 'INTERNAL' | 'EXTERNAL' | 'COUNTER' | 'TAKEAWAY' | 'FLEXIBLE'
+  sort_order: number
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface TableReservation {
+  id: string
+  tenant_id: string
+  store_id: string
+  service_table_id: string
+  customer_name: string
+  customer_phone?: string
+  party_size: number
+  reserved_for: string
+  notes?: string
+  status: 'BOOKED' | 'SEATED' | 'COMPLETED' | 'CANCELED' | 'NO_SHOW'
+  created_by: string
+  created_at: string
+  updated_at: string
 }
 
 export interface TableSessionEvent {
@@ -416,6 +449,36 @@ export interface ProductionPoint {
   updated_at: string
 }
 
+export interface ProductionRoutingRule {
+  id: string
+  tenant_id: string
+  store_id: string
+  production_point_id: string
+  product_id?: string
+  modifier_id?: string
+  fulfillment?: Order['fulfillment']
+  priority: number
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface OperationalDevice {
+  id: string
+  tenant_id: string
+  store_id: string
+  code: string
+  name: string
+  device_type: 'POS' | 'KDS' | 'PRINTER'
+  status: 'ACTIVE' | 'PAUSED' | 'REVOKED'
+  register_id?: string
+  production_point_id?: string
+  configuration_ref?: string
+  last_seen_at?: string
+  created_at: string
+  updated_at: string
+}
+
 export interface ProductionTicketItem {
   id: string
   order_item_id: string
@@ -451,6 +514,7 @@ export interface Register {
   store_id: string
   name: string
   code: string
+  is_active: boolean
 }
 
 export interface CashSession {
@@ -1110,6 +1174,18 @@ export async function createCategory(headers: Record<string, string>, name: stri
   return res.json()
 }
 
+export async function updateCategory(headers: Record<string, string>, categoryId: string, data: { name?: string; slug?: string; parent_id?: string; is_active?: boolean }): Promise<Category> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/catalog/categories/${categoryId}`, { method: 'PATCH', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
+  if (!res.ok) throw await apiError(res, 'Não foi possível atualizar a categoria.')
+  return res.json()
+}
+
+export async function archiveCategory(headers: Record<string, string>, categoryId: string): Promise<Category> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/catalog/categories/${categoryId}`, { method: 'DELETE', headers })
+  if (!res.ok) throw await apiError(res, 'Não foi possível arquivar a categoria.')
+  return res.json()
+}
+
 export async function fetchProductPrices(headers: Record<string, string>, storeId?: string, productId?: string): Promise<ProductPrice[]> {
   let url = `${API_BASE_URL}/api/v1/catalog/prices`
   const params = new URLSearchParams()
@@ -1347,7 +1423,7 @@ export async function fetchServiceTables(headers: Record<string, string>): Promi
 
 export async function createServiceTable(
   headers: Record<string, string>, idempotencyKey: string,
-  data: { store_id: string; code: string; name: string; capacity: number; area?: string; actor_id?: string },
+  data: { store_id: string; code: string; name: string; capacity: number; area?: string; area_id?: string; sort_order?: number; actor_id?: string },
 ): Promise<ServiceTable> {
   const res = await fetch(`${API_BASE_URL}/api/v1/tables`, {
     method: 'POST', headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(data),
@@ -1356,9 +1432,69 @@ export async function createServiceTable(
   return res.json()
 }
 
+export async function fetchServiceAreas(headers: Record<string, string>): Promise<ServiceArea[]> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/tables/areas`, { headers })
+  if (!res.ok) throw await apiError(res, 'Não foi possível carregar os ambientes.')
+  return res.json()
+}
+
+export async function createServiceArea(headers: Record<string, string>, data: {
+  store_id: string; code: string; name: string; kind: ServiceArea['kind']; sort_order?: number; actor_id?: string
+}): Promise<ServiceArea> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/tables/areas`, { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
+  if (!res.ok) throw await apiError(res, 'Não foi possível cadastrar o ambiente.')
+  return res.json()
+}
+
+export async function updateServiceArea(headers: Record<string, string>, areaId: string, data: {
+  name?: string; kind?: ServiceArea['kind']; sort_order?: number; is_active?: boolean; reason: string; actor_id?: string
+}): Promise<ServiceArea> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/tables/areas/${areaId}`, { method: 'PATCH', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
+  if (!res.ok) throw await apiError(res, 'Não foi possível atualizar o ambiente.')
+  return res.json()
+}
+
+export async function updateServiceTable(headers: Record<string, string>, tableId: string, data: {
+  expected_version: number; name?: string; capacity?: number; area_id?: string; sort_order?: number; is_active?: boolean; reason: string; actor_id?: string
+}): Promise<ServiceTable> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/tables/${tableId}`, { method: 'PATCH', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
+  if (!res.ok) throw await apiError(res, 'Não foi possível configurar a mesa.')
+  return res.json()
+}
+
+export async function setServiceTableState(headers: Record<string, string>, tableId: string, data: {
+  expected_version: number; target: 'AVAILABLE' | 'BLOCKED'; reason: string; actor_id?: string
+}): Promise<ServiceTable> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/tables/${tableId}/state`, { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
+  if (!res.ok) throw await apiError(res, 'Não foi possível alterar a situação da mesa.')
+  return res.json()
+}
+
+export async function fetchTableReservations(headers: Record<string, string>): Promise<TableReservation[]> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/tables/reservations`, { headers })
+  if (!res.ok) throw await apiError(res, 'Não foi possível carregar as reservas.')
+  return res.json()
+}
+
+export async function createTableReservation(headers: Record<string, string>, tableId: string, idempotencyKey: string, data: {
+  customer_name: string; customer_phone?: string; party_size: number; reserved_for: string; notes?: string; actor_id?: string
+}): Promise<TableReservation> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/tables/${tableId}/reservations`, { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(data) })
+  if (!res.ok) throw await apiError(res, 'Não foi possível registrar a reserva.')
+  return res.json()
+}
+
+export async function transitionTableReservation(headers: Record<string, string>, reservationId: string, data: {
+  target: 'CANCELED' | 'NO_SHOW'; reason: string; actor_id?: string
+}): Promise<TableReservation> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/tables/reservations/${reservationId}/transition`, { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
+  if (!res.ok) throw await apiError(res, 'Não foi possível atualizar a reserva.')
+  return res.json()
+}
+
 export async function openTableSession(
   headers: Record<string, string>, idempotencyKey: string,
-  data: { store_id: string; service_table_id?: string; display_label?: string; customer_id?: string; attendant_id?: string; actor_id?: string },
+  data: { store_id: string; service_table_id?: string; display_label?: string; customer_id?: string; reservation_id?: string; attendant_id?: string; actor_id?: string },
 ): Promise<TableSession> {
   const res = await fetch(`${API_BASE_URL}/api/v1/tables/sessions`, {
     method: 'POST', headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(data),
@@ -1526,6 +1662,58 @@ export async function fetchProductionPoints(headers: Record<string, string>): Pr
   return res.json()
 }
 
+export async function createProductionPoint(headers: Record<string, string>, idempotencyKey: string, data: {
+  store_id: string; code: string; name: string; point_type: ProductionPoint['point_type']; printer_configuration_ref?: string; actor_id?: string
+}): Promise<ProductionPoint> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/production/points`, { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(data) })
+  if (!res.ok) throw await apiError(res, 'Não foi possível cadastrar o ponto de produção.')
+  return res.json()
+}
+
+export async function updateProductionPoint(headers: Record<string, string>, pointId: string, data: {
+  name?: string; is_active?: boolean; printer_configuration_ref?: string; actor_id?: string; reason: string
+}): Promise<ProductionPoint> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/production/points/${pointId}`, { method: 'PATCH', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
+  if (!res.ok) throw await apiError(res, 'Não foi possível atualizar o ponto de produção.')
+  return res.json()
+}
+
+export async function fetchProductionRules(headers: Record<string, string>): Promise<ProductionRoutingRule[]> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/production/rules`, { headers })
+  if (!res.ok) throw await apiError(res, 'Não foi possível carregar as regras de produção.')
+  return res.json()
+}
+
+export async function createProductionRule(headers: Record<string, string>, idempotencyKey: string, data: {
+  production_point_id: string; product_id?: string; modifier_id?: string; fulfillment?: Order['fulfillment']; priority?: number; actor_id?: string
+}): Promise<ProductionRoutingRule> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/production/rules`, { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(data) })
+  if (!res.ok) throw await apiError(res, 'Não foi possível criar a regra de produção.')
+  return res.json()
+}
+
+export async function fetchOperationalDevices(headers: Record<string, string>): Promise<OperationalDevice[]> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/devices`, { headers })
+  if (!res.ok) throw await apiError(res, 'Não foi possível carregar os dispositivos.')
+  return res.json()
+}
+
+export async function createOperationalDevice(headers: Record<string, string>, data: {
+  store_id: string; code: string; name: string; device_type: OperationalDevice['device_type']; register_id?: string; production_point_id?: string; point_type?: ProductionPoint['point_type']; configuration_ref?: string; actor_id?: string
+}): Promise<OperationalDevice> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/devices`, { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
+  if (!res.ok) throw await apiError(res, 'Não foi possível cadastrar o dispositivo.')
+  return res.json()
+}
+
+export async function updateOperationalDevice(headers: Record<string, string>, deviceId: string, data: {
+  name?: string; status?: OperationalDevice['status']; configuration_ref?: string; reason: string; actor_id?: string
+}): Promise<OperationalDevice> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/devices/${deviceId}`, { method: 'PATCH', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
+  if (!res.ok) throw await apiError(res, 'Não foi possível atualizar o dispositivo.')
+  return res.json()
+}
+
 export async function fetchProductionTickets(headers: Record<string, string>, pointId?: string): Promise<ProductionTicketProjection[]> {
   const suffix = pointId ? `?point_id=${pointId}` : ''
   const res = await fetch(`${API_BASE_URL}/api/v1/production/tickets${suffix}`, { headers })
@@ -1611,6 +1799,14 @@ export async function createRegister(headers: Record<string, string>, storeId: s
     body: JSON.stringify({ store_id: storeId, name, code })
   })
   if (!res.ok) throw new Error('Erro ao criar terminal de caixa')
+  return res.json()
+}
+
+export async function updateRegister(headers: Record<string, string>, registerId: string, data: {
+  name?: string; is_active?: boolean; actor_id?: string; reason: string
+}): Promise<Register> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/cash/registers/${registerId}`, { method: 'PATCH', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
+  if (!res.ok) throw await apiError(res, 'Não foi possível atualizar o terminal.')
   return res.json()
 }
 

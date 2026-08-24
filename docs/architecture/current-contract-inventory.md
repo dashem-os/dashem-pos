@@ -19,7 +19,7 @@ migrations e testes.
 | Fiscal | issue, cancel, get | gateway e estados fiscais simuláveis |
 | Capability | `GET /api/v1/capabilities/effective` | entitlement de produto; não é permission |
 
-## Evolução validada até S7
+## Evolução validada até S13.1
 
 | Domínio | Contrato canônico atual |
 |---|---|
@@ -28,6 +28,9 @@ migrations e testes.
 | COUNTER | operação recuperável por store, terminal e operador; modos COUNTER/TAKEAWAY e conectividade explícita |
 | Order | agregado separado de Sale; comandos de item idempotentes, snapshots e outbox transacional |
 | Mesas e comandas | `ServiceTable`, `TableSession` e `Order` separados; sessão multi-comanda, projeção consolidada, concorrência e RLS |
+| Retaguarda do tenant | Gestão configura catálogo, estoque, ambientes, mesas, reservas, terminais e produção; POS/KDS não elevam para Gestão |
+| Reservas e impedimentos | `TableReservation` identificada e `ServiceTable` bloqueável com motivo; abertura reservada exige confirmação explícita |
+| Dispositivos | `OperationalDevice` provisiona POS/KDS/impressora com vínculo transacional, heartbeat e revogação auditável |
 
 ## Máquinas de estado protegidas
 

@@ -17,14 +17,17 @@ test('uses persistent table session APIs and idempotency keys', () => {
   assert.match(api, /'Idempotency-Key': idempotencyKey/)
 })
 
-test('activates the table-service capability instead of a sprint placeholder', () => {
+test('keeps table configuration in Gestão instead of the attendant workspace', () => {
   assert.match(management, /permission: 'table\.read'/)
   assert.match(management, /capability: 'table_service'/)
-  assert.match(management, /case 'tables': return <TableServiceWorkspace/)
+  assert.match(management, /case 'tables': return <ServiceSetupManager/)
+  assert.doesNotMatch(workspace, /Cadastrar mesa/)
+  assert.match(workspace, /Mesa reservada/)
+  assert.match(workspace, /Sinalizar impedimento/)
 })
 
 test('renders real empty state and server-composed totals without fixtures', () => {
-  assert.match(workspace, /Nenhuma mesa cadastrada/)
+  assert.match(workspace, /Mapa ainda não configurado/)
   assert.match(workspace, /consolidated_total/)
   assert.doesNotMatch(workspace, /mock|fixture|Mesa 2.*120/)
 })

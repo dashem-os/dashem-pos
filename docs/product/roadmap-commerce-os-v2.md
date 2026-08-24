@@ -2,7 +2,7 @@
 
 Status: **diretriz canônica para a próxima fase de construção**  
 Data: 23 de agosto de 2026  
-Revisão: **S13 concluído — próximo gate S14 Crediário e Receivables**
+Revisão: **S13.1 concluído — próximo gate S14 Crediário e Receivables**
 Substitui como referência de execução qualquer sequência anterior que conflite com este documento.
 
 ## 1. Por que este roadmap existe
@@ -872,6 +872,39 @@ Gate:
 - venda confirmada e repasse pendente aparecem como fatos distintos;
 - diferenças de comissão/taxa são rastreáveis até documento do provider.
 
+### S13.1 — Retaguarda Operacional do Tenant
+
+Objetivo: tornar o Dashem Gestão a superfície administrativa real do tenant e
+separar, por contrato e permission, configuração de operação cotidiana.
+
+Entregas:
+
+- navegação de Gestão organizada por visão, operação, mercadorias, estrutura e
+  acessos, sem cards congelados ou referências de sprint no produto;
+- workspaces persistidos para produtos/preços, categorias, estoque e movimentos;
+- `ServiceArea`, configuração e arquivamento de mesas, reservas e estados de
+  impedimento por unidade;
+- `OperationalDevice` para POS, KDS e impressora, com caixa ou ponto de produção
+  criado na mesma transação, heartbeat e ciclo `ACTIVE/PAUSED/REVOKED`;
+- roteamento persistido produto → cozinha/bar/copa/expedição/impressão;
+- dashboard com hierarquia de decisão, métricas reais, alertas e atalhos para
+  tarefas administrativas;
+- fronteira unidirecional: Gestão pode abrir o PDV; POS e KDS não expõem Gestão;
+- PDV abre em todos os produtos quando não existem favoritos, sem tela vazia
+  causada por fallback visual.
+
+Gate:
+
+- somente Gestão pode criar, editar, ordenar ou arquivar uma mesa;
+- atendente pode bloquear/liberar mesa existente mediante permission e motivo;
+- mesa reservada sinaliza cliente, horário e quantidade e exige confirmação da
+  reserva antes de abrir a sessão;
+- reserva, abertura, bloqueio, dispositivo e mudança de estado são auditáveis e
+  isolados por tenant/store;
+- criação de terminal e estrutura vinculada é atômica;
+- telas vazias orientam a próxima ação sem inventar dados;
+- frontend, backend, migration upgrade/downgrade/rebuild e drift check verdes.
+
 ### S14 — Crediário e Receivables
 
 Objetivo: converter parte autorizada do saldo em obrigação financeira sem
@@ -1067,6 +1100,9 @@ Gate:
 FUNDAÇÃO CONCLUÍDA
 S0 → S1 → S2 → S3 → S4 → S5 → S6 → S7
 
+RETAGUARDA DO TENANT
+S1 + S2 + S4 + S7 + S11 → S13.1 Gestão, mesas, reservas e dispositivos
+
 FECHAMENTO E PROVIDERS
 S7 + core financeiro existente → S8 CheckoutNegotiation/Orchestrator → S9 TEF
 
@@ -1118,6 +1154,9 @@ e aparece como `não configurada`, nunca como pronta.
 | Produção representada apenas como estado visual do item | S11 | tickets e allocations persistidos | resolvido no S11 |
 | Transferência capaz de apagar origem | S12 | linhagem e conservação imutáveis | resolvido no S12 |
 | Catálogo duplicado por marketplace | S13 | mapeamento canônico por canal | resolvido no S13 |
+| Gestão sem retaguarda e PDV capaz de retornar à administração | S13.1 | workspaces persistidos e fronteira unidirecional | resolvido e testado |
+| Atendente capaz de cadastrar mesa ou abrir reserva sem confirmação | S13.1 | configuração exclusiva da Gestão + confirmação da reserva | resolvido e testado |
+| Terminal e caixa/ponto criados em chamadas independentes | S13.1 | provisionamento transacional do dispositivo | resolvido e testado |
 | Crediário tratado como pagamento recebido | S14 | recebível e allocation distintos | aberto |
 | Renegociação capaz de alterar documento original | S15 | acordo e ledger imutáveis | aberto |
 | Caixa/fiscal/provider sem conciliação unificada | S16 | fatos vinculados sem reescrita | aberto |
@@ -1169,7 +1208,9 @@ O próximo ciclo de implementação deve ser:
 S14 — Crediário e Receivables
 ```
 
-S0–S13 estão concluídos nos gates internos. O S13 introduziu o ADR-009,
+S0–S13.1 estão concluídos nos gates internos. O S13 introduziu o ADR-009,
 mapeamentos por merchant, ofertas versionadas, publicação item a item e documentos
 de repasse independentes do Order. Falha parcial e diferença financeira ficam
-observáveis. O próximo gate canônico é o S14, fora do loop S8–S13 autorizado.
+observáveis. O S13.1 completa a primeira retaguarda operacional do tenant e fixa
+a fronteira Gestão → PDV/KDS, nunca no sentido inverso. O próximo gate canônico é
+o S14.

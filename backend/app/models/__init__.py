@@ -33,7 +33,8 @@ from app.models.order import (
     OrderFulfillmentEnum, OrderItemStatusEnum, ProductionStateEnum,
 )
 from app.models.table_service import (
-    ServiceTable, ServiceTableStatusEnum, TableSession, TableSessionCommand,
+    ServiceArea, ServiceAreaKindEnum, ServiceTable, ServiceTableStatusEnum,
+    TableReservation, TableReservationStatusEnum, TableSession, TableSessionCommand,
     TableSessionEvent, TableSessionKindEnum, TableSessionStatusEnum,
 )
 from app.models.negotiation import (
@@ -57,6 +58,7 @@ from app.models.production import (
 )
 from app.models.transfer import TransferRecord, TransferTypeEnum
 from app.models.channel_catalog import ChannelCatalogMapping,ChannelCatalogOffer,ChannelPublicationBatch,ChannelPublicationItem,MarketplaceSettlement,MarketplaceSettlementPayment,CatalogEntityTypeEnum,PublicationStatusEnum,PublicationItemStatusEnum,SettlementStatusEnum
+from app.models.device import OperationalDevice, OperationalDeviceTypeEnum, OperationalDeviceStatusEnum
 
 __all__ = [
     "Tenant",
@@ -150,6 +152,10 @@ __all__ = [
     "ProductionStateEnum",
     "ServiceTable",
     "ServiceTableStatusEnum",
+    "ServiceArea",
+    "ServiceAreaKindEnum",
+    "TableReservation",
+    "TableReservationStatusEnum",
     "TableSession",
     "TableSessionCommand",
     "TableSessionEvent",
@@ -188,4 +194,5 @@ __all__ = [
     "TransferRecord",
     "TransferTypeEnum",
     "ChannelCatalogMapping","ChannelCatalogOffer","ChannelPublicationBatch","ChannelPublicationItem","MarketplaceSettlement","MarketplaceSettlementPayment","CatalogEntityTypeEnum","PublicationStatusEnum","PublicationItemStatusEnum","SettlementStatusEnum",
+    "OperationalDevice", "OperationalDeviceTypeEnum", "OperationalDeviceStatusEnum",
 ]

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  Armchair, ArrowRightLeft, CheckCircle2, Clock3, CreditCard, Loader2, Plus, Receipt, RefreshCw, WalletCards, X,
+  Armchair, ArrowRightLeft, Ban, CalendarClock, CheckCircle2, Clock3, CreditCard, Loader2, Plus, Receipt, RefreshCw, WalletCards, X,
 } from 'lucide-react'
 
 import { usePos } from '../../context/PosContext'
@@ -29,7 +29,8 @@ export function TableServiceWorkspace() {
   const [selected, setSelected] = useState<api.TableSession | null>(null)
   const [busy, setBusy] = useState(false)
   const [loading, setLoading] = useState(true)
-  const [dialog, setDialog] = useState<'TABLE' | 'TAB' | null>(null)
+  const [dialog, setDialog] = useState<'TAB' | null>(null)
+  const [pendingReservationTable, setPendingReservationTable] = useState<api.ServiceTableProjection | null>(null)
 
   const headers = useMemo<Record<string, string>>(() => {
     if (!tenant || !store) return {} as Record<string, string>
@@ -70,6 +71,8 @@ export function TableServiceWorkspace() {
     if (!store) return
     if (table.active_session_id) return openExisting(table.active_session_id)
     if (!permissions.includes('table.session.open')) return
+    if (table.status === 'RESERVED') { setPendingReservationTable(table); return }
+    if (table.status !== 'AVAILABLE') return
     setBusy(true)
     try {
       const opened = await api.openTableSession(headers, crypto.randomUUID(), {
@@ -82,6 +85,32 @@ export function TableServiceWorkspace() {
     finally { setBusy(false) }
   }
 
+  const confirmReservedTable = async () => {
+    const table = pendingReservationTable
+    if (!store || !table?.active_reservation) return
+    setBusy(true)
+    try {
+      const opened = await api.openTableSession(headers, crypto.randomUUID(), {
+        store_id: store.id, service_table_id: table.id, reservation_id: table.active_reservation.id, actor_id: operatorId,
+      })
+      setPendingReservationTable(null); setSelected(opened)
+      showToast('success', `Chegada confirmada. ${table.name} aberta para ${table.active_reservation.customer_name}.`)
+      await load(false)
+    } catch (error) { showToast('error', error instanceof Error ? error.message : 'Não foi possível confirmar a reserva.') }
+    finally { setBusy(false) }
+  }
+
+  const blockTable = async (table: api.ServiceTableProjection) => {
+    const reason = window.prompt(table.status === 'BLOCKED' ? 'Motivo para liberar a mesa:' : 'Informe o defeito ou impedimento:')
+    if (!reason || reason.trim().length < 3) return
+    setBusy(true)
+    try {
+      await api.setServiceTableState(headers, table.id, { expected_version: table.version, target: table.status === 'BLOCKED' ? 'AVAILABLE' : 'BLOCKED', reason, actor_id: operatorId })
+      showToast('success', table.status === 'BLOCKED' ? 'Mesa liberada.' : 'Mesa bloqueada e sinalizada para a equipe.'); await load(false)
+    } catch (error) { showToast('error', error instanceof Error ? error.message : 'Não foi possível alterar a mesa.') }
+    finally { setBusy(false) }
+  }
+
   const individualTabs = sessions.filter((item) => item.kind === 'INDIVIDUAL_TAB')
 
   return <section className="space-y-5 text-slate-950">
@@ -90,7 +119,6 @@ export function TableServiceWorkspace() {
       <div className="flex flex-wrap gap-2">
         <button onClick={() => void load()} disabled={loading} className="flex h-11 items-center gap-2 rounded-xl border border-slate-600 px-4 text-xs font-black"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />Atualizar</button>
         {permissions.includes('table.session.open') && <button onClick={() => setDialog('TAB')} className="flex h-11 items-center gap-2 rounded-xl bg-orange-500 px-4 text-xs font-black text-white"><Receipt className="h-4 w-4" />Comanda individual</button>}
-        {permissions.includes('table.manage') && <button onClick={() => setDialog('TABLE')} className="flex h-11 items-center gap-2 rounded-xl bg-rose-600 px-4 text-xs font-black text-white"><Plus className="h-4 w-4" />Cadastrar mesa</button>}
       </div>
     </header>
 
@@ -99,13 +127,13 @@ export function TableServiceWorkspace() {
     <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_460px]">
       <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
         <div className="mb-4 flex items-center justify-between"><div><h2 className="font-black">Mapa operacional</h2><p className="text-xs text-slate-500">{tables.length} mesas persistidas nesta unidade</p></div>{loading && <Loader2 className="h-5 w-5 animate-spin text-slate-400" />}</div>
-        {!loading && tables.length === 0 ? <EmptyState canCreate={permissions.includes('table.manage')} onCreate={() => setDialog('TABLE')} /> : <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">{tables.map((table) => <button key={table.id} disabled={busy || ['RESERVED', 'BLOCKED'].includes(table.status)} onClick={() => void openTable(table)} className={`min-h-36 rounded-2xl border-2 p-4 text-left transition hover:-translate-y-0.5 hover:shadow-md disabled:cursor-not-allowed disabled:hover:translate-y-0 ${statusClass[table.status]}`}><div className="flex items-start justify-between gap-2"><Armchair className="h-5 w-5" /><span className="rounded-full bg-white/70 px-2 py-1 text-[10px] font-black uppercase">{statusLabel[table.status]}</span></div><p className="mt-4 text-lg font-black">{table.name}</p><p className="text-[11px] opacity-70">{table.area || 'Área geral'} · {table.capacity} lugares</p>{table.active_session_id && <div className="mt-3 border-t border-current/15 pt-2 text-[11px] font-bold"><p>{table.item_count} itens · {table.order_count} comandas</p><p className="mt-0.5 text-sm font-black">{formatCurrency(Number(table.consolidated_total))}</p></div>}</button>)}</div>}
+        {!loading && tables.length === 0 ? <EmptyState /> : <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">{tables.map((table) => <article key={table.id} className={`overflow-hidden rounded-2xl border-2 transition hover:-translate-y-0.5 hover:shadow-md ${statusClass[table.status]}`}><button disabled={busy || table.status === 'BLOCKED'} onClick={() => void openTable(table)} className="min-h-32 w-full p-4 text-left disabled:cursor-not-allowed"><div className="flex items-start justify-between gap-2"><Armchair className="h-5 w-5" /><span className="rounded-full bg-white/70 px-2 py-1 text-[10px] font-black uppercase">{statusLabel[table.status]}</span></div><p className="mt-4 text-lg font-black">{table.name}</p><p className="text-[11px] opacity-70">{table.area || 'Área geral'} · {table.capacity} lugares</p>{table.active_reservation && <div className="mt-3 rounded-lg bg-white/60 p-2 text-[11px] font-bold"><p>{table.active_reservation.customer_name} · {table.active_reservation.party_size} pessoas</p><p>{new Date(table.active_reservation.reserved_for).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p></div>}{table.active_session_id && <div className="mt-3 border-t border-current/15 pt-2 text-[11px] font-bold"><p>{table.item_count} itens · {table.order_count} comandas</p><p className="mt-0.5 text-sm font-black">{formatCurrency(Number(table.consolidated_total))}</p></div>}</button>{permissions.includes('table.state.update') && ['AVAILABLE', 'BLOCKED'].includes(table.status) && <button disabled={busy} onClick={() => void blockTable(table)} className="flex h-9 w-full items-center justify-center gap-1 border-t border-current/15 bg-white/40 text-[10px] font-black uppercase"><Ban className="h-3.5 w-3.5" />{table.status === 'BLOCKED' ? 'Liberar mesa' : 'Sinalizar impedimento'}</button>}</article>)}</div>}
       </section>
       <SessionPanel session={selected} availableSessions={sessions} headers={headers} products={products} operatorId={operatorId} permissions={permissions} cashSession={cashSession} registerId={register?.id} busy={busy} setBusy={setBusy} onChanged={async (sessionId) => { setSelected(await api.getTableSession(headers, sessionId)); await load(false) }} onClosed={async () => { setSelected(null); await load(false) }} onClose={() => setSelected(null)} showToast={showToast} />
     </div>
 
-    {dialog === 'TABLE' && store && <CreateTableDialog storeId={store.id} actorId={operatorId} headers={headers} onClose={() => setDialog(null)} onCreated={async () => { setDialog(null); await load(false) }} showToast={showToast} />}
     {dialog === 'TAB' && store && <OpenTabDialog storeId={store.id} actorId={operatorId} headers={headers} onClose={() => setDialog(null)} onOpened={async (session) => { setDialog(null); setSelected(session); await load(false) }} showToast={showToast} />}
+    {pendingReservationTable?.active_reservation && <Dialog title="Mesa reservada" onClose={() => setPendingReservationTable(null)}><div className="rounded-2xl border border-sky-200 bg-sky-50 p-4"><div className="flex items-center gap-2 text-sky-800"><CalendarClock className="h-5 w-5" /><p className="text-xs font-black uppercase">Confirme antes de abrir</p></div><h3 className="mt-3 text-xl font-black">{pendingReservationTable.active_reservation.customer_name}</h3><p className="mt-1 text-sm text-slate-600">{pendingReservationTable.active_reservation.party_size} pessoas · {new Date(pendingReservationTable.active_reservation.reserved_for).toLocaleString('pt-BR')}</p>{pendingReservationTable.active_reservation.notes && <p className="mt-3 rounded-xl bg-white p-3 text-sm text-slate-600">{pendingReservationTable.active_reservation.notes}</p>}</div><div className="mt-4 grid grid-cols-2 gap-3"><button onClick={() => setPendingReservationTable(null)} className="h-11 rounded-xl border border-slate-300 text-sm font-black text-slate-600">Voltar</button><button disabled={busy} onClick={() => void confirmReservedTable()} className="h-11 rounded-xl bg-sky-600 text-sm font-black text-white disabled:opacity-40">Confirmar chegada e abrir</button></div></Dialog>}
   </section>
 }
 
@@ -218,13 +246,7 @@ function SessionPanel({ session, availableSessions, headers, products, operatorI
 }
 
 function Metric({ label, value }: { label: string; value: string }) { return <div><p className="text-[10px] font-bold uppercase text-slate-400">{label}</p><p className="mt-1 text-sm font-black">{value}</p></div> }
-function EmptyState({ canCreate, onCreate }: { canCreate: boolean; onCreate: () => void }) { return <div className="flex min-h-72 items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center"><div><Armchair className="mx-auto h-10 w-10 text-slate-300" /><h3 className="mt-4 font-black">Nenhuma mesa cadastrada</h3><p className="mt-2 text-sm text-slate-500">Este é o estado persistido real da unidade.</p>{canCreate && <button onClick={onCreate} className="mt-5 rounded-xl bg-rose-600 px-4 py-2.5 text-xs font-black text-white">Cadastrar primeira mesa</button>}</div></div> }
-
-function CreateTableDialog({ storeId, actorId, headers, onClose, onCreated, showToast }: { storeId: string; actorId: string; headers: Record<string, string>; onClose: () => void; onCreated: () => Promise<void>; showToast: (type: 'success' | 'error' | 'info', text: string) => void }) {
-  const [form, setForm] = useState({ code: '', name: '', capacity: '4', area: '' }); const [saving, setSaving] = useState(false)
-  const submit = async (event: React.FormEvent) => { event.preventDefault(); setSaving(true); try { await api.createServiceTable(headers, crypto.randomUUID(), { store_id: storeId, code: form.code, name: form.name, capacity: Number(form.capacity), area: form.area || undefined, actor_id: actorId }); showToast('success', 'Mesa cadastrada na unidade.'); await onCreated() } catch (error) { showToast('error', error instanceof Error ? error.message : 'Não foi possível cadastrar a mesa.') } finally { setSaving(false) } }
-  return <Dialog title="Cadastrar mesa" onClose={onClose}><form onSubmit={submit} className="space-y-3"><Input label="Código" value={form.code} onChange={(value) => setForm({ ...form, code: value })} placeholder="MESA-01" /><Input label="Nome visível" value={form.name} onChange={(value) => setForm({ ...form, name: value })} placeholder="Mesa 01" /><div className="grid grid-cols-2 gap-3"><Input label="Capacidade" type="number" value={form.capacity} onChange={(value) => setForm({ ...form, capacity: value })} /><Input label="Área" value={form.area} onChange={(value) => setForm({ ...form, area: value })} placeholder="Salão" /></div><button disabled={saving || !form.code || !form.name} className="h-11 w-full rounded-xl bg-rose-600 text-sm font-black text-white disabled:opacity-40">{saving ? 'Salvando...' : 'Cadastrar mesa'}</button></form></Dialog>
-}
+function EmptyState() { return <div className="flex min-h-72 items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center"><div><Armchair className="mx-auto h-10 w-10 text-slate-300" /><h3 className="mt-4 font-black">Mapa ainda não configurado</h3><p className="mt-2 max-w-sm text-sm text-slate-500">O administrador deve cadastrar ambientes e mesas no Dashem Gestão antes do atendimento.</p></div></div> }
 
 function OpenTabDialog({ storeId, actorId, headers, onClose, onOpened, showToast }: { storeId: string; actorId: string; headers: Record<string, string>; onClose: () => void; onOpened: (session: api.TableSession) => Promise<void>; showToast: (type: 'success' | 'error' | 'info', text: string) => void }) {
   const [label, setLabel] = useState(''); const [saving, setSaving] = useState(false)
