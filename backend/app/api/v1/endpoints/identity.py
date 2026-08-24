@@ -417,13 +417,29 @@ def get_me(
     if principal.bypass and not user:
         return {"mode": "local-bypass", "user": None, "platform_role": None, "memberships": []}
     assert user is not None
-    platform = get_platform_membership(session, principal)
-    memberships = session.exec(
-        select(Membership).where(
-            Membership.user_id == user.id,
-            Membership.status == MembershipStatusEnum.ACTIVE,
+    membership_query = select(Membership).where(
+        Membership.user_id == user.id,
+        Membership.status == MembershipStatusEnum.ACTIVE,
+    )
+    if principal.provider == "operational":
+        try:
+            tenant_id = uuid.UUID(str(principal.claims["tenant_id"]))
+            store_id = uuid.UUID(str(principal.claims["store_id"]))
+            membership_id = uuid.UUID(str(principal.claims["membership_id"]))
+        except (KeyError, TypeError, ValueError) as exc:
+            raise HTTPException(status_code=401, detail="Operational session has an invalid scope.") from exc
+        # /identity/me has no scope headers. The signed operational token is
+        # therefore the only authoritative source used to open the RLS window.
+        set_tenant_db_context(session, tenant_id, store_id, user.id)
+        membership_query = membership_query.where(
+            Membership.id == membership_id,
+            Membership.tenant_id == tenant_id,
+            Membership.store_id == store_id,
         )
-    ).all()
+        platform = None
+    else:
+        platform = get_platform_membership(session, principal)
+    memberships = session.exec(membership_query).all()
     return {
         "mode": "authenticated",
         "user": UserRead.model_validate(user),

@@ -182,9 +182,12 @@ calculados no servidor; filtros e drill-down chegam à fonte persistida sem leva
 o histórico bruto ao navegador. Fórmulas, watermark, versão e atraso da projeção
 ficam explícitos na Gestão. O gate corretivo **S17.1 — Identidade Operacional e
 Correção da Jornada** separa administradores/gerentes por e-mail de
-supervisores/caixas/atendentes por PIN, exige assunção individual do PDV ou
-Mesas e corrige reservas legadas sem apagar histórico. O próximo gate canônico
-é o **S18 — Dashem Control Completion**.
+supervisores/caixas/atendentes por PIN e corrige reservas legadas sem apagar
+histórico. O **S17.2 — Jornada Gerencial e Cadastro Funcional** preserva a
+identidade do gestor quando ele escolhe abrir o PDV, corrige a resolução RLS da
+sessão operacional, torna o portão de PIN instantâneo e separa ficha de
+funcionário de credencial. O próximo gate canônico é o **S18 — Dashem Control
+Completion**.
 
 ## Trilha pendente: conclusão do Console Owner
 

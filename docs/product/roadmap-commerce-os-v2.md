@@ -2,7 +2,7 @@
 
 Status: **diretriz canônica para a próxima fase de construção**  
 Data: 23 de agosto de 2026  
-Revisão: **S17 concluído — próximo gate S18 Dashem Control Completion**
+Revisão: **S17.2 concluído — próximo gate S18 Dashem Control Completion**
 Substitui como referência de execução qualquer sequência anterior que conflite com este documento.
 
 ## 1. Por que este roadmap existe
@@ -1071,6 +1071,41 @@ Gate:
 Decisão registrada no
 [`ADR-012`](../architecture/adr-012-operational-pin-identity.md).
 
+### S17.2 — Jornada Gerencial e Cadastro Funcional
+
+Estado: **concluído no gate interno**. Este gate saneia as regressões observadas
+na validação do S17.1 antes de autorizar o S18.
+
+Entregas:
+
+- administrador, responsável do tenant e gerente autenticados por e-mail entram
+  diretamente no PDV quando escolhem **Abrir PDV**, sem novo login;
+- o PIN permanece exclusivo da assunção de turno por supervisor, caixa e
+  atendente e desaparece imediatamente após autenticação válida;
+- `/identity/me` resolve a membership operacional dentro do tenant e da unidade
+  assinados no token antes de consultar tabelas protegidas por RLS;
+- `Employee` separa a ficha completa do funcionário de memberships e
+  credenciais;
+- a Gestão permite buscar funcionário existente ou concluir novo cadastro antes
+  de conceder código e PIN;
+- cadastro funcional pode ser consultado e editado sem apagar histórico de
+  acessos ou operações;
+- toast passa a respeitar a largura da viewport e mantém apresentação compacta
+  em telas pequenas.
+
+Gate:
+
+- clicar em **Abrir PDV** com perfil gerencial ativo não exibe o portão de PIN;
+- ativação por PIN não recarrega a aplicação nem cai em falso estado de acesso
+  pendente;
+- funcionário e credencial possuem persistência, autorização e auditoria
+  independentes;
+- migrations, contratos, frontend e testes de regressão permanecem verdes.
+
+Decisões registradas nos
+[`ADR-012`](../architecture/adr-012-operational-pin-identity.md) e
+[`ADR-013`](../architecture/adr-013-employee-access-boundary.md).
+
 ### S18 — Dashem Control Completion
 
 Objetivo: concluir o plano de controle sem invadir a gestão cotidiana do tenant.
@@ -1282,7 +1317,7 @@ O próximo ciclo de implementação deve ser:
 S18 — Dashem Control Completion
 ```
 
-S0–S17 e o gate corretivo S17.1 estão concluídos nos gates internos. O S13 introduziu o ADR-009,
+S0–S17 e os gates corretivos S17.1–S17.2 estão concluídos nos gates internos. O S13 introduziu o ADR-009,
 mapeamentos por merchant, ofertas versionadas, publicação item a item e documentos
 de repasse independentes do Order. Falha parcial e diferença financeira ficam
 observáveis. O S13.1 completa a primeira retaguarda operacional do tenant e fixa
@@ -1292,4 +1327,5 @@ baixas e acordos imutáveis. O S16 fecha caixa, fiscal, estornos e conciliação
 com fatos compensatórios e sem reescrita. O S17 cria projeções incrementais e
 reconstruíveis, com fórmulas, lag e drill-down rastreáveis. O S17.1 fixa a
 fronteira e-mail/PIN, o papel Supervisor e a chegada de reservas sem apagar
-histórico. O próximo gate canônico é o S18.
+histórico. O S17.2 preserva a sessão gerencial na ida ao PDV e separa a ficha do
+funcionário de suas credenciais. O próximo gate canônico é o S18.

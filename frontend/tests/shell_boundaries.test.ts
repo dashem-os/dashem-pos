@@ -26,6 +26,23 @@ test('keeps tenant management one-way: Gestão opens POS but POS and KDS never o
   assert.match(management, /navigateTo\('\/pos'\)/)
 })
 
+test('lets an authenticated tenant manager open POS without a second login', async () => {
+  const gate = await source('../src/components/auth/OperationalPinGate.tsx')
+  assert.match(gate, /OWNER.*TENANT_OWNER.*ADMIN.*MANAGER/)
+  assert.match(gate, /managementAuthorized/)
+  assert.doesNotMatch(gate, /window\.location\.reload\(\)/)
+})
+
+test('keeps employee registration independent from operational credentials', async () => {
+  const team = await source('../src/components/management/TeamManager.tsx')
+  const api = await source('../src/services/api.ts')
+  assert.match(team, /Buscar funcionário/)
+  assert.match(team, /Novo cadastro/)
+  assert.match(team, /Cadastro de funcionários/)
+  assert.match(api, /fetchEmployees/)
+  assert.match(api, /employee_id: string/)
+})
+
 test('never derives operational context from the first item of an authorized list', async () => {
   const context = await source('../src/context/PosContext.tsx')
   const gate = await source('../src/components/context/OperationalContextGate.tsx')

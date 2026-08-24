@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from enum import Enum
 from typing import Optional, List
 from sqlalchemy import Column, Index, String, Text, text
@@ -43,6 +43,13 @@ class MembershipStatusEnum(str, Enum):
     ACTIVE = "ACTIVE"
     SUSPENDED = "SUSPENDED"
     REVOKED = "REVOKED"
+
+
+class EmployeeStatusEnum(str, Enum):
+    ACTIVE = "ACTIVE"
+    ON_LEAVE = "ON_LEAVE"
+    INACTIVE = "INACTIVE"
+    TERMINATED = "TERMINATED"
 
 
 class PermissionGrantEffectEnum(str, Enum):
@@ -260,6 +267,46 @@ class Membership(SQLModel, table=True):
     store: Optional[Store] = Relationship(back_populates="memberships")
 
 
+class Employee(SQLModel, table=True):
+    """Tenant-owned personnel record, independent from authentication."""
+
+    __tablename__ = "employees"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "employee_number", name="uq_tenant_employee_number"),
+        UniqueConstraint("tenant_id", "tax_id", name="uq_tenant_employee_tax_id"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(foreign_key="tenants.id", index=True)
+    user_id: Optional[uuid.UUID] = Field(default=None, foreign_key="users.id", unique=True, index=True)
+    home_store_id: Optional[uuid.UUID] = Field(default=None, foreign_key="stores.id", index=True)
+    employee_number: str = Field(index=True, max_length=30)
+    full_name: str = Field(index=True, max_length=160)
+    preferred_name: Optional[str] = Field(default=None, max_length=100)
+    tax_id: Optional[str] = Field(default=None, index=True, max_length=11)
+    email: Optional[str] = Field(default=None, index=True, max_length=254)
+    phone: Optional[str] = Field(default=None, index=True, max_length=32)
+    job_title: Optional[str] = Field(default=None, index=True, max_length=120)
+    department: Optional[str] = Field(default=None, index=True, max_length=120)
+    hire_date: Optional[date] = Field(default=None, index=True)
+    postal_code: Optional[str] = Field(default=None, max_length=8)
+    street: Optional[str] = Field(default=None, max_length=200)
+    street_number: Optional[str] = Field(default=None, max_length=32)
+    address_complement: Optional[str] = Field(default=None, max_length=120)
+    district: Optional[str] = Field(default=None, max_length=120)
+    city: Optional[str] = Field(default=None, max_length=120)
+    state: Optional[str] = Field(default=None, max_length=2)
+    emergency_contact_name: Optional[str] = Field(default=None, max_length=160)
+    emergency_contact_phone: Optional[str] = Field(default=None, max_length=32)
+    status: EmployeeStatusEnum = Field(
+        default=EmployeeStatusEnum.ACTIVE,
+        sa_column=Column(String, nullable=False, index=True),
+    )
+    notes: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class OperationalCredential(SQLModel, table=True):
     """Store-scoped PIN identity used only after a trusted terminal is opened."""
 
@@ -274,6 +321,7 @@ class OperationalCredential(SQLModel, table=True):
     store_id: uuid.UUID = Field(foreign_key="stores.id", index=True)
     user_id: uuid.UUID = Field(foreign_key="users.id", index=True)
     membership_id: uuid.UUID = Field(foreign_key="memberships.id", ondelete="CASCADE", index=True)
+    employee_id: uuid.UUID = Field(foreign_key="employees.id", ondelete="RESTRICT", index=True)
     employee_code: str = Field(index=True, max_length=20)
     pin_salt: str = Field(max_length=64, exclude=True)
     pin_hash: str = Field(max_length=128, exclude=True)

@@ -691,11 +691,45 @@ export interface TeamMember {
   email?: string
   access_mode: 'EMAIL' | 'PIN'
   employee_code?: string
+  employee_id?: string
   role: string
   status: string
   store_id?: string
   store_name?: string
 }
+
+export type EmployeeStatus = 'ACTIVE' | 'ON_LEAVE' | 'INACTIVE' | 'TERMINATED'
+
+export interface Employee {
+  id: string
+  tenant_id: string
+  user_id?: string
+  employee_number: string
+  full_name: string
+  preferred_name?: string
+  tax_id?: string
+  email?: string
+  phone?: string
+  job_title?: string
+  department?: string
+  hire_date?: string
+  home_store_id?: string
+  postal_code?: string
+  street?: string
+  street_number?: string
+  address_complement?: string
+  district?: string
+  city?: string
+  state?: string
+  emergency_contact_name?: string
+  emergency_contact_phone?: string
+  status: EmployeeStatus
+  notes?: string
+  created_at: string
+  updated_at: string
+}
+
+export type EmployeeInput = Omit<Employee, 'id' | 'tenant_id' | 'user_id' | 'created_at' | 'updated_at'>
 
 export interface ManagementOverview {
   generated_at: string
@@ -969,6 +1003,28 @@ export async function fetchTeam(headers: Record<string, string>): Promise<TeamMe
   return res.json()
 }
 
+export async function fetchEmployees(headers: Record<string, string>): Promise<Employee[]> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/team/employees`, { headers })
+  if (!res.ok) throw await apiError(res, 'Não foi possível carregar os funcionários.')
+  return res.json()
+}
+
+export async function createEmployee(headers: Record<string, string>, input: EmployeeInput): Promise<Employee> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/team/employees`, {
+    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível cadastrar o funcionário.')
+  return res.json()
+}
+
+export async function updateEmployee(headers: Record<string, string>, employeeId: string, input: EmployeeInput): Promise<Employee> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/team/employees/${employeeId}`, {
+    method: 'PATCH', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível atualizar o funcionário.')
+  return res.json()
+}
+
 export async function inviteTeamMember(
   headers: Record<string, string>,
   input: { email: string; full_name: string; role: string; store_id?: string },
@@ -982,7 +1038,7 @@ export async function inviteTeamMember(
 
 export async function createOperationalMember(
   headers: Record<string, string>,
-  input: { full_name: string; role: 'SUPERVISOR' | 'CASHIER' | 'OPERATOR'; store_id: string; employee_code: string; pin: string },
+  input: { employee_id: string; role: 'SUPERVISOR' | 'CASHIER' | 'OPERATOR'; store_id: string; employee_code: string; pin: string },
 ): Promise<TeamMember> {
   const res = await fetch(`${API_BASE_URL}/api/v1/team/operational`, {
     method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(input),

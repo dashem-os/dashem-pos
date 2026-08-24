@@ -9,6 +9,7 @@ from app.core.context import TenantContext
 from app.core.database import engine
 from app.core.tenancy import set_platform_db_context, set_tenant_db_context
 from app.models.identity import (
+    Employee,
     Membership,
     MembershipStatusEnum,
     RoleEnum,
@@ -52,9 +53,14 @@ def test_tenant_admin_creates_pin_operator_and_enforces_contract_limit(monkeypat
     )
     with Session(engine) as session:
         set_tenant_db_context(session, tenant_id, user_id=admin_id)
+        employee = Employee(
+            tenant_id=tenant_id, home_store_id=store_id,
+            employee_number=f"CX{suffix[:4]}", full_name="Atendente do salão",
+        )
+        session.add(employee); session.commit(); session.refresh(employee)
         invited = create_operational_member(
             data=OperationalMemberCreate(
-                full_name="Atendente do salão",
+                employee_id=employee.id,
                 role=RoleEnum.CASHIER,
                 store_id=store_id,
                 employee_code=f"CX{suffix[:4]}",

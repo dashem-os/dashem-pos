@@ -4,12 +4,13 @@ from fastapi import HTTPException
 import pytest
 from sqlmodel import Session, select
 
+from app.api.v1.endpoints.identity import get_me
 from app.api.v1.endpoints.team import OperationalMemberCreate, create_operational_member
 from app.core.context import TenantContext
 from app.core.database import engine
-from app.core.security import decode_access_token
+from app.core.security import AuthPrincipal, decode_access_token
 from app.core.tenancy import set_platform_db_context, set_tenant_db_context
-from app.models.identity import Membership, MembershipStatusEnum, OperationalCredential, RoleEnum, Store, Tenant, TenantStatusEnum, User
+from app.models.identity import Employee, Membership, MembershipStatusEnum, OperationalCredential, RoleEnum, Store, Tenant, TenantStatusEnum, User
 from app.models.payment import Register
 from app.services import operational_access_service
 
@@ -32,9 +33,14 @@ def test_operational_member_has_no_fake_email_and_activates_store_scoped_token()
     context = TenantContext(tenant_id=tenant_id, store_id=store_id, user_id=admin_id, role=RoleEnum.ADMIN)
     with Session(engine) as session:
         set_tenant_db_context(session, tenant_id, store_id, admin_id)
+        employee = Employee(
+            tenant_id=tenant_id, home_store_id=store_id, employee_number="ATD-01",
+            full_name="Ana Atendimento",
+        )
+        session.add(employee); session.commit(); session.refresh(employee)
         member = create_operational_member(
             OperationalMemberCreate(
-                full_name="Ana Atendimento", role=RoleEnum.OPERATOR, store_id=store_id,
+                employee_id=employee.id, role=RoleEnum.OPERATOR, store_id=store_id,
                 employee_code="atd-01", pin="4826",
             ),
             context,
@@ -61,6 +67,14 @@ def test_operational_member_has_no_fake_email_and_activates_store_scoped_token()
         assert claims["register_id"] == str(register_id)
         assert claims["role"] == "OPERATOR"
         assert claims["app_metadata"]["provider"] == "operational"
+        principal = AuthPrincipal(
+            subject=claims["sub"], email=None, session_id=claims["session_id"],
+            assurance_level="pin", claims=claims, provider="operational",
+            legacy_user_id=uuid.UUID(claims["sub"]),
+        )
+        me = get_me(principal=principal, session=session)
+        assert len(me["memberships"]) == 1
+        assert me["memberships"][0].id == member.membership_id
 
 
 def test_pin_policy_rejects_repeated_and_sequential_values():

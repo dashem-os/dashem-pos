@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ArrowLeft, Delete, KeyRound, Loader2, ShieldCheck, Store, UserRound } from 'lucide-react'
 
 import { OperationalSelection } from '../context/OperationalContextGate'
@@ -8,13 +8,36 @@ import { navigateTo } from '../../utils/navigation'
 
 
 export function OperationalPinGate({ selection, children }: { selection: OperationalSelection; children: React.ReactNode }) {
-  const { operationalActive, activateOperationalSession } = useAuth()
+  const { session, operationalActive, activateOperationalSession } = useAuth()
   const [employeeCode, setEmployeeCode] = useState('')
   const [pin, setPin] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [managementAuthorized, setManagementAuthorized] = useState(false)
+  const [checkingManagement, setCheckingManagement] = useState(Boolean(session) && !operationalActive)
 
-  if (operationalActive) return <>{children}</>
+  useEffect(() => {
+    if (operationalActive || !session) {
+      setCheckingManagement(false)
+      return
+    }
+    let active = true
+    setCheckingManagement(true)
+    api.fetchMe().then(me => {
+      if (!active) return
+      const managementRoles = new Set(['OWNER', 'TENANT_OWNER', 'ADMIN', 'MANAGER'])
+      setManagementAuthorized(Boolean(me.memberships?.some(membership =>
+        membership.tenant_id === selection.tenantId
+        && membership.status === 'ACTIVE'
+        && managementRoles.has(membership.role),
+      )))
+    }).catch(() => { if (active) setManagementAuthorized(false) })
+      .finally(() => { if (active) setCheckingManagement(false) })
+    return () => { active = false }
+  }, [operationalActive, selection.tenantId, session])
+
+  if (operationalActive || managementAuthorized) return <>{children}</>
+  if (checkingManagement) return <main className="flex min-h-screen items-center justify-center bg-[#06101f] text-sm font-bold text-slate-300"><Loader2 className="mr-3 h-5 w-5 animate-spin" />Validando acesso gerencial...</main>
 
   const append = (digit: string) => setPin(current => current.length < 8 ? `${current}${digit}` : current)
   const activate = async (event: React.FormEvent) => {
@@ -27,7 +50,8 @@ export function OperationalPinGate({ selection, children }: { selection: Operati
         { employee_code: employeeCode, pin, store_id: selection.storeId, register_id: selection.registerId },
       )
       activateOperationalSession(session.access_token)
-      window.location.reload()
+      setEmployeeCode('')
+      setPin('')
     } catch (reason) {
       setPin('')
       setError(reason instanceof Error ? reason.message : 'Não foi possível assumir a operação.')

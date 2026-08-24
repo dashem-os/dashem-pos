@@ -32,10 +32,10 @@ export const Toast: React.FC<ToastProps> = ({ toast }) => {
   }
 
   return (
-    <div className="fixed top-4 right-4 z-50 max-w-md animate-in fade-in slide-in-from-top-3 duration-150 pointer-events-none">
-      <div className={`px-4 py-3 rounded-2xl flex items-center space-x-3 border backdrop-blur-sm ${getStyle()}`}>
+    <div className="pointer-events-none fixed left-3 right-3 top-3 z-50 animate-in fade-in slide-in-from-top-3 duration-150 sm:left-auto sm:right-4 sm:top-4 sm:w-full sm:max-w-sm">
+      <div className={`flex max-h-24 items-start gap-2 overflow-y-auto rounded-xl border px-3 py-2.5 backdrop-blur-sm ${getStyle()}`}>
         {getIcon()}
-        <span className="text-xs sm:text-sm font-bold leading-snug">{toast.text}</span>
+        <span className="min-w-0 break-words text-[11px] font-bold leading-4 sm:text-xs">{toast.text}</span>
       </div>
     </div>
   )
