@@ -1108,7 +1108,7 @@ Decisões registradas nos
 
 ### S17.3 — Ativação de Terminal e Entrada Operacional Pública
 
-Estado: **implementado; aguardando CI e validação do usuário**. Este gate fecha
+Estado: **CI verde; aguardando validação do usuário**. Este gate fecha
 a lacuna em que a tela de PIN existia somente dentro de uma sessão por e-mail.
 
 Entregas:
