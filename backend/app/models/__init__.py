@@ -15,6 +15,7 @@ from app.models.platform import (
     AssistedSupportGrant, PlatformIncident, ControlStatusEnum, SupportGrantStatusEnum,
     CapabilityProfileRevision, CapabilityProfileRevisionItem, TenantProfileAssignment,
     ModuleContribution, CapabilityConflict,
+    OperationalHardeningRun, OperationalHardeningEvidence,
 )
 from app.models.channel import SalesChannel, SalesChannelTypeEnum
 from app.models.intelligence import (
@@ -129,6 +130,8 @@ __all__ = [
     "IdempotencyRecord",
     "OutboxStatusEnum",
     "ServiceHeartbeat",
+    "OperationalHardeningRun",
+    "OperationalHardeningEvidence",
     "Category",
     "Product",
     "ProductPrice",

@@ -17,6 +17,7 @@ from app.models.platform import (
     LeadStatusEnum, PlatformIncident, PlatformRoleEnum, SupportGrantStatusEnum,
     TenantCapability, TenantContract, TenantOnboardingCheckpoint,
     CapabilityProfileRevision, CapabilityProfileRevisionItem, TenantProfileAssignment,
+    OperationalHardeningRun, OperationalHardeningEvidence,
 )
 from app.models.reliability import AuditEvent, OutboxEvent, OutboxStatusEnum, ServiceHeartbeat
 from app.services import reliability_service
@@ -33,6 +34,17 @@ ONBOARDING_KEYS = (
     ("STORE_SETUP", "Primeira unidade pronta"),
     ("GO_LIVE", "Gate de entrada em operação aprovado"),
 )
+HARDENING_CHECKS = {
+    "isolation_matrix": "SECURITY",
+    "concurrency_matrix": "CONSISTENCY",
+    "retry_idempotency": "RELIABILITY",
+    "degraded_dependencies": "RESILIENCE",
+    "schema_migration": "DATA",
+    "backup_restore": "DATA",
+    "incident_response": "OPERATIONS",
+    "representative_load": "PERFORMANCE",
+    "auth_session": "SECURITY",
+}
 
 
 def _actor(session: Session, principal: AuthPrincipal) -> User:
@@ -131,6 +143,72 @@ class IncidentUpdate(BaseModel):
 class ProfileApply(BaseModel):
     model_config = ConfigDict(extra="forbid")
     reason: str = PydanticField(min_length=8, max_length=1000)
+
+
+class HardeningRunCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    release_sha: str = PydanticField(min_length=7, max_length=64, pattern=r"^[0-9a-fA-F]+$")
+    environment: str = PydanticField(min_length=2, max_length=40)
+    rpo_target_minutes: int = PydanticField(default=15, ge=0, le=1440)
+    rto_target_minutes: int = PydanticField(default=60, ge=1, le=10080)
+
+
+class HardeningEvidenceInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    status: str = PydanticField(pattern=r"^(PASS|FAIL|BLOCKED)$")
+    evidence_ref: str = PydanticField(min_length=8, max_length=500)
+    observed: dict[str, Any] = PydanticField(min_length=1)
+
+
+def _hardening_projection(session: Session, run: OperationalHardeningRun) -> dict[str, Any]:
+    rows = list(session.exec(select(OperationalHardeningEvidence).where(
+        OperationalHardeningEvidence.run_id == run.id
+    ).order_by(OperationalHardeningEvidence.check_key)).all())
+    present = {row.check_key for row in rows}
+    return {
+        "run": run,
+        "evidence": rows,
+        "required_checks": HARDENING_CHECKS,
+        "missing_checks": sorted(set(HARDENING_CHECKS) - present),
+    }
+
+
+def _validate_pass_evidence(run: OperationalHardeningRun, key: str, observed: dict[str, Any]) -> None:
+    valid = {
+        "isolation_matrix": int(observed.get("denied_cross_tenant", 0)) >= 1,
+        "concurrency_matrix": observed.get("lost_operations") == 0 and observed.get("duplicate_operations") == 0,
+        "retry_idempotency": observed.get("lost_operations") == 0 and observed.get("duplicate_operations") == 0,
+        "degraded_dependencies": observed.get("capability_isolated") is True and observed.get("core_available") is True,
+        "schema_migration": all(observed.get(item) is True for item in ("empty_db", "migrated_db", "no_drift")),
+        "backup_restore": (
+            observed.get("restore_verified") is True
+            and float(observed.get("measured_rpo_minutes", run.rpo_target_minutes + 1)) <= run.rpo_target_minutes
+            and float(observed.get("measured_rto_minutes", run.rto_target_minutes + 1)) <= run.rto_target_minutes
+        ),
+        "incident_response": all(observed.get(item) is True for item in ("detected", "diagnosed", "recovered")),
+        "representative_load": int(observed.get("samples", 0)) > 0 and float(observed.get("error_rate", 1)) < 0.01,
+        "auth_session": observed.get("aal2_enforced") is True and observed.get("pin_lockout") is True,
+    }[key]
+    if not valid:
+        raise HTTPException(status_code=422, detail=f"Evidência PASS inválida para {key}.")
+
+
+def _recompute_hardening_status(session: Session, run: OperationalHardeningRun) -> None:
+    rows = list(session.exec(select(OperationalHardeningEvidence).where(
+        OperationalHardeningEvidence.run_id == run.id
+    )).all())
+    by_key = {row.check_key: row for row in rows}
+    if set(by_key) == set(HARDENING_CHECKS) and all(row.status == "PASS" for row in rows):
+        run.status = "PASSED"
+        run.completed_at = datetime.utcnow()
+    elif any(row.status in {"FAIL", "BLOCKED"} for row in rows):
+        run.status = "BLOCKED"
+        run.completed_at = None
+    else:
+        run.status = "IN_PROGRESS"
+        run.completed_at = None
+    run.updated_at = datetime.utcnow()
+    session.add(run)
 
 
 @router.get("/leads", response_model=list[Lead])
@@ -342,3 +420,57 @@ def apply_capability_profile(tenant_id: uuid.UUID, revision_id: uuid.UUID, data:
     _audit(session, actor, tenant_id, "control.profile.applied", f"profile_assignment:{assignment.id}", {"profile": revision.profile_key, "version": revision.version, "enabled": sorted(resolved), "reason": assignment.reason})
     session.commit(); session.refresh(assignment)
     return {"assignment": assignment, "profile": {"key": revision.profile_key, "version": revision.version}, "capabilities": sorted(resolved)}
+
+
+@router.post("/hardening/runs", status_code=201)
+def create_hardening_run(data: HardeningRunCreate, principal: AuthPrincipal = Depends(get_current_principal), session: Session = Depends(get_session)):
+    actor = _actor(session, principal)
+    run = OperationalHardeningRun(initiated_by=actor.id, **data.model_dump())
+    session.add(run); session.flush()
+    _audit(session, actor, None, "control.hardening.started", f"hardening:{run.id}", {
+        "release_sha": run.release_sha, "environment": run.environment,
+        "rpo_target_minutes": run.rpo_target_minutes, "rto_target_minutes": run.rto_target_minutes,
+    })
+    session.commit(); session.refresh(run)
+    return _hardening_projection(session, run)
+
+
+@router.get("/hardening/runs/{run_id}")
+def get_hardening_run(run_id: uuid.UUID, principal: AuthPrincipal = Depends(get_current_principal), session: Session = Depends(get_session)):
+    _actor(session, principal)
+    run = session.get(OperationalHardeningRun, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Execução de hardening não encontrada.")
+    return _hardening_projection(session, run)
+
+
+@router.put("/hardening/runs/{run_id}/evidence/{check_key}")
+def record_hardening_evidence(run_id: uuid.UUID, check_key: str, data: HardeningEvidenceInput, principal: AuthPrincipal = Depends(get_current_principal), session: Session = Depends(get_session)):
+    actor = _actor(session, principal)
+    run = session.get(OperationalHardeningRun, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Execução de hardening não encontrada.")
+    if check_key not in HARDENING_CHECKS:
+        raise HTTPException(status_code=404, detail="Verificação de hardening desconhecida.")
+    if data.status == "PASS":
+        _validate_pass_evidence(run, check_key, data.observed)
+    evidence = session.exec(select(OperationalHardeningEvidence).where(
+        OperationalHardeningEvidence.run_id == run_id,
+        OperationalHardeningEvidence.check_key == check_key,
+    )).first() or OperationalHardeningEvidence(
+        run_id=run_id, check_key=check_key, category=HARDENING_CHECKS[check_key], recorded_by=actor.id,
+        status=data.status, evidence_ref=data.evidence_ref, observed=data.observed,
+    )
+    evidence.status = data.status
+    evidence.evidence_ref = data.evidence_ref
+    evidence.observed = data.observed
+    evidence.recorded_by = actor.id
+    evidence.measured_at = datetime.utcnow()
+    session.add(evidence); session.flush()
+    _recompute_hardening_status(session, run)
+    _audit(session, actor, None, "control.hardening.evidence.recorded", f"hardening:{run.id}:{check_key}", {
+        "check_key": check_key, "status": data.status, "evidence_ref": data.evidence_ref,
+        "observed_keys": sorted(data.observed),
+    })
+    session.commit(); session.refresh(run)
+    return _hardening_projection(session, run)

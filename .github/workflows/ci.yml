@@ -113,3 +113,22 @@ jobs:
           alembic upgrade head
       - name: Reject model/schema drift
         run: alembic check
+      - name: Demonstrate backup and restore
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+          marker="restore-${GITHUB_SHA}"
+          psql -h 127.0.0.1 -U postgres -d dashem_alembic_test -v ON_ERROR_STOP=1 \
+            -c "INSERT INTO service_heartbeats(service_key,status,details,last_seen_at,updated_at) VALUES ('$marker','HEALTHY','{}',now(),now())"
+          started_at=$(date +%s)
+          pg_dump -h 127.0.0.1 -U postgres -d dashem_alembic_test --format=custom --file=/tmp/dashem.restore.dump
+          createdb -h 127.0.0.1 -U postgres dashem_restore_test
+          pg_restore -h 127.0.0.1 -U postgres -d dashem_restore_test --no-owner --exit-on-error /tmp/dashem.restore.dump
+          restored=$(psql -h 127.0.0.1 -U postgres -d dashem_restore_test -Atc "SELECT count(*) FROM service_heartbeats WHERE service_key='$marker'")
+          revision=$(psql -h 127.0.0.1 -U postgres -d dashem_restore_test -Atc "SELECT version_num FROM alembic_version")
+          elapsed=$(( $(date +%s) - started_at ))
+          test "$restored" = "1"
+          test "$revision" = "039_operational_hardening"
+          test "$elapsed" -lt 3600
+          echo "Restore verified in ${elapsed}s at revision ${revision}; RPO=0 for the marker transaction."

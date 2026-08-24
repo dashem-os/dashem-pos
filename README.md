@@ -203,8 +203,11 @@ persistidas: o perfil compõe entitlements, mas não substitui contrato, grant o
 contexto. O backend entrega contribuições já filtradas por entitlement e
 permission; o frontend conserva apenas o registro das implementações React.
 Capacidade sem implementação não pode ser ativada e a troca de perfil encerra a
-atribuição anterior sem apagar histórico. O próximo gate canônico é o **S20 —
-Operational Hardening e Pilot Readiness**.
+atribuição anterior sem apagar histórico. O **S20 — Operational Hardening e
+Pilot Readiness** transforma prontidão em evidência persistida: nove checks
+mensuráveis, RPO/RTO, resposta a incidentes e prova de backup/restore no CI.
+Falha externa degrada apenas sua capability; integração ausente não recebe selo
+verde. O próximo gate canônico é o **S21 — Piloto Comercial**.
 
 ## Trilha pendente: conclusão do Console Owner
 

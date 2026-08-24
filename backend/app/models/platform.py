@@ -3,7 +3,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
 
-from sqlalchemy import Column, ForeignKey, Index, JSON, String, Text, text
+from sqlalchemy import CheckConstraint, Column, ForeignKey, Index, JSON, String, Text, text
 from sqlmodel import Field, SQLModel, UniqueConstraint
 
 from app.core.db_types import EnumString
@@ -370,3 +370,41 @@ class CapabilityConflict(SQLModel, table=True):
     capability_key: str = Field(foreign_key="capability_definitions.key", index=True)
     conflicts_with_key: str = Field(foreign_key="capability_definitions.key", index=True)
     reason: str = Field(sa_column=Column(Text, nullable=False))
+
+
+class OperationalHardeningRun(SQLModel, table=True):
+    __tablename__ = "operational_hardening_runs"
+    __table_args__ = (
+        CheckConstraint("rpo_target_minutes >= 0", name="ck_hardening_rpo_nonnegative"),
+        CheckConstraint("rto_target_minutes >= 1", name="ck_hardening_rto_positive"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    release_sha: str = Field(index=True, max_length=64)
+    environment: str = Field(index=True, max_length=40)
+    status: str = Field(default="IN_PROGRESS", index=True, max_length=32)
+    rpo_target_minutes: int = Field(default=15, ge=0)
+    rto_target_minutes: int = Field(default=60, ge=1)
+    initiated_by: uuid.UUID = Field(foreign_key="users.id", index=True)
+    started_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    completed_at: Optional[datetime] = None
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class OperationalHardeningEvidence(SQLModel, table=True):
+    __tablename__ = "operational_hardening_evidence"
+    __table_args__ = (
+        UniqueConstraint("run_id", "check_key", name="uq_operational_hardening_evidence_check"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    run_id: uuid.UUID = Field(
+        sa_column=Column(ForeignKey("operational_hardening_runs.id", ondelete="CASCADE"), nullable=False, index=True)
+    )
+    check_key: str = Field(index=True, max_length=80)
+    category: str = Field(index=True, max_length=60)
+    status: str = Field(index=True, max_length=20)
+    evidence_ref: str = Field(max_length=500)
+    observed: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON, nullable=False, default=dict))
+    recorded_by: uuid.UUID = Field(foreign_key="users.id", index=True)
+    measured_at: datetime = Field(default_factory=datetime.utcnow, index=True)

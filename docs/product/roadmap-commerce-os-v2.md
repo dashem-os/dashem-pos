@@ -1227,6 +1227,14 @@ Gate:
 - falha externa degrada somente sua capability;
 - incidentes simulados possuem detecção, diagnóstico e procedimento de recuperação.
 
+Estado: **concluído no gate interno**. Cada release recebe uma execução de
+hardening com nove evidências mensuráveis; resultados genéricos não promovem o
+gate. RPO/RTO são parte do contrato, respostas de API não são cacheadas e IDs de
+correlação são sanitizados. O CI passou a restaurar um dump em banco novo e
+verificar transação sentinela + revisão Alembic. O runbook estabelece que falha
+externa isola a capability e que SEV1, perda/duplicidade ou quebra de isolamento
+bloqueiam o piloto. A validação de campo continua pertencendo ao S21.
+
 ### S21 — Piloto Comercial
 
 Objetivo: validar trabalho real em uma operação pequena com telemetria e suporte.
