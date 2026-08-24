@@ -16,9 +16,11 @@ from app.models.platform import (
     AssistedSupportGrant, ControlStatusEnum, IdentityDeliveryEvent, Lead,
     LeadStatusEnum, PlatformIncident, PlatformRoleEnum, SupportGrantStatusEnum,
     TenantCapability, TenantContract, TenantOnboardingCheckpoint,
+    CapabilityProfileRevision, CapabilityProfileRevisionItem, TenantProfileAssignment,
 )
 from app.models.reliability import AuditEvent, OutboxEvent, OutboxStatusEnum, ServiceHeartbeat
 from app.services import reliability_service
+from app.modules.capabilities.registry import CAPABILITY_REGISTRY, IMPLEMENTED_CAPABILITIES, resolve_dependencies
 
 
 router = APIRouter(dependencies=[Depends(get_current_principal)])
@@ -124,6 +126,11 @@ class IncidentUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     status: ControlStatusEnum
     sanitized_summary: str = PydanticField(min_length=8, max_length=2000)
+
+
+class ProfileApply(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    reason: str = PydanticField(min_length=8, max_length=1000)
 
 
 @router.get("/leads", response_model=list[Lead])
@@ -288,3 +295,50 @@ def control_health_components(principal: AuthPrincipal = Depends(get_current_pri
         status = "UNINSTRUMENTED" if heartbeat is None else "DEGRADED" if age is not None and age > 90 else heartbeat.status
         result.append({"key": key, "label": label, "status": status, "last_seen_at": heartbeat.last_seen_at if heartbeat else None, "age_seconds": round(age, 1) if age is not None else None, "details": heartbeat.details if heartbeat else {"reason": "Nenhum heartbeat registrado."}})
     return {"checked_at": now, "components": result}
+
+
+@router.get("/profiles")
+def list_capability_profiles(principal: AuthPrincipal = Depends(get_current_principal), session: Session = Depends(get_session)):
+    _actor(session, principal)
+    revisions = list(session.exec(select(CapabilityProfileRevision).order_by(CapabilityProfileRevision.profile_key, CapabilityProfileRevision.version.desc())).all())
+    items = list(session.exec(select(CapabilityProfileRevisionItem)).all())
+    by_revision: dict[uuid.UUID, list[CapabilityProfileRevisionItem]] = {}
+    for item in items: by_revision.setdefault(item.revision_id, []).append(item)
+    return [{"revision": revision, "items": by_revision.get(revision.id, [])} for revision in revisions]
+
+
+@router.post("/tenants/{tenant_id}/profiles/{revision_id}/apply")
+def apply_capability_profile(tenant_id: uuid.UUID, revision_id: uuid.UUID, data: ProfileApply, principal: AuthPrincipal = Depends(get_current_principal), session: Session = Depends(get_session)):
+    actor = _actor(session, principal); _tenant(session, tenant_id)
+    revision = session.get(CapabilityProfileRevision, revision_id)
+    if revision is None:
+        raise HTTPException(status_code=404, detail="Revisão de profile não encontrada.")
+    if revision.status != "ACTIVE":
+        raise HTTPException(status_code=409, detail="Somente profiles ativos podem ser aplicados.")
+    items = list(session.exec(select(CapabilityProfileRevisionItem).where(CapabilityProfileRevisionItem.revision_id == revision_id)).all())
+    requested = {item.capability_key for item in items}
+    resolved = set(resolve_dependencies(requested))
+    not_implemented = sorted(resolved - IMPLEMENTED_CAPABILITIES)
+    if not_implemented:
+        raise HTTPException(status_code=409, detail={"code": "MODULE_NOT_IMPLEMENTED", "capabilities": not_implemented})
+    current = session.exec(select(TenantProfileAssignment).where(TenantProfileAssignment.tenant_id == tenant_id, TenantProfileAssignment.status == "ACTIVE")).first()
+    if current and current.revision_id == revision_id:
+        raise HTTPException(status_code=409, detail="Este profile já está ativo no tenant.")
+    if current:
+        current.status = "ENDED"; current.ended_at = datetime.utcnow(); session.add(current)
+    existing = {row.key: row for row in session.exec(select(TenantCapability).where(TenantCapability.tenant_id == tenant_id)).all()}
+    for key in resolved:
+        row = existing.get(key) or TenantCapability(tenant_id=tenant_id, key=key)
+        row.enabled = True; row.status = "ACTIVE"; row.updated_at = datetime.utcnow()
+        profile_item = next((item for item in items if item.capability_key == key), None)
+        if profile_item: row.configuration = dict(profile_item.default_configuration)
+        session.add(row)
+    # Preserve rows and history while removing inactive module availability.
+    for key, row in existing.items():
+        if key not in resolved:
+            row.enabled = False; row.updated_at = datetime.utcnow(); session.add(row)
+    assignment = TenantProfileAssignment(tenant_id=tenant_id, revision_id=revision_id, assigned_by=actor.id, reason=data.reason.strip())
+    session.add(assignment); session.flush()
+    _audit(session, actor, tenant_id, "control.profile.applied", f"profile_assignment:{assignment.id}", {"profile": revision.profile_key, "version": revision.version, "enabled": sorted(resolved), "reason": assignment.reason})
+    session.commit(); session.refresh(assignment)
+    return {"assignment": assignment, "profile": {"key": revision.profile_key, "version": revision.version}, "capabilities": sorted(resolved)}

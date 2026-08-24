@@ -23,6 +23,10 @@ def effective_capabilities(session: Session, tenant_id, store_id: Optional[objec
             )
         ).all()
         for override in overrides:
+            # A store override can narrow or configure a contracted entitlement;
+            # it can never mint a tenant entitlement by itself.
+            if override.key not in enabled:
+                continue
             if override.enabled:
                 enabled[override.key] = {**enabled.get(override.key, {}), **override.configuration}
             else:

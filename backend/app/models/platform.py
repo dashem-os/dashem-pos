@@ -3,7 +3,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
 
-from sqlalchemy import Column, JSON, String, Text
+from sqlalchemy import Column, ForeignKey, Index, JSON, String, Text, text
 from sqlmodel import Field, SQLModel, UniqueConstraint
 
 from app.core.db_types import EnumString
@@ -287,3 +287,86 @@ class PlatformIncident(SQLModel, table=True):
     opened_at: datetime = Field(default_factory=datetime.utcnow, index=True)
     resolved_at: Optional[datetime] = None
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class CapabilityProfileRevision(SQLModel, table=True):
+    __tablename__ = "capability_profile_revisions"
+    __table_args__ = (
+        UniqueConstraint("profile_key", "version", name="uq_capability_profile_revision"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    profile_key: str = Field(index=True, max_length=80)
+    version: str = Field(index=True, max_length=32)
+    name: str = Field(max_length=160)
+    description: str = Field(sa_column=Column(Text, nullable=False))
+    status: str = Field(default="ACTIVE", index=True, max_length=32)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class CapabilityProfileRevisionItem(SQLModel, table=True):
+    __tablename__ = "capability_profile_revision_items"
+    __table_args__ = (
+        UniqueConstraint("revision_id", "capability_key", name="uq_capability_profile_revision_item"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    revision_id: uuid.UUID = Field(
+        sa_column=Column(ForeignKey("capability_profile_revisions.id", ondelete="CASCADE"), nullable=False, index=True)
+    )
+    capability_key: str = Field(foreign_key="capability_definitions.key", index=True)
+    required: bool = Field(default=True)
+    default_configuration: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON, nullable=False, default=dict))
+
+
+class TenantProfileAssignment(SQLModel, table=True):
+    __tablename__ = "tenant_profile_assignments"
+    __table_args__ = (
+        Index(
+            "uq_tenant_active_profile_assignment",
+            "tenant_id",
+            unique=True,
+            postgresql_where=text("status = 'ACTIVE'"),
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(foreign_key="tenants.id", index=True)
+    revision_id: uuid.UUID = Field(foreign_key="capability_profile_revisions.id", index=True)
+    status: str = Field(default="ACTIVE", index=True, max_length=32)
+    reason: str = Field(sa_column=Column(Text, nullable=False))
+    assigned_by: uuid.UUID = Field(foreign_key="users.id", index=True)
+    assigned_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    ended_at: Optional[datetime] = None
+
+
+class ModuleContribution(SQLModel, table=True):
+    __tablename__ = "module_contributions"
+    __table_args__ = (
+        UniqueConstraint("surface", "contribution_key", name="uq_module_contribution_surface_key"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    capability_key: Optional[str] = Field(default=None, foreign_key="capability_definitions.key", index=True)
+    surface: str = Field(index=True, max_length=60)
+    contribution_key: str = Field(index=True, max_length=100)
+    label: str = Field(max_length=160)
+    group_key: Optional[str] = Field(default=None, max_length=80)
+    route: Optional[str] = Field(default=None, max_length=180)
+    permission_key: Optional[str] = Field(default=None, max_length=120)
+    implementation_key: str = Field(max_length=120)
+    sort_order: int = Field(default=0)
+    metadata_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON, nullable=False, default=dict))
+    is_active: bool = Field(default=True, index=True)
+
+
+class CapabilityConflict(SQLModel, table=True):
+    __tablename__ = "capability_conflicts"
+    __table_args__ = (
+        UniqueConstraint("capability_key", "conflicts_with_key", name="uq_capability_conflict"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    capability_key: str = Field(foreign_key="capability_definitions.key", index=True)
+    conflicts_with_key: str = Field(foreign_key="capability_definitions.key", index=True)
+    reason: str = Field(sa_column=Column(Text, nullable=False))

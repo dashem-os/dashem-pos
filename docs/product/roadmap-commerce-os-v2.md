@@ -1194,6 +1194,15 @@ Gate:
 - permission sem entitlement continua negada e entitlement sem grant não autoriza;
 - profile é atalho versionado de configuração, não nova fonte de verdade.
 
+Estado: **concluído no gate interno**. Revisões de perfil, itens, atribuições e
+contribution points são persistidos. `FOOD_SERVICE` e `RETAIL` estão ativos;
+`GROCERY` permanece `DRAFT` enquanto depender de capacidades ainda não
+implementadas. O backend impede o Owner de ativar uma capability inexistente,
+resolve dependências e entrega navegação/health/reporting somente após cruzar
+entitlement e permission. Desativação preserva linhas e histórico. O frontend
+não decide mais quais módulos estão disponíveis: mantém apenas o registro local
+das implementações visuais que consegue montar.
+
 ### S20 — Operational Hardening e Pilot Readiness
 
 Objetivo: provar em conjunto as garantias que já foram exigidas sprint a sprint.

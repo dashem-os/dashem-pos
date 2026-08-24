@@ -8,6 +8,7 @@ const root = join(import.meta.dirname, '..', 'src')
 const api = readFileSync(join(root, 'services', 'api.ts'), 'utf8')
 const workspace = readFileSync(join(root, 'components', 'management', 'ChannelHubWorkspace.tsx'), 'utf8')
 const layout = readFileSync(join(root, 'layouts', 'ManagementLayout.tsx'), 'utf8')
+const context = readFileSync(join(root, 'context', 'PosContext.tsx'), 'utf8')
 
 test('uses the durable Channel Hub API and requires idempotency for mutations', () => {
   assert.match(api, /\/api\/v1\/channels\/connections/)
@@ -24,7 +25,8 @@ test('renders persisted connection and inbox state without sample orders', () =>
 })
 
 test('keeps Channel Hub behind capability and permission boundaries', () => {
-  assert.match(layout, /capability: 'delivery_orders'/)
-  assert.match(layout, /permission: 'channel\.read'/)
+  assert.match(context, /setContributions\(access\.contributions\)/)
+  assert.match(layout, /contributions\.filter\(item => item\.surface === 'MANAGEMENT_NAV'/)
+  assert.match(layout, /case 'channels': return <ChannelHubWorkspace/)
   assert.match(workspace, /permissions\.includes\('channel\.configure'\)/)
 })

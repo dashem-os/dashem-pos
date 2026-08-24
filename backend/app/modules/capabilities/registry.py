@@ -36,8 +36,20 @@ CAPABILITY_REGISTRY: dict[str, CapabilityContract] = {
         _contract("tef", "TEF", CapabilityScope.TERMINAL, "Integração de transferência eletrônica de fundos.", "payments"),
         _contract("fiscal_nfce", "NFC-e", CapabilityScope.STORE, "Emissão fiscal de consumidor.", "payments"),
         _contract("fiscal_nfe", "NF-e", CapabilityScope.STORE, "Emissão fiscal de mercadorias.", "payments"),
+        _contract("receivables", "Crediário e recebíveis", CapabilityScope.TENANT, "Política de crédito, títulos, cobrança e renegociação.", "customer", "payments"),
     )
 }
+
+
+# A contract may be designed before its executable module exists. Commercial
+# activation is allowed only for this audited list; planned contracts remain
+# visible to architecture tooling but cannot be sold as working software.
+IMPLEMENTED_CAPABILITIES = frozenset({
+    "catalog", "inventory", "customer", "cash_management", "payments",
+    "barcode_scanning", "modifiers", "combos", "kitchen_routing",
+    "delivery_orders", "counter_order", "table_service", "high_speed_checkout",
+    "supervisor_override", "tef", "fiscal_nfce", "receivables",
+})
 
 
 def resolve_dependencies(keys: Iterable[str]) -> tuple[str, ...]:

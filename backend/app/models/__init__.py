@@ -13,6 +13,8 @@ from app.models.platform import (
     CapabilityScopeEnum, CapabilityStatusEnum, EntitlementStatusEnum,
     TenantContract, TenantOnboardingCheckpoint, IdentityDeliveryEvent,
     AssistedSupportGrant, PlatformIncident, ControlStatusEnum, SupportGrantStatusEnum,
+    CapabilityProfileRevision, CapabilityProfileRevisionItem, TenantProfileAssignment,
+    ModuleContribution, CapabilityConflict,
 )
 from app.models.channel import SalesChannel, SalesChannelTypeEnum
 from app.models.intelligence import (
@@ -111,6 +113,8 @@ __all__ = [
     "EntitlementStatusEnum",
     "TenantContract", "TenantOnboardingCheckpoint", "IdentityDeliveryEvent",
     "AssistedSupportGrant", "PlatformIncident", "ControlStatusEnum", "SupportGrantStatusEnum",
+    "CapabilityProfileRevision", "CapabilityProfileRevisionItem", "TenantProfileAssignment",
+    "ModuleContribution", "CapabilityConflict",
     "SalesChannel",
     "SalesChannelTypeEnum",
     "ContextEdge",

@@ -37,7 +37,7 @@ from app.models.sale import Sale, SaleStatusEnum
 from app.models.catalog import InventoryBalance, Product
 from app.models.intelligence import AgentRun, AgentRunStatusEnum
 from app.services import identity_service, reliability_service, supabase_admin
-from app.modules.capabilities.registry import CAPABILITY_REGISTRY, resolve_dependencies
+from app.modules.capabilities.registry import CAPABILITY_REGISTRY, IMPLEMENTED_CAPABILITIES, resolve_dependencies
 
 
 router = APIRouter(dependencies=[Depends(get_current_principal)])
@@ -1052,6 +1052,11 @@ def update_tenant_capability(
         raise HTTPException(status_code=404, detail="Tenant não encontrado.")
     if capability_key not in CAPABILITY_REGISTRY:
         raise HTTPException(status_code=404, detail="Capacidade não encontrada no catálogo.")
+    if data.enabled and capability_key not in IMPLEMENTED_CAPABILITIES:
+        raise HTTPException(
+            status_code=409,
+            detail="Capability possui contrato arquitetural, mas seu módulo executável ainda não passou pelo gate.",
+        )
 
     existing = {
         item.key: item for item in session.exec(

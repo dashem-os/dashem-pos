@@ -197,8 +197,14 @@ completa leads/conversão, contratos versionados, onboarding com evidências,
 timeline sanitizada de identidade, suporte assistido temporário e incidentes.
 Backlog, última sincronização e erros sanitizados vêm do banco; fiscal, TEF,
 canais, produção e e-mail sem heartbeat aparecem como `UNINSTRUMENTED`, jamais
-como saudáveis por presunção. O próximo gate canônico é o **S19 — Capability
-Profiles e Module Contributions**.
+como saudáveis por presunção. O **S19 — Capability Profiles e Module
+Contributions** torna os perfis `FOOD_SERVICE`, `RETAIL` e `GROCERY` revisões
+persistidas: o perfil compõe entitlements, mas não substitui contrato, grant ou
+contexto. O backend entrega contribuições já filtradas por entitlement e
+permission; o frontend conserva apenas o registro das implementações React.
+Capacidade sem implementação não pode ser ativada e a troca de perfil encerra a
+atribuição anterior sem apagar histórico. O próximo gate canônico é o **S20 —
+Operational Hardening e Pilot Readiness**.
 
 ## Trilha pendente: conclusão do Console Owner
 

@@ -17,6 +17,7 @@ interface PosContextType {
   health: api.ApiHealth | null
   permissions: string[]
   capabilities: api.EffectiveAccess['capabilities']
+  contributions: api.EffectiveAccess['contributions']
   connectionState: 'ONLINE' | 'DEGRADED' | 'OFFLINE'
   operationMode: 'COUNTER' | 'TAKEAWAY'
 
@@ -88,6 +89,7 @@ export const PosProvider: React.FC<{
   const [health, setHealth] = useState<api.ApiHealth | null>(null)
   const [permissions, setPermissions] = useState<string[]>([])
   const [capabilities, setCapabilities] = useState<api.EffectiveAccess['capabilities']>({})
+  const [contributions, setContributions] = useState<api.EffectiveAccess['contributions']>([])
   const [connectionState, setConnectionState] = useState<'ONLINE' | 'DEGRADED' | 'OFFLINE'>(navigator.onLine ? 'ONLINE' : 'OFFLINE')
   const [operationMode, setOperationModeState] = useState<'COUNTER' | 'TAKEAWAY'>('COUNTER')
 
@@ -178,6 +180,7 @@ export const PosProvider: React.FC<{
       const access = await api.fetchEffectiveAccess(hdrs)
       setPermissions(access.permissions)
       setCapabilities(access.capabilities)
+      setContributions(access.contributions)
       if (registerId) {
         const registers = await api.fetchRegisters(hdrs, selectedStore.id)
         const selectedRegister = registers.find((item) => item.id === registerId)
@@ -629,6 +632,7 @@ export const PosProvider: React.FC<{
         health,
         permissions,
         capabilities,
+        contributions,
         connectionState,
         operationMode,
         products,

@@ -24,45 +24,31 @@ interface NavigationItem {
   id: ModuleId
   label: string
   icon: React.ComponentType<{ className?: string }>
-  permission: string
-  capability?: string
 }
 
-const GROUPS: Array<{ label: string; items: NavigationItem[] }> = [
-  { label: 'Visão', items: [{ id: 'overview', label: 'Visão geral', icon: Home, permission: 'management.read' }] },
-  { label: 'Operação', items: [
-    { id: 'sales', label: 'Vendas', icon: FileText, permission: 'sale.read', capability: 'counter_order' },
-    { id: 'cash', label: 'Caixas', icon: Banknote, permission: 'cash.read', capability: 'cash_management' },
-    { id: 'channels', label: 'Canais de venda', icon: Plug, permission: 'channel.read', capability: 'delivery_orders' },
-  ] },
-  { label: 'Financeiro', items: [
-    { id: 'receivables', label: 'Crediário e recebíveis', icon: BadgeDollarSign, permission: 'receivable.read', capability: 'receivables' },
-  ] },
-  { label: 'Mercadorias', items: [
-    { id: 'products', label: 'Produtos e preços', icon: Package, permission: 'catalog.read', capability: 'catalog' },
-    { id: 'categories', label: 'Categorias', icon: Tags, permission: 'catalog.read', capability: 'catalog' },
-    { id: 'inventory', label: 'Estoque', icon: Boxes, permission: 'inventory.read', capability: 'inventory' },
-  ] },
-  { label: 'Estrutura', items: [
-    { id: 'tables', label: 'Ambientes e mesas', icon: ChefHat, permission: 'table.read', capability: 'table_service' },
-    { id: 'devices', label: 'Terminais e produção', icon: Monitor, permission: 'device.read' },
-  ] },
-  { label: 'Acessos', items: [
-    { id: 'team', label: 'Equipe e funções', icon: Users, permission: 'team.read' },
-  ] },
-]
+const MODULE_ICONS: Record<ModuleId, React.ComponentType<{ className?: string }>> = {
+  overview: Home, sales: FileText, cash: Banknote, channels: Plug,
+  receivables: BadgeDollarSign, products: Package, categories: Tags,
+  inventory: Boxes, tables: ChefHat, devices: Monitor, team: Users,
+}
+const MODULE_IDS = new Set<ModuleId>(Object.keys(MODULE_ICONS) as ModuleId[])
 
 export const ManagementLayout: React.FC = () => {
   const [module, setModule] = useState<ModuleId>('overview')
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false)
   const { signOut } = useAuth()
-  const { tenant, store, permissions, capabilities } = usePos()
+  const { tenant, store, contributions } = usePos()
 
-  const visibleGroups = useMemo(() => GROUPS.map((group) => ({
-    ...group,
-    items: group.items.filter((item) => permissions.includes(item.permission) && (!item.capability || item.capability in capabilities)),
-  })).filter((group) => group.items.length > 0), [permissions, capabilities])
-  const selected = GROUPS.flatMap((group) => group.items).find((item) => item.id === module)
+  const visibleGroups = useMemo(() => {
+    const groups = new Map<string, NavigationItem[]>()
+    contributions.filter(item => item.surface === 'MANAGEMENT_NAV' && MODULE_IDS.has(item.implementation_key as ModuleId)).forEach(item => {
+      const group = item.group_key || 'OUTROS'
+      const entry: NavigationItem = { id: item.implementation_key as ModuleId, label: item.label, icon: MODULE_ICONS[item.implementation_key as ModuleId] }
+      groups.set(group, [...(groups.get(group) || []), entry])
+    })
+    return Array.from(groups, ([label, items]) => ({ label, items }))
+  }, [contributions])
+  const selected = visibleGroups.flatMap((group) => group.items).find((item) => item.id === module)
 
   const choose = (id: ModuleId) => { setModule(id); setMobileNavigationOpen(false) }
   const navigation = <nav className="space-y-5">{visibleGroups.map((group) => <section key={group.label}><p className="mb-2 px-3 text-[10px] font-black uppercase tracking-[.16em] text-slate-600">{group.label}</p><div className="space-y-1">{group.items.map((item) => { const Icon = item.icon; const current = module === item.id; return <button key={item.id} onClick={() => choose(item.id)} className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-xs font-extrabold transition ${current ? 'bg-white text-slate-950 shadow-sm' : 'text-dashem-muted hover:bg-dashem-surface-elevated hover:text-white'}`}><Icon className={`h-4 w-4 ${current ? 'text-dashem-red' : ''}`} /><span className="flex-1">{item.label}</span></button> })}</div></section>)}</nav>

@@ -681,6 +681,20 @@ export interface ApiHealth {
 export interface EffectiveAccess {
   capabilities: Record<string, { key: string; version: string; scope: string; configuration: Record<string, unknown>; inherited: boolean }>
   permissions: string[]
+  contributions: Array<{
+    id: string
+    capability_key?: string
+    surface: 'MANAGEMENT_NAV' | 'HEALTH' | 'REPORTING' | string
+    contribution_key: string
+    label: string
+    group_key?: string
+    route?: string
+    permission_key?: string
+    implementation_key: string
+    sort_order: number
+    metadata_json: Record<string, unknown>
+  }>
+  profile?: { key: string; version: string }
   context: { tenant_id: string; store_id?: string; membership_id?: string }
 }
 
