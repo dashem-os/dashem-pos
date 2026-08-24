@@ -2,7 +2,7 @@
 
 Status: **diretriz canônica para a próxima fase de construção**  
 Data: 23 de agosto de 2026  
-Revisão: **S16 concluído — próximo gate S17 Business Intelligence V1**
+Revisão: **S17 concluído — próximo gate S18 Dashem Control Completion**
 Substitui como referência de execução qualquer sequência anterior que conflite com este documento.
 
 ## 1. Por que este roadmap existe
@@ -1015,6 +1015,22 @@ Gate:
 - atraso da projeção é informado, nunca escondido com número inventado;
 - tenant/store scope é testado em consulta agregada e drill-down.
 
+Implementação concluída:
+
+- `BiDailyFact` mantém fatos diários descartáveis por tenant, unidade, escopo e
+  dimensões operacionais; o core transacional continua sendo a autoridade;
+- `BiProjectionState` publica versão, watermark, competência, status e instante
+  da última projeção, tornando atraso e falha observáveis;
+- a reconstrução substitui somente o intervalo solicitado e é idempotente em
+  relação aos fatos de origem, sem alterar vendas, pagamentos ou recebíveis;
+- a API entrega filtros por unidade, terminal, operador e canal, fórmulas
+  versionadas e drill-down paginado até a fonte persistida;
+- a Gestão consome apenas o read model agregado, exibe o atraso e não reduz o
+  histórico transacional no browser;
+- RLS, permissions `bi.read`/`bi.refresh`, rebuild, isolamento entre tenants e
+  estabilidade dos totais são cobertos por testes automatizados;
+- a decisão de autoridade, atualização e descarte está registrada no ADR-011.
+
 ### S18 — Dashem Control Completion
 
 Objetivo: concluir o plano de controle sem invadir a gestão cotidiana do tenant.
@@ -1178,7 +1194,7 @@ e aparece como `não configurada`, nunca como pronta.
 | Crediário tratado como pagamento recebido | S14 | recebível e allocation distintos | resolvido no S14 |
 | Renegociação capaz de alterar documento original | S15 | acordo e ledger imutáveis | resolvido no S15 |
 | Caixa/fiscal/provider sem conciliação unificada | S16 | fatos vinculados sem reescrita | resolvido no S16 |
-| BI agregado ou inventado no browser | S17 | read models rastreáveis | parcial, gate completo em S17 |
+| BI agregado ou inventado no browser | S17 | read models rastreáveis | resolvido e testado no S17 |
 | Endpoint de identidade e saúde ainda amplos | S18 | routers e observabilidade por domínio | residual |
 | Segurança/confiabilidade deixadas para o fim | contínuo + S20 | gate por sprint e prova combinada | política corrigida |
 
@@ -1223,14 +1239,16 @@ Ao concluir:
 O próximo ciclo de implementação deve ser:
 
 ```text
-S17 — Business Intelligence V1
+S18 — Dashem Control Completion
 ```
 
-S0–S16 estão concluídos nos gates internos. O S13 introduziu o ADR-009,
+S0–S17 estão concluídos nos gates internos. O S13 introduziu o ADR-009,
 mapeamentos por merchant, ofertas versionadas, publicação item a item e documentos
 de repasse independentes do Order. Falha parcial e diferença financeira ficam
 observáveis. O S13.1 completa a primeira retaguarda operacional do tenant e fixa
 a fronteira Gestão → PDV/KDS, nunca no sentido inverso. O S14 fecha o primeiro
 contrato de crediário sem tratar obrigação como recebimento. O S15 adiciona
 baixas e acordos imutáveis. O S16 fecha caixa, fiscal, estornos e conciliação
-com fatos compensatórios e sem reescrita. O próximo gate canônico é o S17.
+com fatos compensatórios e sem reescrita. O S17 cria projeções incrementais e
+reconstruíveis, com fórmulas, lag e drill-down rastreáveis. O próximo gate
+canônico é o S18.

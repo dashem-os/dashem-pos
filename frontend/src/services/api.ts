@@ -697,6 +697,9 @@ export interface TeamMember {
 
 export interface ManagementOverview {
   generated_at: string
+  projection_lag_seconds: number
+  projection_version: number
+  source_watermark?: string
   revenue_today: number
   revenue_30d: number
   sales_today: number
@@ -704,12 +707,32 @@ export interface ManagementOverview {
   average_ticket_30d: number
   open_sales: number
   confirmed_receipts_30d: number
+  refunds_30d: number
+  receivables_issued_30d: number
+  receivables_settled_30d: number
+  marketplace_settled_30d: number
+  table_sessions_closed_30d: number
+  table_average_minutes_30d: number
+  production_tickets_30d: number
+  production_average_minutes_30d: number
+  transfers_30d: number
+  stockout_products: number
   active_cash_sessions: number
   products: number
   customers: number
   active_team_members: number
   daily_revenue: Array<{ date: string; revenue: number; sales: number }>
   alerts: string[]
+  formulas: Record<string, string>
+}
+
+export interface BiDrilldown {
+  metric: string
+  competence_date: string
+  total: number
+  offset: number
+  limit: number
+  items: Array<{ source_type: string; source_id: string; occurred_at: string; amount: number }>
 }
 
 export interface AuthMe {
@@ -966,9 +989,35 @@ export async function updateTeamMember(
   return res.json()
 }
 
-export async function fetchManagementOverview(headers: Record<string, string>): Promise<ManagementOverview> {
-  const res = await fetch(`${API_BASE_URL}/api/v1/management/overview`, { headers })
+export async function fetchManagementOverview(
+  headers: Record<string, string>, filters: { days?: number; register_id?: string; operator_id?: string; channel?: string } = {}
+): Promise<ManagementOverview> {
+  const params = new URLSearchParams()
+  Object.entries(filters).forEach(([key, value]) => { if (value !== undefined && value !== '') params.set(key, String(value)) })
+  let url = `${API_BASE_URL}/api/v1/management/overview`
+  if (params.toString()) url += `?${params.toString()}`
+  const res = await fetch(url, { headers })
   if (!res.ok) throw await apiError(res, 'Não foi possível carregar os indicadores gerenciais.')
+  return res.json()
+}
+
+export async function refreshBiProjection(
+  headers: Record<string, string>, actorId: string, startDate?: string, endDate?: string
+): Promise<{ projected_at: string; version: number }> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/management/bi/refresh`, {
+    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actor_id: actorId, start_date: startDate, end_date: endDate })
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível atualizar a projeção gerencial.')
+  return res.json()
+}
+
+export async function fetchBiDrilldown(
+  headers: Record<string, string>, metric: string, competenceDate: string, offset = 0, limit = 50
+): Promise<BiDrilldown> {
+  const params = new URLSearchParams({ metric, competence_date: competenceDate, offset: String(offset), limit: String(limit) })
+  const res = await fetch(`${API_BASE_URL}/api/v1/management/bi/drilldown?${params.toString()}`, { headers })
+  if (!res.ok) throw await apiError(res, 'Não foi possível rastrear as fontes desta métrica.')
   return res.json()
 }
 

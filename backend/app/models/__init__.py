@@ -67,6 +67,7 @@ from app.models.receivable import (
     ReceivableCollectionEvent,
 )
 from app.models.reconciliation import FinancialReconciliation, ReconciliationEvent, ReconciliationStatusEnum, PaymentRefund
+from app.models.bi import BiDailyFact, BiProjectionState, BiFactScopeEnum
 
 __all__ = [
     "Tenant",
@@ -209,4 +210,5 @@ __all__ = [
     "ReceivableAgreement", "ReceivableAgreementItem", "ReceivableAgreementStatusEnum",
     "ReceivableCollectionEvent",
     "FinancialReconciliation", "ReconciliationEvent", "ReconciliationStatusEnum", "PaymentRefund",
+    "BiDailyFact", "BiProjectionState", "BiFactScopeEnum",
 ]

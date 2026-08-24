@@ -175,7 +175,13 @@ cega e saldo derivado exclusivamente do ledger. Movimentos carregam origem
 idempotente; estorno preserva o pagamento confirmado e cria fato compensatório.
 Tentativas fiscais permanecem no mesmo `FiscalDocument`, enquanto a conciliação
 liga venda, negociação, recebível, caixa e fiscal e somente sinaliza diferenças.
-O próximo gate canônico deste loop é o **S17 — Business Intelligence V1**.
+O **S17 — Business Intelligence V1** materializa fatos diários reconstruíveis,
+incrementais e isolados por tenant/unidade. Faturamento, vendas, recebimentos,
+estornos, recebíveis, mesas, produção, transferências, marketplace e ruptura são
+calculados no servidor; filtros e drill-down chegam à fonte persistida sem levar
+o histórico bruto ao navegador. Fórmulas, watermark, versão e atraso da projeção
+ficam explícitos na Gestão. O próximo gate canônico é o **S18 — Dashem Control
+Completion**.
 
 ## Trilha pendente: conclusão do Console Owner
 

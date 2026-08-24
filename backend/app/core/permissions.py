@@ -35,6 +35,8 @@ def route_requirement(method: str, path: str) -> RouteRequirement:
     if path.startswith("/api/v1/team"):
         return RouteRequirement("team.read" if method == "GET" else "team.manage")
     if path.startswith("/api/v1/management"):
+        if "/bi/" in path:
+            return RouteRequirement("bi.read" if method == "GET" else "bi.refresh")
         return RouteRequirement("management.read")
     if path.startswith("/api/v1/catalog"):
         return RouteRequirement("catalog.read" if method == "GET" else "catalog.update")
