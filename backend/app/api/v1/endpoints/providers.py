@@ -10,6 +10,7 @@ from app.core.context import TenantContext, get_tenant_context
 from app.core.database import get_session
 from app.models.provider import (
     BridgeTerminalStatusEnum, ProviderConfigurationStatusEnum,
+    PaymentDeviceBindingStatusEnum, PaymentDeviceExecutionModeEnum,
     ProviderTransactionStatusEnum,
 )
 from app.services import provider_service
@@ -69,6 +70,41 @@ class TerminalPairResponseDTO(BaseModel):
     pairing_code: str
 
 
+class PaymentDeviceBindingCreateDTO(BaseModel):
+    store_id: uuid.UUID
+    register_id: uuid.UUID
+    operational_device_id: uuid.UUID
+    provider_configuration_id: uuid.UUID
+    execution_mode: PaymentDeviceExecutionModeEnum
+    tef_bridge_terminal_id: Optional[uuid.UUID] = None
+    external_device_reference: Optional[str] = Field(default=None, max_length=160)
+    actor_id: Optional[uuid.UUID] = None
+
+
+class PaymentDeviceBindingUpdateDTO(BaseModel):
+    status: PaymentDeviceBindingStatusEnum
+    reason: str = Field(min_length=3, max_length=500)
+    actor_id: Optional[uuid.UUID] = None
+
+
+class PaymentDeviceBindingDTO(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
+    tenant_id: uuid.UUID
+    store_id: uuid.UUID
+    register_id: uuid.UUID
+    operational_device_id: uuid.UUID
+    provider_configuration_id: uuid.UUID
+    tef_bridge_terminal_id: Optional[uuid.UUID]
+    execution_mode: PaymentDeviceExecutionModeEnum
+    external_device_reference: Optional[str]
+    status: PaymentDeviceBindingStatusEnum
+    paused_reason: Optional[str]
+    configured_by: uuid.UUID
+    created_at: datetime
+    updated_at: datetime
+
+
 class BridgeHeartbeatDTO(BaseModel):
     tenant_id: uuid.UUID
     store_id: uuid.UUID
@@ -81,8 +117,7 @@ class BridgeHeartbeatDTO(BaseModel):
 
 class ProviderTransactionExecuteDTO(BaseModel):
     payment_intent_id: uuid.UUID
-    provider_configuration_id: uuid.UUID
-    bridge_terminal_id: uuid.UUID
+    payment_device_binding_id: uuid.UUID
     actor_id: Optional[uuid.UUID] = None
     test_outcome: Optional[ProviderTransactionStatusEnum] = None
 
@@ -93,6 +128,7 @@ class ProviderTransactionDTO(BaseModel):
     tenant_id: uuid.UUID
     store_id: uuid.UUID
     payment_intent_id: uuid.UUID
+    payment_device_binding_id: Optional[uuid.UUID]
     provider_configuration_id: uuid.UUID
     bridge_terminal_id: Optional[uuid.UUID]
     provider_code: str
@@ -151,6 +187,30 @@ def list_provider_configurations_endpoint(context: TenantContext = Depends(get_t
     return provider_service.list_configurations(session, context)
 
 
+@router.get("/device-bindings", response_model=list[PaymentDeviceBindingDTO])
+def list_payment_device_bindings_endpoint(register_id: Optional[uuid.UUID] = None, context: TenantContext = Depends(get_tenant_context), session: Session = Depends(get_session)):
+    return provider_service.list_payment_device_bindings(session, context, register_id)
+
+
+@router.post("/device-bindings", response_model=PaymentDeviceBindingDTO, status_code=201)
+def bind_payment_device_endpoint(data: PaymentDeviceBindingCreateDTO, idempotency_key: str = Header(alias="Idempotency-Key", min_length=8, max_length=160), context: TenantContext = Depends(get_tenant_context), session: Session = Depends(get_session)):
+    return provider_service.bind_payment_device(
+        session, context, store_id=data.store_id, register_id=data.register_id,
+        operational_device_id=data.operational_device_id,
+        provider_configuration_id=data.provider_configuration_id,
+        execution_mode=data.execution_mode, tef_bridge_terminal_id=data.tef_bridge_terminal_id,
+        external_device_reference=data.external_device_reference, actor_id=data.actor_id,
+        idempotency_key=idempotency_key,
+    )
+
+
+@router.patch("/device-bindings/{binding_id}", response_model=PaymentDeviceBindingDTO)
+def update_payment_device_binding_endpoint(binding_id: uuid.UUID, data: PaymentDeviceBindingUpdateDTO, context: TenantContext = Depends(get_tenant_context), session: Session = Depends(get_session)):
+    return provider_service.update_payment_device_binding(
+        session, context, binding_id, status=data.status, reason=data.reason, actor_id=data.actor_id,
+    )
+
+
 @router.post("/bridge/terminals", response_model=TerminalPairResponseDTO)
 def pair_bridge_terminal_endpoint(data: TerminalPairDTO, idempotency_key: str = Header(alias="Idempotency-Key", min_length=8, max_length=160), context: TenantContext = Depends(get_tenant_context), session: Session = Depends(get_session)):
     terminal, pairing_code = provider_service.pair_terminal(
@@ -185,8 +245,7 @@ def execute_provider_transaction_endpoint(
 ):
     return provider_service.execute_transaction(
         session, context, payment_intent_id=data.payment_intent_id,
-        provider_configuration_id=data.provider_configuration_id,
-        bridge_terminal_id=data.bridge_terminal_id, actor_id=data.actor_id,
+        payment_device_binding_id=data.payment_device_binding_id, actor_id=data.actor_id,
         idempotency_key=idempotency_key, correlation_id=correlation_id,
         test_outcome=data.test_outcome.value if data.test_outcome else None,
     )

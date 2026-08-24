@@ -452,9 +452,27 @@ export interface TefBridgeTerminal {
   last_error_message?: string
 }
 
+export interface PaymentDeviceBinding {
+  id: string
+  tenant_id: string
+  store_id: string
+  register_id: string
+  operational_device_id: string
+  provider_configuration_id: string
+  tef_bridge_terminal_id?: string
+  execution_mode: 'TEF_BRIDGE' | 'SMARTPOS'
+  external_device_reference?: string
+  status: 'ACTIVE' | 'PAUSED' | 'REVOKED'
+  paused_reason?: string
+  configured_by: string
+  created_at: string
+  updated_at: string
+}
+
 export interface ProviderTransaction {
   id: string
   payment_intent_id: string
+  payment_device_binding_id?: string
   provider_code: string
   status: 'CREATED' | 'PROCESSING' | 'CONFIRMED' | 'FAILED' | 'CANCELED' | 'UNKNOWN' | 'REFUNDED'
   external_transaction_id?: string
@@ -2046,9 +2064,16 @@ export async function fetchTefBridgeTerminals(headers: Record<string, string>, r
   return res.json()
 }
 
+export async function fetchPaymentDeviceBindings(headers: Record<string, string>, registerId?: string): Promise<PaymentDeviceBinding[]> {
+  const suffix = registerId ? `?register_id=${registerId}` : ''
+  const res = await fetch(`${API_BASE_URL}/api/v1/providers/device-bindings${suffix}`, { headers })
+  if (!res.ok) throw await apiError(res, 'Não foi possível consultar os vínculos de pagamento.')
+  return res.json()
+}
+
 export async function executeProviderTransaction(
   headers: Record<string, string>, idempotencyKey: string,
-  data: { payment_intent_id: string; provider_configuration_id: string; bridge_terminal_id: string; actor_id?: string },
+  data: { payment_intent_id: string; payment_device_binding_id: string; actor_id?: string },
 ): Promise<{ transaction: ProviderTransaction; negotiation: CheckoutNegotiation }> {
   const res = await fetch(`${API_BASE_URL}/api/v1/providers/transactions`, {
     method: 'POST', headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey, 'X-Correlation-ID': crypto.randomUUID() }, body: JSON.stringify(data),

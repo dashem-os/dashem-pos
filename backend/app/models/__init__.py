@@ -51,6 +51,7 @@ from app.models.negotiation import (
 from app.models.provider import (
     PaymentProviderConfiguration, ProviderConfigurationStatusEnum,
     TefBridgeTerminal, BridgeTerminalStatusEnum, ProviderTransaction,
+    PaymentDeviceBinding, PaymentDeviceBindingStatusEnum, PaymentDeviceExecutionModeEnum,
     ProviderTransactionStatusEnum, ProviderTransactionEvent,
 )
 from app.models.channel_hub import (
@@ -200,6 +201,9 @@ __all__ = [
     "ProviderConfigurationStatusEnum",
     "TefBridgeTerminal",
     "BridgeTerminalStatusEnum",
+    "PaymentDeviceBinding",
+    "PaymentDeviceBindingStatusEnum",
+    "PaymentDeviceExecutionModeEnum",
     "ProviderTransaction",
     "ProviderTransactionStatusEnum",
     "ProviderTransactionEvent",

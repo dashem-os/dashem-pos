@@ -15,8 +15,10 @@ from app.core.context import TenantContext, resolve_actor, scope_tenant_query
 from app.core.tenancy import set_tenant_db_context
 from app.models.negotiation import PaymentIntent, PaymentIntentStatusEnum
 from app.models.payment import PaymentMethodEnum, Register
+from app.models.device import OperationalDevice, OperationalDeviceStatusEnum, OperationalDeviceTypeEnum
 from app.models.provider import (
     BridgeTerminalStatusEnum, PaymentProviderConfiguration,
+    PaymentDeviceBinding, PaymentDeviceBindingStatusEnum, PaymentDeviceExecutionModeEnum,
     ProviderConfigurationStatusEnum, ProviderTransaction,
     ProviderTransactionEvent, ProviderTransactionStatusEnum, TefBridgeTerminal,
 )
@@ -112,6 +114,206 @@ def list_configurations(session: Session, context: TenantContext) -> list[Paymen
         select(PaymentProviderConfiguration).order_by(PaymentProviderConfiguration.provider_code),
         PaymentProviderConfiguration, context,
     )).all())
+
+
+def list_payment_device_bindings(
+    session: Session, context: TenantContext, register_id: Optional[uuid.UUID] = None,
+) -> list[PaymentDeviceBinding]:
+    query = select(PaymentDeviceBinding).order_by(PaymentDeviceBinding.created_at.desc())
+    if register_id:
+        query = query.where(PaymentDeviceBinding.register_id == register_id)
+    return list(session.exec(scope_tenant_query(query, PaymentDeviceBinding, context)).all())
+
+
+def bind_payment_device(
+    session: Session, context: TenantContext, *, store_id: uuid.UUID, register_id: uuid.UUID,
+    operational_device_id: uuid.UUID, provider_configuration_id: uuid.UUID,
+    execution_mode: PaymentDeviceExecutionModeEnum, tef_bridge_terminal_id: Optional[uuid.UUID],
+    external_device_reference: Optional[str], actor_id: Optional[uuid.UUID], idempotency_key: str,
+) -> PaymentDeviceBinding:
+    """Create the only permitted route between a POS and card execution."""
+    if context.store_id and context.store_id != store_id:
+        raise HTTPException(status_code=403, detail="Vínculo fora da unidade ativa.")
+    actor = _actor(context, actor_id)
+    device = session.exec(select(OperationalDevice).where(
+        OperationalDevice.id == operational_device_id,
+        OperationalDevice.tenant_id == context.tenant_id,
+        OperationalDevice.store_id == store_id,
+    ).with_for_update()).first()
+    register = session.exec(select(Register).where(
+        Register.id == register_id, Register.tenant_id == context.tenant_id,
+        Register.store_id == store_id, Register.is_active.is_(True),
+    )).first()
+    configuration = session.exec(select(PaymentProviderConfiguration).where(
+        PaymentProviderConfiguration.id == provider_configuration_id,
+        PaymentProviderConfiguration.tenant_id == context.tenant_id,
+        PaymentProviderConfiguration.store_id == store_id,
+        PaymentProviderConfiguration.status == ProviderConfigurationStatusEnum.ACTIVE,
+    )).first()
+    if not device or not register or not configuration:
+        raise HTTPException(status_code=404, detail="POS, caixa ou provider não pertencem à unidade ativa.")
+    if (
+        device.device_type != OperationalDeviceTypeEnum.POS
+        or device.status != OperationalDeviceStatusEnum.ACTIVE
+        or device.register_id != register.id
+    ):
+        raise HTTPException(status_code=422, detail="O vínculo de pagamento exige um POS ativo ligado ao mesmo caixa.")
+
+    external_reference = (external_device_reference or "").strip() or None
+    terminal: Optional[TefBridgeTerminal] = None
+    if execution_mode == PaymentDeviceExecutionModeEnum.TEF_BRIDGE:
+        if not tef_bridge_terminal_id:
+            raise HTTPException(status_code=422, detail="TEF Bridge exige um bridge pareado ao caixa.")
+        terminal = session.exec(select(TefBridgeTerminal).where(
+            TefBridgeTerminal.id == tef_bridge_terminal_id,
+            TefBridgeTerminal.tenant_id == context.tenant_id,
+            TefBridgeTerminal.store_id == store_id,
+            TefBridgeTerminal.register_id == register.id,
+            TefBridgeTerminal.provider_configuration_id == configuration.id,
+        )).first()
+        if not terminal:
+            raise HTTPException(status_code=409, detail="Bridge TEF não corresponde ao provider, POS e caixa informados.")
+        if external_reference:
+            raise HTTPException(status_code=422, detail="TEF Bridge não aceita uma referência externa de SmartPOS.")
+    else:
+        if tef_bridge_terminal_id:
+            raise HTTPException(status_code=422, detail="SmartPOS não pode reutilizar o bridge TEF.")
+        if not external_reference:
+            raise HTTPException(status_code=422, detail="Informe a referência de pareamento real do SmartPOS.")
+
+    payload = {
+        "store_id": str(store_id), "register_id": str(register_id),
+        "operational_device_id": str(operational_device_id),
+        "provider_configuration_id": str(provider_configuration_id),
+        "execution_mode": execution_mode.value,
+        "tef_bridge_terminal_id": str(tef_bridge_terminal_id) if tef_bridge_terminal_id else None,
+        "external_device_reference": external_reference,
+    }
+    cached, _, body = reliability_service.check_idempotency(
+        session, context.tenant_id, actor, "provider.device_binding.create", idempotency_key, payload,
+    )
+    if cached and body:
+        existing = session.get(PaymentDeviceBinding, uuid.UUID(body["payment_device_binding_id"]))
+        if existing and existing.tenant_id == context.tenant_id:
+            return existing
+        raise HTTPException(status_code=409, detail="O vínculo anterior não está mais disponível.")
+    binding = session.exec(select(PaymentDeviceBinding).where(
+        PaymentDeviceBinding.tenant_id == context.tenant_id,
+        PaymentDeviceBinding.operational_device_id == device.id,
+    ).with_for_update()).first()
+    if binding:
+        if binding.status == PaymentDeviceBindingStatusEnum.REVOKED:
+            raise HTTPException(status_code=409, detail="Vínculo revogado não pode ser reutilizado; crie novo pareamento.")
+        binding.register_id = register.id
+        binding.provider_configuration_id = configuration.id
+        binding.tef_bridge_terminal_id = terminal.id if terminal else None
+        binding.execution_mode = execution_mode
+        binding.external_device_reference = external_reference
+        binding.status = PaymentDeviceBindingStatusEnum.ACTIVE
+        binding.paused_reason = None
+        binding.updated_at = datetime.utcnow()
+    else:
+        binding = PaymentDeviceBinding(
+            tenant_id=context.tenant_id, store_id=store_id, register_id=register.id,
+            operational_device_id=device.id, provider_configuration_id=configuration.id,
+            tef_bridge_terminal_id=terminal.id if terminal else None,
+            execution_mode=execution_mode, external_device_reference=external_reference,
+            configured_by=actor,
+        )
+        session.add(binding)
+        session.flush()
+    reliability_service.write_audit_and_outbox(
+        session=session, tenant_id=context.tenant_id, store_id=store_id, actor_id=actor,
+        action="payment.device_binding.configured", target=f"PAYMENT-DEVICE-BINDING-{binding.id}",
+        audit_payload={**payload, "binding_id": str(binding.id)},
+        aggregate_type="payment_device_binding", aggregate_id=str(binding.id),
+        event_type="payment.device_binding.configured",
+        outbox_payload={"payment_device_binding_id": str(binding.id), "execution_mode": execution_mode.value},
+    )
+    session.commit(); session.refresh(binding)
+    reliability_service.save_idempotency_record(
+        session, context.tenant_id, actor, "provider.device_binding.create", idempotency_key,
+        payload, 200, {"payment_device_binding_id": str(binding.id)},
+    )
+    session.commit()
+    return binding
+
+
+def update_payment_device_binding(
+    session: Session, context: TenantContext, binding_id: uuid.UUID, *,
+    status: PaymentDeviceBindingStatusEnum, reason: str, actor_id: Optional[uuid.UUID],
+) -> PaymentDeviceBinding:
+    binding = session.exec(scope_tenant_query(select(PaymentDeviceBinding).where(
+        PaymentDeviceBinding.id == binding_id,
+    ), PaymentDeviceBinding, context).with_for_update()).first()
+    if not binding:
+        raise HTTPException(status_code=404, detail="Vínculo de pagamento não encontrado.")
+    actor = _actor(context, actor_id)
+    if binding.status == PaymentDeviceBindingStatusEnum.REVOKED and status != PaymentDeviceBindingStatusEnum.REVOKED:
+        raise HTTPException(status_code=409, detail="Vínculo revogado não pode ser reativado; faça um novo pareamento.")
+    binding.status = status
+    binding.paused_reason = reason.strip()[:500] if status != PaymentDeviceBindingStatusEnum.ACTIVE else None
+    binding.updated_at = datetime.utcnow()
+    reliability_service.write_audit_and_outbox(
+        session=session, tenant_id=context.tenant_id, store_id=binding.store_id, actor_id=actor,
+        action="payment.device_binding.updated", target=f"PAYMENT-DEVICE-BINDING-{binding.id}",
+        audit_payload={"status": status.value, "reason": reason.strip()},
+        aggregate_type="payment_device_binding", aggregate_id=str(binding.id),
+        event_type="payment.device_binding.updated",
+        outbox_payload={"payment_device_binding_id": str(binding.id), "status": status.value},
+    )
+    session.commit(); session.refresh(binding)
+    return binding
+
+
+def _resolve_execution_binding(
+    session: Session, context: TenantContext, *, payment_device_binding_id: uuid.UUID,
+    store_id: uuid.UUID,
+) -> tuple[PaymentDeviceBinding, PaymentProviderConfiguration, OperationalDevice, Optional[TefBridgeTerminal]]:
+    binding = session.exec(scope_tenant_query(select(PaymentDeviceBinding).where(
+        PaymentDeviceBinding.id == payment_device_binding_id,
+        PaymentDeviceBinding.store_id == store_id,
+        PaymentDeviceBinding.status == PaymentDeviceBindingStatusEnum.ACTIVE,
+    ), PaymentDeviceBinding, context).with_for_update()).first()
+    if not binding:
+        raise HTTPException(status_code=409, detail="Nenhum vínculo de pagamento ativo atende esta unidade.")
+    device = session.exec(select(OperationalDevice).where(
+        OperationalDevice.id == binding.operational_device_id,
+        OperationalDevice.tenant_id == context.tenant_id,
+        OperationalDevice.store_id == store_id,
+        OperationalDevice.register_id == binding.register_id,
+        OperationalDevice.device_type == OperationalDeviceTypeEnum.POS,
+        OperationalDevice.status == OperationalDeviceStatusEnum.ACTIVE,
+    )).first()
+    configuration = session.exec(select(PaymentProviderConfiguration).where(
+        PaymentProviderConfiguration.id == binding.provider_configuration_id,
+        PaymentProviderConfiguration.tenant_id == context.tenant_id,
+        PaymentProviderConfiguration.store_id == store_id,
+        PaymentProviderConfiguration.status == ProviderConfigurationStatusEnum.ACTIVE,
+    )).first()
+    if not device or not configuration:
+        raise HTTPException(status_code=409, detail="O vínculo de pagamento perdeu seu POS ou provider ativo.")
+    if context.device_id and context.device_id != device.id:
+        raise HTTPException(status_code=403, detail="O turno operacional não pertence ao POS vinculado ao pagamento.")
+    if context.register_id and context.register_id != binding.register_id:
+        raise HTTPException(status_code=403, detail="O turno operacional não pertence ao caixa vinculado ao pagamento.")
+    if binding.execution_mode == PaymentDeviceExecutionModeEnum.SMARTPOS:
+        raise HTTPException(
+            status_code=409,
+            detail="SmartPOS está vinculado, mas não possui adapter homologado para execução. Use outro meio ou conclua a homologação.",
+        )
+    terminal = session.exec(select(TefBridgeTerminal).where(
+        TefBridgeTerminal.id == binding.tef_bridge_terminal_id,
+        TefBridgeTerminal.tenant_id == context.tenant_id,
+        TefBridgeTerminal.store_id == store_id,
+        TefBridgeTerminal.register_id == binding.register_id,
+        TefBridgeTerminal.provider_configuration_id == configuration.id,
+    )).first()
+    if not terminal:
+        raise HTTPException(status_code=409, detail="O vínculo TEF não possui bridge válido para este POS e caixa.")
+    if terminal.status != BridgeTerminalStatusEnum.ONLINE:
+        raise HTTPException(status_code=503, detail="Bridge TEF offline; os demais meios continuam disponíveis.")
+    return binding, configuration, device, terminal
 
 
 def pair_terminal(
@@ -289,7 +491,7 @@ def _apply_result(
 
 def execute_transaction(
     session: Session, context: TenantContext, *, payment_intent_id: uuid.UUID,
-    provider_configuration_id: uuid.UUID, bridge_terminal_id: uuid.UUID,
+    payment_device_binding_id: uuid.UUID,
     actor_id: Optional[uuid.UUID], idempotency_key: str,
     correlation_id: Optional[str], test_outcome: Optional[str],
 ) -> dict:
@@ -299,26 +501,13 @@ def execute_transaction(
     ).with_for_update(), PaymentIntent, context)).first()
     if not intent or intent.method not in CARD_METHODS:
         raise HTTPException(status_code=422, detail="TEF exige uma parcela de cartão válida.")
-    configuration = session.exec(select(PaymentProviderConfiguration).where(
-        PaymentProviderConfiguration.id == provider_configuration_id,
-        PaymentProviderConfiguration.tenant_id == context.tenant_id,
-        PaymentProviderConfiguration.store_id == intent.store_id,
-        PaymentProviderConfiguration.status == ProviderConfigurationStatusEnum.ACTIVE,
-    )).first()
-    terminal = session.exec(select(TefBridgeTerminal).where(
-        TefBridgeTerminal.id == bridge_terminal_id,
-        TefBridgeTerminal.tenant_id == context.tenant_id,
-        TefBridgeTerminal.store_id == intent.store_id,
-        TefBridgeTerminal.provider_configuration_id == provider_configuration_id,
-    )).first()
-    if not configuration or not terminal:
-        raise HTTPException(status_code=409, detail="TEF não configurado para este caixa.")
-    if terminal.status != BridgeTerminalStatusEnum.ONLINE:
-        raise HTTPException(status_code=503, detail="Bridge TEF offline; os demais meios continuam disponíveis.")
+    binding, configuration, _device, terminal = _resolve_execution_binding(
+        session, context, payment_device_binding_id=payment_device_binding_id,
+        store_id=intent.store_id,
+    )
     payload = {
         "payment_intent_id": str(payment_intent_id),
-        "provider_configuration_id": str(provider_configuration_id),
-        "bridge_terminal_id": str(bridge_terminal_id), "actor_id": str(actor),
+        "payment_device_binding_id": str(binding.id), "actor_id": str(actor),
     }
     request_hash = reliability_service.compute_request_hash(payload)
     existing = session.exec(select(ProviderTransaction).where(
@@ -342,7 +531,8 @@ def execute_transaction(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     transaction = ProviderTransaction(
         tenant_id=context.tenant_id, store_id=intent.store_id,
-        payment_intent_id=intent.id, provider_configuration_id=configuration.id,
+        payment_intent_id=intent.id, payment_device_binding_id=binding.id,
+        provider_configuration_id=configuration.id,
         bridge_terminal_id=terminal.id, provider_code=configuration.provider_code,
         adapter_version=adapter.version, correlation_id=correlation_id or str(uuid.uuid4()),
         idempotency_key=idempotency_key, request_hash=request_hash, created_by=actor,

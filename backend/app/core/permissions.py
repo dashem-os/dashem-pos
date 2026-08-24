@@ -110,7 +110,7 @@ def route_requirement(method: str, path: str) -> RouteRequirement:
     if path.startswith("/api/v1/providers"):
         if method == "GET":
             return RouteRequirement("provider.read")
-        if "/configurations" in path or "/bridge/terminals" in path:
+        if "/configurations" in path or "/bridge/terminals" in path or "/device-bindings" in path:
             return RouteRequirement("provider.configure")
         return RouteRequirement("provider.execute")
     if path.startswith("/api/v1/channels"):

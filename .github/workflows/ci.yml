@@ -129,6 +129,6 @@ jobs:
           revision=$(psql -h 127.0.0.1 -U postgres -d dashem_restore_test -Atc "SELECT version_num FROM alembic_version")
           elapsed=$(( $(date +%s) - started_at ))
           test "$restored" = "1"
-          test "$revision" = "042_operational_authority"
+          test "$revision" = "043_payment_binding"
           test "$elapsed" -lt 3600
           echo "Restore verified in ${elapsed}s at revision ${revision}; RPO=0 for the marker transaction."

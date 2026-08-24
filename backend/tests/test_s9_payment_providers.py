@@ -14,6 +14,25 @@ from test_s8_checkout_negotiation import _context, _intent
 BASE_URL = os.getenv("TEST_BASE_URL", "http://localhost:8002")
 
 
+async def _payment_binding(client, headers, actor, store_id, register_id, configuration_id, terminal_id, suffix):
+    device = (await client.post("/api/v1/devices", headers=headers, json={
+        "store_id": store_id, "code": f"POS-{suffix}", "name": "POS de pagamento",
+        "device_type": "POS", "register_id": register_id, "actor_id": actor,
+    }))
+    assert device.status_code == 201, device.text
+    device = device.json()
+    response = await client.post("/api/v1/providers/device-bindings", headers={
+        **headers, "Idempotency-Key": f"binding-{uuid.uuid4()}",
+    }, json={
+        "store_id": store_id, "register_id": register_id,
+        "operational_device_id": device["id"], "provider_configuration_id": configuration_id,
+        "execution_mode": "TEF_BRIDGE", "tef_bridge_terminal_id": terminal_id,
+        "actor_id": actor,
+    })
+    assert response.status_code == 201, response.text
+    return response.json(), device
+
+
 @pytest.mark.asyncio
 async def test_s9_bridge_unknown_retry_and_authenticated_result_confirm_only_its_intent():
     async with httpx.AsyncClient(base_url=BASE_URL) as client:
@@ -47,12 +66,48 @@ async def test_s9_bridge_unknown_retry_and_authenticated_result_confirm_only_its
         })
         assert heartbeat.status_code == 200, heartbeat.text
         assert heartbeat.json()["status"] == "ONLINE"
+        binding, _device = await _payment_binding(
+            client, headers, actor, store["id"], cash["register_id"], configuration["id"], terminal["id"], "S9-01",
+        )
+
+        # The checkout browser is no longer allowed to choose a provider or
+        # bridge terminal. Only the server-validated binding is accepted.
+        legacy_execute = await client.post("/api/v1/providers/transactions", headers={
+            **headers, "Idempotency-Key": f"legacy-{uuid.uuid4()}",
+        }, json={
+            "payment_intent_id": card_intent["id"],
+            "provider_configuration_id": configuration["id"],
+            "bridge_terminal_id": terminal["id"], "actor_id": actor,
+        })
+        assert legacy_execute.status_code == 422
+
+        smartpos_device = await client.post("/api/v1/devices", headers=headers, json={
+            "store_id": store["id"], "code": "POS-SMARTPOS-01", "name": "SmartPOS homologação",
+            "device_type": "POS", "register_id": cash["register_id"], "actor_id": actor,
+        })
+        assert smartpos_device.status_code == 201, smartpos_device.text
+        smartpos_binding = await client.post("/api/v1/providers/device-bindings", headers={
+            **headers, "Idempotency-Key": f"smartpos-{uuid.uuid4()}",
+        }, json={
+            "store_id": store["id"], "register_id": cash["register_id"],
+            "operational_device_id": smartpos_device.json()["id"],
+            "provider_configuration_id": configuration["id"], "execution_mode": "SMARTPOS",
+            "external_device_reference": "SMARTPOS-HOMOLOGATION-01", "actor_id": actor,
+        })
+        assert smartpos_binding.status_code == 201, smartpos_binding.text
+        smartpos_execute = await client.post("/api/v1/providers/transactions", headers={
+            **headers, "Idempotency-Key": f"smartpos-exec-{uuid.uuid4()}",
+        }, json={
+            "payment_intent_id": card_intent["id"],
+            "payment_device_binding_id": smartpos_binding.json()["id"], "actor_id": actor,
+        })
+        assert smartpos_execute.status_code == 409
+        assert "adapter homologado" in smartpos_execute.json()["detail"]
 
         execute_key = f"tef-{uuid.uuid4()}"
         execute_payload = {
             "payment_intent_id": card_intent["id"],
-            "provider_configuration_id": configuration["id"],
-            "bridge_terminal_id": terminal["id"], "actor_id": actor,
+            "payment_device_binding_id": binding["id"], "actor_id": actor,
         }
         started = await client.post("/api/v1/providers/transactions", headers={
             **headers, "Idempotency-Key": execute_key, "X-Correlation-ID": f"corr-{uuid.uuid4()}",
@@ -90,6 +145,7 @@ async def test_s9_bridge_unknown_retry_and_authenticated_result_confirm_only_its
         assert reported.status_code == 200, reported.text
         result = reported.json()
         assert result["transaction"]["status"] == "CONFIRMED"
+        assert result["transaction"]["payment_device_binding_id"] == binding["id"]
         assert result["transaction"]["nsu"] == "000123456"
         assert result["negotiation"]["status"] == "COVERED"
         assert float(result["negotiation"]["confirmed_amount"]) == 64.9
@@ -103,8 +159,26 @@ async def test_s9_bridge_unknown_retry_and_authenticated_result_confirm_only_its
         assert report_retry.status_code == 200
         assert float(report_retry.json()["negotiation"]["confirmed_amount"]) == 64.9
 
-        _tenant_b, _store_b, headers_b, *_ = await _context(client, "TefOther")
+        paused = await client.patch(f"/api/v1/providers/device-bindings/{binding['id']}", headers=headers, json={
+            "status": "PAUSED", "reason": "Manutenção programada do terminal", "actor_id": actor,
+        })
+        assert paused.status_code == 200, paused.text
+        assert paused.json()["status"] == "PAUSED"
+        blocked_after_pause = await client.post("/api/v1/providers/transactions", headers={
+            **headers, "Idempotency-Key": f"paused-{uuid.uuid4()}",
+        }, json={
+            "payment_intent_id": card_intent["id"],
+            "payment_device_binding_id": binding["id"], "actor_id": actor,
+        })
+        assert blocked_after_pause.status_code == 409
+
+        _tenant_b, _store_b, headers_b, actor_b, *_ = await _context(client, "TefOther")
         assert (await client.get("/api/v1/providers/configurations", headers=headers_b)).json() == []
+        assert (await client.get("/api/v1/providers/device-bindings", headers=headers_b)).json() == []
+        foreign_binding = await client.patch(f"/api/v1/providers/device-bindings/{binding['id']}", headers=headers_b, json={
+            "status": "PAUSED", "reason": "Tentativa entre tenants", "actor_id": actor_b,
+        })
+        assert foreign_binding.status_code == 404
         hidden = await client.post(f"/api/v1/providers/transactions/{started_body['transaction']['id']}/reconcile", headers=headers_b, json={"actor_id": actor})
         assert hidden.status_code == 404
 
@@ -135,11 +209,13 @@ async def test_s9_offline_tef_does_not_block_local_payment_methods():
             "store_id": store["id"], "register_id": cash["register_id"],
             "provider_configuration_id": configuration["id"], "terminal_code": "OFFLINE-01", "actor_id": actor,
         })).json()
+        binding, _device = await _payment_binding(
+            client, headers, actor, store["id"], cash["register_id"], configuration["id"], paired["terminal"]["id"], "S9-02",
+        )
         offline = await client.post("/api/v1/providers/transactions", headers={
             **headers, "Idempotency-Key": f"offline-{uuid.uuid4()}",
         }, json={
-            "payment_intent_id": card["id"], "provider_configuration_id": configuration["id"],
-            "bridge_terminal_id": paired["terminal"]["id"], "actor_id": actor,
+            "payment_intent_id": card["id"], "payment_device_binding_id": binding["id"], "actor_id": actor,
         })
         assert offline.status_code == 503
         failed_release = await client.post(f"/api/v1/negotiations/intents/{card['id']}/fail", headers={

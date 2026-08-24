@@ -180,6 +180,7 @@ function SessionPanel({ session, availableSessions, headers, products, operatorI
   const [paymentMethod, setPaymentMethod] = useState<api.NegotiationPaymentMethod | 'TEF_CREDIT' | 'TEF_DEBIT'>('PIX')
   const [paymentAmount, setPaymentAmount] = useState('')
   const [tefTerminal, setTefTerminal] = useState<api.TefBridgeTerminal | null>(null)
+  const [tefBinding, setTefBinding] = useState<api.PaymentDeviceBinding | null>(null)
   const [transfer, setTransfer] = useState({ itemId: '', destinationId: '', quantity: '1', reason: '' })
   useEffect(() => { setOrderId(session?.orders[0]?.id || ''); setNegotiation(null); setPaymentAmount('') }, [session?.id, session?.orders.length])
   if (!session) return <aside className="flex min-h-[480px] items-center justify-center rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center"><div><Receipt className="mx-auto h-10 w-10 text-slate-300" /><h2 className="mt-4 font-black">Selecione uma mesa ou comanda</h2><p className="mt-2 text-sm leading-6 text-slate-500">A conta consolidada e o histórico real aparecerão aqui.</p></div></aside>
@@ -221,8 +222,13 @@ function SessionPanel({ session, availableSessions, headers, products, operatorI
       })
       setNegotiation(opened); setPaymentAmount(String(Number(opened.remaining_amount).toFixed(2)))
       if (registerId && permissions.includes('provider.read')) {
-        const terminals = await api.fetchTefBridgeTerminals(headers, registerId)
-        setTefTerminal(terminals.find((item) => item.status === 'ONLINE') || terminals[0] || null)
+        const [bindings, terminals] = await Promise.all([
+          api.fetchPaymentDeviceBindings(headers, registerId),
+          api.fetchTefBridgeTerminals(headers, registerId),
+        ])
+        const binding = bindings.find((item) => item.status === 'ACTIVE' && item.execution_mode === 'TEF_BRIDGE') || null
+        setTefBinding(binding)
+        setTefTerminal(binding ? terminals.find((item) => item.id === binding.tef_bridge_terminal_id) || null : null)
       }
       showToast('success', 'Conta congelada em um snapshot financeiro autoritativo.')
     } catch (error) { showToast('error', error instanceof Error ? error.message : 'Não foi possível abrir a conta.') }
@@ -244,10 +250,10 @@ function SessionPanel({ session, availableSessions, headers, products, operatorI
       const pending = [...created.intents].reverse().find((item) => item.status === 'PENDING')
       if (!pending) throw new Error('A parcela persistida não ficou disponível para confirmação.')
       if (isTef) {
+        if (!tefBinding) throw new Error('TEF não possui vínculo ativo neste caixa.')
         if (!tefTerminal || tefTerminal.status !== 'ONLINE') throw new Error('Dashem TEF Bridge não configurado ou offline neste caixa.')
         const execution = await api.executeProviderTransaction(headers, crypto.randomUUID(), {
-          payment_intent_id: pending.id, provider_configuration_id: tefTerminal.provider_configuration_id,
-          bridge_terminal_id: tefTerminal.id, actor_id: operatorId,
+          payment_intent_id: pending.id, payment_device_binding_id: tefBinding.id, actor_id: operatorId,
         })
         setNegotiation(execution.negotiation)
         showToast('info', execution.transaction.status === 'CONFIRMED' ? 'Parcela TEF confirmada.' : 'Transação enviada ao bridge; aguardando resultado ou reconciliação.')

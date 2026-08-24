@@ -22,6 +22,24 @@ class BridgeTerminalStatusEnum(str, Enum):
     DEGRADED = "DEGRADED"
 
 
+class PaymentDeviceExecutionModeEnum(str, Enum):
+    """How Dashem sends a card payment to a physical payment device.
+
+    SMARTPOS is intentionally only an enrollment mode here.  It must not be
+    treated as an executable integration until an accredited adapter is
+    installed and the device is actually paired.
+    """
+
+    TEF_BRIDGE = "TEF_BRIDGE"
+    SMARTPOS = "SMARTPOS"
+
+
+class PaymentDeviceBindingStatusEnum(str, Enum):
+    ACTIVE = "ACTIVE"
+    PAUSED = "PAUSED"
+    REVOKED = "REVOKED"
+
+
 class ProviderTransactionStatusEnum(str, Enum):
     CREATED = "CREATED"
     PROCESSING = "PROCESSING"
@@ -83,6 +101,44 @@ class TefBridgeTerminal(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class PaymentDeviceBinding(SQLModel, table=True):
+    """The authoritative, unit-scoped route from a POS to card execution.
+
+    A browser never picks a provider configuration or a bridge terminal at
+    payment time.  It can only use this persisted binding, whose complete
+    tenant/store/register/device chain is revalidated on the server.
+    """
+
+    __tablename__ = "payment_device_bindings"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "operational_device_id", name="uq_payment_binding_operational_device"),
+        UniqueConstraint(
+            "tenant_id", "store_id", "provider_configuration_id", "external_device_reference",
+            name="uq_payment_binding_provider_device_ref",
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(foreign_key="tenants.id", index=True)
+    store_id: uuid.UUID = Field(foreign_key="stores.id", index=True)
+    register_id: uuid.UUID = Field(foreign_key="registers.id", index=True)
+    operational_device_id: uuid.UUID = Field(foreign_key="operational_devices.id", index=True)
+    provider_configuration_id: uuid.UUID = Field(foreign_key="payment_provider_configurations.id", index=True)
+    tef_bridge_terminal_id: Optional[uuid.UUID] = Field(default=None, foreign_key="tef_bridge_terminals.id", index=True)
+    execution_mode: PaymentDeviceExecutionModeEnum = Field(
+        sa_column=Column(EnumString(PaymentDeviceExecutionModeEnum), nullable=False, index=True),
+    )
+    external_device_reference: Optional[str] = Field(default=None, max_length=160, index=True)
+    status: PaymentDeviceBindingStatusEnum = Field(
+        default=PaymentDeviceBindingStatusEnum.ACTIVE,
+        sa_column=Column(EnumString(PaymentDeviceBindingStatusEnum), nullable=False, index=True),
+    )
+    configured_by: uuid.UUID = Field(index=True)
+    paused_reason: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class ProviderTransaction(SQLModel, table=True):
     __tablename__ = "provider_transactions"
     __table_args__ = (
@@ -94,6 +150,7 @@ class ProviderTransaction(SQLModel, table=True):
     tenant_id: uuid.UUID = Field(foreign_key="tenants.id", index=True)
     store_id: uuid.UUID = Field(foreign_key="stores.id", index=True)
     payment_intent_id: uuid.UUID = Field(foreign_key="payment_intents.id", index=True)
+    payment_device_binding_id: Optional[uuid.UUID] = Field(default=None, foreign_key="payment_device_bindings.id", index=True)
     provider_configuration_id: uuid.UUID = Field(foreign_key="payment_provider_configurations.id", index=True)
     bridge_terminal_id: Optional[uuid.UUID] = Field(default=None, foreign_key="tef_bridge_terminals.id", index=True)
     provider_code: str = Field(max_length=80, index=True)

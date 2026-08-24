@@ -1433,12 +1433,23 @@ de turno invalidam a autoridade anterior. Pessoa, turno, POS, TEF Bridge e Print
 Bridge continuam identidades independentes. Os dez critérios de aceite do
 ADR-021 são o gate objetivo deste ciclo.
 
+### Gate C — execução de pagamentos vinculada ao dispositivo
+
+Conclui o ADR-022. A execução de cartão recebe somente um
+`PaymentDeviceBinding` persistido; o servidor recompõe e valida a cadeia
+tenant → unidade → caixa → POS → provider → meio de execução. Um bridge TEF
+precisa corresponder ao mesmo caixa e provider, e uma sessão operacional não
+pode executar no POS ou caixa de outro vínculo. SmartPOS pode ser cadastrado
+como pareamento, mas permanece não executável até existir adapter homologado —
+nunca simulado como uma cobrança real. Pausa e revogação do vínculo impedem
+novas execuções, sem alterar transações já registradas.
+
 ## 12. Próximo passo autorizado por este roadmap
 
 O próximo ciclo de implementação deve concluir:
 
 ```text
-Gate B — autoridade operacional persistida, versionada e revogável
+Gate D — auditoria imutável, eventos de pagamento e projeções de produtividade
 ```
 
 S0–S21, S17.1–S17.3, S21.1 e o Gate A estão concluídos nos gates internos,
@@ -1456,5 +1467,6 @@ histórico. O S17.2 preserva a sessão gerencial na ida ao PDV e separa a ficha 
 funcionário de suas credenciais. O S17.3 autoriza o terminal antes de expor o
 login operacional. O S18 conclui os contratos próprios do Control sem invadir a
 equipe cotidiana do tenant. S19–S21 consolidam profiles, hardening e prontidão
-interna. O Gate B somente é concluído após migration, testes negativos e CI
-verde; homologações TEF e Print Bridge continuam gates próprios posteriores.
+interna. Os Gates B e C somente são concluídos após migration, testes negativos
+e CI verde; homologações TEF, SmartPOS e Print Bridge continuam gates próprios
+posteriores.
