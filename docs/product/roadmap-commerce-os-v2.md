@@ -2,7 +2,7 @@
 
 Status: **diretriz canônica para a próxima fase de construção**  
 Data: 23 de agosto de 2026  
-Revisão: **S14 concluído — próximo gate S15 Recebimentos, Cobrança e Renegociação**
+Revisão: **S15 concluído — próximo gate S16 Cash, Fiscal e Financial Reconciliation**
 Substitui como referência de execução qualquer sequência anterior que conflite com este documento.
 
 ## 1. Por que este roadmap existe
@@ -938,6 +938,15 @@ Gate:
 
 ### S15 — Recebimentos, Cobrança e Renegociação
 
+Estado: **concluído no gate interno**. O recebimento possui comando idempotente,
+allocation por título, forma, provider, ator, motivo e ajustes explícitos. A
+liquidação parcial atualiza somente a projeção de saldo e acrescenta ledger; o
+principal original permanece imutável. Acordos bloqueiam os títulos de origem
+como `RENEGOTIATED` e emitem parcelas-filhas ligadas ao acordo, de modo que cada
+parcela possa ser recebida ou falhar independentemente. Eventos de cobrança e
+promessa possuem trilha própria. Dinheiro exige sessão de caixa aberta e gera
+um único movimento `RECEIVABLE_PAYMENT`; outros meios não alteram numerário.
+
 Objetivo: liquidar ou renegociar recebíveis preservando integralmente sua origem.
 
 Entregas:
@@ -1214,13 +1223,13 @@ Ao concluir:
 O próximo ciclo de implementação deve ser:
 
 ```text
-S15 — Recebimentos, Cobrança e Renegociação
+S16 — Cash, Fiscal e Financial Reconciliation Completion
 ```
 
-S0–S14 estão concluídos nos gates internos. O S13 introduziu o ADR-009,
+S0–S15 estão concluídos nos gates internos. O S13 introduziu o ADR-009,
 mapeamentos por merchant, ofertas versionadas, publicação item a item e documentos
 de repasse independentes do Order. Falha parcial e diferença financeira ficam
 observáveis. O S13.1 completa a primeira retaguarda operacional do tenant e fixa
 a fronteira Gestão → PDV/KDS, nunca no sentido inverso. O S14 fecha o primeiro
 contrato de crediário sem tratar obrigação como recebimento. O próximo gate
-canônico é o S15.
+canônico é o S16.

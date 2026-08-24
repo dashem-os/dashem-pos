@@ -16,6 +16,7 @@ class CashMovementTypeEnum(str, Enum):
     BLEED = "BLEED"
     REINFORCEMENT = "REINFORCEMENT"
     CLOSING = "CLOSING"
+    RECEIVABLE_PAYMENT = "RECEIVABLE_PAYMENT"
 
 class PaymentMethodEnum(str, Enum):
     CASH = "CASH"

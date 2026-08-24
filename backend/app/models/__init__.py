@@ -62,6 +62,9 @@ from app.models.device import OperationalDevice, OperationalDeviceTypeEnum, Oper
 from app.models.receivable import (
     CustomerCreditPolicy, CreditPolicyStatusEnum, Receivable, ReceivableStatusEnum,
     ReceivableAllocation, ReceivableLedgerEntry, ReceivableEntryTypeEnum,
+    ReceivableReceipt, ReceivableReceiptAllocation, ReceivableReceiptStatusEnum,
+    ReceivableAgreement, ReceivableAgreementItem, ReceivableAgreementStatusEnum,
+    ReceivableCollectionEvent,
 )
 
 __all__ = [
@@ -201,4 +204,7 @@ __all__ = [
     "OperationalDevice", "OperationalDeviceTypeEnum", "OperationalDeviceStatusEnum",
     "CustomerCreditPolicy", "CreditPolicyStatusEnum", "Receivable", "ReceivableStatusEnum",
     "ReceivableAllocation", "ReceivableLedgerEntry", "ReceivableEntryTypeEnum",
+    "ReceivableReceipt", "ReceivableReceiptAllocation", "ReceivableReceiptStatusEnum",
+    "ReceivableAgreement", "ReceivableAgreementItem", "ReceivableAgreementStatusEnum",
+    "ReceivableCollectionEvent",
 ]

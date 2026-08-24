@@ -47,8 +47,11 @@ export interface Receivable {
   tenant_id: string
   store_id: string
   customer_id: string
-  negotiation_id: string
+  negotiation_id?: string
   sale_id?: string
+  agreement_id?: string
+  agreement_installment_number?: number
+  origin_receivable_id?: string
   status: 'OPEN' | 'PARTIALLY_PAID' | 'PAID' | 'OVERDUE' | 'REVERSED' | 'RENEGOTIATED'
   principal_amount: number
   paid_amount: number
@@ -72,6 +75,28 @@ export interface CreditPolicyProjection {
   }
   exposure: number
   available: number
+}
+
+export interface ReceivableReceipt {
+  id: string
+  customer_id: string
+  status: 'PENDING' | 'CONFIRMED' | 'FAILED' | 'REVERSED'
+  method: string
+  amount: number
+  reason: string
+  confirmed_at?: string
+  created_at: string
+}
+
+export interface ReceivableAgreement {
+  id: string
+  customer_id: string
+  status: 'ACTIVE' | 'COMPLETED' | 'DEFAULTED' | 'CANCELED'
+  original_principal: number
+  agreement_total: number
+  installment_count: number
+  reason: string
+  created_at: string
 }
 
 export interface Category {
@@ -946,6 +971,32 @@ export async function saveCreditPolicy(
     method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(input),
   })
   if (!res.ok) throw await apiError(res, 'Não foi possível salvar a política de crédito.')
+  return res.json()
+}
+
+export async function settleReceivables(
+  headers: Record<string, string>, input: {
+    allocations: Array<{ receivable_id: string; expected_version: number; principal_amount: number; interest_amount?: number; fine_amount?: number; discount_amount?: number; abatement_amount?: number }>
+    method: 'CASH' | 'PIX' | 'CREDIT_CARD' | 'DEBIT_CARD'; cash_session_id?: string; provider_reference?: string; reason: string
+  },
+): Promise<ReceivableReceipt> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/receivables/settlements`, {
+    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify(input),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível confirmar o recebimento.')
+  return res.json()
+}
+
+export async function createReceivableAgreement(
+  headers: Record<string, string>, input: {
+    receivable_ids: string[]; installment_count: number; first_due_at: string; interval_days: number;
+    interest_amount: number; fine_amount: number; discount_amount: number; reason: string
+  },
+): Promise<ReceivableAgreement> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/receivables/agreements`, {
+    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify(input),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível criar o acordo.')
   return res.json()
 }
 

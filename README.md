@@ -165,8 +165,12 @@ limite e exposição calculada sob lock, `Receivable`, allocation explícita da
 negociação e ledger imutável. A venda a prazo e o título são gravados na mesma
 transação; o valor financiado não cria `Payment` nem movimento de caixa. A
 Gestão possui workspace real de crediário, protegido por permission e pela
-capability `receivables`. O próximo gate canônico deste loop é o **S15 —
-Recebimentos, Cobrança e Renegociação**.
+capability `receivables`. O **S15 — Recebimentos, Cobrança e Renegociação**
+adiciona liquidação multi-título pelo orquestrador, allocations com ajustes
+explícitos, histórico de cobrança e acordos cujas parcelas permanecem ligadas
+aos documentos originais. Retentativas não duplicam baixas e o principal nunca
+é reescrito. O próximo gate canônico deste loop é o **S16 — Cash, Fiscal e
+Financial Reconciliation Completion**.
 
 ## Trilha pendente: conclusão do Console Owner
 

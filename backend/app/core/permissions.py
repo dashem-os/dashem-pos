@@ -134,6 +134,12 @@ def route_requirement(method: str, path: str) -> RouteRequirement:
     if path.startswith("/api/v1/receivables"):
         if method == "GET":
             return RouteRequirement("receivable.read")
+        if "/settlements" in path:
+            return RouteRequirement("receivable.settle")
+        if "/agreements" in path:
+            return RouteRequirement("receivable.agreement")
+        if "/collection-events" in path:
+            return RouteRequirement("receivable.collect")
         if "/policy" in path:
             return RouteRequirement("credit.policy.manage")
         if path.endswith("/reverse"):
