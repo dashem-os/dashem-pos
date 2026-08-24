@@ -48,7 +48,6 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["user_id"], ["users.id"]),
         sa.ForeignKeyConstraint(["home_store_id"], ["stores.id"]),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("user_id"),
         sa.UniqueConstraint("tenant_id", "employee_number", name="uq_tenant_employee_number"),
         sa.UniqueConstraint("tenant_id", "tax_id", name="uq_tenant_employee_tax_id"),
     )
@@ -56,7 +55,9 @@ def upgrade() -> None:
         "tenant_id", "user_id", "home_store_id", "employee_number", "full_name", "tax_id",
         "email", "phone", "job_title", "department", "hire_date", "status",
     ):
-        op.create_index(f"ix_employees_{column}", "employees", [column])
+        op.create_index(
+            f"ix_employees_{column}", "employees", [column], unique=column == "user_id",
+        )
 
     platform = "current_setting('app.platform_access', true) = 'true'"
     tenant = "tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid"
