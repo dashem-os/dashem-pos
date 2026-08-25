@@ -1444,12 +1444,23 @@ como pareamento, mas permanece não executável até existir adapter homologado 
 nunca simulado como uma cobrança real. Pausa e revogação do vínculo impedem
 novas execuções, sem alterar transações já registradas.
 
+### Gate D — auditoria imutável e projeções de produtividade
+
+Conclui o ADR-023. Solicitação, autorização, execução e resultado de pagamento
+passam a ser fatos append-only com tenant, unidade, caixa, POS, sessão,
+operador, ator de serviço, vínculo e transação preservados. O PostgreSQL impede
+`UPDATE` e `DELETE` das trilhas de auditoria, inclusive fora do ORM. A
+produtividade operacional é uma projeção persistida por turno PIN, com fórmulas
+publicadas, watermark e reconstrução integral a partir dos fatos. Testes
+negativos atravessam tenant, unidade, dispositivo e sessão.
+
 ## 12. Próximo passo autorizado por este roadmap
 
-O próximo ciclo de implementação deve concluir:
+Os Gates A–D estão concluídos no contrato interno. O próximo ciclo deve tratar
+como validações externas independentes:
 
 ```text
-Gate D — auditoria imutável, eventos de pagamento e projeções de produtividade
+homologação de campo TEF/SmartPOS/Print Bridge e validação comercial assistida
 ```
 
 S0–S21, S17.1–S17.3, S21.1 e o Gate A estão concluídos nos gates internos,
@@ -1467,6 +1478,6 @@ histórico. O S17.2 preserva a sessão gerencial na ida ao PDV e separa a ficha 
 funcionário de suas credenciais. O S17.3 autoriza o terminal antes de expor o
 login operacional. O S18 conclui os contratos próprios do Control sem invadir a
 equipe cotidiana do tenant. S19–S21 consolidam profiles, hardening e prontidão
-interna. Os Gates B e C somente são concluídos após migration, testes negativos
-e CI verde; homologações TEF, SmartPOS e Print Bridge continuam gates próprios
-posteriores.
+interna. Os Gates B, C e D são concluídos com migrations, testes negativos e CI
+verde; homologações TEF, SmartPOS e Print Bridge continuam gates próprios
+posteriores e não são simuladas pelo produto.

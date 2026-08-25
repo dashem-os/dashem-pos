@@ -58,6 +58,8 @@ CONTRACTS = [
     ("POST", "/api/v1/operational-access/terminal/status", "/api/v1/operational-access/terminal/status`"),
     ("POST", "/api/v1/operational-access/terminal/login", "/api/v1/operational-access/terminal/login`"),
     ("GET", "/api/v1/management/overview", "/api/v1/management/overview`"),
+    ("GET", "/api/v1/management/productivity", "/api/v1/management/productivity?"),
+    ("POST", "/api/v1/management/productivity/rebuild", "/api/v1/management/productivity/rebuild`"),
 ]
 
 
@@ -106,6 +108,8 @@ def test_every_tenant_critical_contract_keeps_context_headers_in_client():
         "resetOperationalPin",
         "authorizeOperationalTerminal",
         "fetchManagementOverview",
+        "fetchOperationalProductivity",
+        "rebuildOperationalProductivity",
     ):
         start = source.index(f"export async function {function_name}")
         next_export = source.find("export async function ", start + 1)

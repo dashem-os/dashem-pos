@@ -129,3 +129,13 @@ test('renders management metrics from the aggregate API instead of browser reduc
   assert.match(dashboard, /fetchManagementOverview/)
   assert.doesNotMatch(dashboard, /salesHistory\.filter|salesHistory\.reduce/)
 })
+
+test('renders operational productivity from the rebuildable backend projection', async () => {
+  const dashboard = await source('../src/components/management/DashboardBI.tsx')
+  const api = await source('../src/services/api.ts')
+  assert.match(dashboard, /fetchOperationalProductivity/)
+  assert.match(dashboard, /rebuildOperationalProductivity/)
+  assert.match(dashboard, /Produtividade por operador e turno/)
+  assert.match(api, /management\/productivity/)
+  assert.doesNotMatch(dashboard, /providerTransactions\.reduce|paymentEvents\.reduce/)
+})

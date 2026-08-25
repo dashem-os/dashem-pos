@@ -24,7 +24,7 @@ from app.models.provider import (
     ProviderTransactionEvent, ProviderTransactionStatusEnum, TefBridgeTerminal,
 )
 from app.providers.adapter import ProviderRequest, ProviderResult, resolve_adapter
-from app.services import negotiation_service, reliability_service
+from app.services import negotiation_service, payment_audit_service, reliability_service
 
 
 CARD_METHODS = {PaymentMethodEnum.CREDIT_CARD, PaymentMethodEnum.DEBIT_CARD}
@@ -479,6 +479,14 @@ def _apply_result(
         "external_transaction_id": result.external_transaction_id,
         "failure_code": result.failure_code,
     })
+    payment_audit_service.record_execution_result(
+        session, context, transaction=transaction, intent=intent, actor_id=actor_id,
+        outcome=result.status,
+        payload={
+            "external_transaction_id": result.external_transaction_id,
+            "failure_code": result.failure_code,
+        },
+    )
     session.commit()
     if result.status == ProviderTransactionStatusEnum.CONFIRMED:
         negotiation = negotiation_service.confirm_intent(
@@ -515,7 +523,7 @@ def execute_transaction(
     ).with_for_update(), PaymentIntent, context)).first()
     if not intent or intent.method not in CARD_METHODS:
         raise HTTPException(status_code=422, detail="TEF exige uma parcela de cartão válida.")
-    binding, configuration, _device, terminal = _resolve_execution_binding(
+    binding, configuration, device, terminal = _resolve_execution_binding(
         session, context, payment_device_binding_id=payment_device_binding_id,
         store_id=intent.store_id,
     )
@@ -552,6 +560,10 @@ def execute_transaction(
         idempotency_key=idempotency_key, request_hash=request_hash, created_by=actor,
     )
     session.add(transaction); session.flush()
+    payment_audit_service.record_request_and_approval(
+        session, context, transaction=transaction, intent=intent,
+        binding=binding, device=device, actor_id=actor,
+    )
     _event(session, transaction, actor, "payment.provider.started", {
         "payment_intent_id": str(intent.id), "provider_code": configuration.provider_code,
         "amount": str(intent.amount), "terminal_id": str(terminal.id),

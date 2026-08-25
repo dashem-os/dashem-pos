@@ -7,7 +7,10 @@ from sqlmodel import Session, select
 
 from app.core.database import engine
 from app.core.tenancy import set_platform_db_context
-from app.models.provider import ProviderTransaction, ProviderTransactionEvent
+from app.models.provider import (
+    PaymentExecutionEvent, PaymentExecutionStageEnum,
+    ProviderTransaction, ProviderTransactionEvent,
+)
 from test_s8_checkout_negotiation import _context, _intent
 
 
@@ -192,6 +195,15 @@ async def test_s9_bridge_unknown_retry_and_authenticated_result_confirm_only_its
             ProviderTransactionEvent.provider_transaction_id == transactions[0].id,
         )).all()
         assert {event.event_type for event in events} >= {"payment.provider.started", "payment.provider.result"}
+        authority_events = db.exec(select(PaymentExecutionEvent).where(
+            PaymentExecutionEvent.provider_transaction_id == transactions[0].id,
+        ).order_by(PaymentExecutionEvent.sequence)).all()
+        assert [event.stage for event in authority_events[:2]] == [
+            PaymentExecutionStageEnum.REQUESTED, PaymentExecutionStageEnum.APPROVED,
+        ]
+        assert sum(event.stage == PaymentExecutionStageEnum.EXECUTED for event in authority_events) == 1
+        assert authority_events[-1].stage == PaymentExecutionStageEnum.RESULT_RECORDED
+        assert authority_events[-1].outcome == "CONFIRMED"
 
 
 @pytest.mark.asyncio

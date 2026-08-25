@@ -1,12 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, ArrowRight, Banknote, Boxes, ChefHat, CircleDollarSign, Database, Loader2, Monitor, Package, Receipt, RefreshCw, ShoppingCart, TrendingUp, Users, X } from 'lucide-react'
 import { usePos } from '../../context/PosContext'
-import { BiDrilldown, fetchBiDrilldown, fetchManagementOverview, ManagementOverview, refreshBiProjection } from '../../services/api'
+import { BiDrilldown, fetchBiDrilldown, fetchManagementOverview, fetchOperationalProductivity, ManagementOverview, OperationalProductivity, rebuildOperationalProductivity, refreshBiProjection } from '../../services/api'
 import { formatCurrency } from '../../utils/format'
 
 export const DashboardBI: React.FC<{ onOpenModule?: (module: 'products' | 'tables' | 'devices' | 'team') => void }> = ({ onOpenModule }) => {
   const { tenant, store, operatorId, permissions, showToast } = usePos()
   const [overview, setOverview] = useState<ManagementOverview | null>(null)
+  const [productivity, setProductivity] = useState<OperationalProductivity | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [days, setDays] = useState(30)
   const [refreshing, setRefreshing] = useState(false)
@@ -16,7 +17,13 @@ export const DashboardBI: React.FC<{ onOpenModule?: (module: 'products' | 'table
   const load = () => {
     if (!headers) return Promise.resolve()
     setError(null)
-    return fetchManagementOverview(headers, { days }).then(setOverview)
+    return Promise.all([
+      fetchManagementOverview(headers, { days }),
+      fetchOperationalProductivity(headers, days),
+    ]).then(([management, operational]) => {
+      setOverview(management)
+      setProductivity(operational)
+    })
       .catch((reason) => setError(reason instanceof Error ? reason.message : 'Falha ao carregar indicadores.'))
   }
 
@@ -27,6 +34,7 @@ export const DashboardBI: React.FC<{ onOpenModule?: (module: 'products' | 'table
     setRefreshing(true)
     try {
       await refreshBiProjection(headers, operatorId)
+      await rebuildOperationalProductivity(headers, operatorId)
       await load()
       showToast('success', 'Projeção gerencial atualizada a partir dos fatos.')
     } catch (reason) {
@@ -43,7 +51,7 @@ export const DashboardBI: React.FC<{ onOpenModule?: (module: 'products' | 'table
   const chart = useMemo(() => overview?.daily_revenue.slice(-14) ?? [], [overview])
   const maxRevenue = Math.max(1, ...chart.map((item) => item.revenue))
   if (error) return <State text={error} error />
-  if (!overview) return <State text="Carregando projeção gerencial persistida..." />
+  if (!overview || !productivity) return <State text="Carregando projeções gerenciais persistidas..." />
 
   const primaryCards = [
     { label: 'Faturamento hoje', value: formatCurrency(overview.revenue_today), meta: `${overview.sales_today} vendas`, icon: CircleDollarSign, color: 'text-emerald-400' },
@@ -82,6 +90,12 @@ export const DashboardBI: React.FC<{ onOpenModule?: (module: 'products' | 'table
     <section className="grid gap-5 xl:grid-cols-[1.45fr_1fr]">
       <article className="rounded-3xl border border-dashem-border bg-dashem-surface p-6"><div className="flex justify-between"><div><h3 className="font-black text-white">Faturamento diário</h3><p className="text-xs text-dashem-muted">Clique na competência para rastrear as vendas de origem.</p></div><TrendingUp className="h-5 w-5 text-dashem-red" /></div><div className="mt-8 flex h-48 items-end gap-2">{chart.map((item) => <button type="button" onClick={() => openDay(item.date)} key={item.date} className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-2" title={`${item.date}: ${formatCurrency(item.revenue)} · ${item.sales} vendas`}><span className="w-full rounded-t-lg bg-gradient-to-t from-dashem-red to-rose-400 hover:opacity-80" style={{ height: `${Math.max(item.revenue > 0 ? 8 : 2, (item.revenue / maxRevenue) * 100)}%` }} /><span className="hidden text-[9px] text-dashem-muted 2xl:block">{item.date.slice(8)}</span></button>)}</div></article>
       <article className="rounded-3xl border border-dashem-border bg-dashem-surface p-6"><div className="flex items-center gap-2"><AlertTriangle className="h-5 w-5 text-amber-400" /><h3 className="font-black text-white">Operação e alertas</h3></div>{overview.alerts.length ? <ul className="mt-4 space-y-2">{overview.alerts.map((alert) => <li key={alert} className="rounded-xl border border-amber-800/40 bg-amber-950/30 p-3 text-xs font-semibold text-amber-200">{alert}</li>)}</ul> : <p className="mt-4 rounded-xl border border-emerald-800/40 bg-emerald-950/30 p-3 text-xs font-bold text-emerald-300">Nenhum alerta operacional ativo.</p>}<div className="mt-4 grid grid-cols-2 gap-2">{operations.map(([label, value, Icon]) => <div key={label} className="rounded-xl bg-dashem-bg p-3"><Icon className="h-4 w-4 text-slate-500" /><p className="mt-2 font-black text-white">{value}</p><p className="mt-1 text-[10px] font-bold text-dashem-muted">{label}</p></div>)}</div></article>
+    </section>
+
+    <section className="rounded-3xl border border-dashem-border bg-dashem-surface p-6">
+      <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-end"><div><p className="text-[10px] font-black uppercase tracking-[.16em] text-dashem-red">Projeção operacional explícita</p><h3 className="mt-1 font-black text-white">Produtividade por operador e turno</h3><p className="mt-1 text-xs text-dashem-muted">Derivada exclusivamente da cadeia imutável de solicitação, autorização, execução e resultado do pagamento.</p></div><p className="text-[10px] font-bold text-dashem-muted">Fonte até {productivity.source_watermark ? new Date(productivity.source_watermark).toLocaleString('pt-BR') : 'sem eventos operacionais'}</p></div>
+      {productivity.items.length === 0 ? <div className="mt-5 rounded-2xl border border-dashed border-dashem-border bg-dashem-bg p-8 text-center text-xs font-bold text-dashem-muted">Nenhum pagamento executado por uma sessão PIN neste período.</div> : <div className="mt-5 overflow-x-auto"><table className="w-full min-w-[760px] text-left text-xs"><thead className="text-[10px] font-black uppercase tracking-wide text-dashem-muted"><tr><th className="pb-3">Operador</th><th className="pb-3">Turnos</th><th className="pb-3">Solicitados</th><th className="pb-3">Executados</th><th className="pb-3">Confirmados</th><th className="pb-3">Falhas</th><th className="pb-3">Conversão</th><th className="pb-3 text-right">Valor confirmado</th></tr></thead><tbody className="divide-y divide-dashem-border">{productivity.items.map((item) => <tr key={item.operator_id}><td className="py-4 font-black text-white">{item.operator_name}</td><td className="py-4 text-dashem-muted">{item.shift_count}</td><td className="py-4 text-dashem-muted">{item.requested_count}</td><td className="py-4 text-dashem-muted">{item.executed_count}</td><td className="py-4 text-emerald-300">{item.confirmed_count}</td><td className="py-4 text-rose-300">{item.failed_count}</td><td className="py-4 font-black text-white">{(item.confirmation_rate * 100).toFixed(1)}%</td><td className="py-4 text-right font-black text-white">{formatCurrency(item.confirmed_amount)}</td></tr>)}</tbody></table></div>}
+      <details className="mt-4 rounded-xl bg-dashem-bg p-4"><summary className="cursor-pointer text-xs font-black text-white">Fórmulas da produtividade</summary><div className="mt-3 grid gap-2 md:grid-cols-2">{Object.entries(productivity.formulas).map(([metric, formula]) => <p key={metric} className="text-[11px] text-dashem-muted"><strong className="text-dashem-red">{metric}:</strong> {formula}</p>)}</div></details>
     </section>
 
     {drilldown && <section className="rounded-3xl border border-dashem-border bg-dashem-surface p-6"><div className="flex justify-between"><div><p className="text-[10px] font-black uppercase tracking-wider text-dashem-red">Drill-down rastreável</p><h3 className="mt-1 font-black text-white">{new Date(`${drilldown.competence_date}T12:00:00`).toLocaleDateString('pt-BR')} · {drilldown.total} fontes</h3></div><button onClick={() => setDrilldown(null)} className="rounded-lg border border-dashem-border p-2"><X className="h-4 w-4" /></button></div><div className="mt-4 divide-y divide-dashem-border">{drilldown.items.map((item) => <div key={item.source_id} className="flex justify-between py-3 text-xs"><div><p className="font-black text-white">{item.source_type} · {item.source_id}</p><p className="text-dashem-muted">{new Date(item.occurred_at).toLocaleString('pt-BR')}</p></div><p className="font-black text-white">{formatCurrency(item.amount)}</p></div>)}</div></section>}

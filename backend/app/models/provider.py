@@ -3,7 +3,9 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional
 
-from sqlalchemy import Column, JSON, Text
+from decimal import Decimal
+
+from sqlalchemy import Column, JSON, Numeric, Text
 from sqlmodel import Field, SQLModel, UniqueConstraint
 
 from app.core.db_types import EnumString
@@ -48,6 +50,13 @@ class ProviderTransactionStatusEnum(str, Enum):
     CANCELED = "CANCELED"
     UNKNOWN = "UNKNOWN"
     REFUNDED = "REFUNDED"
+
+
+class PaymentExecutionStageEnum(str, Enum):
+    REQUESTED = "REQUESTED"
+    APPROVED = "APPROVED"
+    EXECUTED = "EXECUTED"
+    RESULT_RECORDED = "RESULT_RECORDED"
 
 
 class PaymentProviderConfiguration(SQLModel, table=True):
@@ -187,3 +196,61 @@ class ProviderTransactionEvent(SQLModel, table=True):
     actor_id: uuid.UUID = Field(index=True)
     payload: dict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+
+
+class PaymentExecutionEvent(SQLModel, table=True):
+    """Append-only payment authority fact with its complete operational scope."""
+
+    __tablename__ = "payment_execution_events"
+    __table_args__ = (
+        UniqueConstraint("provider_transaction_id", "sequence", name="uq_payment_execution_event_sequence"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(foreign_key="tenants.id", index=True)
+    store_id: uuid.UUID = Field(foreign_key="stores.id", index=True)
+    register_id: uuid.UUID = Field(foreign_key="registers.id", index=True)
+    operational_device_id: uuid.UUID = Field(foreign_key="operational_devices.id", index=True)
+    operational_session_id: Optional[uuid.UUID] = Field(default=None, foreign_key="operational_sessions.id", index=True)
+    operational_actor_id: Optional[uuid.UUID] = Field(default=None, index=True)
+    event_actor_id: uuid.UUID = Field(index=True)
+    payment_intent_id: uuid.UUID = Field(foreign_key="payment_intents.id", index=True)
+    payment_device_binding_id: uuid.UUID = Field(foreign_key="payment_device_bindings.id", index=True)
+    provider_transaction_id: uuid.UUID = Field(foreign_key="provider_transactions.id", index=True)
+    stage: PaymentExecutionStageEnum = Field(
+        sa_column=Column(EnumString(PaymentExecutionStageEnum), nullable=False, index=True),
+    )
+    sequence: int = Field(index=True)
+    amount: Decimal = Field(sa_column=Column(Numeric(14, 4), nullable=False))
+    outcome: Optional[str] = Field(default=None, max_length=50, index=True)
+    request_hash: str = Field(max_length=64, index=True)
+    payload: dict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
+    occurred_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+
+
+class OperationalProductivityProjection(SQLModel, table=True):
+    """Rebuildable per-shift read model derived exclusively from immutable events."""
+
+    __tablename__ = "operational_productivity_projections"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "operational_session_id", name="uq_operational_productivity_session"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(foreign_key="tenants.id", index=True)
+    store_id: uuid.UUID = Field(foreign_key="stores.id", index=True)
+    register_id: uuid.UUID = Field(foreign_key="registers.id", index=True)
+    operational_device_id: uuid.UUID = Field(foreign_key="operational_devices.id", index=True)
+    operational_session_id: uuid.UUID = Field(foreign_key="operational_sessions.id", index=True)
+    operator_id: uuid.UUID = Field(foreign_key="users.id", index=True)
+    requested_count: int = Field(default=0)
+    approved_count: int = Field(default=0)
+    executed_count: int = Field(default=0)
+    confirmed_count: int = Field(default=0)
+    failed_count: int = Field(default=0)
+    requested_amount: Decimal = Field(default=Decimal("0"), sa_column=Column(Numeric(14, 4), nullable=False))
+    confirmed_amount: Decimal = Field(default=Decimal("0"), sa_column=Column(Numeric(14, 4), nullable=False))
+    first_event_at: datetime = Field(index=True)
+    last_event_at: datetime = Field(index=True)
+    projection_version: int = Field(default=1)
+    updated_at: datetime = Field(default_factory=datetime.utcnow, index=True)

@@ -807,6 +807,32 @@ export interface BiDrilldown {
   items: Array<{ source_type: string; source_id: string; occurred_at: string; amount: number }>
 }
 
+export interface OperationalProductivityItem {
+  operator_id: string
+  operator_name: string
+  requested_count: number
+  approved_count: number
+  executed_count: number
+  confirmed_count: number
+  failed_count: number
+  requested_amount: number
+  confirmed_amount: number
+  shift_count: number
+  last_event_at?: string
+  approval_rate: number
+  execution_rate: number
+  confirmation_rate: number
+}
+
+export interface OperationalProductivity {
+  generated_at: string
+  source_watermark?: string
+  projection_version: number
+  days: number
+  items: OperationalProductivityItem[]
+  formulas: Record<string, string>
+}
+
 export interface AuthMe {
   mode: 'authenticated' | 'local-bypass'
   user: { id: string; email?: string; full_name: string; is_active: boolean } | null
@@ -1225,6 +1251,25 @@ export async function fetchManagementOverview(
   if (params.toString()) url += `?${params.toString()}`
   const res = await fetch(url, { headers })
   if (!res.ok) throw await apiError(res, 'Não foi possível carregar os indicadores gerenciais.')
+  return res.json()
+}
+
+export async function fetchOperationalProductivity(
+  headers: Record<string, string>, days = 30,
+): Promise<OperationalProductivity> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/management/productivity?days=${days}`, { headers })
+  if (!res.ok) throw await apiError(res, 'Não foi possível carregar a produtividade operacional.')
+  return res.json()
+}
+
+export async function rebuildOperationalProductivity(
+  headers: Record<string, string>, actorId: string,
+): Promise<{ source_events: number; status: string }> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/management/productivity/rebuild`, {
+    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actor_id: actorId }),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível reconstruir a produtividade operacional.')
   return res.json()
 }
 

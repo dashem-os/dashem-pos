@@ -52,7 +52,8 @@ from app.models.provider import (
     PaymentProviderConfiguration, ProviderConfigurationStatusEnum,
     TefBridgeTerminal, BridgeTerminalStatusEnum, ProviderTransaction,
     PaymentDeviceBinding, PaymentDeviceBindingStatusEnum, PaymentDeviceExecutionModeEnum,
-    ProviderTransactionStatusEnum, ProviderTransactionEvent,
+    ProviderTransactionStatusEnum, ProviderTransactionEvent, PaymentExecutionEvent,
+    PaymentExecutionStageEnum, OperationalProductivityProjection,
 )
 from app.models.channel_hub import (
     MerchantConnection, MerchantConnectionStatusEnum, ChannelInboxEvent,
@@ -207,6 +208,9 @@ __all__ = [
     "ProviderTransaction",
     "ProviderTransactionStatusEnum",
     "ProviderTransactionEvent",
+    "PaymentExecutionEvent",
+    "PaymentExecutionStageEnum",
+    "OperationalProductivityProjection",
     "MerchantConnection",
     "MerchantConnectionStatusEnum",
     "ChannelInboxEvent",

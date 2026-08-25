@@ -8,7 +8,7 @@ from sqlmodel import Session
 
 from app.core.context import TenantContext, get_tenant_context, resolve_actor
 from app.core.database import get_session
-from app.services import bi_service
+from app.services import bi_service, payment_audit_service
 
 
 router = APIRouter()
@@ -57,6 +57,10 @@ class ProjectionRefreshDTO(BaseModel):
     end_date: Optional[date] = None
 
 
+class ProductivityRebuildDTO(BaseModel):
+    actor_id: uuid.UUID
+
+
 def _store(context: TenantContext, requested: Optional[uuid.UUID]) -> uuid.UUID:
     store_id = requested or context.store_id
     if not store_id:
@@ -79,6 +83,28 @@ def management_overview(
             session, context, store_id=_store(context, store_id), days=days,
             register_id=register_id, operator_id=operator_id, channel=channel,
         )
+    )
+
+
+@router.get("/productivity")
+def operational_productivity(
+    days: int = 30, store_id: Optional[uuid.UUID] = None,
+    context: TenantContext = Depends(get_tenant_context),
+    session: Session = Depends(get_session),
+):
+    return payment_audit_service.productivity_summary(
+        session, context, store_id=_store(context, store_id), days=days,
+    )
+
+
+@router.post("/productivity/rebuild")
+def rebuild_operational_productivity(
+    data: ProductivityRebuildDTO, store_id: Optional[uuid.UUID] = None,
+    context: TenantContext = Depends(get_tenant_context),
+    session: Session = Depends(get_session),
+):
+    return payment_audit_service.rebuild_productivity(
+        session, context, store_id=_store(context, store_id), actor_id=data.actor_id,
     )
 
 
