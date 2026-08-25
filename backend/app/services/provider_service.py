@@ -16,6 +16,7 @@ from app.core.tenancy import set_tenant_db_context
 from app.models.negotiation import PaymentIntent, PaymentIntentStatusEnum
 from app.models.payment import PaymentMethodEnum, Register
 from app.models.device import OperationalDevice, OperationalDeviceStatusEnum, OperationalDeviceTypeEnum
+from app.models.identity import OperationalSession, OperationalSessionStatusEnum, RoleEnum
 from app.models.provider import (
     BridgeTerminalStatusEnum, PaymentProviderConfiguration,
     PaymentDeviceBinding, PaymentDeviceBindingStatusEnum, PaymentDeviceExecutionModeEnum,
@@ -293,10 +294,23 @@ def _resolve_execution_binding(
     )).first()
     if not device or not configuration:
         raise HTTPException(status_code=409, detail="O vínculo de pagamento perdeu seu POS ou provider ativo.")
-    if context.device_id and context.device_id != device.id:
-        raise HTTPException(status_code=403, detail="O turno operacional não pertence ao POS vinculado ao pagamento.")
-    if context.register_id and context.register_id != binding.register_id:
-        raise HTTPException(status_code=403, detail="O turno operacional não pertence ao caixa vinculado ao pagamento.")
+    if context.auth_provider == "operational" or context.role in {
+        RoleEnum.SUPERVISOR, RoleEnum.CASHIER, RoleEnum.OPERATOR,
+    }:
+        if not context.operational_session_id or not context.device_id or not context.register_id:
+            raise HTTPException(status_code=403, detail="Pagamento físico exige um turno operacional persistido.")
+        authority = session.get(OperationalSession, context.operational_session_id)
+        if (
+            not authority or authority.status != OperationalSessionStatusEnum.ACTIVE
+            or authority.tenant_id != context.tenant_id or authority.store_id != store_id
+            or authority.user_id != context.user_id or authority.device_id != device.id
+            or authority.register_id != binding.register_id
+            or context.device_id != device.id or context.register_id != binding.register_id
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail="O turno operacional não pertence ao POS e caixa vinculados ao pagamento.",
+            )
     if binding.execution_mode == PaymentDeviceExecutionModeEnum.SMARTPOS:
         raise HTTPException(
             status_code=409,

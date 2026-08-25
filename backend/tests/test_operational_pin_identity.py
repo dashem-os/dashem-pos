@@ -16,7 +16,11 @@ from app.core.tenancy import set_platform_db_context, set_tenant_db_context
 from app.models.identity import Employee, Membership, MembershipStatusEnum, OperationalCredential, OperationalSession, OperationalSessionStatusEnum, RoleEnum, Store, Tenant, TenantStatusEnum, User
 from app.models.device import OperationalDevice, OperationalDeviceStatusEnum, OperationalDeviceTypeEnum
 from app.models.payment import Register
-from app.services import device_service, operational_access_service
+from app.models.provider import (
+    PaymentDeviceBinding, PaymentDeviceExecutionModeEnum,
+    PaymentProviderConfiguration, ProviderConfigurationStatusEnum,
+)
+from app.services import device_service, operational_access_service, provider_service
 
 
 def test_operational_member_has_no_fake_email_and_activates_store_scoped_token():
@@ -156,6 +160,34 @@ def test_public_pin_exchange_requires_an_active_manager_authorized_terminal(monk
         before_heartbeat = persisted.last_seen_at
         heartbeat = operational_access_service.heartbeat_operational_session(session, authorized)
         assert heartbeat.last_seen_at > before_heartbeat
+
+        other_register = Register(
+            tenant_id=tenant_id, store_id=store_id, name="Caixa 02", code=f"CX2-{suffix}",
+        )
+        session.add(other_register); session.flush()
+        other_device = OperationalDevice(
+            tenant_id=tenant_id, store_id=store_id, code=f"POS2-{suffix}", name="Outro caixa",
+            device_type=OperationalDeviceTypeEnum.POS, register_id=other_register.id,
+        )
+        configuration = PaymentProviderConfiguration(
+            tenant_id=tenant_id, store_id=store_id, provider_code=f"PIN-TEST-{suffix}",
+            status=ProviderConfigurationStatusEnum.ACTIVE, configured_by=admin_id,
+        )
+        session.add(other_device); session.add(configuration); session.flush()
+        foreign_binding = PaymentDeviceBinding(
+            tenant_id=tenant_id, store_id=store_id, register_id=other_register.id,
+            operational_device_id=other_device.id, provider_configuration_id=configuration.id,
+            execution_mode=PaymentDeviceExecutionModeEnum.SMARTPOS,
+            external_device_reference=f"SMARTPOS-{suffix}", configured_by=admin_id,
+        )
+        session.add(foreign_binding); session.commit()
+        with pytest.raises(HTTPException) as wrong_payment_device:
+            provider_service._resolve_execution_binding(
+                session, authorized,
+                payment_device_binding_id=foreign_binding.id, store_id=store_id,
+            )
+        assert wrong_payment_device.value.status_code == 403
+        assert "POS e caixa" in wrong_payment_device.value.detail
 
         manager_context = TenantContext(tenant_id=tenant_id, store_id=store_id, user_id=admin_id, role=RoleEnum.ADMIN)
         device_service.update_device(
