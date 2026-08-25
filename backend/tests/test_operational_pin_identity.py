@@ -1,5 +1,7 @@
 import uuid
+from datetime import datetime, timedelta, timezone
 
+import jwt
 from fastapi import HTTPException
 import pytest
 from sqlmodel import Session, select
@@ -8,7 +10,8 @@ from app.api.v1.endpoints.identity import get_me
 from app.api.v1.endpoints.team import OperationalMemberCreate, create_operational_member
 from app.core.context import TenantContext, authorize_tenant_context
 from app.core.database import engine
-from app.core.security import AuthPrincipal, decode_access_token
+from app.core.config import settings
+from app.core.security import AuthPrincipal, decode_access_token, get_current_principal
 from app.core.tenancy import set_platform_db_context, set_tenant_db_context
 from app.models.identity import Employee, Membership, MembershipStatusEnum, OperationalCredential, OperationalSession, OperationalSessionStatusEnum, RoleEnum, Store, Tenant, TenantStatusEnum, User
 from app.models.device import OperationalDevice, OperationalDeviceStatusEnum, OperationalDeviceTypeEnum
@@ -92,7 +95,7 @@ def test_pin_policy_rejects_repeated_and_sequential_values():
             operational_access_service.validate_pin(invalid)
 
 
-def test_public_pin_exchange_requires_an_active_manager_authorized_terminal():
+def test_public_pin_exchange_requires_an_active_manager_authorized_terminal(monkeypatch):
     suffix = uuid.uuid4().hex[:8]
     with Session(engine) as session:
         set_platform_db_context(session)
@@ -147,6 +150,12 @@ def test_public_pin_exchange_requires_an_active_manager_authorized_terminal():
         authorized = authorize_tenant_context(session, principal, tenant_id, store_id, "POST", "/api/v1/operational-access/session/end")
         assert authorized.device_id == device_id
         assert authorized.operational_session_id == persisted.id
+
+        persisted.last_seen_at = datetime.utcnow() - timedelta(minutes=5)
+        session.add(persisted); session.commit()
+        before_heartbeat = persisted.last_seen_at
+        heartbeat = operational_access_service.heartbeat_operational_session(session, authorized)
+        assert heartbeat.last_seen_at > before_heartbeat
 
         manager_context = TenantContext(tenant_id=tenant_id, store_id=store_id, user_id=admin_id, role=RoleEnum.ADMIN)
         device_service.update_device(
@@ -208,3 +217,30 @@ def test_public_pin_exchange_requires_an_active_manager_authorized_terminal():
         with pytest.raises(HTTPException) as logged_out:
             authorize_tenant_context(session, final_principal, tenant_id, store_id, "POST", "/api/v1/operational-access/session/end")
         assert logged_out.value.status_code == 403
+
+        expiry_operational = operational_access_service.activate_from_terminal(
+            session, terminal_token=replacement_authorization["terminal_token"], employee_code="ATD-17", pin="4826",
+        )
+        expiry_claims = decode_access_token(expiry_operational["access_token"])
+        expiry_authority = session.get(OperationalSession, uuid.UUID(expiry_claims["session_id"]))
+        assert expiry_authority is not None
+        expiry_authority.expires_at = datetime.utcnow() - timedelta(minutes=1)
+        session.add(expiry_authority); session.commit()
+        now = datetime.now(timezone.utc)
+        expired_claims = {
+            **expiry_claims,
+            "iat": now - timedelta(hours=2),
+            "exp": now - timedelta(minutes=1),
+        }
+        expired_token = jwt.encode(expired_claims, settings.SECRET_KEY, algorithm="HS256")
+        monkeypatch.setattr(settings, "AUTH_MODE", "required")
+        with pytest.raises(HTTPException) as expired:
+            get_current_principal(
+                authorization=f"Bearer {expired_token}", x_user_id=None, session=session,
+            )
+        assert expired.value.status_code == 401
+        session.expire_all()
+        persisted_expiry = session.get(OperationalSession, expiry_authority.id)
+        assert persisted_expiry is not None
+        assert persisted_expiry.status == OperationalSessionStatusEnum.EXPIRED
+        assert persisted_expiry.ended_at is not None

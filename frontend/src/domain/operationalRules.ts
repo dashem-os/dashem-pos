@@ -1,6 +1,25 @@
 export type ShellRoute = '/login' | '/operate' | '/owner' | '/manage' | '/pos' | '/tables' | '/kds'
 
 const PLATFORM_ROLES = new Set(['PLATFORM_OWNER', 'PLATFORM_ADMIN'])
+const MANAGEMENT_ROLES = new Set(['OWNER', 'TENANT_OWNER', 'ADMIN', 'MANAGER'])
+
+export function requireAuthenticatedActor(user: { id: string } | null | undefined): string {
+  if (!user?.id) throw new Error('A identidade autenticada não informou um ator válido.')
+  return user.id
+}
+
+export interface MembershipAccess {
+  role: string
+  status: string
+}
+
+export function hasManagementAccess(memberships: readonly MembershipAccess[]): boolean {
+  return memberships.some((membership) => membership.status === 'ACTIVE' && MANAGEMENT_ROLES.has(membership.role))
+}
+
+export function canNavigateToManagement(emailSessionActive: boolean, permissions: readonly string[]): boolean {
+  return emailSessionActive && permissions.includes('management.read')
+}
 
 export function authenticatedHome(platformRole?: string | null, canManage = false): ShellRoute {
   if (platformRole && PLATFORM_ROLES.has(platformRole)) return '/owner'
@@ -24,6 +43,56 @@ export function normalizeAuthenticatedRoute(
 
 export function selectOnlyOption<T>(options: readonly T[]): T | null {
   return options.length === 1 ? options[0] : null
+}
+
+export type OperationalDeviceKind = 'POS' | 'KDS' | 'PRINTER'
+
+export interface DeviceKindAvailability {
+  kind: OperationalDeviceKind
+  enabled: boolean
+  unavailableReason?: string
+}
+
+export function deviceKindAvailability(productionEnabled: boolean): DeviceKindAvailability[] {
+  return [
+    { kind: 'POS', enabled: true },
+    ...(['KDS', 'PRINTER'] as const).map((kind) => ({
+      kind,
+      enabled: productionEnabled,
+      unavailableReason: productionEnabled ? undefined : 'Requer a capacidade kitchen_routing.',
+    })),
+  ]
+}
+
+export interface RegisterCandidate {
+  id: string
+  code: string
+  name: string
+}
+
+export interface DeviceRegisterBinding {
+  register_id?: string
+}
+
+export function unboundRegisterCandidates<T extends RegisterCandidate>(
+  registers: readonly T[],
+  devices: readonly DeviceRegisterBinding[],
+): T[] {
+  const bound = new Set(devices.flatMap((device) => device.register_id ? [device.register_id] : []))
+  return registers.filter((register) => !bound.has(register.id))
+}
+
+export function initialPosDeviceDraft(
+  registers: readonly RegisterCandidate[],
+  devices: readonly DeviceRegisterBinding[],
+) {
+  const register = unboundRegisterCandidates(registers, devices)[0]
+  return {
+    device_type: 'POS' as const,
+    register_id: register?.id ?? '',
+    code: register?.code ?? '',
+    name: register?.name ?? '',
+  }
 }
 
 export type SaleStatus = 'DRAFT' | 'CHECKOUT' | 'AWAITING_PAYMENT' | 'PAID' | 'COMPLETED' | 'CANCELED'

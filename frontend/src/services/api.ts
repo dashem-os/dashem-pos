@@ -1188,6 +1188,23 @@ export async function endOperationalSession(accessToken: string): Promise<void> 
   if (!res.ok && res.status !== 409) throw await apiError(res, 'Não foi possível encerrar o turno operacional.')
 }
 
+export async function heartbeatOperationalSession(accessToken: string): Promise<boolean> {
+  const claims = JSON.parse(atob(accessToken.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))) as {
+    tenant_id: string; store_id: string
+  }
+  const res = await fetch(`${API_BASE_URL}/api/v1/operational-access/session/heartbeat`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'X-Tenant-ID': claims.tenant_id,
+      'X-Store-ID': claims.store_id,
+    },
+  })
+  if ([401, 403, 409].includes(res.status)) return false
+  if (!res.ok) throw await apiError(res, 'Não foi possível atualizar a presença do turno operacional.')
+  return true
+}
+
 export async function updateTeamMember(
   headers: Record<string, string>, membershipId: string,
   input: { role: string; status: string; store_id?: string; reason: string },

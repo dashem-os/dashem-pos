@@ -20,6 +20,7 @@ from app.models.identity import (
 )
 from app.models.payment import Register
 from app.services import reliability_service
+from app.services.operational_session_service import mark_expired
 
 
 PIN_ITERATIONS = 210_000
@@ -92,6 +93,8 @@ def authorize_terminal(session: Session, context: TenantContext, device_id: uuid
         OperationalSession.status == OperationalSessionStatusEnum.ACTIVE,
     )).all()
     for previous in previous_sessions:
+        if mark_expired(session, previous, now=now.replace(tzinfo=None)):
+            continue
         previous.status = OperationalSessionStatusEnum.REVOKED
         previous.ended_at = now.replace(tzinfo=None)
         previous.end_reason = "Terminal reautorizado por gestor"
@@ -269,11 +272,40 @@ def revoke_credential_sessions(session: Session, credential: OperationalCredenti
         OperationalSession.status == OperationalSessionStatusEnum.ACTIVE,
     ).with_for_update()).all()
     for item in active:
+        if mark_expired(session, item, now=now):
+            continue
         item.status = OperationalSessionStatusEnum.REVOKED
         item.ended_at = now
         item.end_reason = reason[:500]
         session.add(item)
     return len(active)
+
+
+def heartbeat_operational_session(session: Session, context: TenantContext) -> OperationalSession:
+    if not context.operational_session_id or not context.user_id:
+        raise HTTPException(status_code=409, detail="Não existe turno operacional ativo para atualizar.")
+    item = session.get(OperationalSession, context.operational_session_id)
+    if (
+        not item or item.tenant_id != context.tenant_id or item.store_id != context.store_id
+        or item.user_id != context.user_id or item.device_id != context.device_id
+        or item.register_id != context.register_id
+        or item.status != OperationalSessionStatusEnum.ACTIVE
+    ):
+        raise HTTPException(status_code=409, detail="O turno operacional foi encerrado, revogado ou alterado.")
+    now = datetime.utcnow()
+    if mark_expired(session, item, now=now):
+        session.commit()
+        raise HTTPException(status_code=409, detail="O turno operacional expirou.")
+    item.last_seen_at = now
+    device = session.get(OperationalDevice, item.device_id)
+    if device:
+        device.last_seen_at = now
+        device.updated_at = now
+        session.add(device)
+    session.add(item)
+    session.commit()
+    session.refresh(item)
+    return item
 
 
 def end_operational_session(session: Session, context: TenantContext, *, reason: str) -> None:

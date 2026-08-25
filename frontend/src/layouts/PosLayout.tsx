@@ -11,7 +11,8 @@ import {
   X,
   Wifi,
   WifiOff,
-  UtensilsCrossed
+  UtensilsCrossed,
+  LayoutDashboard,
 } from 'lucide-react'
 import { usePos } from '../context/PosContext'
 import { useAuth } from '../context/AuthContext'
@@ -26,9 +27,10 @@ import { FiscalStatusModal } from '../components/pos/FiscalStatusModal'
 import { CancelModal } from '../components/pos/CancelModal'
 import { formatCurrency, formatQuantity } from '../utils/format'
 import { navigateTo } from '../utils/navigation'
+import { canNavigateToManagement } from '../domain/operationalRules'
 
 export const PosLayout: React.FC = () => {
-  const { signOut } = useAuth()
+  const { session, signOut } = useAuth()
   const {
     store,
     register,
@@ -51,6 +53,7 @@ export const PosLayout: React.FC = () => {
   const isCashOpen = cashSession?.status === 'OPEN'
   const items = currentSale?.items || []
   const netTotal = Number(currentSale?.net_total || 0)
+  const managementAvailable = canNavigateToManagement(Boolean(session), permissions)
 
   const handleOpenCash = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -129,6 +132,15 @@ export const PosLayout: React.FC = () => {
           >
             <UtensilsCrossed className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Mesas</span>
+          </button>}
+
+          {managementAvailable && <button
+            onClick={() => navigateTo('/manage')}
+            className="h-9 px-3.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center space-x-1.5 transition-colors border border-slate-700 active:scale-95"
+            title="Voltar para a Gestão"
+          >
+            <LayoutDashboard className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Gestão</span>
           </button>}
 
           <button

@@ -32,7 +32,7 @@ def route_requirement(method: str, path: str) -> RouteRequirement:
     method = method.upper()
     if path == "/api/v1/capabilities/effective":
         return RouteRequirement("capability.read")
-    if path == "/api/v1/operational-access/session/end":
+    if path in {"/api/v1/operational-access/session/end", "/api/v1/operational-access/session/heartbeat"}:
         return RouteRequirement("operational.session")
     if path.startswith("/api/v1/operational-access"):
         return RouteRequirement("operational.activate")

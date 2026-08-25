@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import type { Factor, Session } from '@supabase/supabase-js'
-import { endOperationalSession, setApiAccessTokenProvider } from '../services/api'
+import { endOperationalSession, heartbeatOperationalSession, setApiAccessTokenProvider } from '../services/api'
 import { hasSupabaseConfig, supabase } from '../services/supabase'
 import { clearRecoveryModeFromBrowser } from '../utils/authUrl'
 
@@ -85,6 +85,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useLayoutEffect(() => {
     setApiAccessTokenProvider(async () => operationalToken ?? session?.access_token ?? null)
   }, [session, operationalToken])
+
+  useEffect(() => {
+    if (!operationalToken) return
+    let active = true
+    const heartbeat = async () => {
+      const valid = await heartbeatOperationalSession(operationalToken).catch(() => true)
+      if (!active || valid) return
+      sessionStorage.removeItem('dashem.operational_token')
+      setOperationalToken(null)
+      setApiAccessTokenProvider(async () => session?.access_token ?? null)
+      window.location.assign('/operate')
+    }
+    void heartbeat()
+    const interval = window.setInterval(heartbeat, 30_000)
+    return () => { active = false; window.clearInterval(interval) }
+  }, [operationalToken, session])
 
   const value = useMemo<AuthContextValue>(() => ({
     session,

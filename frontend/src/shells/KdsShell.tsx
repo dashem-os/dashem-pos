@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, ChefHat, Clock3, Loader2, LogOut, RefreshCw } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { OperationalContextGate, OperationalSelection } from '../components/context/OperationalContextGate'
+import { requireAuthenticatedActor } from '../domain/operationalRules'
 import * as api from '../services/api'
 
 export default function KdsShell() {
@@ -24,7 +25,7 @@ function SelectedKdsShell({ selection }: { selection: OperationalSelection }) {
     try {
       const [access, me, nextPoints, nextTickets] = await Promise.all([api.fetchEffectiveAccess(headers), api.fetchMe(), api.fetchProductionPoints(headers), api.fetchProductionTickets(headers, pointId || undefined)])
       setAllowed(Boolean(access.capabilities.kitchen_routing && access.permissions.includes('production.read')))
-      setOperatorId(me.user?.id || '00000000-0000-0000-0000-000000000001'); setPoints(nextPoints); setTickets(nextTickets); setError(null)
+      setOperatorId(requireAuthenticatedActor(me.user)); setPoints(nextPoints); setTickets(nextTickets); setError(null)
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Produção indisponível.') } finally { setLoading(false) }
   }, [headers, pointId])
   useEffect(() => { void load(); const timer=window.setInterval(() => void load(),10000); return ()=>window.clearInterval(timer) }, [load])

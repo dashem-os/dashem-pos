@@ -18,6 +18,7 @@ from app.models.identity import (
     RoleEnum, Store, Tenant, TenantStatusEnum, User,
 )
 from app.models.device import OperationalDevice, OperationalDeviceStatusEnum
+from app.services.operational_session_service import mark_expired
 
 
 LOCAL_BYPASS_ACTOR_ID = uuid.uuid5(uuid.NAMESPACE_URL, "dashem-pos:local-auth-bypass")
@@ -32,6 +33,7 @@ class TenantContext(BaseModel):
     permissions: tuple[str, ...] = ()
     capabilities: tuple[str, ...] = ()
     auth_subject: Optional[str] = None
+    auth_provider: Optional[str] = None
     assurance_level: str = "aal1"
     device_id: Optional[uuid.UUID] = None
     register_id: Optional[uuid.UUID] = None
@@ -117,6 +119,7 @@ def authorize_tenant_context(
             store_id=store_id,
             user_id=principal.legacy_user_id,
             auth_subject=principal.subject,
+            auth_provider=principal.provider,
         )
 
     user = resolve_internal_user(session, principal)
@@ -145,6 +148,9 @@ def authorize_tenant_context(
         authority = session.get(OperationalSession, session_id)
         credential = session.get(OperationalCredential, credential_id)
         employee = session.get(Employee, credential.employee_id) if credential else None
+        if authority and mark_expired(session, authority):
+            session.commit()
+            raise HTTPException(status_code=403, detail="Operational authority was ended, revoked, expired or changed.")
         if (
             not device or device.tenant_id != tenant_id or device.store_id != store_id
             or device.status != OperationalDeviceStatusEnum.ACTIVE or device.register_id != register_id
@@ -202,6 +208,7 @@ def authorize_tenant_context(
         permissions=access.permissions,
         capabilities=access.capabilities,
         auth_subject=principal.subject,
+        auth_provider=principal.provider,
         assurance_level=principal.assurance_level,
         device_id=uuid.UUID(operational_claims["device_id"]) if operational_claims.get("device_id") else None,
         register_id=uuid.UUID(operational_claims["register_id"]) if operational_claims.get("register_id") else None,

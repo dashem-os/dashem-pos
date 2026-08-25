@@ -7,7 +7,7 @@ from sqlmodel import Session
 
 from app.core.context import TenantContext, get_tenant_context
 from app.core.database import get_session
-from app.models.identity import RoleEnum
+from app.models.identity import OperationalSessionStatusEnum, RoleEnum
 from app.services import operational_access_service
 
 
@@ -39,6 +39,17 @@ class TerminalLoginInput(TerminalTokenInput):
 class OperationalSessionEndInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     reason: str = Field(default="Encerramento voluntário do turno", min_length=3, max_length=500)
+
+
+class OperationalSessionHeartbeatRead(BaseModel):
+    id: uuid.UUID
+    status: OperationalSessionStatusEnum
+    tenant_id: uuid.UUID
+    store_id: uuid.UUID
+    register_id: uuid.UUID
+    device_id: uuid.UUID
+    last_seen_at: datetime
+    expires_at: datetime
 
 
 class TerminalContextRead(BaseModel):
@@ -89,3 +100,11 @@ def end_operational_session(
 ):
     operational_access_service.end_operational_session(session, context, reason=data.reason)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/session/heartbeat", response_model=OperationalSessionHeartbeatRead)
+def heartbeat_operational_session(
+    context: TenantContext = Depends(get_tenant_context),
+    session: Session = Depends(get_session),
+):
+    return operational_access_service.heartbeat_operational_session(session, context)

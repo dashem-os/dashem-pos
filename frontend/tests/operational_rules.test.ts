@@ -3,13 +3,25 @@ import test from 'node:test'
 
 import {
   authenticatedHome,
+  canNavigateToManagement,
   canOperateCart,
+  deviceKindAvailability,
   expectedCashBalance,
+  hasManagementAccess,
+  initialPosDeviceDraft,
   normalizeAuthenticatedRoute,
   paymentProgress,
+  requireAuthenticatedActor,
   saleNeedsCreation,
   selectOnlyOption,
+  unboundRegisterCandidates,
 } from '../src/domain/operationalRules.ts'
+
+test('requires every mutation actor to come from the authenticated identity', () => {
+  assert.equal(requireAuthenticatedActor({ id: 'actor-real' }), 'actor-real')
+  assert.throws(() => requireAuthenticatedActor(null), /ator válido/)
+  assert.throws(() => requireAuthenticatedActor({ id: '' }), /ator válido/)
+})
 
 test('routes platform identities only to the owner control plane', () => {
   assert.equal(authenticatedHome('PLATFORM_OWNER'), '/owner')
@@ -25,6 +37,39 @@ test('keeps tenant identities out of owner and preserves an allowed tenant shell
   assert.equal(normalizeAuthenticatedRoute('/manage', null, true), '/manage')
   assert.equal(normalizeAuthenticatedRoute('/pos', null, true), '/pos')
   assert.equal(normalizeAuthenticatedRoute('/kds', null, false, true), '/kds')
+})
+
+test('derives management authority from an active management membership and backend permission', () => {
+  assert.equal(hasManagementAccess([{ role: 'MANAGER', status: 'ACTIVE' }]), true)
+  assert.equal(hasManagementAccess([{ role: 'MANAGER', status: 'SUSPENDED' }]), false)
+  assert.equal(hasManagementAccess([{ role: 'OPERATOR', status: 'ACTIVE' }]), false)
+  assert.equal(canNavigateToManagement(true, ['management.read']), true)
+  assert.equal(canNavigateToManagement(false, ['management.read']), false)
+  assert.equal(canNavigateToManagement(true, ['sale.read']), false)
+})
+
+test('publishes every device kind with honest capability availability', () => {
+  assert.deepEqual(deviceKindAvailability(false), [
+    { kind: 'POS', enabled: true },
+    { kind: 'KDS', enabled: false, unavailableReason: 'Requer a capacidade kitchen_routing.' },
+    { kind: 'PRINTER', enabled: false, unavailableReason: 'Requer a capacidade kitchen_routing.' },
+  ])
+  assert.deepEqual(deviceKindAvailability(true).map(({ kind, enabled }) => ({ kind, enabled })), [
+    { kind: 'POS', enabled: true },
+    { kind: 'KDS', enabled: true },
+    { kind: 'PRINTER', enabled: true },
+  ])
+})
+
+test('links a new POS to a real unbound register instead of inventing infrastructure', () => {
+  const registers = [
+    { id: 'register-a', code: 'CAIXA-01', name: 'Caixa principal' },
+    { id: 'register-b', code: 'CAIXA-02', name: 'Caixa apoio' },
+  ]
+  assert.deepEqual(unboundRegisterCandidates(registers, [{ register_id: 'register-a' }]), [registers[1]])
+  assert.deepEqual(initialPosDeviceDraft(registers, [{ register_id: 'register-a' }]), {
+    device_type: 'POS', register_id: 'register-b', code: 'CAIXA-02', name: 'Caixa apoio',
+  })
 })
 
 test('auto-selects organizational context only when there is exactly one option', () => {

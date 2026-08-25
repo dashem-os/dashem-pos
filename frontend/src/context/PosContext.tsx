@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react'
 import * as api from '../services/api'
-import { paymentProgress, saleNeedsCreation } from '../domain/operationalRules'
+import { paymentProgress, requireAuthenticatedActor, saleNeedsCreation } from '../domain/operationalRules'
 
 export interface ToastInfo {
   type: 'success' | 'error' | 'info'
@@ -85,7 +85,7 @@ export const PosProvider: React.FC<{
   const [store, setStore] = useState<api.Store | null>(null)
   const [register, setRegister] = useState<api.Register | null>(null)
   const [cashSession, setCashSession] = useState<api.CashSession | null>(null)
-  const [operatorId, setOperatorId] = useState<string>('00000000-0000-0000-0000-000000000001')
+  const [operatorId, setOperatorId] = useState<string>('')
   const [health, setHealth] = useState<api.ApiHealth | null>(null)
   const [permissions, setPermissions] = useState<string[]>([])
   const [capabilities, setCapabilities] = useState<api.EffectiveAccess['capabilities']>({})
@@ -166,7 +166,7 @@ export const PosProvider: React.FC<{
       setHealth(h)
 
       const me = await api.fetchMe()
-      if (me.user) setOperatorId(me.user.id)
+      setOperatorId(requireAuthenticatedActor(me.user))
 
       const tenants = await api.fetchTenants()
       const selectedTenant = tenants.find((item) => item.id === tenantId)

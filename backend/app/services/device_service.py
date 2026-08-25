@@ -11,6 +11,7 @@ from app.models.identity import OperationalSession, OperationalSessionStatusEnum
 from app.models.payment import Register
 from app.models.production import ProductionPoint, ProductionPointTypeEnum
 from app.services import reliability_service
+from app.services.operational_session_service import mark_expired
 
 
 def _actor(context: TenantContext, actor_id: Optional[uuid.UUID]) -> uuid.UUID:
@@ -112,6 +113,8 @@ def update_device(
                 OperationalSession.status == OperationalSessionStatusEnum.ACTIVE,
             ).with_for_update()).all()
             for active_session in active_sessions:
+                if mark_expired(session, active_session, now=datetime.utcnow()):
+                    continue
                 active_session.status = OperationalSessionStatusEnum.REVOKED
                 active_session.ended_at = datetime.utcnow()
                 active_session.end_reason = f"Dispositivo alterado para {status.value}: {reason}"[:500]

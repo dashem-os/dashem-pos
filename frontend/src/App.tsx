@@ -5,7 +5,7 @@ import { SignInScreen } from './components/auth/SignInScreen'
 import { OperationalEntryScreen } from './components/auth/OperationalEntryScreen'
 import { OwnerMfaScreen, PasswordSetupScreen } from './components/auth/FirstAccessSecurity'
 import { AuthMe, fetchMe } from './services/api'
-import { normalizeAuthenticatedRoute, ShellRoute } from './domain/operationalRules'
+import { hasManagementAccess, normalizeAuthenticatedRoute, ShellRoute } from './domain/operationalRules'
 
 const OwnerConsole = lazy(() => import('./components/owner/PlatformOwnerConsole').then((module) => ({ default: module.PlatformOwnerConsole })))
 const ManageShell = lazy(() => import('./shells/ManageShell'))
@@ -14,7 +14,6 @@ const KdsShell = lazy(() => import('./shells/KdsShell'))
 const TablesShell = lazy(() => import('./shells/TablesShell'))
 
 const PLATFORM_CONSOLE_ROLES = new Set(['PLATFORM_OWNER', 'PLATFORM_ADMIN'])
-const MANAGEMENT_ROLES = new Set(['OWNER', 'TENANT_OWNER', 'ADMIN', 'MANAGER'])
 
 export default function App() {
   return <AuthProvider><IdentityRouter /></AuthProvider>
@@ -33,11 +32,6 @@ function IdentityRouter() {
     return () => window.removeEventListener('popstate', syncPath)
   }, [])
 
-  const replacePath = useCallback((path: ShellRoute) => {
-    if (window.location.pathname === path) return
-    window.history.replaceState({}, '', path)
-  }, [])
-
   const loadIdentity = useCallback(async () => {
     if (!session && !operationalActive) return
     setIdentityLoading(true)
@@ -53,7 +47,25 @@ function IdentityRouter() {
   }, [session, operationalActive])
 
   useEffect(() => { if (session || operationalActive) loadIdentity(); else setMe(null) }, [session, operationalActive, loadIdentity])
-  useEffect(() => { if (!loading && !session && !operationalActive && pathname !== '/operate') replacePath('/login') }, [loading, session, operationalActive, pathname, replacePath])
+  useEffect(() => {
+    if (loading || session || operationalActive || pathname === '/operate' || pathname === '/login') return
+    window.history.replaceState({}, '', '/login')
+    setPathname('/login')
+  }, [loading, session, operationalActive, pathname])
+
+  const platformRole = me?.platform_role ?? ''
+  const activeMemberships = (me?.memberships ?? []).filter((membership) => membership.status === 'ACTIVE')
+  const canManage = hasManagementAccess(activeMemberships)
+  const canUseKds = activeMemberships.length > 0
+  const authenticatedRoute = me && pathname !== '/operate'
+    ? normalizeAuthenticatedRoute(pathname, platformRole, canManage, canUseKds)
+    : null
+
+  useEffect(() => {
+    if (!authenticatedRoute || authenticatedRoute === pathname) return
+    window.history.replaceState({}, '', authenticatedRoute)
+    setPathname(authenticatedRoute)
+  }, [authenticatedRoute, pathname])
 
   if (loading) return <FullScreenLoader label="Validando sessão..." />
   if (pathname === '/operate' && !operationalActive) return <OperationalEntryScreen />
@@ -67,10 +79,8 @@ function IdentityRouter() {
   if (identityError || !me) return <AccessState message={identityError ?? 'Seu usuário ainda não possui acesso ao Dashem POS.'} onSignOut={signOut} onRetry={loadIdentity} />
   if (me.password_setup_required) return <PasswordSetupScreen onComplete={loadIdentity} />
 
-  const platformRole = me.platform_role ?? ''
   if (PLATFORM_CONSOLE_ROLES.has(platformRole)) {
     if (me.mfa_required) return <OwnerMfaScreen onComplete={loadIdentity} />
-    if (pathname !== '/owner') replacePath('/owner')
     return <ShellSuspense label="Carregando Dashem Control..."><OwnerConsole me={me} /></ShellSuspense>
   }
 
@@ -78,15 +88,11 @@ function IdentityRouter() {
     return <AccessState message="Seu papel de plataforma está autenticado, mas este módulo do Console ainda não foi liberado para o perfil atual." onSignOut={signOut} onRetry={loadIdentity} />
   }
 
-  const activeMemberships = (me.memberships ?? []).filter((membership) => membership.status === 'ACTIVE')
   if (!activeMemberships.length) {
     return <AccessState message="Sua identidade não possui membership ativa em um tenant." onSignOut={signOut} onRetry={loadIdentity} />
   }
 
-  const canManage = activeMemberships.some((membership) => MANAGEMENT_ROLES.has(membership.role))
-  const canUseKds = activeMemberships.length > 0
-  const route = normalizeAuthenticatedRoute(pathname, platformRole, canManage, canUseKds)
-  if (route !== pathname) replacePath(route)
+  const route = authenticatedRoute as ShellRoute
 
   if (route === '/manage') return <ShellSuspense label="Carregando Dashem Gestão..."><ManageShell /></ShellSuspense>
   if (route === '/kds') return <ShellSuspense label="Carregando Dashem KDS..."><KdsShell /></ShellSuspense>

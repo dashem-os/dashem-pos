@@ -4,6 +4,7 @@ import { OperationalSelection } from '../context/OperationalContextGate'
 import { useAuth } from '../../context/AuthContext'
 import * as api from '../../services/api'
 import { navigateTo } from '../../utils/navigation'
+import { hasManagementAccess } from '../../domain/operationalRules'
 
 export function OperationalPinGate({ selection, children }: { selection: OperationalSelection; children: React.ReactNode }) {
   const { session, operationalActive } = useAuth()
@@ -16,10 +17,9 @@ export function OperationalPinGate({ selection, children }: { selection: Operati
     setCheckingManagement(true)
     api.fetchMe().then(me => {
       if (!active) return
-      const managementRoles = new Set(['OWNER', 'TENANT_OWNER', 'ADMIN', 'MANAGER'])
-      setManagementAuthorized(Boolean(me.memberships?.some(membership =>
-        membership.tenant_id === selection.tenantId && membership.status === 'ACTIVE' && managementRoles.has(membership.role),
-      )))
+      setManagementAuthorized(hasManagementAccess(
+        (me.memberships ?? []).filter((membership) => membership.tenant_id === selection.tenantId),
+      ))
     }).catch(() => { if (active) setManagementAuthorized(false) })
       .finally(() => { if (active) setCheckingManagement(false) })
     return () => { active = false }

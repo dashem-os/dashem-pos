@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { ChefHat, KeyRound, Monitor, PauseCircle, PlugZap, Printer, RefreshCw, Router, ShieldX } from 'lucide-react'
+import { ChefHat, KeyRound, LockKeyhole, Monitor, PauseCircle, PlugZap, Printer, RefreshCw, Router, ShieldX } from 'lucide-react'
 import { usePos } from '../../context/PosContext'
 import { useAuth } from '../../context/AuthContext'
 import { Modal } from '../common/Modal'
 import * as api from '../../services/api'
 import { navigateTo } from '../../utils/navigation'
+import { deviceKindAvailability, initialPosDeviceDraft, unboundRegisterCandidates } from '../../domain/operationalRules'
 
 type DeviceKind = api.OperationalDevice['device_type']
 const typeMeta: Record<DeviceKind, { label: string; icon: React.ComponentType<{ className?: string }>; description: string }> = {
@@ -23,12 +24,13 @@ export function DeviceManager() {
   const [dialog, setDialog] = useState<'DEVICE' | 'RULE' | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
-  const [form, setForm] = useState({ device_type: 'POS' as DeviceKind, code: '', name: '', point_type: 'KITCHEN' as api.ProductionPoint['point_type'], configuration_ref: '' })
+  const [form, setForm] = useState({ device_type: 'POS' as DeviceKind, register_id: '', code: '', name: '', point_type: 'KITCHEN' as api.ProductionPoint['point_type'], configuration_ref: '' })
   const [rule, setRule] = useState({ production_point_id: '', product_id: '', priority: '100' })
   const headers = useMemo<Record<string, string>>(() => tenant && store ? { 'X-Tenant-ID': tenant.id, 'X-Store-ID': store.id } : {} as Record<string, string>, [tenant, store])
   const canConfigure = permissions.includes('device.configure')
   const productionEnabled = Boolean(capabilities.kitchen_routing)
-  const availableDeviceKinds: DeviceKind[] = productionEnabled ? ['POS', 'KDS', 'PRINTER'] : ['POS']
+  const deviceOptions = deviceKindAvailability(productionEnabled)
+  const unboundRegisters = unboundRegisterCandidates(registers, devices)
 
   const load = async () => {
     if (!store) return
@@ -51,15 +53,32 @@ export function DeviceManager() {
   }
   useEffect(() => { void load() }, [tenant?.id, store?.id, productionEnabled])
 
+  const openDeviceDialog = () => {
+    const draft = initialPosDeviceDraft(registers, devices)
+    setForm({
+      ...draft, point_type: 'KITCHEN', configuration_ref: '',
+    })
+    setDialog('DEVICE')
+  }
+
+  const selectRegister = (registerId: string) => {
+    const register = registers.find((item) => item.id === registerId)
+    setForm((current) => ({
+      ...current, register_id: registerId,
+      code: register?.code ?? current.code, name: register?.name ?? current.name,
+    }))
+  }
+
   const createDevice = async (event: React.FormEvent) => {
     event.preventDefault(); if (!store) return; setBusy(true)
     try {
       await api.createOperationalDevice(headers, {
         store_id: store.id, code: form.code, name: form.name, device_type: form.device_type,
+        register_id: form.device_type === 'POS' && form.register_id ? form.register_id : undefined,
         point_type: form.device_type === 'PRINTER' ? 'PRINTER' : form.device_type === 'KDS' ? form.point_type : undefined,
         configuration_ref: form.configuration_ref || undefined, actor_id: operatorId,
       })
-      setForm({ device_type: 'POS', code: '', name: '', point_type: 'KITCHEN', configuration_ref: '' })
+      setForm({ device_type: 'POS', register_id: '', code: '', name: '', point_type: 'KITCHEN', configuration_ref: '' })
       setDialog(null); showToast('success', 'Dispositivo configurado e auditado.'); await load()
     } catch (reason) { showToast('error', reason instanceof Error ? reason.message : 'Falha ao configurar dispositivo.') }
     finally { setBusy(false) }
@@ -80,7 +99,7 @@ export function DeviceManager() {
       const authorization = await api.authorizeOperationalTerminal(headers, device.id)
       authorizeTerminal(authorization.terminal_token)
       showToast('success', `${device.name} autorizado neste navegador.`)
-      navigateTo('/pos')
+      navigateTo('/operate')
     } catch (value) { showToast('error', value instanceof Error ? value.message : 'Falha ao autorizar este terminal.') }
     finally { setBusy(false) }
   }
@@ -98,7 +117,7 @@ export function DeviceManager() {
   const online = devices.filter((item) => item.last_seen_at && Date.now() - new Date(item.last_seen_at).getTime() < 90_000).length
   return <div className="space-y-6">
     <section className="rounded-3xl border border-dashem-border bg-dashem-surface p-6">
-      <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-end"><div><p className="text-[11px] font-black uppercase tracking-[.18em] text-sky-400">Infraestrutura da unidade</p><h1 className="mt-2 text-3xl font-black text-white">Terminais e dispositivos</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-dashem-muted">Autorize pontos de operação e acompanhe sua presença. Produção e impressão aparecem somente quando contratadas para esta unidade.</p></div><div className="flex gap-2"><button onClick={() => void load()} className="flex h-11 items-center gap-2 rounded-xl border border-dashem-border px-4 text-xs font-black"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />Atualizar</button>{canConfigure && <button onClick={() => setDialog('DEVICE')} className="h-11 rounded-xl bg-dashem-red px-5 text-xs font-black text-white">Novo dispositivo</button>}</div></div>
+      <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-end"><div><p className="text-[11px] font-black uppercase tracking-[.18em] text-sky-400">Infraestrutura da unidade</p><h1 className="mt-2 text-3xl font-black text-white">Terminais e dispositivos</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-dashem-muted">Autorize pontos de operação e acompanhe sua presença. KDS e impressão permanecem visíveis e informam quando a capacidade de produção não está contratada.</p></div><div className="flex gap-2"><button onClick={() => void load()} className="flex h-11 items-center gap-2 rounded-xl border border-dashem-border px-4 text-xs font-black"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />Atualizar</button>{canConfigure && <button onClick={openDeviceDialog} className="h-11 rounded-xl bg-dashem-red px-5 text-xs font-black text-white">Novo dispositivo</button>}</div></div>
       <div className="mt-6 grid gap-3 sm:grid-cols-3"><Metric label="Configurados" value={devices.length} hint={`${registers.length} caixas · ${points.length} pontos`} /><Metric label="Autorizados" value={authorized} hint={`${devices.length - authorized} sem autorização vigente`} /><Metric label="Presentes agora" value={online} hint="heartbeat nos últimos 90 segundos" /></div>
     </section>
 
@@ -107,7 +126,25 @@ export function DeviceManager() {
 
     {productionEnabled && <section className="rounded-3xl border border-dashem-border bg-dashem-surface p-6"><div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center"><div><p className="text-xs font-black uppercase tracking-[.16em] text-sky-400">Roteamento</p><h2 className="mt-1 text-xl font-black text-white">Produto → ponto de produção</h2><p className="mt-1 text-sm text-dashem-muted">Cada item segue uma regra persistida para cozinha, bar, copa ou impressão.</p></div>{canConfigure && <button onClick={() => setDialog('RULE')} disabled={!points.length || !products.length} className="h-10 rounded-xl border border-sky-800 px-4 text-xs font-black text-sky-300 disabled:opacity-40">Nova regra</button>}</div><div className="mt-5 divide-y divide-dashem-border rounded-2xl border border-dashem-border">{rules.map((item) => <div key={item.id} className="grid gap-2 p-4 text-sm md:grid-cols-[1fr_auto_1fr_auto] md:items-center"><span className="font-bold text-white">{products.find((product) => product.id === item.product_id)?.name || 'Produto não carregado'}</span><span className="text-dashem-muted">→</span><span className="font-bold text-sky-300">{points.find((point) => point.id === item.production_point_id)?.name || 'Ponto arquivado'}</span><span className="text-xs text-dashem-muted">prioridade {item.priority}</span></div>)}{rules.length === 0 && <p className="p-6 text-center text-sm font-bold text-dashem-muted">Nenhuma regra de roteamento configurada.</p>}</div></section>}
 
-    <Modal isOpen={dialog === 'DEVICE'} onClose={() => setDialog(null)} title="Novo dispositivo" subtitle="Cria a estrutura operacional e seu vínculo auditável."><form onSubmit={createDevice} className="space-y-4"><label className="block text-xs font-black text-white">Tipo<div className={`mt-2 grid gap-2 ${availableDeviceKinds.length === 1 ? 'grid-cols-1' : 'grid-cols-3'}`}>{availableDeviceKinds.map((kind) => { const Icon = typeMeta[kind].icon; return <button type="button" key={kind} onClick={() => setForm({ ...form, device_type: kind })} className={`rounded-xl border p-3 text-center text-[11px] font-black ${form.device_type === kind ? 'border-dashem-red bg-red-950/30 text-white' : 'border-dashem-border text-dashem-muted'}`}><Icon className="mx-auto mb-2 h-5 w-5" />{typeMeta[kind].label}</button> })}</div></label><div className="grid grid-cols-2 gap-3"><Field label="Código" value={form.code} onChange={(value) => setForm({ ...form, code: value })} placeholder="CAIXA-01" /><Field label="Nome" value={form.name} onChange={(value) => setForm({ ...form, name: value })} placeholder="Caixa principal" /></div>{form.device_type === 'KDS' && <label className="block text-xs font-black text-white">Setor<select value={form.point_type} onChange={(event) => setForm({ ...form, point_type: event.target.value as api.ProductionPoint['point_type'] })} className="mt-2 h-11 w-full rounded-xl border border-dashem-border bg-dashem-surface-elevated px-3 text-sm text-white"><option value="KITCHEN">Cozinha</option><option value="BAR">Bar</option><option value="PANTRY">Copa</option><option value="EXPEDITION">Expedição</option></select></label>}{form.device_type === 'PRINTER' && <Field label="Referência da configuração" value={form.configuration_ref} onChange={(value) => setForm({ ...form, configuration_ref: value })} placeholder="bridge://cozinha/impressora-01" />}<button disabled={busy || !form.code || !form.name || (form.device_type === 'PRINTER' && !form.configuration_ref)} className="h-12 w-full rounded-xl bg-dashem-red text-sm font-black text-white disabled:opacity-40">{busy ? 'Configurando...' : 'Configurar dispositivo'}</button></form></Modal>
+    <Modal isOpen={dialog === 'DEVICE'} onClose={() => setDialog(null)} title="Novo dispositivo" subtitle="Cria a estrutura operacional e seu vínculo auditável.">
+      <form onSubmit={createDevice} className="space-y-4">
+        <label className="block text-xs font-black text-white">Tipo
+          <div className="mt-2 grid grid-cols-3 gap-2">
+            {deviceOptions.map((option) => {
+              const Icon = typeMeta[option.kind].icon
+              const locked = !option.enabled
+              return <button type="button" key={option.kind} disabled={locked} title={option.unavailableReason} onClick={() => setForm({ ...form, device_type: option.kind, register_id: option.kind === 'POS' ? form.register_id : '' })} className={`relative rounded-xl border p-3 text-center text-[11px] font-black disabled:cursor-not-allowed ${locked ? 'border-dashem-border bg-dashem-bg text-slate-600' : form.device_type === option.kind ? 'border-dashem-red bg-red-950/30 text-white' : 'border-dashem-border text-dashem-muted'}`}><Icon className="mx-auto mb-2 h-5 w-5" />{typeMeta[option.kind].label}{locked && <LockKeyhole className="absolute right-2 top-2 h-3.5 w-3.5" />}</button>
+            })}
+          </div>
+        </label>
+        {!productionEnabled && <p className="rounded-xl border border-amber-900/60 bg-amber-950/30 p-3 text-xs leading-5 text-amber-200">KDS e impressora de produção exigem a capacidade <b>kitchen_routing</b>. Eles continuam visíveis, mas só podem ser configurados após a contratação.</p>}
+        {form.device_type === 'POS' && unboundRegisters.length > 0 && <Select label="Caixa existente" value={form.register_id} onChange={selectRegister} options={unboundRegisters.map((item) => ({ value: item.id, label: `${item.name} · ${item.code}` }))} />}
+        <div className="grid grid-cols-2 gap-3"><Field label="Código" value={form.code} onChange={(value) => setForm({ ...form, code: value })} placeholder="CAIXA-01" /><Field label="Nome" value={form.name} onChange={(value) => setForm({ ...form, name: value })} placeholder="Caixa principal" /></div>
+        {form.device_type === 'KDS' && <label className="block text-xs font-black text-white">Setor<select value={form.point_type} onChange={(event) => setForm({ ...form, point_type: event.target.value as api.ProductionPoint['point_type'] })} className="mt-2 h-11 w-full rounded-xl border border-dashem-border bg-dashem-surface-elevated px-3 text-sm text-white"><option value="KITCHEN">Cozinha</option><option value="BAR">Bar</option><option value="PANTRY">Copa</option><option value="EXPEDITION">Expedição</option></select></label>}
+        {form.device_type === 'PRINTER' && <Field label="Referência da configuração" value={form.configuration_ref} onChange={(value) => setForm({ ...form, configuration_ref: value })} placeholder="bridge://cozinha/impressora-01" />}
+        <button disabled={busy || !form.code || !form.name || (form.device_type !== 'POS' && !productionEnabled) || (form.device_type === 'PRINTER' && !form.configuration_ref)} className="h-12 w-full rounded-xl bg-dashem-red text-sm font-black text-white disabled:opacity-40">{busy ? 'Configurando...' : 'Configurar dispositivo'}</button>
+      </form>
+    </Modal>
     <Modal isOpen={dialog === 'RULE'} onClose={() => setDialog(null)} title="Nova regra de produção" subtitle="Direcione um produto real para um ponto ativo."><form onSubmit={createRule} className="space-y-4"><Select label="Produto" value={rule.product_id} onChange={(value) => setRule({ ...rule, product_id: value })} options={products.map((item) => ({ value: item.id, label: item.name }))} /><Select label="Ponto de produção" value={rule.production_point_id} onChange={(value) => setRule({ ...rule, production_point_id: value })} options={points.filter((item) => item.is_active).map((item) => ({ value: item.id, label: item.name }))} /><Field label="Prioridade" type="number" value={rule.priority} onChange={(value) => setRule({ ...rule, priority: value })} /><button disabled={busy || !rule.product_id || !rule.production_point_id} className="h-12 w-full rounded-xl bg-dashem-red text-sm font-black text-white disabled:opacity-40">Salvar roteamento</button></form></Modal>
   </div>
 }

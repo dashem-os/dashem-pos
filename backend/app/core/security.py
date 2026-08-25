@@ -3,10 +3,13 @@ from typing import Any, Optional
 import uuid
 
 import jwt
-from fastapi import Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, status
 from jwt import PyJWKClient
+from sqlmodel import Session
 
 from app.core.config import settings
+from app.core.database import get_session
+from app.services.operational_session_service import persist_expired_from_claims
 
 
 @dataclass(frozen=True)
@@ -79,9 +82,44 @@ def decode_access_token(token: str) -> dict[str, Any]:
         raise _unauthorized("Invalid authentication token.") from exc
 
 
+def _verified_expired_operational_claims(token: str) -> Optional[dict[str, Any]]:
+    """Return claims only for a valid Dashem operational signature past exp."""
+    try:
+        unverified = jwt.decode(token, options={"verify_signature": False, "verify_aud": False})
+        if unverified.get("iss") != "dashem-operational":
+            return None
+        jwt.decode(
+            token,
+            settings.SECRET_KEY,
+            algorithms=["HS256"],
+            audience="dashem-pos",
+            issuer="dashem-operational",
+            options={"require": ["exp", "iat", "sub", "aud", "iss", "tenant_id", "store_id", "session_id"]},
+        )
+    except jwt.ExpiredSignatureError:
+        try:
+            return jwt.decode(
+                token,
+                settings.SECRET_KEY,
+                algorithms=["HS256"],
+                audience="dashem-pos",
+                issuer="dashem-operational",
+                options={
+                    "verify_exp": False,
+                    "require": ["exp", "iat", "sub", "aud", "iss", "tenant_id", "store_id", "session_id"],
+                },
+            )
+        except jwt.InvalidTokenError:
+            return None
+    except jwt.InvalidTokenError:
+        return None
+    return None
+
+
 def get_current_principal(
     authorization: Optional[str] = Header(None, alias="Authorization"),
     x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
+    session: Session = Depends(get_session),
 ) -> AuthPrincipal:
     if settings.AUTH_MODE == "disabled":
         legacy_user_id = None
@@ -107,7 +145,13 @@ def get_current_principal(
     if not token:
         raise _unauthorized("Bearer authentication is required.")
 
-    claims = decode_access_token(token)
+    try:
+        claims = decode_access_token(token)
+    except HTTPException:
+        expired_claims = _verified_expired_operational_claims(token)
+        if expired_claims:
+            persist_expired_from_claims(session, expired_claims)
+        raise
     subject = claims.get("sub")
     if not subject:
         raise _unauthorized("Authentication token has no subject.")

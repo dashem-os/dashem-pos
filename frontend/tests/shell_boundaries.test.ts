@@ -17,33 +17,49 @@ test('keeps technical diagnostics outside the tenant management shell', async ()
   assert.doesNotMatch(management, /Diagnostics|Diagnóstico|API conectada/)
 })
 
-test('keeps tenant management one-way: Gestão opens POS but POS and KDS never open Gestão', async () => {
+test('lets email managers move between Gestão and PDV without exposing Gestão to PIN operators', async () => {
   const pos = await source('../src/layouts/PosLayout.tsx')
   const kds = await source('../src/shells/KdsShell.tsx')
   const management = await source('../src/layouts/ManagementLayout.tsx')
-  assert.doesNotMatch(pos, /navigateTo\('\/manage'\)/)
+  assert.match(pos, /managementAvailable && <button/)
+  assert.match(pos, /canNavigateToManagement\(Boolean\(session\), permissions\)/)
+  assert.match(pos, /navigateTo\('\/manage'\)/)
   assert.doesNotMatch(kds, /navigateTo\('\/manage'\)/)
   assert.match(management, /navigateTo\('\/pos'\)/)
 })
 
 test('lets an authenticated tenant manager open POS without a second login', async () => {
   const gate = await source('../src/components/auth/OperationalPinGate.tsx')
-  assert.match(gate, /OWNER.*TENANT_OWNER.*ADMIN.*MANAGER/)
+  assert.match(gate, /hasManagementAccess/)
   assert.match(gate, /managementAuthorized/)
   assert.doesNotMatch(gate, /window\.location\.reload\(\)/)
 })
 
-test('keeps PIN away from the public management login and binds it to an authorized terminal', async () => {
+test('keeps PIN fields away from management login but exposes the operator entry route', async () => {
   const app = await source('../src/App.tsx')
   const login = await source('../src/components/auth/SignInScreen.tsx')
   const entry = await source('../src/components/auth/OperationalEntryScreen.tsx')
   const devices = await source('../src/components/management/DeviceManager.tsx')
   assert.match(app, /pathname === '\/operate'/)
-  assert.doesNotMatch(login, /navigateTo\('\/operate'\)|Entrar com código e PIN/)
+  assert.match(app, /me && pathname !== '\/operate'/)
+  assert.match(login, /navigateTo\('\/operate'\)/)
+  assert.match(login, /Entrar como operador/)
+  assert.doesNotMatch(login, /employee_code|loginOperationalTerminal/)
   assert.match(entry, /resolveOperationalTerminal\(terminalToken\)/)
   assert.match(entry, /loginOperationalTerminal\(terminalToken/)
   assert.match(devices, /authorizeOperationalTerminal\(headers, device\.id\)/)
+  assert.match(devices, /navigateTo\('\/operate'\)/)
   assert.match(devices, /device\.device_type === 'POS'/)
+})
+
+test('keeps the persisted operational session alive and returns to PIN after server rejection', async () => {
+  const auth = await source('../src/context/AuthContext.tsx')
+  const api = await source('../src/services/api.ts')
+  assert.match(auth, /heartbeatOperationalSession\(operationalToken\)/)
+  assert.match(auth, /window\.setInterval\(heartbeat, 30_000\)/)
+  assert.match(auth, /window\.location\.assign\('\/operate'\)/)
+  assert.match(api, /operational-access\/session\/heartbeat/)
+  assert.match(api, /\[401, 403, 409\]\.includes\(res\.status\)/)
 })
 
 test('keeps employee registration independent from operational credentials', async () => {
@@ -70,9 +86,18 @@ test('exposes real customer and employee workspaces in tenant management', async
 
 test('keeps POS terminal management usable without kitchen routing', async () => {
   const devices = await source('../src/components/management/DeviceManager.tsx')
-  assert.match(devices, /productionEnabled \? \['POS', 'KDS', 'PRINTER'\] : \['POS'\]/)
+  assert.match(devices, /deviceKindAvailability\(productionEnabled\)/)
+  assert.match(devices, /const locked = !option\.enabled/)
   assert.match(devices, /if \(productionEnabled\)/)
   assert.match(devices, /\{productionEnabled && <section/)
+})
+
+test('reuses an existing unbound register when creating the POS device', async () => {
+  const devices = await source('../src/components/management/DeviceManager.tsx')
+  assert.match(devices, /unboundRegisterCandidates\(registers, devices\)/)
+  assert.match(devices, /initialPosDeviceDraft\(registers, devices\)/)
+  assert.match(devices, /register_id: form\.device_type === 'POS'/)
+  assert.match(devices, /Caixa existente/)
 })
 
 test('never derives operational context from the first item of an authorized list', async () => {

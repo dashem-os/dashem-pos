@@ -126,6 +126,17 @@ async def test_s13_1_registers_pos_kds_and_printer_devices_with_lifecycle():
         assert pos_response.status_code == 201, pos_response.text
         assert pos_response.json()["register_id"] is not None
 
+        existing_register = await client.post("/api/v1/cash/registers", headers=headers, json={
+            "store_id": store["id"], "code": "CX-EXISTING", "name": "Caixa já cadastrado",
+        })
+        assert existing_register.status_code == 200, existing_register.text
+        linked_pos = await client.post("/api/v1/devices", headers=headers, json={
+            "store_id": store["id"], "code": "POS-EXISTING", "name": "Navegador do caixa existente",
+            "device_type": "POS", "register_id": existing_register.json()["id"], "actor_id": actor,
+        })
+        assert linked_pos.status_code == 201, linked_pos.text
+        assert linked_pos.json()["register_id"] == existing_register.json()["id"]
+
         kds_response = await client.post("/api/v1/devices", headers=headers, json={
             "store_id": store["id"], "code": "KDS-01", "name": "Tela cozinha", "device_type": "KDS",
             "point_type": "KITCHEN", "actor_id": actor,
@@ -151,4 +162,4 @@ async def test_s13_1_registers_pos_kds_and_printer_devices_with_lifecycle():
         heartbeat = await client.post(f"/api/v1/devices/{kds['id']}/heartbeat", headers=headers)
         assert heartbeat.status_code == 200
         assert heartbeat.json()["last_seen_at"] is not None
-        assert len((await client.get("/api/v1/devices", headers=headers)).json()) == 3
+        assert len((await client.get("/api/v1/devices", headers=headers)).json()) == 4
