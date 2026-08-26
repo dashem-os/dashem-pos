@@ -127,12 +127,18 @@ async function run() {
     await context.addInitScript(token => localStorage.setItem('dashem.terminal_token', token), terminalToken)
     activePage = await context.newPage()
 
-    await scenario('terminal autorizado mostra contexto e superfície dedicada', async () => {
+    await scenario('terminal autorizado mostra somente o portão clean do colaborador', async () => {
       await activePage.goto(`${appUrl}/operate`, { waitUntil: 'domcontentloaded' })
       await activePage.getByRole('heading', { name: 'Assumir operação' }).waitFor()
-      await activePage.getByText('Terminal OA4').first().waitFor()
-      await activePage.getByText('Unidade OA4').first().waitFor()
-      await activePage.getByText('Caixa OA4').first().waitFor()
+      const employeeCode = activePage.getByLabel('Código do colaborador')
+      assert.equal(await employeeCode.getAttribute('autocomplete'), 'off')
+      assert.equal(await employeeCode.inputValue(), '')
+      assert.equal(await activePage.getByText('Terminal OA4').count(), 0)
+      assert.equal(await activePage.getByText('Unidade OA4').count(), 0)
+      assert.equal(await activePage.getByText('Caixa OA4').count(), 0)
+      assert.equal(await activePage.getByText('Cada operação fica ligada à pessoa certa.').count(), 0)
+      assert.equal(await activePage.getByRole('button', { name: 'Gestão' }).count(), 0)
+      assert.equal(await activePage.locator('select').count(), 0)
       assert.equal(await activePage.getByText('Escolha onde você vai operar').count(), 0)
     })
 

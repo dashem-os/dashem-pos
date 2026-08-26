@@ -44,8 +44,8 @@ no CI e no deploy.
 |---|---|---|---|
 | OA-1 | contexto exclusivo de terminal + `OperationalSession`; `/login`, `/operate`, `/pos` e `/manage` separados | backend, contrato API, testes de fronteira e build | concluída no código |
 | OA-2 | ativação temporária; PIN criado pelo colaborador; reativação revoga sessões | migration 045, testes de domínio e contrato | concluída no código |
-| OA-3 | superfície dedicada, toque, teclado físico, contexto visível, contraste corrigido e estado offline preservando autoridade | testes estáticos, typecheck, build e medição Playwright local | aceita localmente; inspeção no deploy pendente |
-| OA-4 | matriz, fixture isolado, suíte Playwright e job de CI | `14/14` cenários passaram localmente em Chromium | CI e deploy pendentes |
+| OA-3 | portão operacional clean, toque, teclado físico, contexto validado sem exposição visual, contraste corrigido e estado offline preservando autoridade | testes estáticos, typecheck e build | corrigida no código; E2E e deploy pendentes |
+| OA-4 | matriz, fixture isolado, suíte Playwright e job de CI | cenário clean atualizado para rejeitar contexto visual e autofill administrativo | nova execução, CI e deploy pendentes |
 
 Validação automatizada desta revisão:
 
@@ -54,8 +54,8 @@ Validação automatizada desta revisão:
   `alembic check`: sem divergência;
 - frontend: `58 passed`;
 - typecheck e build de produção: aprovados;
-- OA-4 em Chromium, banco isolado e API autenticada: `14/14` cenários passaram,
-  sem screenshot de falha na execução final.
+- a execução OA-4 anterior (`14/14`) cobria o contrato visual substituído e não
+  promove esta revisão; a matriz atualizada precisa ser executada novamente.
 
 Esses verdes comprovam a implementação e a jornada local. O deploy público
 inspecionado em 26/08/2026 ainda não contém uma revisão capaz de comprovar o
@@ -115,8 +115,10 @@ Gestão e adequada a toque.
 
 Entregas:
 
-- tela dedicada com terminal e unidade já identificados;
+- portão clean e compacto; terminal e contexto são validados silenciosamente e
+  não aparecem na interface;
 - campos separados “Código do colaborador” e “PIN pessoal”;
+- função e permissions resolvidas pelo backend, sem seletor no login;
 - teclado numérico tátil, suporte a teclado físico e foco previsível;
 - ação canônica “Iniciar turno” ou “Assumir operação”;
 - estados separados para terminal não autorizado, ativação inicial, entrada,
@@ -127,6 +129,8 @@ Entregas:
 Gate:
 
 - a tela não enumera funcionários e não se parece com o login administrativo;
+- a tela não contém propaganda, dados de tenant/unidade/caixa/dispositivo,
+  atalho da Gestão ou autofill de e-mail no código do colaborador;
 - navegação completa por teclado e alvos de toque adequados;
 - contraste WCAG AA medido para texto, controles, foco, erro e aviso;
 - viewport de terminal, tablet e desktop sem conteúdo essencial cortado;

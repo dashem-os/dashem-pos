@@ -72,9 +72,22 @@ colaborador e emite uma sessão restrita à interseção dessas autoridades.
 - se um administrador ou gerente também trabalhar na operação, deve possuir
   `Employee`, função operacional e código + PIN próprios.
 
-A interface de `/operate` deve ser visual e funcionalmente distinta do login
-administrativo. Ela mostra o terminal e a unidade já resolvidos, recebe código e
-PIN, oferece controles adequados ao toque e nunca enumera colaboradores.
+A interface de `/operate` é um portão operacional mínimo, não uma página
+administrativa ou promocional. A autorização do terminal é validada de forma
+silenciosa: a tela não exibe tenant, unidade, caixa, dispositivo, função, atalhos
+da Gestão nem textos institucionais. Ela recebe código + PIN, oferece a ação
+separada de primeiro acesso/novo PIN, controles adequados ao toque e nunca
+enumera colaboradores. O campo de código não usa semântica de e-mail ou
+`username` que permita ao navegador preencher uma identidade administrativa.
+
+A função não é informada nem escolhida no login. Depois de código + PIN válidos,
+o backend resolve a `Membership`, sua função e permissions, cruza esse vínculo
+com o escopo assinado do terminal e emite a `OperationalSession` correspondente.
+
+KDS, máquina de comandas/produção e agente de impressão são identidades de
+dispositivo, não pessoas. Um gestor os configura, habilita, pareia, pausa ou
+revoga pela Gestão; eles não mantêm funcionário logado nem solicitam código e
+PIN pessoal para permanecer operando.
 
 ### 4. Ciclo do PIN pessoal
 
@@ -148,6 +161,12 @@ oferecer seletor de tenant, unidade, caixa, dispositivo ou função.
 13. contraste, foco, teclado, toque, loading, erro e bloqueio passam por aceite
     visual e de acessibilidade;
 14. CI verde sem a jornada E2E não fecha o Gate B.
+15. `/operate` autorizado apresenta somente o fluxo de código + PIN ou de
+    ativação, sem propaganda, contexto organizacional, atalho administrativo ou
+    seletor de função;
+16. código de colaborador não aciona autofill de e-mail/usuário administrativo;
+17. KDS, máquina de comandas/produção e impressão usam credencial de dispositivo
+    configurada pela Gestão e não exigem sessão humana persistente.
 
 ## Consequências
 

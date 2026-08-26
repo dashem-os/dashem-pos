@@ -20,10 +20,10 @@ Existem três superfícies independentes:
    rota local `/operate`, depois que um gestor autorizou aquele navegador contra
    um `OperationalDevice` POS. O token do turno identifica a pessoa; a
    credencial do terminal fixa tenant, unidade e caixa.
-3. **Dispositivo:** TEF Bridge, KDS e agente de impressão não recebem papel
-   humano nem PIN de funcionário. Cada instalação é pareada por um gestor,
-   recebe uma credencial própria, envia heartbeat e pode ser pausada ou revogada
-   sem afetar a identidade das pessoas.
+3. **Dispositivo:** TEF Bridge, KDS, máquina de comandas/produção e agente de
+   impressão não recebem papel humano nem PIN de funcionário. Cada instalação é
+   configurada e habilitada por um gestor, recebe uma credencial própria, envia
+   heartbeat e pode ser pausada ou revogada sem afetar a identidade das pessoas.
 
 Um gestor autenticado pode autorizar o navegador e abrir a superfície do PDV,
 mas sua sessão gerencial não substitui a identidade de quem assume a operação.
@@ -59,8 +59,9 @@ a uma impressora pronta para operação comercial**.
 - o PIN nunca revela nem seleciona tenant, unidade ou caixa;
 - revogar uma pessoa, um terminal POS, um TEF Bridge ou um Print Bridge são
   operações distintas;
-- KDS com tela pode exigir PIN para ações humanas; uma impressora sem tela nunca
-  exige PIN;
+- KDS, máquina de comandas/produção e impressora operam com identidade de
+  dispositivo, sem funcionário permanentemente logado; eventual aprovação
+  pessoal futura deve ser uma ação explícita e isolada, não o login da máquina;
 - provider/hardware não homologado permanece indisponível, ainda que o contrato
   interno de integração exista;
 - a Gestão apresenta Clientes e Funcionários como cadastros separados de suas
