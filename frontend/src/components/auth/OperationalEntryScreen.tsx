@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import { ArrowLeft, Delete, KeyRound, Loader2, RefreshCw, ShieldAlert, ShieldCheck, UserRound, WifiOff } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { ArrowLeft, KeyRound, Loader2, RefreshCw, ShieldAlert, ShieldCheck, UserRound, WifiOff } from 'lucide-react'
 
 import { useAuth } from '../../context/AuthContext'
 import * as api from '../../services/api'
@@ -11,6 +11,13 @@ type EntryMode = 'LOGIN' | 'ACTIVATE'
 function strongPin(pin: string) {
   if (!/^\d{4,8}$/.test(pin) || new Set(pin).size === 1) return false
   return !'01234567890123456789'.includes(pin) && !'98765432109876543210'.includes(pin)
+}
+
+function normalizeEmployeeCode(value: string) {
+  // Saved web-login usernames are e-mail addresses. They are never valid
+  // operational codes and must not be transformed into a plausible employee.
+  if (/[@.]/.test(value)) return ''
+  return value.replace(/[^A-Z0-9_-]/gi, '').toUpperCase().slice(0, 20)
 }
 
 export function OperationalEntryScreen() {
@@ -27,7 +34,6 @@ export function OperationalEntryScreen() {
   const [notice, setNotice] = useState<string | null>(null)
   const [online, setOnline] = useState(navigator.onLine)
   const [terminalCheck, setTerminalCheck] = useState(0)
-  const pinInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     const connected = () => { setOnline(true); setTerminalCheck(value => value + 1) }
@@ -62,11 +68,6 @@ export function OperationalEntryScreen() {
 
   const switchMode = (next: EntryMode) => {
     setMode(next); setPin(''); setConfirmPin(''); setActivationCode(''); setError(null); setNotice(null)
-  }
-
-  const append = (digit: string) => {
-    setPin(current => current.length < 8 ? `${current}${digit}` : current)
-    pinInputRef.current?.focus()
   }
 
   const submitLogin = async (event: React.FormEvent) => {
@@ -113,30 +114,29 @@ export function OperationalEntryScreen() {
     </section>
   </main>
 
-  return <main className="flex min-h-screen items-start justify-center overflow-y-auto bg-[#06101f] p-4 sm:items-center sm:p-8">
-    <form autoComplete="off" onSubmit={mode === 'LOGIN' ? submitLogin : submitActivation} className="w-full max-w-md rounded-[28px] bg-white p-6 shadow-2xl sm:p-8">
+  return <main className="flex min-h-[100dvh] items-center justify-center bg-[#06101f] p-4">
+    <form autoComplete="off" onSubmit={mode === 'LOGIN' ? submitLogin : submitActivation} className="w-full max-w-md rounded-[28px] bg-white p-5 shadow-2xl sm:p-7">
         <div className="flex items-center justify-center gap-3" aria-label="Dashem POS">
           <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-rose-600 text-lg font-black text-white">D</div>
           <p className="text-xl font-black tracking-tight text-[#08275b]">DASHEM <span className="text-rose-600">POS</span></p>
         </div>
-        <div className="mt-6 text-center">
+        <div className="mt-5 text-center">
           <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-rose-50 text-rose-700"><KeyRound className="h-6 w-6" /></div>
           <p className="mt-4 text-xs font-black uppercase tracking-[.18em] text-rose-700">Colaborador</p>
-          <h1 className="mt-2 text-3xl font-black text-slate-950">{mode === 'LOGIN' ? 'Assumir operação' : 'Criar PIN pessoal'}</h1>
+          <h1 className="mt-2 text-2xl font-black text-slate-950">{mode === 'LOGIN' ? 'Assumir operação' : 'Criar PIN pessoal'}</h1>
           <p className="mt-2 text-sm leading-6 text-slate-600">{mode === 'LOGIN' ? 'Informe seu código e PIN pessoal.' : 'Informe o código temporário e defina seu PIN.'}</p>
         </div>
         <div className="mt-5 grid grid-cols-2 rounded-xl bg-slate-100 p-1">
           <button type="button" aria-pressed={mode === 'LOGIN'} onClick={() => switchMode('LOGIN')} className={`min-h-11 rounded-lg text-xs font-black focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-rose-500 ${mode === 'LOGIN' ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-700'}`}>Entrar no turno</button>
           <button type="button" aria-pressed={mode === 'ACTIVATE'} onClick={() => switchMode('ACTIVATE')} className={`min-h-11 rounded-lg text-xs font-black focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-rose-500 ${mode === 'ACTIVATE' ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-700'}`}>Primeiro acesso / novo PIN</button>
         </div>
-        <label className="mt-5 block text-xs font-black uppercase tracking-wide text-slate-700">Código do colaborador<div className="mt-2 flex h-12 items-center rounded-xl border border-slate-300 px-3 focus-within:border-rose-500 focus-within:ring-4 focus-within:ring-rose-500"><UserRound className="h-5 w-5 text-slate-500" /><input autoFocus name="employee-code" autoComplete="off" autoCapitalize="characters" autoCorrect="off" spellCheck={false} value={employeeCode} onChange={event => setEmployeeCode(event.target.value.replace(/[^A-Z0-9_-]/gi, '').toUpperCase().slice(0, 20))} placeholder="Ex.: ATD01" className="h-full min-w-0 flex-1 px-3 font-black uppercase outline-none" /></div></label>
-        {mode === 'ACTIVATE' && <label className="mt-4 block text-xs font-black uppercase tracking-wide text-slate-700">Código temporário de ativação<input name="activation-code" inputMode="numeric" autoComplete="off" value={activationCode} onChange={event => setActivationCode(event.target.value.replace(/\D/g, '').slice(0, 8))} placeholder="8 números" className="mt-2 h-12 w-full rounded-xl border border-slate-300 px-4 font-mono text-lg font-black tracking-[.18em] text-slate-950 outline-none focus:border-rose-500 focus:ring-4 focus:ring-rose-500" /></label>}
+        <label className="mt-5 block text-xs font-black uppercase tracking-wide text-slate-700">Código do colaborador<div className="mt-2 flex h-12 items-center rounded-xl border border-slate-300 px-3 focus-within:border-rose-500 focus-within:ring-4 focus-within:ring-rose-200"><UserRound className="h-5 w-5 text-slate-500" /><input name="operational-identity" autoComplete="off" autoCapitalize="characters" autoCorrect="off" spellCheck={false} data-1p-ignore data-lpignore="true" value={employeeCode} onChange={event => setEmployeeCode(normalizeEmployeeCode(event.target.value))} placeholder="Ex.: ATD01" className="h-full min-w-0 flex-1 px-3 font-black uppercase outline-none" /></div></label>
+        {mode === 'ACTIVATE' && <label className="mt-4 block text-xs font-black uppercase tracking-wide text-slate-700">Código temporário de ativação<input name="operational-activation" type="text" inputMode="numeric" autoComplete="one-time-code" data-1p-ignore data-lpignore="true" value={activationCode} onChange={event => setActivationCode(event.target.value.replace(/\D/g, '').slice(0, 8))} placeholder="8 números" className="mt-2 h-12 w-full rounded-xl border border-slate-300 px-4 font-mono text-lg font-black tracking-[.18em] text-slate-950 outline-none focus:border-rose-500 focus:ring-4 focus:ring-rose-200" /></label>}
         {mode === 'LOGIN' ? <>
-          <label className="mt-5 block text-xs font-black uppercase tracking-wide text-slate-700">PIN pessoal<div className="relative mt-2 flex h-14 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-slate-50 focus-within:border-rose-600 focus-within:ring-4 focus-within:ring-rose-500"><input ref={pinInputRef} aria-label="PIN pessoal" name="employee-pin" inputMode="numeric" type="password" autoComplete="off" value={pin} onChange={event => setPin(event.target.value.replace(/\D/g, '').slice(0, 8))} className="absolute inset-0 h-full w-full cursor-text opacity-0" />{Array.from({ length: 8 }, (_, index) => <span aria-hidden="true" key={index} className={`h-3 w-3 rounded-full ${index < pin.length ? 'bg-rose-600' : 'bg-slate-200'}`} />)}</div><span className="sr-only" aria-live="polite">{pin.length} dígitos informados</span></label>
-          <div className="mt-4 grid grid-cols-3 gap-2">{['1','2','3','4','5','6','7','8','9'].map(digit => <button key={digit} type="button" onClick={() => append(digit)} className="h-12 rounded-xl border border-slate-300 text-lg font-black text-slate-950 hover:border-rose-400 hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-rose-500">{digit}</button>)}<button type="button" onClick={() => setPin('')} className="h-12 rounded-xl border border-slate-300 text-xs font-black text-slate-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-rose-500">Limpar</button><button type="button" onClick={() => append('0')} className="h-12 rounded-xl border border-slate-300 text-lg font-black text-slate-950 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-rose-500">0</button><button aria-label="Apagar último dígito" type="button" onClick={() => setPin(current => current.slice(0, -1))} className="flex h-12 items-center justify-center rounded-xl border border-slate-300 text-slate-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-rose-500"><Delete className="h-5 w-5" /></button></div>
+          <label className="mt-4 block text-xs font-black uppercase tracking-wide text-slate-700">PIN pessoal<input aria-label="PIN pessoal" name="operational-pin" type="text" inputMode="numeric" autoComplete="one-time-code" data-1p-ignore data-lpignore="true" value={pin} onChange={event => setPin(event.target.value.replace(/\D/g, '').slice(0, 8))} placeholder="4 a 8 números" className="operational-pin-mask mt-2 h-12 w-full rounded-xl border border-slate-300 bg-slate-50 px-4 text-center text-xl font-black tracking-[.35em] text-slate-950 outline-none focus:border-rose-600 focus:ring-4 focus:ring-rose-200" /><span className="sr-only" aria-live="polite">{pin.length} dígitos informados</span></label>
         </> : <div className="mt-4 grid gap-4 sm:grid-cols-2">
-          <label className="text-xs font-black uppercase tracking-wide text-slate-700">Novo PIN<input name="new-pin" inputMode="numeric" type="password" autoComplete="off" value={pin} onChange={event => setPin(event.target.value.replace(/\D/g, '').slice(0, 8))} className="mt-2 h-12 w-full rounded-xl border border-slate-300 px-4 text-lg font-black text-slate-950 outline-none focus:border-rose-500 focus:ring-4 focus:ring-rose-500" /></label>
-          <label className="text-xs font-black uppercase tracking-wide text-slate-700">Confirmar PIN<input name="confirm-pin" inputMode="numeric" type="password" autoComplete="off" value={confirmPin} onChange={event => setConfirmPin(event.target.value.replace(/\D/g, '').slice(0, 8))} className="mt-2 h-12 w-full rounded-xl border border-slate-300 px-4 text-lg font-black text-slate-950 outline-none focus:border-rose-500 focus:ring-4 focus:ring-rose-500" /></label>
+          <label className="text-xs font-black uppercase tracking-wide text-slate-700">Novo PIN<input name="operational-new-pin" type="text" inputMode="numeric" autoComplete="one-time-code" data-1p-ignore data-lpignore="true" value={pin} onChange={event => setPin(event.target.value.replace(/\D/g, '').slice(0, 8))} className="operational-pin-mask mt-2 h-12 w-full rounded-xl border border-slate-300 px-4 text-center text-lg font-black tracking-[.25em] text-slate-950 outline-none focus:border-rose-500 focus:ring-4 focus:ring-rose-200" /></label>
+          <label className="text-xs font-black uppercase tracking-wide text-slate-700">Confirmar PIN<input name="operational-confirm-pin" type="text" inputMode="numeric" autoComplete="one-time-code" data-1p-ignore data-lpignore="true" value={confirmPin} onChange={event => setConfirmPin(event.target.value.replace(/\D/g, '').slice(0, 8))} className="operational-pin-mask mt-2 h-12 w-full rounded-xl border border-slate-300 px-4 text-center text-lg font-black tracking-[.25em] text-slate-950 outline-none focus:border-rose-500 focus:ring-4 focus:ring-rose-200" /></label>
           <p className="text-xs leading-5 text-slate-600 sm:col-span-2">Use de 4 a 8 números, sem repetições simples ou sequências como 1234.</p>
         </div>}
         {!online && <p role="status" className="mt-4 flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm font-bold text-amber-900"><WifiOff className="h-4 w-4 shrink-0" />Sem conexão. O terminal e o turno foram preservados.</p>}

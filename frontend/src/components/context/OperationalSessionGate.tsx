@@ -49,6 +49,9 @@ export function OperationalSessionGate({
   if (context) {
     return <>{children({
       source: 'OPERATIONAL_SESSION',
+      operatorId: context.user_id,
+      operatorName: context.full_name,
+      operatorRole: context.role,
       tenantId: context.tenant_id,
       tenantName: context.tenant_name,
       tenantSlug: context.tenant_slug,

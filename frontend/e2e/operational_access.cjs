@@ -140,19 +140,21 @@ async function run() {
       assert.equal(await activePage.getByRole('button', { name: 'Gestão' }).count(), 0)
       assert.equal(await activePage.locator('select').count(), 0)
       assert.equal(await activePage.getByText('Escolha onde você vai operar').count(), 0)
+      assert.equal(await activePage.locator('input[type="password"]').count(), 0)
     })
 
-    await scenario('viewport toque teclado e foco permanecem acessíveis', async () => {
+    await scenario('entrada compacta cabe no viewport e não aceita autofill de e-mail', async () => {
       for (const viewport of [{ width: 1366, height: 768 }, { width: 1024, height: 768 }, { width: 480, height: 800 }]) {
         await activePage.setViewportSize(viewport)
         assert.equal(await activePage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true)
         assert.equal(await activePage.getByRole('heading', { name: 'Assumir operação' }).isVisible(), true)
+        const formBox = await activePage.locator('form').boundingBox()
+        assert.ok(formBox && formBox.y >= 0 && formBox.y + formBox.height <= viewport.height)
       }
-      const digitButtons = activePage.getByRole('button', { name: /^[0-9]$/ })
-      for (let index = 0; index < await digitButtons.count(); index += 1) {
-        const box = await digitButtons.nth(index).boundingBox()
-        assert.ok(box && box.width >= 44 && box.height >= 44)
-      }
+      const employeeCode = activePage.getByLabel('Código do colaborador')
+      await employeeCode.fill('marcelo@example.com')
+      assert.equal(await employeeCode.inputValue(), '')
+      assert.equal(await activePage.getByLabel('PIN pessoal').inputValue(), '')
       const modeButton = activePage.getByRole('button', { name: 'Entrar no turno' }).first()
       await modeButton.focus()
       const focusStyle = await modeButton.evaluate(element => getComputedStyle(element).boxShadow)
@@ -188,6 +190,7 @@ async function run() {
       firstOperationalToken = await activePage.evaluate(() => sessionStorage.getItem('dashem.operational_token'))
       assert.ok(firstOperationalToken)
       assert.equal(await activePage.getByText('Escolha onde você vai operar').count(), 0)
+      assert.equal(await activePage.getByText(/Operadora OA4 A.*Caixa/).count(), 1)
       await activePage.reload({ waitUntil: 'domcontentloaded' })
       await activePage.getByLabel('Encerrar sessão').waitFor({ timeout: 15_000 })
       assert.equal(await activePage.getByText('Escolha onde você vai operar').count(), 0)

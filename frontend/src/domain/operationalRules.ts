@@ -21,6 +21,13 @@ export function canNavigateToManagement(emailSessionActive: boolean, permissions
   return emailSessionActive && permissions.includes('management.read')
 }
 
+export function operationalRoleLabel(role?: string | null): string {
+  if (role === 'SUPERVISOR') return 'Supervisor'
+  if (role === 'CASHIER') return 'Caixa'
+  if (role === 'OPERATOR') return 'Operador'
+  return ''
+}
+
 export function authenticatedHome(platformRole?: string | null, canManage = false): ShellRoute {
   if (platformRole && PLATFORM_ROLES.has(platformRole)) return '/owner'
   return canManage ? '/manage' : '/pos'

@@ -61,8 +61,10 @@ test('keeps the management login exclusive and exposes credentials only on an au
   assert.match(entry, /loginOperationalTerminal\(terminalToken/)
   assert.match(entry, /activateOperationalPin\(terminalToken/)
   assert.match(entry, /Primeiro acesso \/ novo PIN/)
-  assert.match(entry, /name="employee-code" autoComplete="off"/)
-  assert.match(entry, /name="employee-pin" inputMode="numeric" type="password" autoComplete="off"/)
+  assert.match(entry, /name="operational-identity" autoComplete="off"/)
+  assert.match(entry, /name="operational-pin" type="text" inputMode="numeric" autoComplete="one-time-code"/)
+  assert.match(entry, /if \(\/\[@\.\]\/\.test\(value\)\) return ''/)
+  assert.doesNotMatch(entry, /type="password"|autoFocus|\['1','2','3'/)
   assert.doesNotMatch(entry, /autoComplete="username"|autoComplete="current-password"/)
   assert.match(entry, /A autorização deste terminal foi preservada/)
   assert.doesNotMatch(entry, /context\.(?:device_name|tenant_name|store_name|register_name)/)
@@ -75,6 +77,8 @@ test('keeps the management login exclusive and exposes credentials only on an au
 
 test('hydrates POS from the server-validated operational context without organizational discovery', async () => {
   const context = await source('../src/context/PosContext.tsx')
+  const gate = await source('../src/components/context/OperationalSessionGate.tsx')
+  const layout = await source('../src/layouts/PosLayout.tsx')
   const api = await source('../src/services/api.ts')
   assert.match(context, /source === 'OPERATIONAL_SESSION'/)
   assert.match(context, /tenantName \|\| 'Empresa'/)
@@ -82,6 +86,21 @@ test('hydrates POS from the server-validated operational context without organiz
   assert.match(context, /registerName \|\| 'Terminal'/)
   assert.match(api, /operational-access\/session\/context/)
   assert.match(api, /Authorization: `Bearer \$\{accessToken\}`/)
+  assert.match(gate, /operatorName: context\.full_name/)
+  assert.match(gate, /operatorRole: context\.role/)
+  assert.match(context, /setOperatorName\(operationalOperatorName/)
+  assert.match(layout, /operatorName \|\| `Colaborador/)
+  assert.doesNotMatch(layout, /Operador: \{operatorId\.slice/)
+})
+
+test('renders cash opening only for the effective cash.open permission', async () => {
+  const context = await source('../src/context/PosContext.tsx')
+  const layout = await source('../src/layouts/PosLayout.tsx')
+  assert.match(layout, /const canOpenCash = permissions\.includes\('cash\.open'\)/)
+  assert.match(layout, /canOpenCash \? <form onSubmit=\{handleOpenCash\}/)
+  assert.match(layout, /Caixa ou Supervisor abrir este caixa/)
+  assert.match(context, /if \(!permissions\.includes\('cash\.open'\)\)/)
+  assert.doesNotMatch(layout, /Missing permission/)
 })
 
 test('keeps the persisted operational session alive and returns to PIN after server rejection', async () => {

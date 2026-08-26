@@ -10,6 +10,7 @@ import {
   hasManagementAccess,
   initialPosDeviceDraft,
   normalizeAuthenticatedRoute,
+  operationalRoleLabel,
   paymentProgress,
   requireAuthenticatedActor,
   saleNeedsCreation,
@@ -46,6 +47,13 @@ test('derives management authority from an active management membership and back
   assert.equal(canNavigateToManagement(true, ['management.read']), true)
   assert.equal(canNavigateToManagement(false, ['management.read']), false)
   assert.equal(canNavigateToManagement(true, ['sale.read']), false)
+})
+
+test('shows the operational role resolved by the backend in human language', () => {
+  assert.equal(operationalRoleLabel('SUPERVISOR'), 'Supervisor')
+  assert.equal(operationalRoleLabel('CASHIER'), 'Caixa')
+  assert.equal(operationalRoleLabel('OPERATOR'), 'Operador')
+  assert.equal(operationalRoleLabel(undefined), '')
 })
 
 test('publishes every device kind with honest capability availability', () => {

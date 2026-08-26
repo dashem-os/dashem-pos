@@ -14,6 +14,8 @@ interface PosContextType {
   register: api.Register | null
   cashSession: api.CashSession | null
   operatorId: string
+  operatorName: string
+  operatorRole?: 'SUPERVISOR' | 'CASHIER' | 'OPERATOR'
   health: api.ApiHealth | null
   permissions: string[]
   capabilities: api.EffectiveAccess['capabilities']
@@ -77,6 +79,9 @@ const PosContext = createContext<PosContextType | undefined>(undefined)
 export const PosProvider: React.FC<{
   children: ReactNode
   source?: 'MANAGEMENT' | 'OPERATIONAL_SESSION'
+  operatorId?: string
+  operatorName?: string
+  operatorRole?: 'SUPERVISOR' | 'CASHIER' | 'OPERATOR'
   tenantId: string
   storeId: string
   registerId?: string
@@ -88,6 +93,7 @@ export const PosProvider: React.FC<{
   registerCode?: string
 }> = ({
   children, source = 'MANAGEMENT', tenantId, storeId, registerId,
+  operatorId: operationalOperatorId, operatorName: operationalOperatorName, operatorRole,
   tenantName, tenantSlug, storeName, storeCode, registerName, registerCode,
 }) => {
 
@@ -96,6 +102,7 @@ export const PosProvider: React.FC<{
   const [register, setRegister] = useState<api.Register | null>(null)
   const [cashSession, setCashSession] = useState<api.CashSession | null>(null)
   const [operatorId, setOperatorId] = useState<string>('')
+  const [operatorName, setOperatorName] = useState<string>('')
   const [health, setHealth] = useState<api.ApiHealth | null>(null)
   const [permissions, setPermissions] = useState<string[]>([])
   const [capabilities, setCapabilities] = useState<api.EffectiveAccess['capabilities']>({})
@@ -175,8 +182,15 @@ export const PosProvider: React.FC<{
       const h = await api.fetchHealth().catch(() => null)
       setHealth(h)
 
-      const me = await api.fetchMe()
-      setOperatorId(requireAuthenticatedActor(me.user))
+      const me = source === 'OPERATIONAL_SESSION' ? null : await api.fetchMe()
+      if (source === 'OPERATIONAL_SESSION') {
+        if (!operationalOperatorId) throw new Error('A sessão operacional não informou o colaborador.')
+        setOperatorId(operationalOperatorId)
+        setOperatorName(operationalOperatorName || 'Colaborador')
+      } else {
+        setOperatorId(requireAuthenticatedActor(me?.user))
+        setOperatorName(me?.user?.full_name || 'Gestão')
+      }
 
       const selectedTenant = source === 'OPERATIONAL_SESSION'
         ? { id: tenantId, name: tenantName || 'Empresa', slug: tenantSlug || '', status: 'ACTIVE' as const }
@@ -215,7 +229,7 @@ export const PosProvider: React.FC<{
     } finally {
       setLoading(false)
     }
-  }, [source, tenantId, tenantName, tenantSlug, storeId, storeName, storeCode, registerId, registerName, registerCode, showToast])
+  }, [source, operationalOperatorId, operationalOperatorName, tenantId, tenantName, tenantSlug, storeId, storeName, storeCode, registerId, registerName, registerCode, showToast])
 
   // Refresh products, inventory and sales data
   const refreshData = useCallback(async () => {
@@ -536,6 +550,10 @@ export const PosProvider: React.FC<{
 
   const openCash = async (openingBalance: number) => {
     if (!store || !register) return
+    if (!permissions.includes('cash.open')) {
+      showToast('info', 'Seu perfil não abre caixa. Solicite a um Caixa ou Supervisor.')
+      return
+    }
     try {
       setActionLoading(true)
       const hdrs = getHeaders()
@@ -646,6 +664,8 @@ export const PosProvider: React.FC<{
         register,
         cashSession,
         operatorId,
+        operatorName,
+        operatorRole,
         health,
         permissions,
         capabilities,

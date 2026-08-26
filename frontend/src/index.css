@@ -2,6 +2,10 @@
 @tailwind components;
 @tailwind utilities;
 
+.operational-pin-mask {
+  -webkit-text-security: disc;
+}
+
 @layer base {
   body {
     @apply font-sans antialiased selection:bg-rose-500 selection:text-white min-h-screen bg-slate-50 text-slate-900;

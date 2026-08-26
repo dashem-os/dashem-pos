@@ -27,7 +27,7 @@ import { FiscalStatusModal } from '../components/pos/FiscalStatusModal'
 import { CancelModal } from '../components/pos/CancelModal'
 import { formatCurrency, formatQuantity } from '../utils/format'
 import { navigateTo } from '../utils/navigation'
-import { canNavigateToManagement } from '../domain/operationalRules'
+import { canNavigateToManagement, operationalRoleLabel } from '../domain/operationalRules'
 
 export const PosLayout: React.FC = () => {
   const { session, signOut } = useAuth()
@@ -35,6 +35,8 @@ export const PosLayout: React.FC = () => {
     store,
     register,
     operatorId,
+    operatorName,
+    operatorRole,
     cashSession,
     currentSale,
     connectionState,
@@ -54,9 +56,13 @@ export const PosLayout: React.FC = () => {
   const items = currentSale?.items || []
   const netTotal = Number(currentSale?.net_total || 0)
   const managementAvailable = canNavigateToManagement(Boolean(session), permissions)
+  const canReadCash = permissions.includes('cash.read')
+  const canOpenCash = permissions.includes('cash.open')
+  const roleLabel = operationalRoleLabel(operatorRole)
 
   const handleOpenCash = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!canOpenCash) return
     const val = parseFloat(openingBalanceInput)
     if (!isNaN(val) && val >= 0) {
       await openCash(val)
@@ -91,7 +97,9 @@ export const PosLayout: React.FC = () => {
               <span>•</span>
               <span className="text-slate-600">{register?.name || 'Terminal não selecionado'}</span>
               <span>•</span>
-              <span className="hidden md:inline text-slate-500">Operador: {operatorId.slice(0, 8)}</span>
+              <span className="hidden md:inline max-w-[240px] truncate text-slate-500">
+                {operatorName || `Colaborador ${operatorId.slice(0, 8)}`}{roleLabel ? ` · ${roleLabel}` : ''}
+              </span>
             </div>
           </div>
         </div>
@@ -109,7 +117,7 @@ export const PosLayout: React.FC = () => {
             className={`flex items-center space-x-1.5 px-3 py-1 rounded-xl text-xs font-bold border ${
               isCashOpen
                 ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                : 'bg-rose-50 text-rose-700 border-rose-200'
+                : canReadCash ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-amber-50 text-amber-800 border-amber-200'
             }`}
           >
             {isCashOpen ? (
@@ -120,7 +128,7 @@ export const PosLayout: React.FC = () => {
             ) : (
               <>
                 <AlertCircle className="w-3.5 h-3.5 text-rose-600" />
-                <span>Caixa Fechado</span>
+                <span>{canReadCash ? 'Caixa Fechado' : 'Caixa indisponível'}</span>
               </>
             )}
           </div>
@@ -175,11 +183,15 @@ export const PosLayout: React.FC = () => {
             <div>
               <h2 className="text-xl font-black text-slate-900">Caixa Fechado</h2>
               <p className="text-xs text-slate-500 font-medium max-w-xs mt-1">
-                Para iniciar as operações de venda na Frente de Caixa, informe o saldo inicial de troco.
+                {canOpenCash
+                  ? 'Para iniciar as operações de venda na Frente de Caixa, informe o saldo inicial de troco.'
+                  : canReadCash
+                    ? 'Seu perfil pode operar vendas depois que um Caixa ou Supervisor abrir este caixa.'
+                    : 'Sua função atual não possui acesso a este caixa. Solicite a revisão do acesso na Gestão.'}
               </p>
             </div>
 
-            <form onSubmit={handleOpenCash} className="w-full space-y-3 pt-2">
+            {canOpenCash ? <form onSubmit={handleOpenCash} className="w-full space-y-3 pt-2">
               <div className="space-y-1 text-left">
                 <label className="text-xs font-bold text-slate-700 block">
                   Fundo de Troco / Saldo Inicial (R$)
@@ -203,7 +215,9 @@ export const PosLayout: React.FC = () => {
                 <Unlock className="w-4 h-4" />
                 <span>ABRIR CAIXA E INICIAR VENDAS</span>
               </button>
-            </form>
+            </form> : <div role="status" className="w-full rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold leading-5 text-amber-900">
+              Identidade reconhecida: {operatorName || 'Colaborador'}{roleLabel ? ` · ${roleLabel}` : ''}. Nenhuma ação incompatível com essa função será exibida.
+            </div>}
           </div>
         </main>
       ) : (

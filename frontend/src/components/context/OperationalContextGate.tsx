@@ -5,6 +5,9 @@ import { selectOnlyOption } from '../../domain/operationalRules'
 
 export interface OperationalSelection {
   source?: 'MANAGEMENT' | 'OPERATIONAL_SESSION'
+  operatorId?: string
+  operatorName?: string
+  operatorRole?: 'SUPERVISOR' | 'CASHIER' | 'OPERATOR'
   tenantId: string
   storeId: string
   registerId?: string

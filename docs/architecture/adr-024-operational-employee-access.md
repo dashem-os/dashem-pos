@@ -115,6 +115,10 @@ Toda mutação operacional humana registra, direta ou indiretamente pela sessão
 
 - colaborador e credencial;
 - função e permissions efetivas;
+- identidade nominal exibida no PDV, sem substituir o colaborador por UUID;
+- `OPERATOR` pode consultar e operar sobre um caixa previamente aberto, mas
+  somente `CASHIER`/`SUPERVISOR` com `cash.open` recebem a ação de abertura;
+- controles incompatíveis com as permissions efetivas não são renderizados;
 - sessão operacional e turno;
 - tenant, unidade, caixa, POS e dispositivos relacionados;
 - instante, ação, resultado e correlation/idempotency IDs aplicáveis;
