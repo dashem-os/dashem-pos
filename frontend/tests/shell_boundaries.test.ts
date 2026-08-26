@@ -17,7 +17,7 @@ test('keeps technical diagnostics outside the tenant management shell', async ()
   assert.doesNotMatch(management, /Diagnostics|Diagnóstico|API conectada/)
 })
 
-test('lets email managers move between Gestão and PDV without exposing Gestão to PIN operators', async () => {
+test('lets Gestão open the terminal surface without granting management to operational sessions', async () => {
   const pos = await source('../src/layouts/PosLayout.tsx')
   const kds = await source('../src/shells/KdsShell.tsx')
   const management = await source('../src/layouts/ManagementLayout.tsx')
@@ -26,30 +26,59 @@ test('lets email managers move between Gestão and PDV without exposing Gestão 
   assert.match(pos, /navigateTo\('\/manage'\)/)
   assert.doesNotMatch(kds, /navigateTo\('\/manage'\)/)
   assert.match(management, /navigateTo\('\/pos'\)/)
+  assert.match(await source('../src/App.tsx'), /releaseManagementSession\(\)\.finally/)
+  assert.match(await source('../src/App.tsx'), /\/manage\?module=devices/)
 })
 
-test('lets an authenticated tenant manager open POS without a second login', async () => {
-  const gate = await source('../src/components/auth/OperationalPinGate.tsx')
-  assert.match(gate, /hasManagementAccess/)
-  assert.match(gate, /managementAuthorized/)
-  assert.doesNotMatch(gate, /window\.location\.reload\(\)/)
+test('requires a persisted operational session before POS or tables initialize', async () => {
+  const app = await source('../src/App.tsx')
+  const pos = await source('../src/shells/PosShell.tsx')
+  const tables = await source('../src/shells/TablesShell.tsx')
+  const gate = await source('../src/components/context/OperationalSessionGate.tsx')
+  assert.match(app, /pathname !== '\/pos'/)
+  assert.match(app, /replaceState\(\{\}, '', '\/operate'\)/)
+  assert.match(pos, /<OperationalSessionGate>/)
+  assert.match(tables, /<OperationalSessionGate>/)
+  assert.match(gate, /fetchOperationalSessionContext\(operationalToken\)/)
+  assert.match(gate, /\[401, 403, 409\]\.includes\(reason\.status\)/)
+  assert.match(gate, /A sessão foi preservada/)
+  assert.doesNotMatch(pos, /<OperationalContextGate|<OperationalPinGate/)
+  assert.doesNotMatch(tables, /<OperationalContextGate|<OperationalPinGate/)
 })
 
-test('keeps PIN fields away from management login but exposes the operator entry route', async () => {
+test('keeps the management login exclusive and exposes credentials only on an authorized terminal', async () => {
   const app = await source('../src/App.tsx')
   const login = await source('../src/components/auth/SignInScreen.tsx')
   const entry = await source('../src/components/auth/OperationalEntryScreen.tsx')
   const devices = await source('../src/components/management/DeviceManager.tsx')
   assert.match(app, /pathname === '\/operate'/)
   assert.match(app, /me && pathname !== '\/operate'/)
-  assert.match(login, /navigateTo\('\/operate'\)/)
-  assert.match(login, /Entrar como operador/)
+  assert.doesNotMatch(login, /navigateTo\('\/operate'\)/)
+  assert.doesNotMatch(login, /Entrar como operador|Entrar com PIN/)
+  assert.match(login, /Esta entrada é exclusiva da Gestão/)
   assert.doesNotMatch(login, /employee_code|loginOperationalTerminal/)
   assert.match(entry, /resolveOperationalTerminal\(terminalToken\)/)
   assert.match(entry, /loginOperationalTerminal\(terminalToken/)
+  assert.match(entry, /activateOperationalPin\(terminalToken/)
+  assert.match(entry, /Primeiro acesso \/ novo PIN/)
+  assert.match(entry, /inputMode="numeric" type="password" autoComplete="current-password"/)
+  assert.match(entry, /A autorização deste terminal foi preservada/)
+  assert.match(entry, /context\.tenant_name.*context\.store_name.*context\.register_name/)
   assert.match(devices, /authorizeOperationalTerminal\(headers, device\.id\)/)
+  assert.match(devices, /await releaseManagementSession\(\)/)
   assert.match(devices, /navigateTo\('\/operate'\)/)
   assert.match(devices, /device\.device_type === 'POS'/)
+})
+
+test('hydrates POS from the server-validated operational context without organizational discovery', async () => {
+  const context = await source('../src/context/PosContext.tsx')
+  const api = await source('../src/services/api.ts')
+  assert.match(context, /source === 'OPERATIONAL_SESSION'/)
+  assert.match(context, /tenantName \|\| 'Empresa'/)
+  assert.match(context, /storeName \|\| 'Unidade'/)
+  assert.match(context, /registerName \|\| 'Terminal'/)
+  assert.match(api, /operational-access\/session\/context/)
+  assert.match(api, /Authorization: `Bearer \$\{accessToken\}`/)
 })
 
 test('keeps the persisted operational session alive and returns to PIN after server rejection', async () => {
@@ -70,6 +99,11 @@ test('keeps employee registration independent from operational credentials', asy
   assert.match(team, /Cadastro de funcionários/)
   assert.match(api, /fetchEmployees/)
   assert.match(api, /employee_id: string/)
+  assert.match(team, /código de ativação temporário/)
+  assert.match(team, /Acessos operacionais/)
+  assert.match(team, /Código, PIN, função e unidade/)
+  assert.match(team, /issueOperationalPinActivation/)
+  assert.doesNotMatch(team, /pin: pinForm\.pin|resetOperationalPin|Novo PIN \(4 a 8/)
 })
 
 test('exposes real customer and employee workspaces in tenant management', async () => {
@@ -113,6 +147,7 @@ test('loads effective capabilities and permissions from the backend', async () =
   assert.match(context, /fetchEffectiveAccess\(hdrs\)/)
   assert.match(context, /setPermissions\(access\.permissions\)/)
   assert.match(context, /setCapabilities\(access\.capabilities\)/)
+  assert.match(context, /access\.permissions\.includes\('cash\.read'\)/)
 })
 
 test('renders only backend-authorized module contributions in Gestão', async () => {

@@ -55,7 +55,7 @@ def test_operational_member_has_no_fake_email_and_activates_store_scoped_token()
         member = create_operational_member(
             OperationalMemberCreate(
                 employee_id=employee.id, role=RoleEnum.OPERATOR, store_id=store_id,
-                employee_code="atd-01", pin="4826",
+                employee_code="atd-01",
             ),
             context,
             session,
@@ -64,7 +64,9 @@ def test_operational_member_has_no_fake_email_and_activates_store_scoped_token()
         user = session.get(User, member.user_id)
         assert user is not None and user.email is None
         assert credential.employee_code == "ATD-01"
-        assert credential.pin_hash != "4826"
+        assert credential.pin_hash is None
+        assert member.credential_state == "PENDING_ACTIVATION"
+        assert member.activation_code is not None and len(member.activation_code) == 8
 
         with pytest.raises(HTTPException) as wrong:
             operational_access_service.activate(
@@ -73,6 +75,31 @@ def test_operational_member_has_no_fake_email_and_activates_store_scoped_token()
         assert wrong.value.status_code == 403
 
         authorization = operational_access_service.authorize_terminal(session, context, device_id)
+        with pytest.raises(HTTPException) as pending:
+            operational_access_service.activate_from_terminal(
+                session, terminal_token=authorization["terminal_token"], employee_code="atd-01", pin="4826",
+            )
+        assert pending.value.status_code == 409
+        with pytest.raises(HTTPException) as invalid_activation:
+            operational_access_service.activate_pin_from_terminal(
+                session, terminal_token=authorization["terminal_token"], employee_code="atd-01",
+                activation_code="00000000", pin="4826",
+            )
+        assert invalid_activation.value.status_code == 401
+        operational_access_service.activate_pin_from_terminal(
+            session, terminal_token=authorization["terminal_token"], employee_code="atd-01",
+            activation_code=member.activation_code, pin="4826",
+        )
+        session.refresh(credential)
+        assert credential.pin_hash is not None and credential.pin_hash != "4826"
+        assert credential.pin_activated_at is not None
+        assert credential.activation_secret_hash is None
+        with pytest.raises(HTTPException) as consumed_activation:
+            operational_access_service.activate_pin_from_terminal(
+                session, terminal_token=authorization["terminal_token"], employee_code="atd-01",
+                activation_code=member.activation_code, pin="6752",
+            )
+        assert consumed_activation.value.status_code == 401
         activated = operational_access_service.activate_from_terminal(
             session, terminal_token=authorization["terminal_token"], employee_code="atd-01", pin="4826",
         )
@@ -118,7 +145,8 @@ def test_public_pin_exchange_requires_an_active_manager_authorized_terminal(monk
         session.add(OperationalCredential(
             tenant_id=tenant.id, store_id=store.id, user_id=operator.id,
             membership_id=operator_membership.id, employee_id=employee.id,
-            employee_code="ATD-17", pin_salt=salt, pin_hash=pin_hash, pin_iterations=iterations,
+            employee_code="ATD-17", pin_salt=salt, pin_hash=pin_hash,
+            pin_iterations=iterations, pin_activated_at=datetime.utcnow(),
         ))
         device = OperationalDevice(
             tenant_id=tenant.id, store_id=store.id, code="POS-01", name="Caixa principal",
@@ -151,9 +179,31 @@ def test_public_pin_exchange_requires_an_active_manager_authorized_terminal(monk
             assurance_level="pin", claims=claims, provider="operational",
             legacy_user_id=uuid.UUID(claims["sub"]),
         )
-        authorized = authorize_tenant_context(session, principal, tenant_id, store_id, "POST", "/api/v1/operational-access/session/end")
+        authorized = authorize_tenant_context(
+            session, principal, tenant_id, store_id,
+            "GET", "/api/v1/operational-access/session/context",
+        )
         assert authorized.device_id == device_id
         assert authorized.operational_session_id == persisted.id
+
+        projection = operational_access_service.operational_session_context(session, authorized)
+        assert projection["session_id"] == persisted.id
+        assert projection["tenant_id"] == tenant_id
+        assert projection["store_id"] == store_id
+        assert projection["register_id"] == status["register_id"]
+        assert projection["device_id"] == device_id
+        assert projection["full_name"] == "Operadora"
+        assert projection["role"] == RoleEnum.OPERATOR
+
+        with pytest.raises(HTTPException) as manager_without_shift:
+            operational_access_service.operational_session_context(
+                session,
+                TenantContext(
+                    tenant_id=tenant_id, store_id=store_id,
+                    user_id=admin_id, role=RoleEnum.ADMIN,
+                ),
+            )
+        assert manager_without_shift.value.status_code == 403
 
         persisted.last_seen_at = datetime.utcnow() - timedelta(minutes=5)
         session.add(persisted); session.commit()

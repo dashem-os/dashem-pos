@@ -1,8 +1,8 @@
 import { LogOut, ShoppingCart } from 'lucide-react'
 
 import { Toast } from '../components/common/Toast'
-import { OperationalContextGate, OperationalSelection } from '../components/context/OperationalContextGate'
-import { OperationalPinGate } from '../components/auth/OperationalPinGate'
+import { OperationalSelection } from '../components/context/OperationalContextGate'
+import { OperationalSessionGate } from '../components/context/OperationalSessionGate'
 import { TableServiceWorkspace } from '../components/tables/TableServiceWorkspace'
 import { useAuth } from '../context/AuthContext'
 import { PosProvider, usePos } from '../context/PosContext'
@@ -10,7 +10,7 @@ import { navigateTo } from '../utils/navigation'
 
 
 export default function TablesShell() {
-  return <OperationalContextGate requireTerminal={false}>{(selection) => <OperationalPinGate selection={selection}><SelectedTablesShell selection={selection} /></OperationalPinGate>}</OperationalContextGate>
+  return <OperationalSessionGate>{(selection) => <SelectedTablesShell selection={selection} />}</OperationalSessionGate>
 }
 
 function SelectedTablesShell({ selection }: { selection: OperationalSelection }) {

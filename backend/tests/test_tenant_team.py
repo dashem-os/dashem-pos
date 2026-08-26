@@ -2,9 +2,12 @@ import uuid
 
 import pytest
 from fastapi import HTTPException
-from sqlmodel import Session
+from sqlmodel import Session, select
 
-from app.api.v1.endpoints.team import OperationalMemberCreate, TeamInvite, create_operational_member, invite_team_member, list_team
+from app.api.v1.endpoints.team import (
+    OperationalMemberCreate, TeamActivationIssue, TeamInvite,
+    create_operational_member, invite_team_member, issue_operational_activation, list_team,
+)
 from app.core.context import TenantContext
 from app.core.database import engine
 from app.core.tenancy import set_platform_db_context, set_tenant_db_context
@@ -12,6 +15,7 @@ from app.models.identity import (
     Employee,
     Membership,
     MembershipStatusEnum,
+    OperationalCredential,
     RoleEnum,
     ServicePlan,
     Store,
@@ -64,7 +68,6 @@ def test_tenant_admin_creates_pin_operator_and_enforces_contract_limit(monkeypat
                 role=RoleEnum.CASHIER,
                 store_id=store_id,
                 employee_code=f"CX{suffix[:4]}",
-                pin="4826",
             ),
             context=context,
             session=session,
@@ -73,7 +76,23 @@ def test_tenant_admin_creates_pin_operator_and_enforces_contract_limit(monkeypat
         assert invited.store_id == store_id
         assert invited.status == MembershipStatusEnum.ACTIVE
         assert invited.access_mode == "PIN"
+        assert invited.credential_state == "PENDING_ACTIVATION"
+        assert invited.activation_code is not None and len(invited.activation_code) == 8
         assert invited.email is None
+        credential = session.exec(select(OperationalCredential).where(
+            OperationalCredential.membership_id == invited.membership_id,
+        )).one()
+        first_activation_hash = credential.activation_secret_hash
+        replacement = issue_operational_activation(
+            invited.membership_id,
+            TeamActivationIssue(reason="Código inicial não foi entregue ao colaborador"),
+            context,
+            session,
+        )
+        assert replacement.credential_state == "PENDING_ACTIVATION"
+        assert replacement.activation_code is not None and len(replacement.activation_code) == 8
+        session.refresh(credential)
+        assert credential.activation_secret_hash != first_activation_hash
         assert len(list_team(context=context, session=session)) == 2
 
         with pytest.raises(HTTPException) as limit:

@@ -76,10 +76,20 @@ const PosContext = createContext<PosContextType | undefined>(undefined)
 
 export const PosProvider: React.FC<{
   children: ReactNode
+  source?: 'MANAGEMENT' | 'OPERATIONAL_SESSION'
   tenantId: string
   storeId: string
   registerId?: string
-}> = ({ children, tenantId, storeId, registerId }) => {
+  tenantName?: string
+  tenantSlug?: string
+  storeName?: string
+  storeCode?: string
+  registerName?: string
+  registerCode?: string
+}> = ({
+  children, source = 'MANAGEMENT', tenantId, storeId, registerId,
+  tenantName, tenantSlug, storeName, storeCode, registerName, registerCode,
+}) => {
 
   const [tenant, setTenant] = useState<api.Tenant | null>(null)
   const [store, setStore] = useState<api.Store | null>(null)
@@ -168,12 +178,14 @@ export const PosProvider: React.FC<{
       const me = await api.fetchMe()
       setOperatorId(requireAuthenticatedActor(me.user))
 
-      const tenants = await api.fetchTenants()
-      const selectedTenant = tenants.find((item) => item.id === tenantId)
+      const selectedTenant = source === 'OPERATIONAL_SESSION'
+        ? { id: tenantId, name: tenantName || 'Empresa', slug: tenantSlug || '', status: 'ACTIVE' as const }
+        : (await api.fetchTenants()).find((item) => item.id === tenantId)
       if (!selectedTenant) throw new Error('Tenant selecionado não está autorizado para esta identidade.')
       setTenant(selectedTenant)
-      const stores = await api.fetchStores(selectedTenant.id)
-      const selectedStore = stores.find((item) => item.id === storeId)
+      const selectedStore = source === 'OPERATIONAL_SESSION'
+        ? { id: storeId, tenant_id: tenantId, name: storeName || 'Unidade', code: storeCode || '', is_active: true }
+        : (await api.fetchStores(selectedTenant.id)).find((item) => item.id === storeId)
       if (!selectedStore) throw new Error('Unidade selecionada não está autorizada para esta identidade.')
       setStore(selectedStore)
       const hdrs = { 'X-Tenant-ID': selectedTenant.id, 'X-Store-ID': selectedStore.id }
@@ -182,12 +194,17 @@ export const PosProvider: React.FC<{
       setCapabilities(access.capabilities)
       setContributions(access.contributions)
       if (registerId) {
-        const registers = await api.fetchRegisters(hdrs, selectedStore.id)
-        const selectedRegister = registers.find((item) => item.id === registerId)
+        const selectedRegister = source === 'OPERATIONAL_SESSION'
+          ? { id: registerId, tenant_id: tenantId, store_id: storeId, name: registerName || 'Terminal', code: registerCode || '', is_active: true }
+          : (await api.fetchRegisters(hdrs, selectedStore.id)).find((item) => item.id === registerId)
         if (!selectedRegister) throw new Error('Terminal selecionado não está autorizado nesta unidade.')
         setRegister(selectedRegister)
-        const activeCs = await api.fetchActiveCashSession(hdrs, selectedStore.id, selectedRegister.id)
-        setCashSession(activeCs)
+        if (access.permissions.includes('cash.read')) {
+          const activeCs = await api.fetchActiveCashSession(hdrs, selectedStore.id, selectedRegister.id)
+          setCashSession(activeCs)
+        } else {
+          setCashSession(null)
+        }
       } else {
         setRegister(null)
         setCashSession(null)
@@ -198,7 +215,7 @@ export const PosProvider: React.FC<{
     } finally {
       setLoading(false)
     }
-  }, [tenantId, storeId, registerId, showToast])
+  }, [source, tenantId, tenantName, tenantSlug, storeId, storeName, storeCode, registerId, registerName, registerCode, showToast])
 
   // Refresh products, inventory and sales data
   const refreshData = useCallback(async () => {

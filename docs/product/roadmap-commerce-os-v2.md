@@ -2,7 +2,8 @@
 
 Status: **diretriz canônica para a próxima fase de construção**  
 Data: 23 de agosto de 2026  
-Revisão: **S17.3 em validação — próximo gate S18 Dashem Control Completion**
+Revisão: **Gate B reaberto — Integration Hardening / Operational Acceptance;
+pré-piloto bloqueado em 25/08/2026**
 Substitui como referência de execução qualquer sequência anterior que conflite com este documento.
 
 ## 1. Por que este roadmap existe
@@ -1033,9 +1034,10 @@ Implementação concluída:
 
 ### S17.1 — Identidade Operacional e Correção da Jornada
 
-Estado: **concluído no gate interno**. Este gate corretivo não acrescenta uma
-tela cosmética: separa as identidades da Gestão e da operação e corrige dados
-legados de reserva sem apagar histórico.
+Estado histórico: **implementação interna concluída, aceite de jornada
+reaberto pelo ADR-024**. O backend preserva parte da fundação, mas “PIN” deixa
+de nomear sozinho a identidade: o contrato passa a ser código + PIN pessoal +
+função + escopo + terminal + sessão operacional.
 
 Entregas:
 
@@ -1063,6 +1065,7 @@ Gate:
 - PIN incorreto não emite token e cinco erros bloqueiam temporariamente;
 - membership, usuário, tenant, unidade ou terminal inativos impedem ativação;
 - administrador não é redirecionado automaticamente para o PDV;
+- a Gestão não define nem conhece o PIN definitivo do colaborador;
 - mesa reservada possui ação de chegada, enquanto mesa bloqueada exige motivo de
   impedimento;
 - frontend, backend, migração completa, downgrade/upgrade e testes de isolamento
@@ -1073,13 +1076,15 @@ Decisão registrada no
 
 ### S17.2 — Jornada Gerencial e Cadastro Funcional
 
-Estado: **concluído no gate interno**. Este gate saneia as regressões observadas
-na validação do S17.1 antes de autorizar o S18.
+Estado histórico: **implementado, mas parcialmente substituído pelo ADR-024**.
+A separação da ficha funcional permanece válida; a entrada gerencial direta em
+mutações do PDV e a definição administrativa do PIN foram revogadas.
 
 Entregas:
 
 - administrador, responsável do tenant e gerente autenticados por e-mail entram
-  diretamente no PDV quando escolhem **Abrir PDV**, sem novo login;
+  na Gestão e podem abrir a superfície do terminal, mas uma operação humana
+  exige assunção por colaborador;
 - o PIN permanece exclusivo da assunção de turno por supervisor, caixa e
   atendente e desaparece imediatamente após autenticação válida;
 - `/identity/me` resolve a membership operacional dentro do tenant e da unidade
@@ -1087,7 +1092,8 @@ Entregas:
 - `Employee` separa a ficha completa do funcionário de memberships e
   credenciais;
 - a Gestão permite buscar funcionário existente ou concluir novo cadastro antes
-  de conceder código e PIN;
+  de conceder código, função, escopo e ativação temporária; o funcionário define
+  o próprio PIN;
 - cadastro funcional pode ser consultado e editado sem apagar histórico de
   acessos ou operações;
 - toast passa a respeitar a largura da viewport e mantém apresentação compacta
@@ -1095,9 +1101,10 @@ Entregas:
 
 Gate:
 
-- clicar em **Abrir PDV** com perfil gerencial ativo não exibe o portão de PIN;
-- ativação por PIN não recarrega a aplicação nem cai em falso estado de acesso
-  pendente;
+- clicar em **Abrir PDV** com perfil gerencial abre a superfície do terminal,
+  sem conceder autoria operacional;
+- ativação por código + PIN não recarrega a aplicação, não cai em falso estado
+  de acesso pendente e não abre seletor organizacional;
 - funcionário e credencial possuem persistência, autorização e auditoria
   independentes;
 - migrations, contratos, frontend e testes de regressão permanecem verdes.
@@ -1108,12 +1115,15 @@ Decisões registradas nos
 
 ### S17.3 — Ativação de Terminal e Entrada Operacional Pública
 
-Estado: **CI verde; aguardando validação do usuário**. Este gate fecha
-a lacuna em que a tela de PIN existia somente dentro de uma sessão por e-mail.
+Estado: **REPROVADO NA JORNADA REAL; absorvido pelo plano OA-1–OA-4**. O CI
+protegeu componentes isolados e chegou a exigir um atalho operacional no login
+gerencial, contrariando o ADR-014. A validação no deploy também demonstrou que,
+após código + PIN válidos, o POS voltava a procurar tenant da pessoa.
 
 Entregas:
 
-- `/operate` é uma entrada pública e explícita para código de colaborador + PIN;
+- `/operate` é uma superfície dedicada do terminal e não é anunciada pelo login
+  administrativo;
 - código e PIN não formam um login global: a troca somente ocorre em navegador
   previamente autorizado por administrador ou gerente;
 - a Gestão autoriza um `OperationalDevice` POS ativo e o backend assina tenant,
@@ -1127,7 +1137,8 @@ Entregas:
   sessão; ao sair do turno, o terminal permanece autorizado para a próxima
   pessoa;
 - o acesso por e-mail continua sendo a entrada de administradores e gerentes,
-  que podem abrir o PDV diretamente sem um segundo login.
+  que podem autorizar e abrir a superfície do PDV sem substituir a pessoa que
+  assume a operação.
 
 Gate:
 
@@ -1136,10 +1147,14 @@ Gate:
   rejeitado antes da consulta à credencial do funcionário;
 - PIN válido em terminal autorizado emite token operacional limitado ao mesmo
   tenant, unidade e caixa;
+- nenhum gate de contexto organizacional é exibido após a autenticação;
 - frontend, backend, contratos e testes de isolamento permanecem verdes.
 
-Decisão registrada no
-[`ADR-014`](../architecture/adr-014-terminal-authorization.md).
+Decisões registradas no
+[`ADR-014`](../architecture/adr-014-terminal-authorization.md) e no corretivo
+[`ADR-024`](../architecture/adr-024-operational-employee-access.md). A execução
+está em
+[`operational-access-hardening-plan.md`](operational-access-hardening-plan.md).
 
 ### S18 — Dashem Control Completion
 
@@ -1263,8 +1278,9 @@ Gate:
 - ausência de contrato/hardware externo não é mascarada por integração fake;
 - incidente crítico bloqueia expansão até correção e novo gate verde.
 
-Estado: **instrumentação interna concluída; validação comercial em campo
-pendente**. O Control persiste escopo, release de hardening, observações por
+Estado: **NO-GO; bloqueado pelo Gate B reaberto**. A instrumentação interna está
+implementada, mas a validação comercial em campo não pode começar. O Control
+persiste escopo, release de hardening, observações por
 tarefa e gates de incidente. O dossiê só inicia após hardening `PASSED` e profile
 `FOOD_SERVICE` ativo. TEF sem homologação e canal sem certificação são recusados.
 Conclusão exige evidência de venda, produção, pagamento, transferência e
@@ -1278,10 +1294,12 @@ terminal e periférico.
 
 Entregas:
 
-- novo login público, limpo e exclusivamente gerencial, por e-mail/OAuth;
+- novo login público, limpo e exclusivamente gerencial, por e-mail/OAuth, sem
+  atalho para `/operate`;
 - código e PIN restritos à superfície `/operate` de um terminal previamente
   autorizado, sem seleção de tenant ou unidade pelo colaborador;
-- administrador e gerente abrem o PDV diretamente com a sessão autenticada;
+- administrador e gerente autorizam e abrem a superfície do PDV, mas mutações
+  humanas exigem sessão operacional do colaborador;
 - cadastro de **Clientes** na Gestão, com histórico comercial real;
 - **Funcionários e acessos** como módulos visíveis e distintos: ficha funcional
   separada de convite por e-mail ou credencial operacional;
@@ -1295,7 +1313,8 @@ Gate:
 
 - `/login` não contém entrada por PIN nem navega para `/operate`;
 - `/operate` recusa código/PIN sem credencial válida de terminal;
-- gestor autenticado acessa `/pos` sem segundo login;
+- gestor autenticado pode abrir a superfície do POS, mas mutações humanas exigem
+  sessão operacional do colaborador;
 - ausência de `kitchen_routing` não quebra a gestão de terminais;
 - Clientes e Funcionários aparecem somente por contribution, capability e
   permission efetivas;
@@ -1303,8 +1322,9 @@ Gate:
   hardware real.
 
 Estado: **implementação corretiva em andamento**. Login, navegação gerencial,
-cadastros e desacoplamento da capability já possuem implementação; o protocolo
-seguro do Print Bridge e a homologação externa de TEF continuam pendentes.
+cadastros e autorização possuem partes implementadas, mas a jornada real foi
+reprovada em 25/08/2026 e migrou para o plano OA-1–OA-4. O protocolo seguro do
+Print Bridge e a homologação externa de TEF continuam pendentes e independentes.
 
 ## 8. Dependências e ordem de execução
 
@@ -1373,7 +1393,10 @@ e aparece como `não configurada`, nunca como pronta.
 | Renegociação capaz de alterar documento original | S15 | acordo e ledger imutáveis | resolvido no S15 |
 | Caixa/fiscal/provider sem conciliação unificada | S16 | fatos vinculados sem reescrita | resolvido no S16 |
 | BI agregado ou inventado no browser | S17 | read models rastreáveis | resolvido e testado no S17 |
-| Login gerencial misturado com PIN operacional | S21.1 | superfícies independentes e terminal autorizado | corrigido; validação responsiva pendente |
+| Login gerencial misturado com acesso operacional | OA-1–OA-4 | superfícies independentes, código + PIN pessoal e terminal autorizado | **reaberto: jornada real reprovada** |
+| Gestão define ou redefine o PIN definitivo | OA-2 | ativação temporária; colaborador define o próprio PIN | **bloqueador identificado** |
+| POS pede tenant/unidade/caixa depois do PIN | OA-1 | contexto derivado somente do terminal + sessão | **bloqueador identificado** |
+| CI valida componentes, mas não a jornada real | OA-4 | Playwright + evidência no deploy | **bloqueador identificado** |
 | Impressora sem tela tratada como usuário ou referência suficiente | S21.1 | Print Bridge pareado e revogável | contrato definido; implementação/hardware pendentes |
 | Endpoint de identidade e saúde ainda amplos | S18 | routers e observabilidade por domínio | resolvido: router Control e instrumentação explícita |
 | Segurança/confiabilidade deixadas para o fim | contínuo + S20 | gate por sprint e prova combinada | política corrigida |
@@ -1426,12 +1449,19 @@ da mutação.
 
 ### Gate B — autoridade operacional persistida
 
-Implementa o ADR-021. A autorização do terminal e o turno PIN deixam de depender
+Implementa o ADR-021. A autorização do terminal e o acesso operacional deixam de depender
 somente de JWT e passam a possuir versões e registros server-side revogáveis.
-Pausa, reativação, reautorização, redefinição de PIN, alteração funcional e fim
+Pausa, reativação, reautorização, redefinição de credencial, alteração funcional e fim
 de turno invalidam a autoridade anterior. Pessoa, turno, POS, TEF Bridge e Print
 Bridge continuam identidades independentes. Os dez critérios de aceite do
-ADR-021 são o gate objetivo deste ciclo.
+ADR-021 permanecem obrigatórios, acrescidos do contrato de acesso do colaborador
+e da prova ponta a ponta do ADR-024.
+
+Estado: **REOPENED**. O núcleo persistido, heartbeat, expiração e revogação estão
+implementados. OA-1–OA-3 corrigiram localmente a separação das superfícies, o
+PIN sob controle do colaborador e o contexto exclusivo da sessão operacional;
+a matriz OA-4 passou `14/14` cenários em Chromium local. A promoção ainda depende
+do novo job verde no CI e da repetição assistida contra o deploy publicado.
 
 ### Gate C — execução de pagamentos vinculada ao dispositivo
 
@@ -1450,21 +1480,30 @@ Conclui o ADR-023. Solicitação, autorização, execução e resultado de pagam
 passam a ser fatos append-only com tenant, unidade, caixa, POS, sessão,
 operador, ator de serviço, vínculo e transação preservados. O PostgreSQL impede
 `UPDATE` e `DELETE` das trilhas de auditoria, inclusive fora do ORM. A
-produtividade operacional é uma projeção persistida por turno PIN, com fórmulas
+produtividade operacional é uma projeção persistida por sessão operacional do
+colaborador, com fórmulas
 publicadas, watermark e reconstrução integral a partir dos fatos. Testes
 negativos atravessam tenant, unidade, dispositivo e sessão.
 
 ## 12. Próximo passo autorizado por este roadmap
 
-Os Gates A–D estão concluídos no contrato interno. O próximo ciclo deve tratar
-como validações externas independentes:
+O Gate B está reaberto e bloqueia o pré-piloto. O próximo ciclo autorizado é:
 
 ```text
-homologação de campo TEF/SmartPOS/Print Bridge e validação comercial assistida
+OA-1 autoridade/contexto
+  → OA-2 ativação e PIN pessoal
+    → OA-3 superfície operacional acessível
+      → OA-4 E2E + evidência no deploy
+        → nova decisão do Gate B
 ```
 
-S0–S21, S17.1–S17.3, S21.1 e o Gate A estão concluídos nos gates internos,
-mas a validação comercial de campo continua pendente. O S13 introduziu o ADR-009,
+O plano executável está em
+[`operational-access-hardening-plan.md`](operational-access-hardening-plan.md).
+Funcionalidades novas e homologações de campo não antecedem essa decisão.
+
+S0–S17, S18–S20 e o Gate A preservam suas implementações internas. S17.1–S17.3,
+S21.1 e o Gate B estão reabertos na integração operacional; S21 permanece
+`NO-GO`. O S13 introduziu o ADR-009,
 mapeamentos por merchant, ofertas versionadas, publicação item a item e documentos
 de repasse independentes do Order. Falha parcial e diferença financeira ficam
 observáveis. O S13.1 completa a primeira retaguarda operacional do tenant e fixa
@@ -1473,11 +1512,12 @@ contrato de crediário sem tratar obrigação como recebimento. O S15 adiciona
 baixas e acordos imutáveis. O S16 fecha caixa, fiscal, estornos e conciliação
 com fatos compensatórios e sem reescrita. O S17 cria projeções incrementais e
 reconstruíveis, com fórmulas, lag e drill-down rastreáveis. O S17.1 fixa a
-fronteira e-mail/PIN, o papel Supervisor e a chegada de reservas sem apagar
-histórico. O S17.2 preserva a sessão gerencial na ida ao PDV e separa a ficha do
-funcionário de suas credenciais. O S17.3 autoriza o terminal antes de expor o
-login operacional. O S18 conclui os contratos próprios do Control sem invadir a
+fronteira e-mail/acesso operacional, o papel Supervisor e a chegada de reservas
+sem apagar histórico. O ADR-024 corrige a ida ao PDV: a sessão gerencial
+autoriza a infraestrutura, mas cada operação humana exige colaborador, função,
+código + PIN pessoal e sessão. O S18 conclui os contratos próprios do Control sem invadir a
 equipe cotidiana do tenant. S19–S21 consolidam profiles, hardening e prontidão
-interna. Os Gates B, C e D são concluídos com migrations, testes negativos e CI
-verde; homologações TEF, SmartPOS e Print Bridge continuam gates próprios
-posteriores e não são simuladas pelo produto.
+interna. C e D preservam migrations, testes negativos e CI verde, mas sua
+aceitação operacional fica bloqueada pelo Gate B. Homologações TEF, SmartPOS e
+Print Bridge continuam gates próprios posteriores e não são simuladas pelo
+produto.

@@ -35,7 +35,9 @@ const MODULE_ICONS: Record<ModuleId, React.ComponentType<{ className?: string }>
 const MODULE_IDS = new Set<ModuleId>(Object.keys(MODULE_ICONS) as ModuleId[])
 
 export const ManagementLayout: React.FC = () => {
-  const [module, setModule] = useState<ModuleId>('overview')
+  const [module, setModule] = useState<ModuleId>(() =>
+    new URLSearchParams(window.location.search).get('module') === 'devices' ? 'devices' : 'overview'
+  )
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false)
   const { signOut } = useAuth()
   const { tenant, store, contributions } = usePos()

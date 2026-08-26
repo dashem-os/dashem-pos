@@ -20,6 +20,31 @@
 | Rotas críticas frontend/FastAPI permanecem alinhadas | `test_frontend_api_contract.py` |
 | Login, rota, contexto único, carrinho, split e caixa | `frontend/tests/*.test.ts` |
 
+## Lacunas bloqueadoras reabertas em 25/08/2026
+
+Os testes regulares de frontend continuam majoritariamente testes de fonte e
+regras isoladas. A OA-4 acrescenta uma suíte Chromium com banco e API isolados;
+ela passou localmente, mas ainda precisa produzir execução verde no CI e
+evidência contra o deploy antes da promoção.
+
+| Invariante exigido pelo ADR-024 | Proteção obrigatória | Estado |
+|---|---|---|
+| `/login` é exclusivamente gerencial e envia gestor a `/manage` | teste de rota + Playwright | superfície pública aprovada localmente; login real no deploy pendente |
+| `/operate` não oferece credencial sem terminal autorizado | backend negativo + Playwright | aprovado localmente; deploy pendente |
+| Gestão nunca recebe PIN definitivo | contrato API + backend + frontend | presente |
+| colaborador define o PIN por ativação única | backend + Playwright | aprovado localmente; CI/deploy pendentes |
+| código + PIN herdam contexto do terminal | backend cruzado + Playwright | aprovado localmente; CI/deploy pendentes |
+| `/pos` não abre seletor organizacional após autenticação | Playwright | aprovado localmente; deploy pendente |
+| gestor sem assunção não executa mutação humana do POS | backend negativo + Playwright | backend aprovado; jornada local parcial; deploy pendente |
+| saída troca a pessoa sem desautorizar o terminal | backend + Playwright | aprovado localmente; CI/deploy pendentes |
+| revogação/expiração interrompem JWT ainda válido | `test_operational_pin_identity.py` + Playwright | pausa aprovada localmente; expiração no backend; deploy pendente |
+| operador não alcança `/manage` | backend + Playwright | aprovado localmente; deploy pendente |
+| contraste, foco e toque cumprem aceite | axe/medição + inspeção no navegador | medição local aprovada; inspeção no deploy pendente |
+| jornada completa gera evidência sanitizada | CI/Playwright + runbook | suíte e runbook presentes; CI/deploy pendentes |
+
+Nenhuma linha marcada como ausente pode ser convertida em “verde” por inspeção
+de string no código-fonte.
+
 ## Regra do gate
 
 Uma mudança que altera estado, isolamento ou cálculo financeiro deve primeiro

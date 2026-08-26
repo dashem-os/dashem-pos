@@ -4,12 +4,18 @@ import * as api from '../../services/api'
 import { selectOnlyOption } from '../../domain/operationalRules'
 
 export interface OperationalSelection {
+  source?: 'MANAGEMENT' | 'OPERATIONAL_SESSION'
   tenantId: string
   storeId: string
   registerId?: string
   tenantName?: string
+  tenantSlug?: string
   storeName?: string
+  storeCode?: string
   registerName?: string
+  registerCode?: string
+  deviceId?: string
+  deviceName?: string
 }
 
 export function OperationalContextGate({
@@ -73,6 +79,7 @@ export function OperationalContextGate({
 
   const ready = Boolean(tenantId && storeId && (!requireTerminal || registerId))
   const selection = useMemo(() => ready ? {
+    source: 'MANAGEMENT' as const,
     tenantId, storeId, registerId: registerId || undefined,
     tenantName: tenants.find(item => item.id === tenantId)?.name,
     storeName: stores.find(item => item.id === storeId)?.name,

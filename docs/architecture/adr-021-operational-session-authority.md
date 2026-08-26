@@ -1,6 +1,7 @@
 # ADR-021 — Gate B: autoridade operacional persistida e revogável
 
-Status: aceito no Gate B, em 24/08/2026.
+Status: implementação backend aceita em 24/08/2026; Gate B de produto reaberto
+pelo ADR-024 em 25/08/2026.
 
 ## Contexto
 
@@ -29,14 +30,16 @@ turnos ativos. Alterar o vínculo funcional, suspender o membership ou redefinir
 o PIN gira a versão da credencial e revoga suas sessões. Sair do turno persiste
 o encerramento antes de remover o token do navegador.
 
-Gestores autenticados por e-mail continuam podendo abrir o PDV sem um segundo
-login. Essa sessão preserva a autoria gerencial e não se apresenta como um turno
-PIN. TEF Bridge, Print Bridge e KDS mantêm identidades de dispositivo próprias,
+Gestores autenticados por e-mail podem autorizar e abrir a superfície do PDV,
+mas o ADR-024 exige assunção operacional para mutações humanas. Se o gestor
+também operar, usa seu próprio cadastro de colaborador, função, código e PIN.
+TEF Bridge, Print Bridge e KDS mantêm identidades de dispositivo próprias,
 conforme o ADR-019.
 
 ## Critérios de aceite fixos
 
-1. administrador ou gerente autenticado por e-mail acessa o PDV sem novo login;
+1. administrador ou gerente autenticado por e-mail acessa a Gestão e pode abrir
+   a superfície do PDV, mas não executa mutações sem sessão operacional;
 2. código e PIN somente são trocados em POS ativo e previamente autorizado;
 3. PIN nunca recebe seletor público de tenant, unidade ou caixa;
 4. pessoa, turno, terminal POS, TEF Bridge e Print Bridge são revogáveis de forma
@@ -61,4 +64,5 @@ conforme o ADR-019.
   pareá-lo novamente;
 - as sessões persistidas passam a ser a base para duração de turno e métricas de
   horas trabalhadas, sem inferir jornada apenas por vendas;
-- o Gate B não declara TEF ou impressão comercialmente homologados.
+- o Gate B não declara TEF ou impressão comercialmente homologados;
+- CI de backend verde não fecha o Gate B sem a jornada E2E do ADR-024.

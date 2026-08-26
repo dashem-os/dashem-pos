@@ -7,6 +7,7 @@
     "dev": "vite --port 5173",
     "build": "tsc && vite build",
     "test": "node --test tests/*.test.ts",
+    "test:e2e:operational": "node e2e/operational_access.cjs",
     "preview": "vite preview"
   },
   "dependencies": {

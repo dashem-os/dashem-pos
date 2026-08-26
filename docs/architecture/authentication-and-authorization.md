@@ -90,6 +90,18 @@ authenticated identity. It does not expose a separate Owner domain.
 | Produção autorizada | `/kds` |
 | Authenticated without an active authorization record | access-pending screen |
 
+`/operate` não é um destino resolvido por uma identidade administrativa nem um
+atalho do login público. É a superfície de um navegador previamente autorizado
+como terminal POS. Código + PIN pessoal criam uma `OperationalSession` cujo
+tenant, unidade, caixa e dispositivo vêm da autorização server-side do terminal.
+O operador nunca escolhe esse contexto.
+
+Uma sessão por e-mail autoriza ações administrativas e a autorização física do
+terminal, mas não substitui a sessão operacional em mutações humanas do PDV. Um
+administrador ou gerente que também opere deve possuir ficha de colaborador,
+função operacional, código e PIN próprios. O ciclo completo está no
+[`ADR-024`](adr-024-operational-employee-access.md).
+
 The frontend route is only a navigation decision. Every privileged API route
 still validates the JWT, the platform or tenant membership, the requested
 scope and, where required, `aal2` on the backend.

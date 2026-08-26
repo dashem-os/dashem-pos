@@ -732,6 +732,10 @@ export interface TeamMember {
   status: string
   store_id?: string
   store_name?: string
+  credential_state?: 'PENDING_ACTIVATION' | 'ACTIVE'
+  pin_activated_at?: string
+  activation_code?: string
+  activation_expires_at?: string
 }
 
 export type EmployeeStatus = 'ACTIVE' | 'ON_LEAVE' | 'INACTIVE' | 'TERMINATED'
@@ -1121,7 +1125,7 @@ export async function inviteTeamMember(
 
 export async function createOperationalMember(
   headers: Record<string, string>,
-  input: { employee_id: string; role: 'SUPERVISOR' | 'CASHIER' | 'OPERATOR'; store_id: string; employee_code: string; pin: string },
+  input: { employee_id: string; role: 'SUPERVISOR' | 'CASHIER' | 'OPERATOR'; store_id: string; employee_code: string },
 ): Promise<TeamMember> {
   const res = await fetch(`${API_BASE_URL}/api/v1/team/operational`, {
     method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(input),
@@ -1130,13 +1134,13 @@ export async function createOperationalMember(
   return res.json()
 }
 
-export async function resetOperationalPin(
-  headers: Record<string, string>, membershipId: string, input: { pin: string; reason: string },
+export async function issueOperationalPinActivation(
+  headers: Record<string, string>, membershipId: string, input: { reason: string },
 ): Promise<TeamMember> {
-  const res = await fetch(`${API_BASE_URL}/api/v1/team/${membershipId}/pin`, {
+  const res = await fetch(`${API_BASE_URL}/api/v1/team/${membershipId}/activation`, {
     method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(input),
   })
-  if (!res.ok) throw await apiError(res, 'Não foi possível redefinir o PIN.')
+  if (!res.ok) throw await apiError(res, 'Não foi possível emitir a ativação do PIN pessoal.')
   return res.json()
 }
 
@@ -1150,6 +1154,24 @@ export interface OperationalSession {
   role: 'SUPERVISOR' | 'CASHIER' | 'OPERATOR'
   store_id: string
   register_id?: string
+}
+
+export interface OperationalSessionContext {
+  session_id: string
+  user_id: string
+  full_name: string
+  role: 'SUPERVISOR' | 'CASHIER' | 'OPERATOR'
+  tenant_id: string
+  tenant_name: string
+  tenant_slug: string
+  store_id: string
+  store_name: string
+  store_code: string
+  register_id: string
+  register_name: string
+  register_code: string
+  device_id: string
+  device_name: string
 }
 
 export interface TerminalAuthorizationContext {
@@ -1197,6 +1219,18 @@ export async function loginOperationalTerminal(
   return res.json()
 }
 
+export async function activateOperationalPin(
+  terminalToken: string,
+  input: { employee_code: string; activation_code: string; pin: string },
+): Promise<{ employee_code: string; activated_at: string }> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/operational-access/terminal/pin-activation`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ terminal_token: terminalToken, ...input }),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível ativar o PIN pessoal.')
+  return res.json()
+}
+
 export async function endOperationalSession(accessToken: string): Promise<void> {
   const claims = JSON.parse(atob(accessToken.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))) as {
     tenant_id: string; store_id: string
@@ -1229,6 +1263,21 @@ export async function heartbeatOperationalSession(accessToken: string): Promise<
   if ([401, 403, 409].includes(res.status)) return false
   if (!res.ok) throw await apiError(res, 'Não foi possível atualizar a presença do turno operacional.')
   return true
+}
+
+export async function fetchOperationalSessionContext(accessToken: string): Promise<OperationalSessionContext> {
+  const claims = JSON.parse(atob(accessToken.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))) as {
+    tenant_id: string; store_id: string
+  }
+  const res = await fetch(`${API_BASE_URL}/api/v1/operational-access/session/context`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'X-Tenant-ID': claims.tenant_id,
+      'X-Store-ID': claims.store_id,
+    },
+  })
+  if (!res.ok) throw await apiError(res, 'A sessão operacional não possui mais um contexto válido.')
+  return res.json()
 }
 
 export async function updateTeamMember(

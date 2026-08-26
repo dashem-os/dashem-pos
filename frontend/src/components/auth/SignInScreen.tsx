@@ -1,7 +1,6 @@
 import React, { useState } from 'react'
-import { ArrowRight, Eye, EyeOff, KeyRound, Loader2, Mail, ShieldCheck, Sparkles } from 'lucide-react'
+import { ArrowRight, Eye, EyeOff, Loader2, Mail, ShieldCheck, Sparkles } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
-import { navigateTo } from '../../utils/navigation'
 
 export function SignInScreen() {
   const { configured, signIn, signInSocial, requestPasswordReset } = useAuth()
@@ -57,9 +56,8 @@ export function SignInScreen() {
               <button disabled={submitting} className="flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-rose-600 font-black text-white shadow-[0_16px_36px_rgba(225,29,72,.22)] transition hover:-translate-y-0.5 hover:bg-rose-700 disabled:translate-y-0 disabled:opacity-60">{submitting ? <Loader2 className="h-5 w-5 animate-spin" /> : <>{recovery ? 'Enviar link seguro' : 'Entrar na Gestão'}<ArrowRight className="h-4 w-4" /></>}</button>
             </form>
             <button type="button" onClick={() => { setRecovery(value => !value); setError(null); setNotice(null) }} className="mt-4 flex min-h-11 w-full items-center justify-center text-sm font-bold text-slate-500 hover:text-rose-600">{recovery ? 'Voltar ao login' : 'Esqueci minha senha'}</button>
-            {!recovery && <button type="button" onClick={() => navigateTo('/operate')} className="mt-2 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-slate-200 text-sm font-black text-slate-600 transition hover:border-violet-300 hover:bg-violet-50 hover:text-violet-700"><KeyRound className="h-4 w-4" />Entrar como operador</button>}
           </>}
-          <p className="mt-8 border-t border-slate-200 pt-5 text-center text-[11px] leading-5 text-slate-400">Colaboradores operacionais entram por código e PIN somente em um terminal autorizado.</p>
+          <p className="mt-8 border-t border-slate-200 pt-5 text-center text-[11px] leading-5 text-slate-500">Esta entrada é exclusiva da Gestão. O acesso operacional acontece no próprio terminal autorizado.</p>
         </div>
       </section>
     </div>

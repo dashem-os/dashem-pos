@@ -1,6 +1,6 @@
 # ADR-013 — Funcionário não é credencial
 
-Status: aceito no S17.2
+Status: aceito no S17.2; ciclo do PIN corrigido pelo ADR-024 em 25/08/2026
 Data: 24 de agosto de 2026
 
 ## Contexto
@@ -18,8 +18,9 @@ dados administrativos.
   lotação, endereço, contato de emergência, situação e observações;
 - `OperationalCredential` referencia um `Employee`, uma membership e um usuário
   técnico interno, mantendo separados cadastro, autorização e autenticação;
-- conceder PIN exige selecionar um funcionário ativo já cadastrado ou concluir
-  sua ficha antes da concessão;
+- conceder acesso operacional exige selecionar um funcionário ativo já
+  cadastrado ou concluir sua ficha; a Gestão concede código, função, escopo e
+  uma ativação temporária, enquanto o funcionário define o próprio PIN;
 - atualização e inativação da ficha são auditadas; um funcionário inativo não
   pode iniciar nova sessão operacional;
 - código de colaborador e PIN não substituem a matrícula funcional;
@@ -30,6 +31,7 @@ dados administrativos.
 
 - um funcionário pode existir sem acesso e receber uma credencial depois;
 - revogar acesso não apaga ficha, histórico ou autoria de operações passadas;
+- a Gestão nunca conhece nem redefine o PIN definitivo do funcionário;
 - a Gestão passa a ter visões distintas de **Cadastro de funcionários** e
   **Acessos**;
 - futuras integrações de folha, ponto ou RH podem referenciar `Employee` sem

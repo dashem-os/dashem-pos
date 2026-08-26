@@ -315,7 +315,7 @@ class Employee(SQLModel, table=True):
 
 
 class OperationalCredential(SQLModel, table=True):
-    """Store-scoped PIN identity used only after a trusted terminal is opened."""
+    """Store-scoped identity whose personal PIN is activated by the employee."""
 
     __tablename__ = "operational_credentials"
     __table_args__ = (
@@ -330,9 +330,13 @@ class OperationalCredential(SQLModel, table=True):
     membership_id: uuid.UUID = Field(foreign_key="memberships.id", ondelete="CASCADE", index=True)
     employee_id: uuid.UUID = Field(foreign_key="employees.id", ondelete="RESTRICT", index=True)
     employee_code: str = Field(index=True, max_length=20)
-    pin_salt: str = Field(max_length=64, exclude=True)
-    pin_hash: str = Field(max_length=128, exclude=True)
+    pin_salt: Optional[str] = Field(default=None, max_length=64, exclude=True)
+    pin_hash: Optional[str] = Field(default=None, max_length=128, exclude=True)
     pin_iterations: int = Field(default=210_000)
+    activation_secret_hash: Optional[str] = Field(default=None, max_length=64, exclude=True)
+    activation_expires_at: Optional[datetime] = Field(default=None, index=True)
+    activation_failed_attempts: int = Field(default=0)
+    pin_activated_at: Optional[datetime] = Field(default=None, index=True)
     session_version: int = Field(default=1)
     failed_attempts: int = Field(default=0)
     locked_until: Optional[datetime] = Field(default=None, index=True)

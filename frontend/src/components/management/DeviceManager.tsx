@@ -16,7 +16,7 @@ const typeMeta: Record<DeviceKind, { label: string; icon: React.ComponentType<{ 
 
 export function DeviceManager() {
   const { tenant, store, operatorId, products, permissions, capabilities, showToast } = usePos()
-  const { authorizeTerminal } = useAuth()
+  const { authorizeTerminal, releaseManagementSession } = useAuth()
   const [devices, setDevices] = useState<api.OperationalDevice[]>([])
   const [registers, setRegisters] = useState<api.Register[]>([])
   const [points, setPoints] = useState<api.ProductionPoint[]>([])
@@ -98,6 +98,7 @@ export function DeviceManager() {
     try {
       const authorization = await api.authorizeOperationalTerminal(headers, device.id)
       authorizeTerminal(authorization.terminal_token)
+      await releaseManagementSession()
       showToast('success', `${device.name} autorizado neste navegador.`)
       navigateTo('/operate')
     } catch (value) { showToast('error', value instanceof Error ? value.message : 'Falha ao autorizar este terminal.') }

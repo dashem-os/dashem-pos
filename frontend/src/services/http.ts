@@ -6,6 +6,17 @@ export function setApiAccessTokenProvider(provider: () => Promise<string | null>
   accessTokenProvider = provider
 }
 
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message)
+    this.name = 'ApiError'
+  }
+}
+
+export function isTransientNetworkError(error: unknown): boolean {
+  return (typeof navigator !== 'undefined' && !navigator.onLine) || error instanceof TypeError
+}
+
 const nativeFetch = globalThis.fetch.bind(globalThis)
 
 export const apiFetch: typeof globalThis.fetch = async (input, init = {}) => {
@@ -15,8 +26,8 @@ export const apiFetch: typeof globalThis.fetch = async (input, init = {}) => {
   return nativeFetch(input, { ...init, headers })
 }
 
-export async function apiError(res: Response, fallback: string): Promise<Error> {
+export async function apiError(res: Response, fallback: string): Promise<ApiError> {
   const body = await res.json().catch(() => ({}))
   const detail = typeof body.detail === 'string' ? body.detail : fallback
-  return new Error(detail)
+  return new ApiError(detail, res.status)
 }

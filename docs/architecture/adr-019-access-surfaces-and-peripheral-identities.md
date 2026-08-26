@@ -1,6 +1,7 @@
 # ADR-019 — Pessoas, terminais e periféricos não compartilham identidade
 
-Status: aceito no gate corretivo S21.1, em 24/08/2026.
+Status: aceito no gate corretivo S21.1; autoria humana corrigida pelo ADR-024 em
+25/08/2026.
 
 ## Contexto
 
@@ -24,9 +25,11 @@ Existem três superfícies independentes:
    recebe uma credencial própria, envia heartbeat e pode ser pausada ou revogada
    sem afetar a identidade das pessoas.
 
-Um gestor autenticado que abre o PDV continua com sua sessão gerencial e não
-precisa assumir um operador por PIN. Ao sair da sessão gerencial em um navegador
-que já é terminal autorizado, a aplicação retorna à superfície `/operate`.
+Um gestor autenticado pode autorizar o navegador e abrir a superfície do PDV,
+mas sua sessão gerencial não substitui a identidade de quem assume a operação.
+Se também atuar no caixa, possui `Employee`, função, código e PIN pessoais. Ao
+encerrar a sessão operacional em navegador ainda autorizado, a aplicação retorna
+à superfície `/operate`.
 
 ### TEF
 

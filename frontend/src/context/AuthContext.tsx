@@ -23,12 +23,14 @@ interface AuthContextValue {
   enrollTotp: () => Promise<{ enrollment: TotpEnrollment | null; error: string | null }>
   verifyTotp: (factorId: string, code: string) => Promise<string | null>
   operationalActive: boolean
+  operationalToken: string | null
   terminalActive: boolean
   terminalToken: string | null
   activateOperationalSession: (token: string) => void
   authorizeTerminal: (token: string) => void
   clearTerminalAuthorization: () => void
   clearOperationalSession: () => void
+  releaseManagementSession: () => Promise<void>
   signOut: () => Promise<void>
 }
 
@@ -108,6 +110,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     configured: hasSupabaseConfig,
     passwordRecovery,
     operationalActive: Boolean(operationalToken),
+    operationalToken,
     terminalActive: Boolean(terminalToken),
     terminalToken,
     activateOperationalSession: token => {
@@ -127,6 +130,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     clearTerminalAuthorization: () => {
       localStorage.removeItem('dashem.terminal_token')
       setTerminalToken(null)
+    },
+    releaseManagementSession: async () => {
+      if (supabase) await supabase.auth.signOut()
+      setSession(null)
+      setApiAccessTokenProvider(async () => operationalToken)
+      clearRecoveryModeFromBrowser()
     },
     signIn: async (email, password) => {
       if (!supabase) return 'Supabase Auth não está configurado.'

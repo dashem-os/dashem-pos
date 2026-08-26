@@ -126,6 +126,11 @@ O contrato inicial do Capability Mesh está em
 A separação entre login de Gestão, PIN operacional, TEF Bridge e periféricos sem
 tela está em
 [`docs/architecture/adr-019-access-surfaces-and-peripheral-identities.md`](docs/architecture/adr-019-access-surfaces-and-peripheral-identities.md).
+O contrato corretivo de **Acesso Operacional do Colaborador** — código + PIN
+pessoal + função + escopo + terminal + sessão — está em
+[`docs/architecture/adr-024-operational-employee-access.md`](docs/architecture/adr-024-operational-employee-access.md).
+Seu plano de execução e aceite E2E está em
+[`docs/product/operational-access-hardening-plan.md`](docs/product/operational-access-hardening-plan.md).
 A matriz responsiva validada está em
 [`docs/quality/responsive-audit-2026-08-21.md`](docs/quality/responsive-audit-2026-08-21.md).
 
@@ -134,6 +139,13 @@ A matriz responsiva validada está em
 A sequência oficial de construção das experiências do cliente, dos domínios
 Food Service, do motor financeiro e da conclusão do Control Plane está em
 [`docs/product/roadmap-commerce-os-v2.md`](docs/product/roadmap-commerce-os-v2.md).
+
+Estado atual em 26/08/2026: **Integration Hardening / Operational Acceptance —
+pré-piloto bloqueado**. O Gate B foi reaberto após reprovação da jornada no
+deploy. A revisão OA-1–OA-4 já passou localmente `14/14` cenários em Chromium,
+mas ainda depende do novo job verde no CI e da repetição no deploy publicado.
+Gates C e D preservam sua implementação interna, mas não liberam o piloto antes
+dessa evidência.
 
 Os gates **S0–S13.1** consolidaram contratos, shells, autorização, catálogo,
 Frente de Caixa, `Order Foundation` e Mesas & Comandas. `ServiceTable`,
@@ -183,18 +195,14 @@ incrementais e isolados por tenant/unidade. Faturamento, vendas, recebimentos,
 estornos, recebíveis, mesas, produção, transferências, marketplace e ruptura são
 calculados no servidor; filtros e drill-down chegam à fonte persistida sem levar
 o histórico bruto ao navegador. Fórmulas, watermark, versão e atraso da projeção
-ficam explícitos na Gestão. O gate corretivo **S17.1 — Identidade Operacional e
-Correção da Jornada** separa administradores/gerentes por e-mail de
-supervisores/caixas/atendentes por PIN e corrige reservas legadas sem apagar
-histórico. O **S17.2 — Jornada Gerencial e Cadastro Funcional** preserva a
-identidade do gestor quando ele escolhe abrir o PDV, corrige a resolução RLS da
-sessão operacional, torna o portão de PIN instantâneo e separa ficha de
-funcionário de credencial. O corretivo **S17.3 — Ativação de Terminal e Entrada
-Operacional Pública** restaura a entrada por código e PIN na tela pública sem
-transformar o PIN em login global: um gestor autoriza este navegador contra um
-terminal POS persistido, e o backend assina tenant, unidade, caixa e dispositivo.
-Pausar ou revogar o dispositivo bloqueia novas entradas; o gestor autenticado
-continua abrindo o PDV diretamente, sem assumir uma identidade operacional. O
+ficam explícitos na Gestão. O **S17.1** criou a fundação de código + PIN e o
+**S17.2** separou ficha funcional de credencial. A validação real, porém,
+reabriu esses contratos: o **ADR-024** estabelece que a Gestão concede código,
+função, escopo e ativação temporária, o colaborador define o próprio PIN e toda
+mutação humana do PDV exige sessão operacional. O **S17.3** preserva a
+autorização server-side do terminal, mas sua jornada frontend foi reprovada e
+migrou para os sprints OA-1–OA-4. `/login` permanece exclusivamente gerencial;
+`/operate` é uma superfície do terminal e não um login global. O
 **S18 — Dashem Control Completion** separa o router do plano de controle e
 completa leads/conversão, contratos versionados, onboarding com evidências,
 timeline sanitizada de identidade, suporte assistido temporário e incidentes.

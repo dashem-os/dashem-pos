@@ -26,6 +26,24 @@ class OperationalSessionRead(BaseModel):
     register_id: uuid.UUID | None = None
 
 
+class OperationalSessionContextRead(BaseModel):
+    session_id: uuid.UUID
+    user_id: uuid.UUID
+    full_name: str
+    role: RoleEnum
+    tenant_id: uuid.UUID
+    tenant_name: str
+    tenant_slug: str
+    store_id: uuid.UUID
+    store_name: str
+    store_code: str
+    register_id: uuid.UUID
+    register_name: str
+    register_code: str
+    device_id: uuid.UUID
+    device_name: str
+
+
 class TerminalTokenInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     terminal_token: str = Field(min_length=40)
@@ -34,6 +52,17 @@ class TerminalTokenInput(BaseModel):
 class TerminalLoginInput(TerminalTokenInput):
     employee_code: str = Field(min_length=3, max_length=20)
     pin: str = Field(min_length=4, max_length=8)
+
+
+class TerminalPinActivationInput(TerminalTokenInput):
+    employee_code: str = Field(min_length=3, max_length=20)
+    activation_code: str = Field(min_length=8, max_length=8)
+    pin: str = Field(min_length=4, max_length=8)
+
+
+class TerminalPinActivationRead(BaseModel):
+    employee_code: str
+    activated_at: datetime
 
 
 class OperationalSessionEndInput(BaseModel):
@@ -92,6 +121,17 @@ def terminal_login(data: TerminalLoginInput, session: Session = Depends(get_sess
     )
 
 
+@router.post("/terminal/pin-activation", response_model=TerminalPinActivationRead)
+def terminal_pin_activation(data: TerminalPinActivationInput, session: Session = Depends(get_session)):
+    return operational_access_service.activate_pin_from_terminal(
+        session,
+        terminal_token=data.terminal_token,
+        employee_code=data.employee_code,
+        activation_code=data.activation_code,
+        pin=data.pin,
+    )
+
+
 @router.post("/session/end", status_code=status.HTTP_204_NO_CONTENT)
 def end_operational_session(
     data: OperationalSessionEndInput,
@@ -108,3 +148,11 @@ def heartbeat_operational_session(
     session: Session = Depends(get_session),
 ):
     return operational_access_service.heartbeat_operational_session(session, context)
+
+
+@router.get("/session/context", response_model=OperationalSessionContextRead)
+def operational_session_context(
+    context: TenantContext = Depends(get_tenant_context),
+    session: Session = Depends(get_session),
+):
+    return operational_access_service.operational_session_context(session, context)

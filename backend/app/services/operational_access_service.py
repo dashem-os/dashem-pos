@@ -26,6 +26,8 @@ from app.services.operational_session_service import mark_expired
 PIN_ITERATIONS = 210_000
 SESSION_HOURS = 12
 TERMINAL_SESSION_DAYS = 90
+ACTIVATION_HOURS = 24
+ACTIVATION_MAX_ATTEMPTS = 5
 OPERATIONAL_ROLES = {RoleEnum.SUPERVISOR, RoleEnum.CASHIER, RoleEnum.OPERATOR}
 MANAGEMENT_ROLES = {RoleEnum.OWNER, RoleEnum.TENANT_OWNER, RoleEnum.ADMIN, RoleEnum.MANAGER}
 
@@ -51,12 +53,26 @@ def new_pin_secret(pin: str) -> tuple[str, str, int]:
     return salt, _derive(pin, salt, PIN_ITERATIONS), PIN_ITERATIONS
 
 
+def issue_activation_secret(credential_id: uuid.UUID) -> tuple[str, str, datetime]:
+    """Issue a one-time code; only its keyed digest is persisted."""
+    activation_code = f"{secrets.randbelow(100_000_000):08d}"
+    digest = _activation_digest(credential_id, activation_code)
+    return activation_code, digest, datetime.utcnow() + timedelta(hours=ACTIVATION_HOURS)
+
+
+def _activation_digest(credential_id: uuid.UUID, activation_code: str) -> str:
+    material = f"operational-pin-activation:{credential_id}:{activation_code}".encode("utf-8")
+    return hmac.new(settings.SECRET_KEY.encode("utf-8"), material, hashlib.sha256).hexdigest()
+
+
 def _derive(pin: str, salt: str, iterations: int) -> str:
     material = f"{pin}:{settings.SECRET_KEY}".encode("utf-8")
     return hashlib.pbkdf2_hmac("sha256", material, bytes.fromhex(salt), iterations).hex()
 
 
 def _matches(credential: OperationalCredential, pin: str) -> bool:
+    if not credential.pin_salt or not credential.pin_hash:
+        return False
     return hmac.compare_digest(_derive(pin, credential.pin_salt, credential.pin_iterations), credential.pin_hash)
 
 
@@ -177,6 +193,87 @@ def activate_from_terminal(session: Session, *, terminal_token: str, employee_co
     return result
 
 
+def activate_pin_from_terminal(
+    session: Session, *, terminal_token: str, employee_code: str,
+    activation_code: str, pin: str,
+) -> dict:
+    """Let the employee establish the personal PIN on an authorized POS."""
+    context, device, _projection = resolve_terminal(session, terminal_token)
+    code = normalize_employee_code(employee_code)
+    credential = session.exec(select(OperationalCredential).where(
+        OperationalCredential.tenant_id == context.tenant_id,
+        OperationalCredential.store_id == device.store_id,
+        OperationalCredential.employee_code == code,
+    ).with_for_update()).first()
+    generic = "Código de ativação inválido ou expirado. Solicite um novo código à Gestão."
+    if not credential:
+        raise HTTPException(status_code=401, detail=generic)
+    membership = session.get(Membership, credential.membership_id)
+    user = session.get(User, credential.user_id)
+    employee = session.get(Employee, credential.employee_id)
+    if (
+        not membership or not user or not user.is_active or not employee
+        or employee.status != EmployeeStatusEnum.ACTIVE
+        or membership.status != MembershipStatusEnum.ACTIVE
+        or membership.role not in OPERATIONAL_ROLES
+        or membership.tenant_id != context.tenant_id
+        or membership.store_id != device.store_id
+    ):
+        raise HTTPException(status_code=403, detail="Acesso operacional inativo ou fora da unidade.")
+    now = datetime.utcnow()
+    submitted = re.sub(r"\D", "", activation_code)
+    valid = (
+        len(submitted) == 8
+        and credential.activation_secret_hash is not None
+        and credential.activation_expires_at is not None
+        and credential.activation_expires_at > now
+        and hmac.compare_digest(
+            _activation_digest(credential.id, submitted),
+            credential.activation_secret_hash,
+        )
+    )
+    if not valid:
+        credential.activation_failed_attempts += 1
+        if credential.activation_failed_attempts >= ACTIVATION_MAX_ATTEMPTS:
+            credential.activation_secret_hash = None
+            credential.activation_expires_at = None
+        credential.updated_at = now
+        session.add(credential)
+        session.commit()
+        raise HTTPException(status_code=401, detail=generic)
+    salt, pin_hash, iterations = new_pin_secret(pin)
+    credential.pin_salt = salt
+    credential.pin_hash = pin_hash
+    credential.pin_iterations = iterations
+    credential.pin_activated_at = now
+    credential.activation_secret_hash = None
+    credential.activation_expires_at = None
+    credential.activation_failed_attempts = 0
+    credential.failed_attempts = 0
+    credential.locked_until = None
+    revoke_credential_sessions(session, credential, reason="PIN pessoal ativado pelo colaborador")
+    reliability_service.write_audit_and_outbox(
+        session=session, tenant_id=context.tenant_id, store_id=device.store_id,
+        actor_id=user.id, action="operational_access.pin_activated",
+        target=f"membership:{membership.id}",
+        audit_payload={
+            "membership_id": str(membership.id), "employee_id": str(employee.id),
+            "device_id": str(device.id), "activated_at": now.isoformat(),
+        },
+        aggregate_type="operational_credential", aggregate_id=str(credential.id),
+        event_type="operational_access.pin_activated",
+        outbox_payload={
+            "membership_id": str(membership.id), "employee_id": str(employee.id),
+            "store_id": str(device.store_id), "device_id": str(device.id),
+        },
+    )
+    device.last_seen_at = now
+    device.updated_at = now
+    session.add(device)
+    session.commit()
+    return {"employee_code": code, "activated_at": now}
+
+
 def activate(
     session: Session, context: TenantContext, *, employee_code: str, pin: str,
     store_id: uuid.UUID, register_id: uuid.UUID | None, device_id: uuid.UUID | None = None,
@@ -204,6 +301,8 @@ def activate(
         or membership.tenant_id != context.tenant_id or membership.store_id != store_id
     ):
         raise HTTPException(status_code=403, detail="Acesso operacional inativo ou fora da unidade.")
+    if not credential.pin_hash or not credential.pin_salt or not credential.pin_activated_at:
+        raise HTTPException(status_code=409, detail="O PIN pessoal ainda não foi ativado neste acesso.")
     device = session.get(OperationalDevice, device_id)
     register = session.get(Register, register_id)
     if (
@@ -306,6 +405,46 @@ def heartbeat_operational_session(session: Session, context: TenantContext) -> O
     session.commit()
     session.refresh(item)
     return item
+
+
+def operational_session_context(session: Session, context: TenantContext) -> dict:
+    """Return display data only after the persisted operational authority passes."""
+    if (
+        not context.operational_session_id or not context.user_id or not context.role
+        or not context.store_id or not context.register_id or not context.device_id
+        or context.auth_provider != "operational"
+    ):
+        raise HTTPException(status_code=403, detail="Uma sessão operacional ativa é obrigatória.")
+    authority = session.get(OperationalSession, context.operational_session_id)
+    tenant = session.get(Tenant, context.tenant_id)
+    store = session.get(Store, context.store_id)
+    register = session.get(Register, context.register_id)
+    device = session.get(OperationalDevice, context.device_id)
+    user = session.get(User, context.user_id)
+    if (
+        not authority or authority.status != OperationalSessionStatusEnum.ACTIVE
+        or authority.user_id != context.user_id or authority.device_id != context.device_id
+        or authority.register_id != context.register_id or not tenant or not store
+        or not register or not device or not user
+    ):
+        raise HTTPException(status_code=403, detail="O contexto da sessão operacional não está mais disponível.")
+    return {
+        "session_id": authority.id,
+        "user_id": user.id,
+        "full_name": user.full_name,
+        "role": context.role,
+        "tenant_id": tenant.id,
+        "tenant_name": tenant.name,
+        "tenant_slug": tenant.slug,
+        "store_id": store.id,
+        "store_name": store.name,
+        "store_code": store.code,
+        "register_id": register.id,
+        "register_name": register.name,
+        "register_code": register.code,
+        "device_id": device.id,
+        "device_name": device.name,
+    }
 
 
 def end_operational_session(session: Session, context: TenantContext, *, reason: str) -> None:

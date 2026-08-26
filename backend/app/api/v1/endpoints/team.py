@@ -34,6 +34,10 @@ class TeamMemberRead(BaseModel):
     status: MembershipStatusEnum
     store_id: Optional[uuid.UUID] = None
     store_name: Optional[str] = None
+    credential_state: Optional[Literal["PENDING_ACTIVATION", "ACTIVE"]] = None
+    pin_activated_at: Optional[datetime] = None
+    activation_code: Optional[str] = None
+    activation_expires_at: Optional[datetime] = None
 
 
 class TeamInvite(BaseModel):
@@ -50,7 +54,6 @@ class OperationalMemberCreate(BaseModel):
     role: RoleEnum
     store_id: uuid.UUID
     employee_code: str = PydanticField(min_length=3, max_length=20)
-    pin: str = PydanticField(min_length=4, max_length=8)
 
 
 class TeamAccessUpdate(BaseModel):
@@ -61,9 +64,8 @@ class TeamAccessUpdate(BaseModel):
     reason: str = PydanticField(min_length=3, max_length=500)
 
 
-class TeamPinReset(BaseModel):
+class TeamActivationIssue(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    pin: str = PydanticField(min_length=4, max_length=8)
     reason: str = PydanticField(min_length=3, max_length=500)
 
 
@@ -110,7 +112,11 @@ def _credential(session: Session, membership_id: uuid.UUID) -> Optional[Operatio
     return session.exec(select(OperationalCredential).where(OperationalCredential.membership_id == membership_id)).first()
 
 
-def _member_read(session: Session, membership: Membership) -> TeamMemberRead:
+def _member_read(
+    session: Session, membership: Membership, *,
+    activation_code: Optional[str] = None,
+    activation_expires_at: Optional[datetime] = None,
+) -> TeamMemberRead:
     user = session.get(User, membership.user_id)
     store = session.get(Store, membership.store_id) if membership.store_id else None
     credential = _credential(session, membership.id)
@@ -121,6 +127,10 @@ def _member_read(session: Session, membership: Membership) -> TeamMemberRead:
         employee_id=credential.employee_id if credential else None,
         role=membership.role, status=membership.status, store_id=membership.store_id,
         store_name=store.name if store else None,
+        credential_state=("ACTIVE" if credential.pin_hash else "PENDING_ACTIVATION") if credential else None,
+        pin_activated_at=credential.pin_activated_at if credential else None,
+        activation_code=activation_code,
+        activation_expires_at=activation_expires_at,
     )
 
 
@@ -294,7 +304,7 @@ def list_team(context: TenantContext = Depends(get_tenant_context), session: Ses
 @router.post("/invitations", response_model=TeamMemberRead, status_code=201)
 def invite_team_member(data: TeamInvite, context: TenantContext = Depends(get_tenant_context), session: Session = Depends(get_session)):
     if data.role not in EMAIL_ROLES:
-        raise HTTPException(status_code=422, detail="Somente administradores e gerentes usam convite por e-mail. Cadastre a operação com código e PIN.")
+        raise HTTPException(status_code=422, detail="Somente administradores e gerentes usam convite por e-mail. Conceda um acesso operacional ao colaborador.")
     if data.store_id is not None:
         raise HTTPException(status_code=422, detail="Administrador e gerente possuem acesso por e-mail no tenant inteiro.")
     _enforce_user_limit(session, context.tenant_id)
@@ -316,7 +326,7 @@ def invite_team_member(data: TeamInvite, context: TenantContext = Depends(get_te
 @router.post("/operational", response_model=TeamMemberRead, status_code=201)
 def create_operational_member(data: OperationalMemberCreate, context: TenantContext = Depends(get_tenant_context), session: Session = Depends(get_session)):
     if data.role not in OPERATIONAL_ROLES:
-        raise HTTPException(status_code=422, detail="O acesso por PIN é exclusivo de supervisor, caixa e atendente.")
+        raise HTTPException(status_code=422, detail="O acesso operacional é exclusivo de supervisor, caixa e atendente.")
     _validate_scope(session, context, data.role, data.store_id)
     _enforce_user_limit(session, context.tenant_id)
     employee = session.get(Employee, data.employee_id)
@@ -338,7 +348,6 @@ def create_operational_member(data: OperationalMemberCreate, context: TenantCont
         OperationalCredential.employee_code == code,
     )).first():
         raise HTTPException(status_code=409, detail="Este código já identifica outro colaborador nesta unidade.")
-    salt, pin_hash, iterations = operational_access_service.new_pin_secret(data.pin)
     user = session.get(User, employee.user_id) if employee.user_id else None
     if user is None:
         user = User(email=None, full_name=employee.full_name, is_active=True)
@@ -350,16 +359,27 @@ def create_operational_member(data: OperationalMemberCreate, context: TenantCont
     credential = OperationalCredential(
         tenant_id=context.tenant_id, store_id=data.store_id, user_id=user.id, membership_id=membership.id,
         employee_id=employee.id,
-        employee_code=code, pin_salt=salt, pin_hash=pin_hash, pin_iterations=iterations,
+        employee_code=code,
     )
+    activation_code, activation_hash, activation_expires_at = operational_access_service.issue_activation_secret(credential.id)
+    credential.activation_secret_hash = activation_hash
+    credential.activation_expires_at = activation_expires_at
     # Explicit flushes preserve FK order even though these identity models do
     # not expose credential relationships through the ORM.
     session.add(membership); session.flush()
     session.add(credential)
-    payload = {"membership_id": str(membership.id), "employee_id": str(employee.id), "role": data.role.value, "store_id": str(data.store_id), "employee_code": code}
+    payload = {
+        "membership_id": str(membership.id), "employee_id": str(employee.id),
+        "role": data.role.value, "store_id": str(data.store_id),
+        "employee_code": code, "credential_state": "PENDING_ACTIVATION",
+        "activation_expires_at": activation_expires_at.isoformat(),
+    }
     _audit(session, context, membership, "tenant.team.operational_created", payload)
     session.commit(); session.refresh(membership)
-    return _member_read(session, membership)
+    return _member_read(
+        session, membership, activation_code=activation_code,
+        activation_expires_at=activation_expires_at,
+    )
 
 
 @router.patch("/{membership_id}", response_model=TeamMemberRead)
@@ -370,9 +390,9 @@ def update_team_member(membership_id: uuid.UUID, data: TeamAccessUpdate, context
         raise HTTPException(status_code=404, detail="Membro não encontrado.")
     credential = _credential(session, membership.id)
     if credential and data.role not in OPERATIONAL_ROLES:
-        raise HTTPException(status_code=409, detail="Um acesso por PIN não pode ser convertido em acesso por e-mail.")
+        raise HTTPException(status_code=409, detail="Um acesso operacional não pode ser convertido em acesso por e-mail.")
     if not credential and data.role not in EMAIL_ROLES:
-        raise HTTPException(status_code=409, detail="Um acesso por e-mail não pode ser convertido em acesso por PIN.")
+        raise HTTPException(status_code=409, detail="Um acesso por e-mail não pode ser convertido em acesso operacional.")
     if membership.user_id == context.user_id and data.status in {MembershipStatusEnum.SUSPENDED, MembershipStatusEnum.REVOKED}:
         raise HTTPException(status_code=409, detail="O administrador não pode revogar a própria sessão.")
     previous = {"role": RoleEnum(membership.role).value, "status": MembershipStatusEnum(membership.status).value, "store_id": str(membership.store_id) if membership.store_id else None}
@@ -390,18 +410,32 @@ def update_team_member(membership_id: uuid.UUID, data: TeamAccessUpdate, context
     return _member_read(session, membership)
 
 
-@router.post("/{membership_id}/pin", response_model=TeamMemberRead)
-def reset_operational_pin(membership_id: uuid.UUID, data: TeamPinReset, context: TenantContext = Depends(get_tenant_context), session: Session = Depends(get_session)):
+@router.post("/{membership_id}/activation", response_model=TeamMemberRead)
+def issue_operational_activation(membership_id: uuid.UUID, data: TeamActivationIssue, context: TenantContext = Depends(get_tenant_context), session: Session = Depends(get_session)):
     membership = session.get(Membership, membership_id)
     credential = _credential(session, membership_id)
     if not membership or membership.tenant_id != context.tenant_id or not credential:
         raise HTTPException(status_code=404, detail="Acesso operacional não encontrado.")
-    salt, pin_hash, iterations = operational_access_service.new_pin_secret(data.pin)
-    credential.pin_salt = salt; credential.pin_hash = pin_hash; credential.pin_iterations = iterations
-    credential.failed_attempts = 0; credential.locked_until = None; credential.updated_at = datetime.utcnow()
     operational_access_service.revoke_credential_sessions(
-        session, credential, reason=f"PIN redefinido: {data.reason}",
+        session, credential, reason=f"Nova ativação de PIN solicitada: {data.reason}",
     )
-    _audit(session, context, membership, "tenant.team.pin_reset", {"membership_id": str(membership.id), "reason": data.reason})
+    activation_code, activation_hash, activation_expires_at = operational_access_service.issue_activation_secret(credential.id)
+    credential.pin_salt = None
+    credential.pin_hash = None
+    credential.pin_activated_at = None
+    credential.activation_secret_hash = activation_hash
+    credential.activation_expires_at = activation_expires_at
+    credential.activation_failed_attempts = 0
+    credential.failed_attempts = 0
+    credential.locked_until = None
+    credential.updated_at = datetime.utcnow()
+    session.add(credential)
+    _audit(session, context, membership, "tenant.team.pin_activation_issued", {
+        "membership_id": str(membership.id), "reason": data.reason,
+        "activation_expires_at": activation_expires_at.isoformat(),
+    })
     session.commit()
-    return _member_read(session, membership)
+    return _member_read(
+        session, membership, activation_code=activation_code,
+        activation_expires_at=activation_expires_at,
+    )

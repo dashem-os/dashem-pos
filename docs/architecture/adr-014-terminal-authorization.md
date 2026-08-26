@@ -1,6 +1,6 @@
 # ADR-014 — Autorização de terminal antes da identidade operacional
 
-Status: aceito no S17.3.
+Status: aceito no S17.3; aceite de produto reaberto pelo ADR-024 em 25/08/2026.
 
 ## Contexto
 
@@ -33,7 +33,8 @@ pública. O bloqueio por tentativas continua pertencendo à credencial individua
 
 - um operador não escolhe nem envia o próprio tenant/unidade/caixa;
 - sair do turno não desautoriza o ponto físico;
-- gestores por e-mail continuam acessando o PDV diretamente;
+- gestores por e-mail podem abrir a superfície do PDV, mas uma operação humana
+  exige assunção por colaborador com código + PIN pessoal;
 - o login público permanece exclusivamente gerencial;
 - reautorizar o navegador exige uma identidade gerencial e gera auditoria;
 - revogação do dispositivo é também revogação da entrada operacional daquele

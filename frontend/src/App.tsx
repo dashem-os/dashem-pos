@@ -20,7 +20,7 @@ export default function App() {
 }
 
 function IdentityRouter() {
-  const { session, operationalActive, loading, passwordRecovery, signOut } = useAuth()
+  const { session, operationalActive, terminalActive, loading, passwordRecovery, signOut, releaseManagementSession } = useAuth()
   const [me, setMe] = useState<AuthMe | null>(null)
   const [identityLoading, setIdentityLoading] = useState(false)
   const [identityError, setIdentityError] = useState<string | null>(null)
@@ -53,6 +53,19 @@ function IdentityRouter() {
     setPathname('/login')
   }, [loading, session, operationalActive, pathname])
 
+  useEffect(() => {
+    if (loading || operationalActive || !session || pathname !== '/pos') return
+    if (!terminalActive) {
+      window.history.replaceState({}, '', '/manage?module=devices')
+      setPathname('/manage')
+      return
+    }
+    void releaseManagementSession().finally(() => {
+      window.history.replaceState({}, '', '/operate')
+      setPathname('/operate')
+    })
+  }, [loading, operationalActive, pathname, releaseManagementSession, session, terminalActive])
+
   const platformRole = me?.platform_role ?? ''
   const activeMemberships = (me?.memberships ?? []).filter((membership) => membership.status === 'ACTIVE')
   const canManage = hasManagementAccess(activeMemberships)
@@ -68,7 +81,7 @@ function IdentityRouter() {
   }, [authenticatedRoute, pathname])
 
   if (loading) return <FullScreenLoader label="Validando sessão..." />
-  if (pathname === '/operate' && !operationalActive) return <OperationalEntryScreen />
+  if ((pathname === '/operate' || pathname === '/pos') && !operationalActive) return <OperationalEntryScreen />
   if (!session && !operationalActive) return <SignInScreen />
 
   if (passwordRecovery || new URLSearchParams(window.location.search).get('mode') === 'recovery') {
