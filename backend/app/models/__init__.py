@@ -1,7 +1,7 @@
 from app.models.identity import (
     Tenant, Store, User, AuthIdentity, Membership, RoleEnum, TenantStatusEnum,
     MembershipStatusEnum, TenantProfile, TenantContact, ServicePlan,
-    TenantSubscription, TenantCustomerTypeEnum, SubscriptionStatusEnum,
+    TenantSubscription, TenantCustomerTypeEnum, TenantTypeEnum, TenantPhaseEnum, SubscriptionStatusEnum,
     Permission, RoleProfile, RoleProfilePermission, MembershipRoleProfile,
     PermissionGrant, PermissionGrantEffectEnum, Employee, EmployeeStatusEnum,
     OperationalCredential, OperationalSession, OperationalSessionStatusEnum,
@@ -92,6 +92,8 @@ __all__ = [
     "ServicePlan",
     "TenantSubscription",
     "TenantCustomerTypeEnum",
+    "TenantTypeEnum",
+    "TenantPhaseEnum",
     "SubscriptionStatusEnum",
     "Permission",
     "RoleProfile",

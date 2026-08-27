@@ -23,9 +23,8 @@ class NicheContract:
         return frozenset((*self.required, *self.addons))
 
 
-# The niche catalog is an executable commercial boundary. Anything outside the
-# selected niche cannot become an entitlement, even when it exists in the
-# global architecture catalog.
+# Niches are commercial recommendation profiles. They seed a useful starting
+# point, but never prevent a mixed business from contracting another capability.
 NICHE_CONTRACTS: dict[BusinessNiche, NicheContract] = {
     BusinessNiche.FOOD_SERVICE: NicheContract(
         key=BusinessNiche.FOOD_SERVICE,
@@ -61,6 +60,17 @@ def entitlement_keys(niche: BusinessNiche, addon_keys: list[str] | tuple[str, ..
     outside_niche = set(resolved).difference(contract.allowed)
     if outside_niche:
         raise ValueError(f"Dependências fora do nicho {niche.value}: {', '.join(sorted(outside_niche))}")
+    unavailable = set(resolved).difference(IMPLEMENTED_CAPABILITIES)
+    if unavailable:
+        raise ValueError(f"Capabilities ainda não executáveis: {', '.join(sorted(unavailable))}")
+    return resolved
+
+
+def selected_entitlement_keys(capability_keys: list[str] | tuple[str, ...]) -> tuple[str, ...]:
+    unknown = set(capability_keys).difference(CAPABILITY_REGISTRY)
+    if unknown:
+        raise ValueError(f"Capabilities desconhecidas: {', '.join(sorted(unknown))}")
+    resolved = resolve_dependencies(capability_keys)
     unavailable = set(resolved).difference(IMPLEMENTED_CAPABILITIES)
     if unavailable:
         raise ValueError(f"Capabilities ainda não executáveis: {', '.join(sorted(unavailable))}")

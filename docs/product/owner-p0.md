@@ -2,58 +2,68 @@
 
 ## Fronteira do Owner
 
-O Platform Owner administra a relação SaaS, não a operação interna do cliente.
-Ele enxerga dados cadastrais, cobrança, contrato, nicho, plano, quotas,
-entitlements, ciclo de vida e o primeiro administrador. Ele não enxerga nem
-administra garçons, caixas, atendentes, supervisores, vendas, sessões de caixa
-ou estoque do tenant.
+O Platform Owner administra a relação comercial e contratual do SaaS. Ele
+enxerga cadastro, responsável, cobrança, contrato, tipos de negócio, plano,
+limites, entitlements, fase do relacionamento e o primeiro administrador. Ele
+não administra garçons, caixas, atendentes, supervisores, vendas, sessões de
+caixa ou estoque do tenant.
 
-Filiais e identidades operacionais são administradas no Dashem Gestão. O Owner
-registra a matriz inicial e a quota de unidades contratada.
+Filiais posteriores e identidades operacionais pertencem ao Dashem Gestão. O
+Owner registra a matriz inicial e o limite de unidades contratado.
 
 ## Jornada canônica
 
-Existe um único provisionamento público:
+`Novo cliente → cadastro e cobrança → tipos de negócio → plano → capabilities → limites → administrador inicial → provisionar`.
 
-`Novo cliente → cadastro e cobrança → nicho → plano → capabilities filtradas → limites → administrador inicial → provisionar`.
+O fluxo persiste na mesma unidade de trabalho:
 
-O provisionamento persiste na mesma unidade de trabalho:
-
-- empresa, responsável contratual, cobrança e matriz;
-- exatamente um nicho;
-- plano ativo;
-- quotas de usuários, dispositivos, unidades e storage, sem exceder o plano;
-- capabilities base e add-ons permitidos pelo nicho;
-- snapshot versionado do contrato;
-- entitlements efetivos;
-- atribuição versionada do perfil;
+- empresa ou profissional, com CPF ou CNPJ validado por dígito verificador;
+- responsável contratual, contato de cobrança e matriz;
+- tipo de tenant separado da fase do relacionamento;
+- zero, um ou vários tipos de negócio;
+- plano, valor mensal negociado, dia e estado da cobrança;
+- limites de usuários, dispositivos, unidades e storage;
+- capabilities efetivamente escolhidas;
+- snapshot versionado do contrato e dos entitlements;
 - primeiro acesso administrativo;
 - auditoria e outbox.
 
-Não existe rota pública para criar tenant comercial incompleto.
+Campos obrigatórios são validados ao tentar avançar. Não há asteriscos
+espalhados: o campo recebe borda âmbar `#ffbf00`, mensagem específica e foco.
 
-## Nichos iniciais
+## Tipos de negócio e capabilities
 
-### `FOOD_SERVICE`
+`FOOD_SERVICE`, `RETAIL` e `BEAUTY_RESELLER` são perfis de recomendação,
+não barreiras comerciais. Um cliente pode combinar perfis — por exemplo,
+confeitaria e revenda de cosméticos — e alterá-los depois da contratação.
 
-Inclui delivery. Mesas e KDS são add-ons possíveis e só existem quando forem
-explicitamente contratados.
+Os perfis sugerem capabilities e fornecem uma prévia. A contratação final é a
+seleção explícita de capabilities, validada apenas por dependências técnicas.
+Gestão e POS recebem exclusivamente os entitlements persistidos. Assim, Mesas
+ou KDS nunca aparecem por inferência em um retail, mas podem ser contratados
+quando a operação híbrida realmente exigir.
 
-### `RETAIL`
+## Edição e legado
 
-Inclui estoque, checkout e canal de e-commerce. Nunca admite Mesas ou KDS.
+Cadastro, tipo, fase, perfis, plano, mensalidade, limites e capabilities são
+editáveis no workspace da organização. Cada alteração contratual cria nova
+versão auditada. Tenants antigos sem contrato podem ser regularizados pelo mesmo
+workspace, e um ADMIN já existente conta como administrador entregue.
 
-### `BEAUTY_RESELLER`
+## Cobrança e futuro Financeiro SaaS
 
-Inclui catálogo e pedidos online. Nunca admite Mesas ou KDS.
+O OWNER-P0 administra o acordo comercial por organização: plano, mensalidade
+negociada, vencimento, estado da assinatura, estado da cobrança e próxima data.
+Isso não substitui um razão financeiro.
 
-O catálogo global de capabilities não é exibido ao Owner. A API retorna somente
-a base e os add-ons permitidos para o nicho selecionado, e repete a validação no
-servidor antes de persistir qualquer entitlement.
+O futuro contexto Owner Financeiro deve ser separado do financeiro dos tenants
+e cobrir faturas, cobranças, recebimentos, inadimplência, conciliação, MRR,
+churn, impostos e integrações de pagamento. Nenhum dado financeiro operacional
+do tenant deve atravessar essa fronteira.
 
 ## Gate de aceite
 
-O OWNER-P0 só fica verde quando a jornada completa cria um tenant coerente para
-cada um dos três nichos e a projeção de Gestão/POS recebe somente os
-entitlements persistidos. A existência isolada de endpoint, tabela ou função não
-aprova o gate.
+O gate fica verde somente quando a jornada completa provisiona, reabre, edita e
+versiona um tenant coerente; aceita CPF e CNPJ válidos; suporta perfis híbridos;
+reconhece administradores legados; e entrega a Gestão/POS somente os
+entitlements persistidos. Endpoint ou função isolada não aprova o gate.

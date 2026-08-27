@@ -5,12 +5,17 @@ from sqlmodel import Session, select
 
 from app.api.v1.endpoints.identity import (
     OwnerBillingCreate, OwnerInitialAdminCreate, OwnerQuotaCreate,
-    OwnerTenantProvisionCreate, ServicePlanCreate, create_service_plan,
+    OwnerTenantContractUpdate, OwnerTenantProvisionCreate, PlatformTenantCreate,
+    ServicePlanCreate, create_service_plan,
     platform_tenant_detail, provision_owner_tenant, tenant_capability_catalog,
+    update_owner_tenant_contract, provision_platform_tenant, _normalize_tax_id,
 )
 from app.core.database import engine
 from app.core.security import AuthPrincipal
-from app.models.identity import AuthIdentity, Membership, MembershipStatusEnum, RoleEnum, TenantCustomerTypeEnum, User
+from app.models.identity import (
+    AuthIdentity, Membership, MembershipStatusEnum, RoleEnum,
+    SubscriptionStatusEnum, TenantPhaseEnum, TenantTypeEnum, User,
+)
 from app.models.platform import PlatformMembership, PlatformRoleEnum, TenantContract, TenantProfileAssignment
 from app.modules.capabilities.niches import BusinessNiche, NICHE_CONTRACTS
 
@@ -32,6 +37,14 @@ def _valid_cnpj(base: str) -> str:
         remainder = sum(number * weight for number, weight in zip(numbers[:size], weights)) % 11
         numbers.append(0 if remainder < 2 else 11 - remainder)
     return "".join(str(number) for number in numbers)
+
+
+def test_owner_accepts_valid_cpf_and_cnpj_and_rejects_invalid_document():
+    assert _normalize_tax_id("529.982.247-25") == "52998224725"
+    assert _normalize_tax_id("04.252.011/0001-10") == "04252011000110"
+    with pytest.raises(Exception) as error:
+        _normalize_tax_id("111.111.111-11")
+    assert "CPF ou CNPJ válido" in str(error.value)
 
 
 @pytest.mark.parametrize(
@@ -56,12 +69,14 @@ def test_owner_p0_provisions_complete_tenant_by_niche(monkeypatch, niche, addons
         provisioned = provision_owner_tenant(
             OwnerTenantProvisionCreate(
                 name=f"Cliente {suffix}", legal_name=f"Cliente {suffix} LTDA", slug=f"owner-p0-{suffix}",
-                customer_type=TenantCustomerTypeEnum.PILOT, tax_id=_valid_cnpj(f"{int(suffix, 16) % 100_000_000:08d}0001"),
+                tenant_type=TenantTypeEnum.CUSTOMER, lifecycle_phase=TenantPhaseEnum.PILOT,
+                tax_id=_valid_cnpj(f"{int(suffix, 16) % 100_000_000:08d}0001"),
                 company_phone="11999999999", company_email=f"empresa-{suffix}@example.test",
                 contact_name="Responsável Contratual", contact_email=f"contrato-{suffix}@example.test",
                 first_store_name="Matriz", first_store_code="MATRIZ", postal_code="01310100",
                 street="Avenida Paulista", street_number="1000", district="Bela Vista", city="São Paulo", state="SP",
-                niche=niche, plan_id=plan.id, addon_keys=addons,
+                niches=[niche], plan_id=plan.id,
+                capability_keys=list(NICHE_CONTRACTS[niche].required) + addons,
                 quotas=OwnerQuotaCreate(users=8, devices=4, units=2, storage_mb=2048),
                 billing=OwnerBillingCreate(contact_name="Financeiro", email=f"financeiro-{suffix}@example.test"),
                 initial_admin=OwnerInitialAdminCreate(full_name="Administrador Inicial", email=f"admin-{suffix}@example.test"),
@@ -96,8 +111,86 @@ def test_owner_p0_provisions_complete_tenant_by_niche(monkeypatch, niche, addons
         session.commit()
 
         catalog = tenant_capability_catalog(provisioned.tenant.id, principal, session)
-        assert {item.key for item in catalog} == NICHE_CONTRACTS[niche].allowed
+        assert {item.key for item in catalog} >= NICHE_CONTRACTS[niche].allowed
         assert {item.key for item in catalog if item.required} == set(NICHE_CONTRACTS[niche].required)
         detail = platform_tenant_detail(provisioned.tenant.id, principal, session)
         assert detail.niche == niche and len(detail.accesses) == 1
         assert detail.accesses[0].role == RoleEnum.TENANT_OWNER
+
+
+def test_owner_can_combine_niches_and_version_existing_contract(monkeypatch):
+    suffix = uuid.uuid4().hex[:8]
+    monkeypatch.setattr("app.api.v1.endpoints.identity.supabase_admin.invite_user", lambda **_: {"id": str(uuid.uuid4())})
+    with Session(engine) as session:
+        principal, _ = _owner(session)
+        plan = create_service_plan(ServicePlanCreate(
+            code=f"HYBRID_{suffix.upper()}", name=f"Híbrido {suffix}", monthly_price=149,
+            store_limit=4, user_limit=12, terminal_limit=8, storage_limit_mb=8192,
+        ), principal, session)
+        provisioned = provision_owner_tenant(OwnerTenantProvisionCreate(
+            name=f"Confeitaria e Beleza {suffix}", legal_name="Empreendedora Híbrida",
+            slug=f"hybrid-{suffix}", tenant_type=TenantTypeEnum.CUSTOMER,
+            lifecycle_phase=TenantPhaseEnum.PILOT,
+            tax_id=_valid_cnpj(f"{int(suffix, 16) % 100_000_000:08d}0001"),
+            company_phone="11999999999", contact_name="Responsável",
+            contact_email=f"responsavel-{suffix}@example.test", first_store_name="Matriz",
+            first_store_code="MATRIZ", postal_code="01310100", street="Avenida Paulista",
+            street_number="1000", district="Bela Vista", city="São Paulo", state="SP",
+            plan_id=plan.id, niches=[BusinessNiche.FOOD_SERVICE, BusinessNiche.BEAUTY_RESELLER],
+            capability_keys=[],
+            quotas=OwnerQuotaCreate(users=5, devices=3, units=1, storage_mb=2048),
+            billing=OwnerBillingCreate(contact_name="Financeiro", email=f"financeiro-{suffix}@example.test", monthly_amount=149, billing_day=10),
+            initial_admin=OwnerInitialAdminCreate(full_name="Admin", email=f"admin-{suffix}@example.test"),
+        ), principal, session)
+        assert provisioned.niches == [BusinessNiche.FOOD_SERVICE, BusinessNiche.BEAUTY_RESELLER]
+        assert provisioned.contract.capability_keys == []
+
+        detail = update_owner_tenant_contract(provisioned.tenant.id, OwnerTenantContractUpdate(
+            plan_id=plan.id, niches=[BusinessNiche.RETAIL, BusinessNiche.BEAUTY_RESELLER],
+            capability_keys=["catalog", "inventory", "payments", "receivables"],
+            quotas=OwnerQuotaCreate(users=8, devices=4, units=2, storage_mb=4096),
+            billing=OwnerBillingCreate(contact_name="Novo Financeiro", email=f"cobranca-{suffix}@example.test", monthly_amount=229, billing_day=15),
+            subscription_status=SubscriptionStatusEnum.ACTIVE, billing_status="CURRENT",
+            reason="Ampliação da operação híbrida.",
+        ), principal, session)
+        assert detail.contract.version == 2
+        assert detail.niches == [BusinessNiche.RETAIL, BusinessNiche.BEAUTY_RESELLER]
+        assert detail.subscription.monthly_amount == 229
+        assert detail.subscription.billing_day == 15
+        assert detail.subscription.billing_status == "CURRENT"
+        assert {item.key for item in detail.capabilities if item.enabled} >= {"catalog", "inventory", "payments", "receivables"}
+
+
+def test_owner_can_regularize_legacy_tenant_and_recognizes_existing_admin():
+    suffix = uuid.uuid4().hex[:8]
+    with Session(engine) as session:
+        principal, _ = _owner(session)
+        plan = create_service_plan(ServicePlanCreate(
+            code=f"LEGACY_{suffix.upper()}", name=f"Legado {suffix}", monthly_price=99,
+            store_limit=2, user_limit=5, terminal_limit=3, storage_limit_mb=2048,
+        ), principal, session)
+        legacy = provision_platform_tenant(PlatformTenantCreate(
+            name=f"Legado {suffix}", slug=f"legacy-{suffix}", first_store_name="Matriz",
+            first_store_code="MATRIZ",
+        ), principal, session)
+        existing_admin = User(email=f"legacy-admin-{suffix}@example.test", full_name="Administrador Existente")
+        session.add(existing_admin); session.flush()
+        session.add(Membership(
+            user_id=existing_admin.id, tenant_id=legacy.tenant.id,
+            role=RoleEnum.ADMIN, status=MembershipStatusEnum.ACTIVE,
+        ))
+        session.commit()
+
+        detail = update_owner_tenant_contract(legacy.tenant.id, OwnerTenantContractUpdate(
+            plan_id=plan.id, niches=[BusinessNiche.RETAIL],
+            capability_keys=["catalog", "inventory", "payments"],
+            quotas=OwnerQuotaCreate(users=4, devices=2, units=1, storage_mb=1024),
+            billing=OwnerBillingCreate(contact_name="Financeiro", email=f"financeiro-{suffix}@example.test", monthly_amount=119, billing_day=12),
+            subscription_status=SubscriptionStatusEnum.ACTIVE, billing_status="CURRENT",
+            reason="Regularização do tenant anterior ao contrato Owner.",
+        ), principal, session)
+        assert detail.contract.version == 1
+        assert detail.niches == [BusinessNiche.RETAIL]
+        assert len(detail.accesses) == 1
+        assert detail.accesses[0].email == existing_admin.email
+        assert detail.accesses[0].role == RoleEnum.ADMIN

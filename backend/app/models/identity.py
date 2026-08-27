@@ -2,7 +2,8 @@ import uuid
 from datetime import date, datetime
 from enum import Enum
 from typing import Optional, List
-from sqlalchemy import Column, Index, String, Text, text
+from decimal import Decimal
+from sqlalchemy import Column, Index, Numeric, String, Text, text
 from sqlmodel import SQLModel, Field, Relationship, UniqueConstraint
 
 class RoleEnum(str, Enum):
@@ -29,6 +30,17 @@ class TenantCustomerTypeEnum(str, Enum):
     PILOT = "PILOT"
     CUSTOMER = "CUSTOMER"
     INTERNAL = "INTERNAL"
+
+
+class TenantTypeEnum(str, Enum):
+    CUSTOMER = "CUSTOMER"
+    INTERNAL = "INTERNAL"
+
+
+class TenantPhaseEnum(str, Enum):
+    TEST = "TEST"
+    PILOT = "PILOT"
+    PRODUCTION = "PRODUCTION"
 
 
 class SubscriptionStatusEnum(str, Enum):
@@ -96,6 +108,14 @@ class TenantProfile(SQLModel, table=True):
         default=TenantCustomerTypeEnum.TEST,
         sa_column=Column(String, nullable=False, index=True),
     )
+    tenant_type: TenantTypeEnum = Field(
+        default=TenantTypeEnum.CUSTOMER,
+        sa_column=Column(String, nullable=False, index=True),
+    )
+    lifecycle_phase: TenantPhaseEnum = Field(
+        default=TenantPhaseEnum.TEST,
+        sa_column=Column(String, nullable=False, index=True),
+    )
     trade_name: str = Field(index=True, max_length=160)
     legal_name: Optional[str] = Field(default=None, index=True, max_length=200)
     tax_id: Optional[str] = Field(default=None, index=True, max_length=14)
@@ -150,6 +170,10 @@ class ServicePlan(SQLModel, table=True):
     user_limit: Optional[int] = None
     terminal_limit: Optional[int] = None
     storage_limit_mb: Optional[int] = None
+    monthly_price: Decimal = Field(
+        default=Decimal("0.00"),
+        sa_column=Column(Numeric(14, 2), nullable=False, default=0),
+    )
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -166,6 +190,13 @@ class TenantSubscription(SQLModel, table=True):
     starts_at: Optional[datetime] = None
     trial_ends_at: Optional[datetime] = None
     ends_at: Optional[datetime] = None
+    monthly_amount: Decimal = Field(
+        default=Decimal("0.00"),
+        sa_column=Column(Numeric(14, 2), nullable=False, default=0),
+    )
+    billing_day: int = Field(default=1)
+    billing_status: str = Field(default="PENDING", max_length=32)
+    next_due_date: Optional[date] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
