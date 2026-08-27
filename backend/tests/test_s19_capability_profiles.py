@@ -47,7 +47,7 @@ def test_s19_profiles_are_versioned_shortcuts_and_contributions_are_effective():
         result = apply_capability_profile(
             provisioned.tenant.id, retail.id, ProfileApply(reason="Contrato de varejo aprovado para validação."), principal, session,
         )
-        assert result["profile"] == {"key": "RETAIL", "version": "1.0.0"}
+        assert result["profile"] == {"key": "RETAIL", "version": "2.0.0"}
         assert "catalog" in result["capabilities"] and "table_service" not in result["capabilities"]
 
         context = TenantContext(
@@ -56,9 +56,10 @@ def test_s19_profiles_are_versioned_shortcuts_and_contributions_are_effective():
         )
         effective = get_effective_capabilities(context=context, session=session)
         navigation = {item.contribution_key for item in effective["contributions"] if item.surface == "MANAGEMENT_NAV"}
-        assert {"overview", "sales", "cash", "products", "categories", "inventory", "customers", "receivables", "team", "devices"} <= navigation
+        assert {"overview", "sales", "cash", "products", "categories", "inventory", "customers", "team", "devices"} <= navigation
+        assert "receivables" not in navigation  # commercial add-on, not RETAIL base
         assert "tables" not in navigation
-        assert effective["profile"] == {"key": "RETAIL", "version": "1.0.0"}
+        assert effective["profile"] == {"key": "RETAIL", "version": "2.0.0"}
 
         # Migrating profiles ends the old assignment but preserves entitlement rows.
         apply_capability_profile(
@@ -68,7 +69,9 @@ def test_s19_profiles_are_versioned_shortcuts_and_contributions_are_effective():
         assert {item.status for item in assignments} == {"ACTIVE", "ENDED"}
         inventory = session.exec(select(TenantCapability).where(TenantCapability.tenant_id == provisioned.tenant.id, TenantCapability.key == "inventory")).one()
         assert inventory.enabled is False
-        assert "tables" in {item.contribution_key for item in get_effective_capabilities(context=context, session=session)["contributions"]}
+        # Mesas e KDS are commercial add-ons in OWNER-P0, not implicit in the
+        # Food Service base profile.
+        assert "tables" not in {item.contribution_key for item in get_effective_capabilities(context=context, session=session)["contributions"]}
 
         with pytest.raises(HTTPException) as draft:
             apply_capability_profile(provisioned.tenant.id, grocery.id, ProfileApply(reason="Profile futuro não pode ser ativado."), principal, session)

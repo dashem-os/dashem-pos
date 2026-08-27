@@ -58,6 +58,7 @@ def provision_tenant(
     city: Optional[str] = None,
     state: Optional[str] = None,
     plan_id: Optional[uuid.UUID] = None,
+    commit: bool = True,
 ) -> tuple[Tenant, Store]:
     """Create the tenant and its first site in one audited transaction."""
     existing = session.exec(select(Tenant).where(Tenant.slug == slug)).first()
@@ -159,9 +160,10 @@ def provision_tenant(
         payload=json.dumps(event_payload),
         status=OutboxStatusEnum.PENDING,
     ))
-    session.commit()
-    session.refresh(tenant)
-    session.refresh(store)
+    if commit:
+        session.commit()
+        session.refresh(tenant)
+        session.refresh(store)
     return tenant, store
 
 
@@ -199,6 +201,7 @@ def provision_tenant_access(
     actor_id: uuid.UUID,
     provider_subject: Optional[str],
     audit_scope: str = "platform",
+    commit: bool = True,
 ) -> Membership:
     """Provision one tenant access without ever accepting credentials locally."""
     normalized_email = email.strip().lower()
@@ -251,8 +254,9 @@ def provision_tenant_access(
         event_type=f"{audit_scope}.tenant.user_invited", payload=json.dumps(payload),
         status=OutboxStatusEnum.PENDING,
     ))
-    session.commit()
-    session.refresh(membership)
+    if commit:
+        session.commit()
+        session.refresh(membership)
     return membership
 
 

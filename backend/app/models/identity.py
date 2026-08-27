@@ -149,6 +149,7 @@ class ServicePlan(SQLModel, table=True):
     store_limit: Optional[int] = None
     user_limit: Optional[int] = None
     terminal_limit: Optional[int] = None
+    storage_limit_mb: Optional[int] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 

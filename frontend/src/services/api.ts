@@ -870,6 +870,7 @@ export interface PlatformTenantSummary {
 
 export type TenantLifecycleStatus = 'PROVISIONING' | 'TRIAL' | 'ACTIVE' | 'PAUSED' | 'SUSPENDED' | 'CANCELED' | 'ARCHIVED'
 export type TenantCustomerType = 'TEST' | 'PILOT' | 'CUSTOMER' | 'INTERNAL'
+export type BusinessNiche = 'FOOD_SERVICE' | 'RETAIL' | 'BEAUTY_RESELLER'
 export type SubscriptionStatus = 'PENDING' | 'TRIAL' | 'ACTIVE' | 'PAUSED' | 'CANCELED'
 
 export interface TenantProfile {
@@ -909,6 +910,36 @@ export interface ServicePlan {
   store_limit?: number
   user_limit?: number
   terminal_limit?: number
+  storage_limit_mb?: number
+}
+
+export interface OwnerNicheCapability {
+  key: string
+  name: string
+  description: string
+  scope: 'TENANT' | 'STORE' | 'TERMINAL'
+  requires: string[]
+}
+
+export interface OwnerNiche {
+  key: BusinessNiche
+  name: string
+  description: string
+  required_capabilities: OwnerNicheCapability[]
+  allowed_addons: OwnerNicheCapability[]
+}
+
+export interface TenantContract {
+  id: string
+  tenant_id: string
+  version: number
+  status: string
+  plan_id?: string
+  limits: { users?: number; devices?: number; units?: number; storage_mb?: number; niche?: BusinessNiche; addon_keys?: string[] }
+  capability_keys: string[]
+  starts_at?: string
+  reason: string
+  created_at: string
 }
 
 export interface TenantSubscription {
@@ -940,6 +971,8 @@ export interface CapabilityCatalogItem {
   enabled: boolean
   status: string
   contract_limits: Record<string, unknown>
+  required: boolean
+  addon: boolean
 }
 
 export interface HealthComponent {
@@ -1022,6 +1055,10 @@ export interface PlatformOverview {
 export interface PlatformTenantProvisioned {
   tenant: Tenant
   first_store: Store
+  niche: BusinessNiche
+  contract: TenantContract
+  initial_admin: PlatformTenantAccess
+  delivery_status: string
 }
 
 export interface PlatformTenantAccess {
@@ -1045,6 +1082,8 @@ export interface PlatformTenantDetail {
   stores: Store[]
   accesses: PlatformTenantAccess[]
   capabilities: TenantCapability[]
+  niche?: BusinessNiche
+  contract?: TenantContract
 }
 
 export interface PaymentConfirmResponse {
@@ -1487,7 +1526,12 @@ export async function provisionPlatformTenant(input: {
   district?: string
   city?: string
   state?: string
-  plan_id?: string
+  plan_id: string
+  niche: BusinessNiche
+  quotas: { users: number; devices: number; units: number; storage_mb: number }
+  addon_keys: string[]
+  billing: { contact_name: string; email: string; phone?: string }
+  initial_admin: { full_name: string; email: string }
 }): Promise<PlatformTenantProvisioned> {
   const res = await fetch(`${API_BASE_URL}/api/v1/identity/platform/tenants`, {
     method: 'POST',
@@ -1495,6 +1539,12 @@ export async function provisionPlatformTenant(input: {
     body: JSON.stringify(input),
   })
   if (!res.ok) throw await apiError(res, 'Não foi possível criar o tenant.')
+  return res.json()
+}
+
+export async function fetchOwnerNiches(): Promise<OwnerNiche[]> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/identity/platform/niches`)
+  if (!res.ok) throw await apiError(res, 'Não foi possível carregar os nichos contratuais.')
   return res.json()
 }
 

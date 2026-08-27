@@ -28,7 +28,8 @@ from app.models.identity import (
 from app.models.platform import (
     Lead, LeadStatusEnum, PlatformRoleEnum, TenantCapability, CapabilityDefinition,
     CapabilityScopeEnum, CapabilityStatusEnum, EntitlementStatusEnum,
-    IdentityDeliveryEvent,
+    IdentityDeliveryEvent, TenantContract, TenantProfileAssignment,
+    CapabilityProfileRevision,
 )
 from app.models.reliability import AuditEvent, OutboxEvent, OutboxStatusEnum
 from app.models.reliability import ServiceHeartbeat
@@ -38,6 +39,9 @@ from app.models.catalog import InventoryBalance, Product
 from app.models.intelligence import AgentRun, AgentRunStatusEnum
 from app.services import identity_service, reliability_service, supabase_admin
 from app.modules.capabilities.registry import CAPABILITY_REGISTRY, IMPLEMENTED_CAPABILITIES, resolve_dependencies
+from app.modules.capabilities.niches import (
+    BusinessNiche, NICHE_CONTRACTS, capability_payload, entitlement_keys,
+)
 
 
 router = APIRouter(dependencies=[Depends(get_current_principal)])
@@ -147,6 +151,66 @@ class PlatformTenantCreate(BaseModel):
     plan_id: Optional[uuid.UUID] = None
 
 
+class OwnerQuotaCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    users: int = PydanticField(ge=1)
+    devices: int = PydanticField(ge=1)
+    units: int = PydanticField(ge=1)
+    storage_mb: int = PydanticField(ge=128)
+
+
+class OwnerInitialAdminCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    full_name: str = PydanticField(min_length=2, max_length=160)
+    email: str = PydanticField(min_length=5, max_length=254)
+
+
+class OwnerBillingCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    contact_name: str = PydanticField(min_length=2, max_length=160)
+    email: str = PydanticField(min_length=5, max_length=254)
+    phone: Optional[str] = PydanticField(default=None, max_length=32)
+
+
+class OwnerTenantProvisionCreate(PlatformTenantCreate):
+    """The only public Owner onboarding contract.
+
+    Unlike the lower-level tenant primitive, every commercial decision needed
+    to produce a coherent tenant is mandatory here.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    legal_name: str = PydanticField(min_length=2, max_length=200)
+    tax_id: str = PydanticField(min_length=14, max_length=18)
+    company_phone: str = PydanticField(min_length=8, max_length=32)
+    contact_name: str = PydanticField(min_length=2, max_length=160)
+    contact_email: str = PydanticField(min_length=5, max_length=254)
+    postal_code: str = PydanticField(min_length=8, max_length=10)
+    street: str = PydanticField(min_length=2, max_length=200)
+    street_number: str = PydanticField(min_length=1, max_length=32)
+    district: str = PydanticField(min_length=2, max_length=120)
+    city: str = PydanticField(min_length=2, max_length=120)
+    state: str = PydanticField(min_length=2, max_length=2)
+    plan_id: uuid.UUID
+    niche: BusinessNiche
+    quotas: OwnerQuotaCreate
+    addon_keys: List[str] = PydanticField(default_factory=list)
+    billing: OwnerBillingCreate
+    initial_admin: OwnerInitialAdminCreate
+
+
+class OwnerNicheRead(BaseModel):
+    key: BusinessNiche
+    name: str
+    description: str
+    required_capabilities: List[dict[str, Any]]
+    allowed_addons: List[dict[str, Any]]
+
+
 class PlatformTenantRead(BaseModel):
     id: uuid.UUID
     name: str
@@ -171,6 +235,10 @@ class PlatformOverview(BaseModel):
 class PlatformTenantProvisioned(BaseModel):
     tenant: Tenant
     first_store: Store
+    niche: Optional[BusinessNiche] = None
+    contract: Optional[TenantContract] = None
+    initial_admin: Optional["PlatformTenantAccessRead"] = None
+    delivery_status: Optional[str] = None
 
 
 class PlatformTenantAccessRead(BaseModel):
@@ -194,6 +262,8 @@ class PlatformTenantDetail(BaseModel):
     stores: List[Store]
     accesses: List[PlatformTenantAccessRead]
     capabilities: List[TenantCapability]
+    niche: Optional[BusinessNiche] = None
+    contract: Optional[TenantContract] = None
 
 
 class HealthComponent(BaseModel):
@@ -254,6 +324,8 @@ class CapabilityCatalogItem(BaseModel):
     enabled: bool
     status: str
     contract_limits: dict[str, Any]
+    required: bool = False
+    addon: bool = False
 
 
 class TenantCapabilityUpdate(BaseModel):
@@ -307,6 +379,7 @@ class ServicePlanCreate(BaseModel):
     store_limit: Optional[int] = PydanticField(default=None, ge=1)
     user_limit: Optional[int] = PydanticField(default=None, ge=1)
     terminal_limit: Optional[int] = PydanticField(default=None, ge=1)
+    storage_limit_mb: Optional[int] = PydanticField(default=None, ge=128)
 
 
 class TenantSubscriptionUpdate(BaseModel):
@@ -685,7 +758,183 @@ def platform_tenant_metrics(
     )
 
 
+@router.get("/platform/niches", response_model=List[OwnerNicheRead])
+def list_owner_niches(
+    principal: AuthPrincipal = Depends(get_current_principal),
+    session: Session = Depends(get_session),
+):
+    require_platform_role(session, principal, PLATFORM_MANAGERS, require_aal2=True)
+    return [
+        OwnerNicheRead(
+            key=contract.key,
+            name=contract.name,
+            description=contract.description,
+            required_capabilities=[capability_payload(key) for key in contract.required],
+            allowed_addons=[capability_payload(key) for key in contract.addons],
+        )
+        for contract in NICHE_CONTRACTS.values()
+    ]
+
+
+def _validate_quota(label: str, requested: int, maximum: Optional[int]) -> None:
+    if maximum is not None and requested > maximum:
+        raise HTTPException(
+            status_code=422,
+            detail=f"A quota de {label} ({requested}) excede o limite do plano ({maximum}).",
+        )
+
+
 @router.post("/platform/tenants", response_model=PlatformTenantProvisioned, status_code=201)
+def provision_owner_tenant(
+    data: OwnerTenantProvisionCreate,
+    principal: AuthPrincipal = Depends(get_current_principal),
+    session: Session = Depends(get_session),
+):
+    actor = require_platform_role(session, principal, PLATFORM_MANAGERS, require_aal2=True)
+    assert actor is not None
+    plan = session.get(ServicePlan, data.plan_id)
+    if plan is None or not plan.is_active:
+        raise HTTPException(status_code=422, detail="Selecione um plano ativo.")
+    _validate_quota("usuários", data.quotas.users, plan.user_limit)
+    _validate_quota("dispositivos", data.quotas.devices, plan.terminal_limit)
+    _validate_quota("unidades", data.quotas.units, plan.store_limit)
+    _validate_quota("storage", data.quotas.storage_mb, plan.storage_limit_mb)
+    try:
+        selected_keys = entitlement_keys(data.niche, data.addon_keys)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    tax_id = _normalize_cnpj(data.tax_id)
+    if session.exec(select(Tenant).where(Tenant.slug == data.slug)).first():
+        raise HTTPException(status_code=409, detail="Este identificador de cliente já está em uso.")
+    if session.exec(select(TenantProfile).where(TenantProfile.tax_id == tax_id)).first():
+        raise HTTPException(status_code=409, detail="Este CNPJ já pertence a outro cliente.")
+    email = data.initial_admin.email.strip().lower()
+    if "@" not in email:
+        raise HTTPException(status_code=422, detail="Informe um e-mail válido para o administrador inicial.")
+    existing_user = session.exec(select(User).where(User.email == email)).first()
+    provider_subject = None
+    delivery_status = "IDENTIDADE_EXISTENTE"
+
+    tenant, store = identity_service.provision_tenant(
+        session,
+        name=data.name.strip(), slug=data.slug,
+        first_store_name=data.first_store_name.strip(),
+        first_store_code=data.first_store_code.strip().upper(),
+        actor_id=actor.id, customer_type=data.customer_type,
+        legal_name=data.legal_name.strip(), tax_id=tax_id,
+        state_registration=data.state_registration.strip() if data.state_registration else None,
+        municipal_registration=data.municipal_registration.strip() if data.municipal_registration else None,
+        industry=data.niche.value,
+        company_email=data.company_email.strip().lower() if data.company_email else None,
+        company_phone=data.company_phone.strip(), website=data.website.strip() if data.website else None,
+        contact_name=data.contact_name.strip(),
+        contact_job_title=data.contact_job_title.strip() if data.contact_job_title else None,
+        contact_email=data.contact_email.strip().lower(),
+        contact_phone=data.contact_phone.strip() if data.contact_phone else None,
+        postal_code=_digits(data.postal_code), street=data.street.strip(),
+        street_number=data.street_number.strip(),
+        address_complement=data.address_complement.strip() if data.address_complement else None,
+        district=data.district.strip(), city=data.city.strip(), state=data.state.strip().upper(),
+        plan_id=data.plan_id, commit=False,
+    )
+    if existing_user is None:
+        invited = supabase_admin.invite_user(
+            email=email,
+            full_name=data.initial_admin.full_name.strip(),
+            tenant_id=str(tenant.id),
+        )
+        provider_subject = str(invited["id"])
+        delivery_status = "ENVIADO"
+    subscription = session.get(TenantSubscription, tenant.id)
+    assert subscription is not None
+    subscription.status = (
+        SubscriptionStatusEnum.TRIAL
+        if data.customer_type in {TenantCustomerTypeEnum.TEST, TenantCustomerTypeEnum.PILOT}
+        else SubscriptionStatusEnum.ACTIVE
+    )
+    session.add(subscription)
+
+    for key in selected_keys:
+        _ensure_capability_definition(session, key)
+    session.flush()
+    for key in selected_keys:
+        session.add(TenantCapability(
+            tenant_id=tenant.id,
+            key=key,
+            enabled=True,
+            status=EntitlementStatusEnum.ACTIVE,
+        ))
+
+    revision = session.exec(
+        select(CapabilityProfileRevision).where(
+            CapabilityProfileRevision.profile_key == data.niche.value,
+            CapabilityProfileRevision.status == "ACTIVE",
+        ).order_by(CapabilityProfileRevision.created_at.desc())
+    ).first()
+    if revision is None:
+        raise HTTPException(status_code=409, detail=f"Perfil {data.niche.value} não foi publicado.")
+    session.add(TenantProfileAssignment(
+        tenant_id=tenant.id, revision_id=revision.id, status="ACTIVE",
+        reason="Nicho selecionado na contratação OWNER-P0.", assigned_by=actor.id,
+    ))
+    limits = {
+        "users": data.quotas.users,
+        "devices": data.quotas.devices,
+        "units": data.quotas.units,
+        "storage_mb": data.quotas.storage_mb,
+        "niche": data.niche.value,
+        "addon_keys": sorted(data.addon_keys),
+        "billing": {
+            "contact_name": data.billing.contact_name.strip(),
+            "email": data.billing.email.strip().lower(),
+            "phone": data.billing.phone.strip() if data.billing.phone else None,
+        },
+    }
+    contract = TenantContract(
+        tenant_id=tenant.id, version=1, status="ACTIVE", plan_id=plan.id,
+        limits=limits, capability_keys=list(selected_keys), starts_at=datetime.utcnow(),
+        reason="Provisionamento comercial completo pelo Owner.", created_by=actor.id,
+    )
+    session.add(contract)
+    membership = identity_service.provision_tenant_access(
+        session, tenant=tenant, email=email, full_name=data.initial_admin.full_name,
+        role=RoleEnum.TENANT_OWNER, store_id=None, actor_id=actor.id,
+        provider_subject=provider_subject, commit=False,
+    )
+    session.flush()
+    admin_user = session.get(User, membership.user_id)
+    assert admin_user is not None
+    local, domain = email.split("@", 1)
+    session.add(IdentityDeliveryEvent(
+        tenant_id=tenant.id, membership_id=membership.id, kind="CONTRACT_ADMIN_INVITE",
+        recipient_masked=f"{local[:2]}{'*' * max(1, len(local) - 2)}@{domain}",
+        provider="SUPABASE_SMTP", status=delivery_status,
+        sanitized_detail="Primeiro acesso administrativo entregue durante o provisionamento OWNER-P0.",
+    ))
+    payload = {
+        "tenant_id": str(tenant.id), "niche": data.niche.value,
+        "plan_id": str(plan.id), "limits": limits,
+        "capability_keys": list(selected_keys), "initial_admin_id": str(admin_user.id),
+    }
+    reliability_service.write_audit_and_outbox(
+        session, tenant_id=tenant.id, store_id=None, actor_id=actor.id,
+        action="platform.tenant.owner_p0_provisioned", target=f"tenant:{tenant.id}",
+        audit_payload=payload, aggregate_type="tenant_contract", aggregate_id=str(contract.id),
+        event_type="platform.tenant.owner_p0_provisioned", outbox_payload=payload,
+    )
+    session.commit()
+    session.refresh(tenant); session.refresh(store); session.refresh(contract); session.refresh(membership)
+    return PlatformTenantProvisioned(
+        tenant=tenant, first_store=store, niche=data.niche, contract=contract,
+        initial_admin=_tenant_access_read(membership, admin_user, None),
+        delivery_status=delivery_status,
+    )
+
+
+# Lower-level primitive retained for migration/tests. It is intentionally not
+# exposed as an HTTP route; the public Owner route above never creates an
+# incomplete commercial tenant.
 def provision_platform_tenant(
     data: PlatformTenantCreate,
     principal: AuthPrincipal = Depends(get_current_principal),
@@ -760,9 +1009,23 @@ def platform_tenant_detail(
     capabilities = session.exec(
         select(TenantCapability).where(TenantCapability.tenant_id == tenant_id).order_by(TenantCapability.key)
     ).all()
+    contract = session.exec(
+        select(TenantContract).where(TenantContract.tenant_id == tenant_id).order_by(TenantContract.version.desc())
+    ).first()
+    assignment_row = session.exec(
+        select(TenantProfileAssignment, CapabilityProfileRevision)
+        .join(CapabilityProfileRevision, CapabilityProfileRevision.id == TenantProfileAssignment.revision_id)
+        .where(TenantProfileAssignment.tenant_id == tenant_id, TenantProfileAssignment.status == "ACTIVE")
+    ).first()
+    niche = None
+    if assignment_row and assignment_row[1].profile_key in {item.value for item in BusinessNiche}:
+        niche = BusinessNiche(assignment_row[1].profile_key)
     store_map = {store.id: store for store in stores}
     rows = session.exec(
-        select(Membership, User).join(User, User.id == Membership.user_id).where(Membership.tenant_id == tenant_id)
+        select(Membership, User).join(User, User.id == Membership.user_id).where(
+            Membership.tenant_id == tenant_id,
+            Membership.role.in_([RoleEnum.TENANT_OWNER, RoleEnum.OWNER]),
+        )
     ).all()
     return PlatformTenantDetail(
         tenant=_tenant_read(
@@ -775,6 +1038,8 @@ def platform_tenant_detail(
         stores=stores,
         accesses=[_tenant_access_read(membership, user, store_map.get(membership.store_id)) for membership, user in rows],
         capabilities=list(capabilities),
+        niche=niche,
+        contract=contract,
     )
 
 
@@ -927,7 +1192,7 @@ def create_service_plan(
     plan = ServicePlan(
         code=code, name=data.name.strip(), description=data.description,
         store_limit=data.store_limit, user_limit=data.user_limit,
-        terminal_limit=data.terminal_limit,
+        terminal_limit=data.terminal_limit, storage_limit_mb=data.storage_limit_mb,
     )
     session.add(plan)
     session.flush()
@@ -999,6 +1264,17 @@ def _ensure_capability_definition(session: Session, key: str) -> CapabilityDefin
     return definition
 
 
+def _tenant_niche(session: Session, tenant_id: uuid.UUID) -> Optional[BusinessNiche]:
+    revision = session.exec(
+        select(CapabilityProfileRevision)
+        .join(TenantProfileAssignment, TenantProfileAssignment.revision_id == CapabilityProfileRevision.id)
+        .where(TenantProfileAssignment.tenant_id == tenant_id, TenantProfileAssignment.status == "ACTIVE")
+    ).first()
+    if revision is None or revision.profile_key not in {item.value for item in BusinessNiche}:
+        return None
+    return BusinessNiche(revision.profile_key)
+
+
 @router.get(
     "/platform/tenants/{tenant_id}/capabilities",
     response_model=List[CapabilityCatalogItem],
@@ -1016,6 +1292,9 @@ def tenant_capability_catalog(
             select(TenantCapability).where(TenantCapability.tenant_id == tenant_id)
         ).all()
     }
+    niche = _tenant_niche(session, tenant_id)
+    niche_contract = NICHE_CONTRACTS[niche] if niche else None
+    visible_keys = niche_contract.allowed if niche_contract else frozenset(CAPABILITY_REGISTRY.keys())
     return [
         CapabilityCatalogItem(
             key=contract.key,
@@ -1030,8 +1309,10 @@ def tenant_capability_catalog(
                 if key in entitlements else EntitlementStatusEnum.SUSPENDED.value
             ),
             contract_limits=dict(entitlements[key].contract_limits) if key in entitlements else {},
+            required=bool(niche_contract and key in niche_contract.required),
+            addon=bool(niche_contract and key in niche_contract.addons),
         )
-        for key, contract in CAPABILITY_REGISTRY.items()
+        for key, contract in CAPABILITY_REGISTRY.items() if key in visible_keys
     ]
 
 
@@ -1052,6 +1333,12 @@ def update_tenant_capability(
         raise HTTPException(status_code=404, detail="Tenant não encontrado.")
     if capability_key not in CAPABILITY_REGISTRY:
         raise HTTPException(status_code=404, detail="Capacidade não encontrada no catálogo.")
+    niche = _tenant_niche(session, tenant_id)
+    niche_contract = NICHE_CONTRACTS[niche] if niche else None
+    if niche_contract and capability_key not in niche_contract.allowed:
+        raise HTTPException(status_code=422, detail="Capability não permitida para o nicho contratado.")
+    if niche_contract and capability_key in niche_contract.required and not data.enabled:
+        raise HTTPException(status_code=409, detail="Capability base do nicho não pode ser removida.")
     if data.enabled and capability_key not in IMPLEMENTED_CAPABILITIES:
         raise HTTPException(
             status_code=409,
