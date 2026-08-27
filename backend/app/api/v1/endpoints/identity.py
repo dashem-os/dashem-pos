@@ -486,6 +486,15 @@ class PlatformTenantInvite(BaseModel):
     store_id: Optional[uuid.UUID] = None
 
 
+class PlatformTenantAdministratorReplace(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    current_membership_id: Optional[uuid.UUID] = None
+    email: str = PydanticField(min_length=5, max_length=254)
+    full_name: str = PydanticField(min_length=2, max_length=160)
+    reason: str = PydanticField(min_length=4, max_length=500)
+
+
 class PlatformTenantInviteResult(BaseModel):
     access: PlatformTenantAccessRead
     delivery_status: str
@@ -1634,6 +1643,97 @@ def update_tenant_capability(
     )
     session.commit()
     return tenant_capability_catalog(tenant_id, principal, session)
+
+
+@router.put("/platform/tenants/{tenant_id}/contract-administrator", response_model=PlatformTenantInviteResult)
+def replace_platform_tenant_administrator(
+    tenant_id: uuid.UUID,
+    data: PlatformTenantAdministratorReplace,
+    principal: AuthPrincipal = Depends(get_current_principal),
+    session: Session = Depends(get_session),
+):
+    actor = require_platform_role(session, principal, PLATFORM_MANAGERS, require_aal2=True)
+    assert actor is not None
+    tenant = session.get(Tenant, tenant_id)
+    if tenant is None:
+        raise HTTPException(status_code=404, detail="Tenant não encontrado.")
+    email = data.email.strip().lower()
+    if "@" not in email:
+        raise HTTPException(status_code=422, detail="Informe um e-mail válido.")
+
+    current_membership = None
+    if data.current_membership_id is not None:
+        current_membership = session.get(Membership, data.current_membership_id)
+        if (
+            current_membership is None
+            or current_membership.tenant_id != tenant_id
+            or current_membership.role not in {RoleEnum.TENANT_OWNER, RoleEnum.OWNER, RoleEnum.ADMIN}
+        ):
+            raise HTTPException(status_code=404, detail="Administrador contratual atual não encontrado.")
+    else:
+        current_membership = session.exec(select(Membership).where(
+            Membership.tenant_id == tenant_id,
+            Membership.role.in_({RoleEnum.TENANT_OWNER, RoleEnum.OWNER, RoleEnum.ADMIN}),
+            Membership.status.in_({MembershipStatusEnum.ACTIVE, MembershipStatusEnum.INVITED}),
+        ).order_by(Membership.created_at)).first()
+
+    target_user = session.exec(select(User).where(User.email == email)).first()
+    delivery_status = "IDENTIDADE_EXISTENTE"
+    provider_subject = None
+    if target_user is None:
+        invited = supabase_admin.invite_user(email=email, full_name=data.full_name.strip(), tenant_id=str(tenant_id))
+        provider_subject = str(invited["id"])
+        delivery_status = "ENVIADO"
+
+    target_membership = None
+    if target_user is not None:
+        target_user.full_name = data.full_name.strip()
+        session.add(target_user)
+        target_membership = session.exec(select(Membership).where(
+            Membership.user_id == target_user.id,
+            Membership.tenant_id == tenant_id,
+        )).first()
+    if target_membership is None:
+        target_membership = identity_service.provision_tenant_access(
+            session, tenant=tenant, email=email, full_name=data.full_name.strip(),
+            role=RoleEnum.TENANT_OWNER, store_id=None, actor_id=actor.id,
+            provider_subject=provider_subject,
+        )
+        target_user = session.get(User, target_membership.user_id)
+    else:
+        target_membership.role = RoleEnum.TENANT_OWNER
+        target_membership.status = MembershipStatusEnum.ACTIVE
+        target_membership.store_id = None
+        target_membership.updated_at = datetime.utcnow()
+        session.add(target_membership)
+    assert target_user is not None
+
+    if current_membership is not None and current_membership.id != target_membership.id:
+        current_membership.status = MembershipStatusEnum.SUSPENDED
+        current_membership.updated_at = datetime.utcnow()
+        session.add(current_membership)
+
+    local, domain = email.split("@", 1)
+    masked = f"{local[:2]}{'*' * max(1, len(local) - 2)}@{domain}"
+    session.add(IdentityDeliveryEvent(
+        tenant_id=tenant_id, membership_id=target_membership.id, kind="CONTRACT_ADMIN_REPLACEMENT",
+        recipient_masked=masked, provider="SUPABASE_SMTP", status=delivery_status,
+        sanitized_detail="Administrador contratual atualizado pelo Dashem Control; credenciais e tokens não são armazenados.",
+    ))
+    payload = {
+        "tenant_id": str(tenant_id), "previous_membership_id": str(current_membership.id) if current_membership else None,
+        "membership_id": str(target_membership.id), "reason": data.reason.strip(), "actor_id": str(actor.id),
+    }
+    reliability_service.write_audit_and_outbox(
+        session, tenant_id=tenant_id, store_id=None, actor_id=actor.id,
+        action="platform.tenant.contract_administrator_replaced", target=f"tenant:{tenant_id}:contract-administrator",
+        audit_payload=payload, aggregate_type="tenant_contract_administrator", aggregate_id=str(tenant_id),
+        event_type="platform.tenant.contract_administrator_replaced", outbox_payload=payload,
+    )
+    session.commit()
+    return PlatformTenantInviteResult(
+        access=_tenant_access_read(target_membership, target_user, None), delivery_status=delivery_status,
+    )
 
 
 @router.post("/platform/tenants/{tenant_id}/invitations", response_model=PlatformTenantInviteResult, status_code=201)

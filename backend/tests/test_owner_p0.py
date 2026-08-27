@@ -6,9 +6,11 @@ from sqlmodel import Session, select
 from app.api.v1.endpoints.identity import (
     OwnerBillingCreate, OwnerInitialAdminCreate, OwnerQuotaCreate,
     OwnerTenantContractUpdate, OwnerTenantProvisionCreate, PlatformTenantCreate,
+    PlatformTenantAdministratorReplace,
     ServicePlanCreate, create_service_plan,
     platform_tenant_detail, provision_owner_tenant, tenant_capability_catalog,
-    update_owner_tenant_contract, provision_platform_tenant, _normalize_tax_id,
+    update_owner_tenant_contract, provision_platform_tenant,
+    replace_platform_tenant_administrator, _normalize_tax_id,
 )
 from app.core.database import engine
 from app.core.security import AuthPrincipal
@@ -194,3 +196,40 @@ def test_owner_can_regularize_legacy_tenant_and_recognizes_existing_admin():
         assert len(detail.accesses) == 1
         assert detail.accesses[0].email == existing_admin.email
         assert detail.accesses[0].role == RoleEnum.ADMIN
+
+
+def test_owner_can_replace_contract_administrator_with_audited_access(monkeypatch):
+    suffix = uuid.uuid4().hex[:8]
+    monkeypatch.setattr("app.api.v1.endpoints.identity.supabase_admin.invite_user", lambda **_: {"id": str(uuid.uuid4())})
+    with Session(engine) as session:
+        principal, _ = _owner(session)
+        tenant = provision_platform_tenant(PlatformTenantCreate(
+            name=f"Troca Admin {suffix}", slug=f"replace-admin-{suffix}",
+            first_store_name="Matriz", first_store_code="MATRIZ",
+        ), principal, session)
+        previous_user = User(email=f"old-admin-{suffix}@example.test", full_name="Admin Anterior")
+        session.add(previous_user); session.flush()
+        previous = Membership(
+            user_id=previous_user.id, tenant_id=tenant.tenant.id,
+            role=RoleEnum.ADMIN, status=MembershipStatusEnum.ACTIVE,
+        )
+        session.add(previous); session.commit(); session.refresh(previous)
+
+        result = replace_platform_tenant_administrator(
+            tenant.tenant.id,
+            PlatformTenantAdministratorReplace(
+                current_membership_id=previous.id,
+                full_name="Nova Administradora",
+                email=f"new-admin-{suffix}@example.test",
+                reason="Substituição solicitada formalmente pelo cliente.",
+            ),
+            principal,
+            session,
+        )
+
+        session.refresh(previous)
+        assert previous.status == MembershipStatusEnum.SUSPENDED
+        assert result.access.role == RoleEnum.TENANT_OWNER
+        assert result.access.status == MembershipStatusEnum.INVITED
+        assert result.access.email == f"new-admin-{suffix}@example.test"
+        assert result.delivery_status == "ENVIADO"

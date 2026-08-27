@@ -28,6 +28,16 @@ export const apiFetch: typeof globalThis.fetch = async (input, init = {}) => {
 
 export async function apiError(res: Response, fallback: string): Promise<ApiError> {
   const body = await res.json().catch(() => ({}))
-  const detail = typeof body.detail === 'string' ? body.detail : fallback
+  const validationMessages = Array.isArray(body.detail)
+    ? body.detail
+        .map((item: { msg?: string; loc?: unknown[] }) => {
+          if (!item?.msg) return ''
+          const field = Array.isArray(item.loc) ? item.loc[item.loc.length - 1] : undefined
+          return field ? `${String(field)}: ${item.msg}` : item.msg
+        })
+        .filter(Boolean)
+        .join(' · ')
+    : ''
+  const detail = typeof body.detail === 'string' ? body.detail : validationMessages || fallback
   return new ApiError(detail, res.status)
 }

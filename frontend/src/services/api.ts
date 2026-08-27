@@ -1691,6 +1691,19 @@ export async function invitePlatformTenantUser(tenantId: string, input: {
   return res.json()
 }
 
+export async function replacePlatformTenantAdministrator(tenantId: string, input: {
+  current_membership_id?: string
+  email: string
+  full_name: string
+  reason: string
+}): Promise<{ access: PlatformTenantAccess; delivery_status: string }> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/identity/platform/tenants/${tenantId}/contract-administrator`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível atualizar o administrador contratual.')
+  return res.json()
+}
+
 export async function updatePlatformTenantAccess(tenantId: string, membershipId: string, input: {
   role: string
   status: string
