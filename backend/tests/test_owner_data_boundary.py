@@ -15,6 +15,7 @@ IDENTITY_ENDPOINT = (
 
 def test_control_has_no_tenant_operational_metrics_route():
     assert "/api/v1/identity/platform/tenants/{tenant_id}/metrics" not in app.openapi()["paths"]
+    assert "/api/v1/identity/platform/finance/overview" in app.openapi()["paths"]
 
 
 def test_owner_identity_does_not_import_operational_finance_models():

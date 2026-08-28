@@ -34,6 +34,7 @@ from app.models.platform import (
 from app.models.reliability import AuditEvent, OutboxEvent, OutboxStatusEnum
 from app.models.reliability import ServiceHeartbeat
 from app.services import identity_service, reliability_service, supabase_admin
+from app.services.contract_limit_service import effective_limit
 from app.modules.capabilities.registry import CAPABILITY_REGISTRY, IMPLEMENTED_CAPABILITIES, resolve_dependencies
 from app.modules.capabilities.niches import (
     BusinessNiche, NICHE_CONTRACTS, capability_payload,
@@ -315,6 +316,25 @@ class PlatformSystemHealth(BaseModel):
     status: str
     components: List[HealthComponent]
     totals: PlatformHealthTotals
+
+
+class PlatformFinanceSubscription(BaseModel):
+    tenant_id: uuid.UUID
+    tenant_name: str
+    plan_name: Optional[str] = None
+    subscription_status: SubscriptionStatusEnum
+    monthly_amount: Decimal
+    billing_status: str
+    next_due_date: Optional[date] = None
+
+
+class PlatformFinanceOverview(BaseModel):
+    contracted_mrr: Decimal
+    active_subscriptions: int
+    trial_subscriptions: int
+    overdue_subscriptions: int
+    pending_subscriptions: int
+    subscriptions: List[PlatformFinanceSubscription]
 
 
 class CapabilityCatalogItem(BaseModel):
@@ -644,7 +664,12 @@ def platform_system_health(
     require_platform_role(session, principal, PLATFORM_MANAGERS, require_aal2=True)
     checked_at = datetime.utcnow()
     components: list[HealthComponent] = [
-        HealthComponent(key="api", label="Backend API", status="HEALTHY", details={"version": settings.VERSION}),
+        HealthComponent(
+            key="api",
+            label="Backend API",
+            status="HEALTHY",
+            details={"version": settings.VERSION, "evidence": "authenticated_request_served"},
+        ),
     ]
 
     started = time.perf_counter()
@@ -661,11 +686,23 @@ def platform_system_health(
             details={"error": str(exc)[:300]},
         ))
 
-    pending = _count(session, OutboxEvent, OutboxEvent.status.in_({OutboxStatusEnum.PENDING, OutboxStatusEnum.PROCESSING}))
+    pending_states = {OutboxStatusEnum.PENDING, OutboxStatusEnum.PROCESSING}
+    pending = _count(session, OutboxEvent, OutboxEvent.status.in_(pending_states))
     failed = _count(session, OutboxEvent, OutboxEvent.status == OutboxStatusEnum.FAILED)
+    oldest_pending_at = session.exec(
+        select(func.min(OutboxEvent.created_at)).where(OutboxEvent.status.in_(pending_states))
+    ).one()
+    pending_age = (checked_at - oldest_pending_at).total_seconds() if oldest_pending_at else None
+    outbox_status = "DEGRADED" if failed or (pending_age is not None and pending_age > 60) else "HEALTHY"
     components.append(HealthComponent(
-        key="outbox", label="Fila transacional", status="DEGRADED" if failed else "HEALTHY",
-        details={"pending": pending, "failed": failed},
+        key="outbox", label="Fila transacional", status=outbox_status,
+        details={
+            "pending": pending,
+            "failed": failed,
+            "oldest_pending_at": oldest_pending_at.isoformat() if oldest_pending_at else None,
+            "oldest_pending_age_seconds": round(pending_age, 1) if pending_age is not None else None,
+            "degraded_after_seconds": 60,
+        },
     ))
 
     heartbeat = session.get(ServiceHeartbeat, "outbox_worker")
@@ -674,6 +711,8 @@ def platform_system_health(
         "HEALTHY" if heartbeat and heartbeat_age is not None and heartbeat_age <= 90 and heartbeat.status == "HEALTHY"
         else "DEGRADED" if heartbeat else "UNKNOWN"
     )
+
+
     components.append(HealthComponent(
         key="worker", label="Outbox worker", status=worker_status,
         details={
@@ -715,6 +754,43 @@ def platform_system_health(
             pending_outbox=pending,
             failed_outbox=failed,
         ),
+    )
+
+
+@router.get("/platform/finance/overview", response_model=PlatformFinanceOverview)
+def platform_finance_overview(
+    principal: AuthPrincipal = Depends(get_current_principal),
+    session: Session = Depends(get_session),
+):
+    """Contractual SaaS revenue projection; never reads tenant sales or cash data."""
+    require_platform_role(session, principal, PLATFORM_MANAGERS, require_aal2=True)
+    subscriptions = list(session.exec(select(TenantSubscription)).all())
+    tenants = {item.id: item for item in session.exec(select(Tenant)).all()}
+    plans = {item.id: item for item in session.exec(select(ServicePlan)).all()}
+
+    rows = [
+        PlatformFinanceSubscription(
+            tenant_id=item.tenant_id,
+            tenant_name=tenants[item.tenant_id].name if item.tenant_id in tenants else "Tenant removido",
+            plan_name=plans[item.plan_id].name if item.plan_id in plans else None,
+            subscription_status=item.status,
+            monthly_amount=item.monthly_amount,
+            billing_status=item.billing_status,
+            next_due_date=item.next_due_date,
+        )
+        for item in subscriptions
+    ]
+    rows.sort(key=lambda item: (item.billing_status != "OVERDUE", item.tenant_name.lower()))
+    return PlatformFinanceOverview(
+        contracted_mrr=sum(
+            (item.monthly_amount for item in subscriptions if item.status == SubscriptionStatusEnum.ACTIVE),
+            Decimal("0.00"),
+        ),
+        active_subscriptions=sum(item.status == SubscriptionStatusEnum.ACTIVE for item in subscriptions),
+        trial_subscriptions=sum(item.status == SubscriptionStatusEnum.TRIAL for item in subscriptions),
+        overdue_subscriptions=sum(item.billing_status == "OVERDUE" for item in subscriptions),
+        pending_subscriptions=sum(item.billing_status == "PENDING" for item in subscriptions),
+        subscriptions=rows,
     )
 
 
@@ -835,6 +911,9 @@ def provision_owner_tenant(
     subscription.monthly_amount = data.billing.monthly_amount
     subscription.billing_day = data.billing.billing_day
     subscription.billing_status = "PENDING" if subscription.status == SubscriptionStatusEnum.TRIAL else "CURRENT"
+    subscription.contracted_user_limit = data.quotas.users
+    subscription.contracted_device_limit = data.quotas.devices
+    subscription.contracted_store_limit = data.quotas.units
     session.add(subscription)
 
     for key in selected_keys:
@@ -1368,6 +1447,9 @@ def update_owner_tenant_contract(
     subscription.billing_day = data.billing.billing_day
     subscription.billing_status = data.billing_status
     subscription.next_due_date = data.next_due_date
+    subscription.contracted_user_limit = data.quotas.users
+    subscription.contracted_device_limit = data.quotas.devices
+    subscription.contracted_store_limit = data.quotas.units
     subscription.updated_at = datetime.utcnow()
     session.add(subscription)
 
@@ -1842,6 +1924,10 @@ def create_platform_store(
     assert actor is not None
     if session.get(Tenant, tenant_id) is None:
         raise HTTPException(status_code=404, detail="Tenant não encontrado.")
+    store_limit = effective_limit(session, tenant_id, "units")
+    active_stores = _count(session, Store, Store.tenant_id == tenant_id, Store.is_active == True)  # noqa: E712
+    if store_limit is not None and active_stores >= store_limit:
+        raise HTTPException(status_code=409, detail="Limite contratual de unidades atingido.")
     if session.exec(select(Store).where(Store.tenant_id == tenant_id, Store.code == data.code)).first():
         raise HTTPException(status_code=409, detail="Já existe uma unidade com este código.")
     store = Store(tenant_id=tenant_id, name=data.name.strip(), code=data.code.strip().upper(), is_headquarters=False)
@@ -1930,6 +2016,10 @@ def create_store_endpoint(
     session: Session = Depends(get_session),
 ):
     _platform_or_tenant_admin(session, principal, data.tenant_id)
+    store_limit = effective_limit(session, data.tenant_id, "units")
+    active_stores = _count(session, Store, Store.tenant_id == data.tenant_id, Store.is_active == True)  # noqa: E712
+    if store_limit is not None and active_stores >= store_limit:
+        raise HTTPException(status_code=409, detail="Limite contratual de unidades atingido.")
     return identity_service.create_store(session, data.tenant_id, data.name, data.code)
 
 

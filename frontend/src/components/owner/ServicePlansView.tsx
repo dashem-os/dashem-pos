@@ -106,5 +106,6 @@ export function ServicePlansView() {
 }
 
 function Field({ label, value, onChange, error, inputMode, placeholder }: { label: string; value: string; onChange: (value: string) => void; error?: string; inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode']; placeholder?: string }) {
-  return <label className="text-sm font-black">{label}<input value={value} inputMode={inputMode} placeholder={placeholder} onChange={event => onChange(event.target.value)} className={`${inputClass} ${error ? 'border-[#ffbf00] focus:border-[#ffbf00] focus:ring-amber-100' : 'border-slate-300 focus:border-[#E12120] focus:ring-red-100'}`} />{error && <span className="mt-1 block text-xs font-bold text-[#8a6100]">{error}</span>}</label>
+  const displayLabel = label === 'Storage (MB)' ? 'Storage (MB) — contratual, sem medição' : label
+  return <label className="text-sm font-black">{displayLabel}<input value={value} inputMode={inputMode} placeholder={placeholder} onChange={event => onChange(event.target.value)} className={`${inputClass} ${error ? 'border-[#ffbf00] focus:border-[#ffbf00] focus:ring-amber-100' : 'border-slate-300 focus:border-[#E12120] focus:ring-red-100'}`} />{error && <span className="mt-1 block text-xs font-bold text-[#8a6100]">{error}</span>}</label>
 }

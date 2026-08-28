@@ -1,6 +1,6 @@
 # Owner Financeiro SaaS — especificação funcional e técnica
 
-Status: **especificação canônica; Fase 0 implementada**
+Status: **especificação canônica; Fase 0 concluída e fundação contratual da Fase 1 implementada**
 
 Data: 28 de agosto de 2026
 
@@ -115,6 +115,13 @@ O termo "Financeiro" sem o qualificador "SaaS" deve ser evitado no Control para
 não confundir esta superfície com o financeiro do estabelecimento.
 
 ### 3.2 Visão financeira
+
+Estado implementado em 28 de agosto de 2026: a entrada lateral **Financeiro
+SaaS** e a visão contratual inicial já consultam dados reais de
+`tenant_subscriptions`. A tela apresenta MRR contratado das assinaturas ativas,
+quantidades por estado e drill-down para a lista de contratos. Ela declara
+explicitamente que ainda não existem fatos de fatura, recebimento ou
+conciliação e não simula esses números.
 
 A página inicial apresenta, para um período explícito:
 
@@ -543,10 +550,33 @@ Estado: **concluída no primeiro sprint do S18.1**.
 
 ### Fase 1 — fundação comercial
 
+Estado: **iniciada**. A projeção contratual de assinaturas, a navegação
+**Financeiro SaaS** e o endpoint
+`GET /api/v1/identity/platform/finance/overview` estão implementados. O
+versionamento concorrente, as permissões financeiras granulares e a separação
+por fatos de fatura continuam pendentes.
+
 - consolidar conta de cobrança e assinatura existentes;
 - versionar alterações concorrentes;
 - separar estado contratual de estado derivado das faturas;
 - criar permissões e auditoria financeira.
+
+### Enforcement dos limites comerciais
+
+Os limites de usuários, dispositivos e unidades escolhidos dentro do teto do
+plano são copiados para uma projeção tenant-readable da assinatura e validados
+no backend no momento da criação de cada recurso. A verificação ocorre dentro
+do tenant e não publica contagens de uso para o Owner.
+
+O limite de storage permanece apenas como dado contratual de compatibilidade.
+Como ainda não existe medidor canônico de bytes/objetos, ele não deve ser
+descrito como bloqueio efetivo nem usado como indicador de saúde até a entrega
+da medição correspondente.
+
+As abas **Plano e cobrança**, **Modelos de negócio**, **Capabilities** e
+**Limites** devem permanecer visíveis mesmo quando o catálogo não possui plano.
+A ausência de plano bloqueia somente o salvamento da nova versão contratual;
+ela nunca pode substituir ou esconder o editor já construído.
 
 ### Fase 2 — faturamento SaaS
 

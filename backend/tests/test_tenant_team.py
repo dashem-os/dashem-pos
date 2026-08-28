@@ -25,6 +25,7 @@ from app.models.identity import (
     TenantSubscription,
     User,
 )
+from app.models.platform import TenantContract
 
 
 def test_tenant_admin_creates_pin_operator_and_enforces_contract_limit(monkeypatch):
@@ -32,12 +33,27 @@ def test_tenant_admin_creates_pin_operator_and_enforces_contract_limit(monkeypat
     with Session(engine) as session:
         set_platform_db_context(session)
         tenant = Tenant(name=f"Team API {suffix}", slug=f"team-api-{suffix}", status=TenantStatusEnum.ACTIVE)
-        plan = ServicePlan(code=f"TEAM-{suffix}", name="Equipe limitada", user_limit=2)
+        plan = ServicePlan(code=f"TEAM-{suffix}", name="Equipe limitada", user_limit=5)
         admin = User(email=f"admin-team-{suffix}@example.test", full_name="Tenant Admin")
         session.add(tenant); session.add(plan); session.add(admin); session.flush()
         store = Store(tenant_id=tenant.id, name="Matriz", code=f"M-{suffix}")
         session.add(store); session.flush()
-        session.add(TenantSubscription(tenant_id=tenant.id, plan_id=plan.id, status=SubscriptionStatusEnum.ACTIVE))
+        session.add(TenantSubscription(
+            tenant_id=tenant.id,
+            plan_id=plan.id,
+            status=SubscriptionStatusEnum.ACTIVE,
+            contracted_user_limit=2,
+        ))
+        session.add(TenantContract(
+            tenant_id=tenant.id,
+            version=1,
+            status="ACTIVE",
+            plan_id=plan.id,
+            limits={"users": 2},
+            capability_keys=[],
+            reason="Contrato de teste com quota inferior ao teto do plano.",
+            created_by=admin.id,
+        ))
         session.add(Membership(
             user_id=admin.id, tenant_id=tenant.id, role=RoleEnum.ADMIN,
             status=MembershipStatusEnum.ACTIVE,

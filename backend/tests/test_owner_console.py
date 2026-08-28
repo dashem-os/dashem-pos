@@ -18,6 +18,7 @@ from app.api.v1.endpoints.identity import (
     create_service_plan,
     get_me,
     platform_overview,
+    platform_finance_overview,
     platform_system_health,
     platform_tenant_detail,
     tenant_capability_catalog,
@@ -31,7 +32,7 @@ from app.core.database import engine
 from app.core.security import AuthPrincipal
 from app.models.identity import (
     AuthIdentity, MembershipStatusEnum, RoleEnum, TenantCustomerTypeEnum,
-    TenantStatusEnum, User,
+    SubscriptionStatusEnum, TenantStatusEnum, TenantSubscription, User,
 )
 from app.models.platform import PlatformMembership, PlatformRoleEnum
 from app.models.reliability import AuditEvent
@@ -234,6 +235,33 @@ def test_owner_health_contains_only_contractual_and_technical_totals(monkeypatch
         totals = health.totals.model_dump()
         assert set(totals) == {"tenants", "pending_outbox", "failed_outbox"}
         assert totals["tenants"] >= 1
+
+
+def test_owner_finance_projects_only_saas_contracts():
+    suffix = uuid.uuid4().hex[:8]
+    with Session(engine) as session:
+        subject, _ = _owner(session)
+        principal = _principal(subject)
+        created = provision_platform_tenant(
+            data=PlatformTenantCreate(
+                name=f"Finance SaaS {suffix}", slug=f"finance-saas-{suffix}",
+                first_store_name="Matriz", first_store_code="MATRIZ",
+            ), principal=principal, session=session,
+        )
+        subscription = session.get(TenantSubscription, created.tenant.id)
+        assert subscription is not None
+        subscription.status = SubscriptionStatusEnum.ACTIVE
+        subscription.monthly_amount = Decimal("249.90")
+        subscription.billing_status = "OVERDUE"
+        session.add(subscription); session.commit()
+
+        overview = platform_finance_overview(principal, session)
+        row = next(item for item in overview.subscriptions if item.tenant_id == created.tenant.id)
+        assert row.tenant_name == f"Finance SaaS {suffix}"
+        assert row.monthly_amount == Decimal("249.90")
+        assert row.billing_status == "OVERDUE"
+        assert overview.contracted_mrr >= Decimal("249.90")
+        assert overview.overdue_subscriptions >= 1
 
 
 def test_owner_can_open_tenant_and_invite_first_user(monkeypatch):

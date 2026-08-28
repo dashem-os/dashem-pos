@@ -11,6 +11,7 @@ from app.models.identity import OperationalSession, OperationalSessionStatusEnum
 from app.models.payment import Register
 from app.models.production import ProductionPoint, ProductionPointTypeEnum
 from app.services import reliability_service
+from app.services.contract_limit_service import effective_limit
 from app.services.operational_session_service import mark_expired
 
 
@@ -33,6 +34,13 @@ def create_device(
 ) -> OperationalDevice:
     if context.store_id and context.store_id != store_id:
         raise HTTPException(status_code=403, detail="Unidade fora do contexto ativo.")
+    device_limit = effective_limit(session, context.tenant_id, "devices")
+    active_devices = len(session.exec(select(OperationalDevice).where(
+        OperationalDevice.tenant_id == context.tenant_id,
+        OperationalDevice.status != OperationalDeviceStatusEnum.REVOKED,
+    )).all())
+    if device_limit is not None and active_devices >= device_limit:
+        raise HTTPException(status_code=409, detail="Limite contratual de dispositivos atingido.")
     actor = _actor(context, actor_id)
     normalized_code = code.strip().upper()
     if session.exec(scope_tenant_query(select(OperationalDevice).where(

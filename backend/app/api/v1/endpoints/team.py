@@ -11,9 +11,9 @@ from app.core.context import TenantContext, get_tenant_context
 from app.core.database import get_session
 from app.models.identity import (
     Employee, EmployeeStatusEnum, Membership, MembershipStatusEnum,
-    OperationalCredential, RoleEnum, ServicePlan, Store, Tenant,
-    TenantSubscription, User,
+    OperationalCredential, RoleEnum, Store, Tenant, User,
 )
+from app.services.contract_limit_service import effective_limit
 from app.services import identity_service, operational_access_service, reliability_service, supabase_admin
 
 
@@ -189,15 +189,14 @@ def _validate_employee_store(session: Session, context: TenantContext, store_id:
 
 
 def _enforce_user_limit(session: Session, tenant_id: uuid.UUID) -> None:
-    subscription = session.get(TenantSubscription, tenant_id)
-    plan = session.get(ServicePlan, subscription.plan_id) if subscription and subscription.plan_id else None
-    if not plan or plan.user_limit is None:
+    maximum = effective_limit(session, tenant_id, "users")
+    if maximum is None:
         return
     current = len(session.exec(select(Membership).where(
         Membership.tenant_id == tenant_id,
         Membership.status.in_({MembershipStatusEnum.ACTIVE, MembershipStatusEnum.INVITED}),
     )).all())
-    if current >= plan.user_limit:
+    if current >= maximum:
         raise HTTPException(status_code=409, detail="Limite contratual de usuários atingido.")
 
 

@@ -1013,6 +1013,25 @@ export interface PlatformSystemHealth {
   }
 }
 
+export interface PlatformFinanceSubscription {
+  tenant_id: string
+  tenant_name: string
+  plan_name?: string
+  subscription_status: SubscriptionStatus
+  monthly_amount: number
+  billing_status: string
+  next_due_date?: string
+}
+
+export interface PlatformFinanceOverview {
+  contracted_mrr: number
+  active_subscriptions: number
+  trial_subscriptions: number
+  overdue_subscriptions: number
+  pending_subscriptions: number
+  subscriptions: PlatformFinanceSubscription[]
+}
+
 export interface ControlLead {
   id: string
   company_name: string
@@ -1472,6 +1491,12 @@ export async function fetchPlatformOverview(): Promise<PlatformOverview> {
 export async function fetchPlatformHealth(): Promise<PlatformSystemHealth> {
   const res = await fetch(`${API_BASE_URL}/api/v1/identity/platform/health`)
   if (!res.ok) throw await apiError(res, 'Não foi possível verificar a saúde da plataforma.')
+  return res.json()
+}
+
+export async function fetchPlatformFinanceOverview(): Promise<PlatformFinanceOverview> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/identity/platform/finance/overview`)
+  if (!res.ok) throw await apiError(res, 'Não foi possível carregar a saúde financeira do SaaS.')
   return res.json()
 }
 
