@@ -126,10 +126,11 @@ jobs:
           createdb -h 127.0.0.1 -U postgres dashem_restore_test
           pg_restore -h 127.0.0.1 -U postgres -d dashem_restore_test --no-owner --exit-on-error /tmp/dashem.restore.dump
           restored=$(psql -h 127.0.0.1 -U postgres -d dashem_restore_test -Atc "SELECT count(*) FROM service_heartbeats WHERE service_key='$marker'")
+          source_revision=$(psql -h 127.0.0.1 -U postgres -d dashem_alembic_test -Atc "SELECT version_num FROM alembic_version")
           revision=$(psql -h 127.0.0.1 -U postgres -d dashem_restore_test -Atc "SELECT version_num FROM alembic_version")
           elapsed=$(( $(date +%s) - started_at ))
           test "$restored" = "1"
-          test "$revision" = "048_owner_flexible_contract"
+          test "$revision" = "$source_revision"
           test "$elapsed" -lt 3600
           echo "Restore verified in ${elapsed}s at revision ${revision}; RPO=0 for the marker transaction."
 

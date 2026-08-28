@@ -3,7 +3,7 @@ from datetime import date, datetime
 from enum import Enum
 from typing import Optional, List
 from decimal import Decimal
-from sqlalchemy import Column, Index, Numeric, String, Text, text
+from sqlalchemy import CheckConstraint, Column, Index, Numeric, String, Text, text
 from sqlmodel import SQLModel, Field, Relationship, UniqueConstraint
 
 class RoleEnum(str, Enum):
@@ -180,6 +180,12 @@ class ServicePlan(SQLModel, table=True):
 
 class TenantSubscription(SQLModel, table=True):
     __tablename__ = "tenant_subscriptions"
+    __table_args__ = (
+        CheckConstraint(
+            "version >= 1",
+            name="ck_tenant_subscriptions_version_positive",
+        ),
+    )
 
     tenant_id: uuid.UUID = Field(foreign_key="tenants.id", primary_key=True)
     plan_id: Optional[uuid.UUID] = Field(default=None, foreign_key="service_plans.id", index=True)

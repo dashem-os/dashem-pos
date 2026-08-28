@@ -41,6 +41,10 @@ class SaasBillingAccount(SQLModel, table=True):
     __tablename__ = "saas_billing_accounts"
     __table_args__ = (
         UniqueConstraint("tenant_id", name="uq_saas_billing_accounts_tenant"),
+        CheckConstraint(
+            "version >= 1",
+            name="ck_saas_billing_accounts_version_positive",
+        ),
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
@@ -71,7 +75,14 @@ class SaasInvoice(SQLModel, table=True):
             name="uq_saas_invoice_subscription_period_revision",
         ),
         CheckConstraint("tenant_id = subscription_id", name="ck_saas_invoice_subscription_tenant"),
-        CheckConstraint("period_end >= period_start", name="ck_saas_invoice_period"),
+        CheckConstraint(
+            "period_start = date_trunc('month', period_start)::date",
+            name="ck_saas_invoice_period_start",
+        ),
+        CheckConstraint(
+            "period_end = (date_trunc('month', period_start) + interval '1 month - 1 day')::date",
+            name="ck_saas_invoice_period_end",
+        ),
         CheckConstraint("subtotal >= 0", name="ck_saas_invoice_subtotal_nonnegative"),
         CheckConstraint("discount_amount >= 0", name="ck_saas_invoice_discount_nonnegative"),
         CheckConstraint("tax_amount >= 0", name="ck_saas_invoice_tax_nonnegative"),
@@ -140,7 +151,9 @@ class SaasInvoiceLine(SQLModel, table=True):
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-    invoice_id: uuid.UUID = Field(foreign_key="saas_invoices.id", index=True)
+    invoice_id: uuid.UUID = Field(
+        foreign_key="saas_invoices.id", ondelete="CASCADE", index=True
+    )
     line_type: SaasInvoiceLineTypeEnum = Field(
         sa_column=Column(EnumString(SaasInvoiceLineTypeEnum), nullable=False, index=True)
     )

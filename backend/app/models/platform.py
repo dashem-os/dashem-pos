@@ -93,7 +93,10 @@ class PlatformRolePermission(SQLModel, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     role: PlatformRoleEnum = Field(sa_column=Column(String, nullable=False, index=True))
     permission_key: str = Field(
-        foreign_key="platform_permission_definitions.key", index=True, max_length=120
+        foreign_key="platform_permission_definitions.key",
+        ondelete="CASCADE",
+        index=True,
+        max_length=120,
     )
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -111,10 +114,13 @@ class PlatformPermissionGrant(SQLModel, table=True):
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     platform_membership_id: uuid.UUID = Field(
-        foreign_key="platform_memberships.id", index=True
+        foreign_key="platform_memberships.id", ondelete="CASCADE", index=True
     )
     permission_key: str = Field(
-        foreign_key="platform_permission_definitions.key", index=True, max_length=120
+        foreign_key="platform_permission_definitions.key",
+        ondelete="CASCADE",
+        index=True,
+        max_length=120,
     )
     allowed: bool = Field(nullable=False)
     reason: str = Field(sa_column=Column(Text, nullable=False))

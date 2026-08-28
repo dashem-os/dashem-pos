@@ -105,18 +105,46 @@ serão ativados com fatos de recebimento, saldo e vencimento na Fase 3.
 
 ## Evidência desta etapa
 
-- Python `compileall`: concluído;
 - frontend `npm test`: **66/66**;
 - frontend `npm run build`: concluído;
-- banco isolado `dashem_pos_finance_validation`: ciclo
-  **052 → 051 → 052** concluído;
-- testes F2 no PostgreSQL real: **3/3**;
+- banco vazio isolado `dashem_ci_recovery_053`: ciclo completo
+  **base → 053 → base → 053** concluído;
+- `alembic check`: **sem novas operações detectadas**;
+- backup e restauração PostgreSQL 15: revisão de origem e restaurada
+  **053_secure_function_paths**, com `saas_invoices` presente;
+- testes focados do Financeiro, permissões e fronteira Owner/tenant: **29/29**;
 - triggers de snapshot e itens exercitados por tentativa real de `UPDATE` após
   emissão;
 - RLS confirmado no catálogo para `saas_invoices` e `saas_invoice_lines`.
-- suíte backend completa: **129/129**, com API, testes SQL e testes HTTP usando o
+- suíte backend completa: **130/130**, com API, testes SQL e testes HTTP usando o
   mesmo `DATABASE_URL`, `ENVIRONMENT=test`, `AUTH_MODE=disabled` e
   `TEST_BASE_URL`;
+
+## Recuperação do CI após a Fase 2
+
+Os runs 53 a 56 foram publicados sem aguardar a conclusão do GitHub Actions. A
+falha recorrente estava no job **Alembic canonical schema**, não nos testes de
+frontend, backend ou acesso operacional.
+
+Causas e correções registradas:
+
+- constraints e `ON DELETE CASCADE` existentes nas migrations 049 a 052 não
+  estavam representados integralmente nos models SQLAlchemy; os models agora são
+  canônicos e o `alembic check` passa;
+- o teste de restauração comparava a revisão restaurada com
+  `048_owner_flexible_contract`, valor fixo que ficou obsoleto; agora compara a
+  revisão restaurada com a revisão lida do banco de origem;
+- a migration `053_secure_function_paths` fixa `search_path` em
+  `pg_catalog, public` nas três funções de trigger sensíveis;
+- `test_owner_finance_f2.py` impede regressão do `search_path` dessas funções.
+
+Alertas externos que não são falhas do código do Financeiro:
+
+- **Leaked Password Protection Disabled** é uma configuração do Supabase Auth e
+  exige decisão/aplicação no painel;
+- logs `pg_pgrst_no_exposed_schemas` pertencem à configuração/infraestrutura do
+  PostgREST e devem ser diagnosticados separadamente, sem maquiar o status no
+  módulo financeiro.
 
 Observação local permanente: o banco padrão `dashem_pos` possuía objetos da
 migration 050 com marcador Alembic 049. Nenhum `stamp`, drop ou correção forçada
@@ -157,4 +185,6 @@ integração; ausência de valor não equivale a documento emitido externamente.
 5. executar os três testes mínimos de regressão;
 6. iniciar pela Fase 3 na ordem acima, sem criar valores ou estados simulados;
 7. atualizar este checkpoint com arquivos, migrations, testes e próximo passo;
-8. fazer commit e push somente após todas as evidências passarem.
+8. fazer commit e push somente após todas as evidências passarem;
+9. após o push, acompanhar o GitHub Actions até o estado final; não iniciar a
+   sprint seguinte enquanto qualquer job estiver vermelho ou ainda em execução.

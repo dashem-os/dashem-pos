@@ -312,3 +312,28 @@ def test_f2_invoice_tables_are_platform_only():
     assert {row[0] for row in rows} == {"saas_invoices", "saas_invoice_lines"}
     assert all(row[1] is True and row[2] is True for row in rows)
     assert all(row[3] == f"{row[0]}_platform_only" for row in rows)
+
+
+def test_database_trigger_functions_have_an_immutable_search_path():
+    expected = {
+        "dashem_reject_immutable_mutation",
+        "protect_issued_saas_invoice_snapshot",
+        "protect_issued_saas_invoice_line",
+    }
+    with Session(engine) as session:
+        rows = session.exec(text("""
+            SELECT procedure.proname, procedure.proconfig
+            FROM pg_proc AS procedure
+            JOIN pg_namespace AS namespace ON namespace.oid = procedure.pronamespace
+            WHERE namespace.nspname = 'public'
+              AND procedure.proname IN (
+                'dashem_reject_immutable_mutation',
+                'protect_issued_saas_invoice_snapshot',
+                'protect_issued_saas_invoice_line'
+              )
+        """)).all()
+    assert {row[0] for row in rows} == expected
+    assert all(
+        row[1] and "search_path=pg_catalog, public" in row[1]
+        for row in rows
+    )
