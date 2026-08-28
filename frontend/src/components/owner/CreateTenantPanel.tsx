@@ -49,7 +49,7 @@ const formatTaxId = (value: string) => value.length <= 11
   ? value.replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d{1,2})$/, '$1-$2')
   : value.replace(/(\d{2})(\d)/, '$1.$2').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d)/, '$1/$2').replace(/(\d{4})(\d{1,2})$/, '$1-$2')
 
-export function CreateTenantPanel({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+export function CreateTenantPanel({ onClose, onCreated, onManagePlans }: { onClose: () => void; onCreated: () => void; onManagePlans: () => void }) {
   const [form, setForm] = useState<FormState>(initialForm)
   const [step, setStep] = useState(0)
   const [niches, setNiches] = useState<OwnerNiche[]>([])
@@ -113,6 +113,7 @@ export function CreateTenantPanel({ onClose, onCreated }: { onClose: () => void;
     return required
   }
   const advance = () => {
+    if (step === 1 && plans.length === 0) { onManagePlans(); return }
     const errors = errorsForStep()
     if (Object.keys(errors).length) { setFieldErrors(errors); setError('Revise os campos destacados para continuar.'); const first = document.getElementById(`owner-${Object.keys(errors)[0]}`); first?.scrollIntoView({ behavior: 'smooth', block: 'center' }); first?.focus(); return }
     setError(''); setFieldErrors({}); setStep(value => value + 1)

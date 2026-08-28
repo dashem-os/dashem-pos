@@ -1601,6 +1601,33 @@ export async function fetchServicePlans(): Promise<ServicePlan[]> {
   return res.json()
 }
 
+export type ServicePlanInput = {
+  code: string
+  name: string
+  description?: string
+  store_limit?: number
+  user_limit?: number
+  terminal_limit?: number
+  storage_limit_mb?: number
+  monthly_price: number
+}
+
+export async function createServicePlan(input: ServicePlanInput): Promise<ServicePlan> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/identity/platform/plans`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível criar o plano comercial.')
+  return res.json()
+}
+
+export async function updateServicePlan(planId: string, input: ServicePlanInput & { is_active: boolean }): Promise<ServicePlan> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/identity/platform/plans/${planId}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível atualizar o plano comercial.')
+  return res.json()
+}
+
 export async function updatePlatformTenantLifecycle(
   tenantId: string,
   status: TenantLifecycleStatus,

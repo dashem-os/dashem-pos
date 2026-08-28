@@ -1,4 +1,5 @@
 import uuid
+from decimal import Decimal
 
 import pytest
 from fastapi import HTTPException
@@ -10,6 +11,7 @@ from app.api.v1.endpoints.identity import (
     PlatformTenantInvite,
     PlatformTenantLifecycleUpdate,
     ServicePlanCreate,
+    ServicePlanUpdate,
     TenantCapabilityUpdate,
     complete_owner_onboarding,
     complete_password_setup,
@@ -23,6 +25,7 @@ from app.api.v1.endpoints.identity import (
     invite_platform_tenant_user,
     provision_platform_tenant,
     update_platform_tenant_lifecycle,
+    update_service_plan,
     update_tenant_capability,
 )
 from app.core.database import engine
@@ -370,3 +373,38 @@ def test_owner_customer_master_is_persisted_and_audited():
         )).first()
         assert audit is not None
         assert "Pausa solicitada" in audit.payload
+
+
+def test_owner_updates_the_commercial_plan_catalog_with_audit():
+    suffix = uuid.uuid4().hex[:8]
+    with Session(engine) as session:
+        owner_subject, _ = _owner(session)
+        principal = _principal(owner_subject)
+        plan = create_service_plan(
+            data=ServicePlanCreate(code=f"START_{suffix.upper()}", name="Inicial"),
+            principal=principal,
+            session=session,
+        )
+
+        updated = update_service_plan(
+            plan_id=plan.id,
+            data=ServicePlanUpdate(
+                code=f"PILOT_{suffix.upper()}", name="Plano Piloto",
+                description="Plano comercial para validação assistida.",
+                store_limit=2, user_limit=8, terminal_limit=4,
+                storage_limit_mb=1024, monthly_price=Decimal("149.90"),
+                is_active=False,
+            ),
+            principal=principal,
+            session=session,
+        )
+
+        assert updated.name == "Plano Piloto"
+        assert updated.monthly_price == Decimal("149.90")
+        assert updated.store_limit == 2
+        assert updated.is_active is False
+        audit = session.exec(select(AuditEvent).where(
+            AuditEvent.action == "platform.plan.updated",
+            AuditEvent.target == f"service_plan:{plan.id}",
+        )).first()
+        assert audit is not None

@@ -2,19 +2,20 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Activity, AlertTriangle, ArrowRight, Building2, CheckCircle2, FileWarning,
   HeartPulse, LayoutGrid, Loader2, LogOut, Menu, Plus, RefreshCw, Search,
-  ShieldCheck, Store, Users, Workflow, X,
+  ShieldCheck, Store, Users, WalletCards, Workflow, X,
 } from 'lucide-react'
 
 import { useAuth } from '../../context/AuthContext'
 import {
   AuthMe, ControlHealthComponent, ControlLead, fetchControlHealth, fetchControlLeads,
-  fetchPlatformHealth, fetchPlatformOverview, HealthComponent,
+  fetchPlatformHealth, fetchPlatformOverview, fetchServicePlans, HealthComponent,
   PlatformOverview, PlatformSystemHealth, PlatformTenantSummary,
 } from '../../services/api'
 import { CreateTenantPanel } from './CreateTenantPanel'
+import { ServicePlansView } from './ServicePlansView'
 import { TenantWorkspace } from './TenantWorkspace'
 
-type View = 'overview' | 'organizations' | 'operations' | 'health' | 'tenant'
+type View = 'overview' | 'organizations' | 'plans' | 'operations' | 'health' | 'tenant'
 type OrganizationFilter = 'ALL' | 'ACTIVE' | 'IMPLEMENTATION' | 'ATTENTION'
 
 const statusLabel: Record<string, string> = {
@@ -31,6 +32,7 @@ export function OwnerConsoleShell({ me }: { me: AuthMe }) {
   const [health, setHealth] = useState<PlatformSystemHealth | null>(null)
   const [selected, setSelected] = useState<PlatformTenantSummary | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
+  const [checkingPlans, setCheckingPlans] = useState(false)
   const [mobileNav, setMobileNav] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -47,7 +49,18 @@ export function OwnerConsoleShell({ me }: { me: AuthMe }) {
     setView(next); setFilter(nextFilter); setSelected(null); setMobileNav(false); window.scrollTo({ top: 0 })
   }
   const openTenant = (tenant: PlatformTenantSummary) => { setSelected(tenant); setView('tenant'); window.scrollTo({ top: 0 }) }
-  const title = view === 'overview' ? 'Visão geral da plataforma' : view === 'organizations' ? 'Clientes e organizações' : view === 'operations' ? 'Operações do Control' : view === 'health' ? 'Saúde da plataforma' : selected?.name || 'Cliente'
+  const openCreateTenant = async () => {
+    if (checkingPlans) return
+    setCheckingPlans(true); setError(null)
+    try {
+      const plans = await fetchServicePlans()
+      if (!plans.some(plan => plan.is_active)) { navigate('plans'); return }
+      setCreateOpen(true)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Não foi possível verificar os planos comerciais.')
+    } finally { setCheckingPlans(false) }
+  }
+  const title = view === 'overview' ? 'Visão geral da plataforma' : view === 'organizations' ? 'Clientes e organizações' : view === 'plans' ? 'Planos comerciais' : view === 'operations' ? 'Operações do Control' : view === 'health' ? 'Saúde da plataforma' : selected?.name || 'Cliente'
 
   return <div className="min-h-screen bg-[#f4f6f9] text-[#022444] lg:grid lg:h-screen lg:grid-cols-[260px_minmax(0,1fr)] lg:overflow-hidden">
     <aside className={`${mobileNav ? 'flex' : 'hidden'} fixed inset-y-0 left-0 z-40 w-[280px] flex-col overflow-hidden bg-[#022444] p-5 text-white shadow-2xl lg:static lg:flex lg:h-screen lg:w-auto lg:shadow-none`}>
@@ -55,6 +68,7 @@ export function OwnerConsoleShell({ me }: { me: AuthMe }) {
       <nav className="mt-10 space-y-2">
         <NavButton active={view === 'overview'} icon={LayoutGrid} label="Visão geral" onClick={() => navigate('overview')} />
         <NavButton active={view === 'organizations' || view === 'tenant'} icon={Building2} label="Organizações" onClick={() => navigate('organizations')} />
+        <NavButton active={view === 'plans'} icon={WalletCards} label="Planos comerciais" onClick={() => navigate('plans')} />
         <NavButton active={view === 'operations'} icon={Workflow} label="Operações do Control" onClick={() => navigate('operations')} />
         <NavButton active={view === 'health'} icon={HeartPulse} label="Saúde da plataforma" onClick={() => navigate('health')} />
       </nav>
@@ -62,16 +76,17 @@ export function OwnerConsoleShell({ me }: { me: AuthMe }) {
     </aside>
     {mobileNav && <button className="fixed inset-0 z-30 bg-[#022444]/50 lg:hidden" onClick={() => setMobileNav(false)} />}
 
-    <main className="min-w-0 lg:h-screen lg:overflow-y-auto"><header className="sticky top-0 z-20 flex h-20 items-center justify-between border-b border-slate-200 bg-white px-5 sm:px-8"><div className="flex items-center gap-3"><button className="flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 lg:hidden" onClick={() => setMobileNav(true)}><Menu className="h-5 w-5" /></button><div><p className="text-xs font-bold uppercase tracking-[.16em] text-slate-400">Dashem Control</p><h1 className="text-lg font-black">{title}</h1></div></div>{view === 'organizations' && <button onClick={() => setCreateOpen(true)} className="flex h-11 items-center gap-2 rounded-xl bg-[#E12120] px-4 text-sm font-black text-white shadow-lg shadow-red-900/20"><Plus className="h-4 w-4" /><span className="hidden sm:inline">Novo cliente</span></button>}</header>
+    <main className="min-w-0 lg:h-screen lg:overflow-y-auto"><header className="sticky top-0 z-20 flex h-20 items-center justify-between border-b border-slate-200 bg-white px-5 sm:px-8"><div className="flex items-center gap-3"><button className="flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 lg:hidden" onClick={() => setMobileNav(true)}><Menu className="h-5 w-5" /></button><div><p className="text-xs font-bold uppercase tracking-[.16em] text-slate-400">Dashem Control</p><h1 className="text-lg font-black">{title}</h1></div></div>{view === 'organizations' && <button disabled={checkingPlans} onClick={openCreateTenant} className="flex h-11 items-center gap-2 rounded-xl bg-[#E12120] px-4 text-sm font-black text-white shadow-lg shadow-red-900/20 disabled:opacity-50">{checkingPlans ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}<span className="hidden sm:inline">{checkingPlans ? 'Verificando…' : 'Novo cliente'}</span></button>}</header>
 
       {error && <div className="mx-auto mt-5 max-w-[1500px] px-5 sm:px-8"><p className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">{error}<button onClick={load} className="ml-3 underline">Tentar novamente</button></p></div>}
       {view === 'overview' && <OverviewView overview={overview} health={health} onOrganizations={nextFilter => navigate('organizations', nextFilter)} onHealth={() => navigate('health')} onTenant={openTenant} />}
       {view === 'organizations' && <OrganizationsView overview={overview} filter={filter} onFilter={setFilter} onTenant={openTenant} />}
+      {view === 'plans' && <ServicePlansView />}
       {view === 'operations' && <ControlOperationsView />}
       {view === 'health' && <SystemHealthView health={health} onRefresh={load} />}
-      {view === 'tenant' && selected && <TenantWorkspace tenant={selected} onBack={() => navigate('organizations')} onChanged={load} />}
+      {view === 'tenant' && selected && <TenantWorkspace tenant={selected} onBack={() => navigate('organizations')} onManagePlans={() => navigate('plans')} onChanged={load} />}
     </main>
-    {createOpen && <CreateTenantPanel onClose={() => setCreateOpen(false)} onCreated={async () => { setCreateOpen(false); await load(); navigate('organizations') }} />}
+    {createOpen && <CreateTenantPanel onClose={() => setCreateOpen(false)} onManagePlans={() => { setCreateOpen(false); navigate('plans') }} onCreated={async () => { setCreateOpen(false); await load(); navigate('organizations') }} />}
   </div>
 }
 

@@ -422,6 +422,10 @@ class ServicePlanCreate(BaseModel):
     monthly_price: Decimal = PydanticField(default=Decimal("0.00"), ge=0)
 
 
+class ServicePlanUpdate(ServicePlanCreate):
+    is_active: bool = True
+
+
 class TenantSubscriptionUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -1305,6 +1309,57 @@ def create_service_plan(
         actor_id=actor.id, tenant_id=None, store_id=None, platform_scope=True,
         action="platform.plan.created", target=f"service_plan:{plan.id}",
         payload=json.dumps({"plan_id": str(plan.id), "code": plan.code}),
+    ))
+    session.commit()
+    session.refresh(plan)
+    return plan
+
+
+@router.put("/platform/plans/{plan_id}", response_model=ServicePlan)
+def update_service_plan(
+    plan_id: uuid.UUID,
+    data: ServicePlanUpdate,
+    principal: AuthPrincipal = Depends(get_current_principal),
+    session: Session = Depends(get_session),
+):
+    actor = require_platform_role(session, principal, PLATFORM_MANAGERS, require_aal2=True)
+    assert actor is not None
+    plan = session.get(ServicePlan, plan_id)
+    if plan is None:
+        raise HTTPException(status_code=404, detail="Plano comercial não encontrado.")
+    code = data.code.strip().upper()
+    duplicate = session.exec(select(ServicePlan).where(ServicePlan.code == code, ServicePlan.id != plan_id)).first()
+    if duplicate:
+        raise HTTPException(status_code=409, detail="Já existe outro plano com este código.")
+    previous = {
+        "code": plan.code, "name": plan.name, "is_active": plan.is_active,
+        "store_limit": plan.store_limit, "user_limit": plan.user_limit,
+        "terminal_limit": plan.terminal_limit, "storage_limit_mb": plan.storage_limit_mb,
+        "monthly_price": str(plan.monthly_price),
+    }
+    plan.code = code
+    plan.name = data.name.strip()
+    plan.description = data.description.strip() if data.description else None
+    plan.store_limit = data.store_limit
+    plan.user_limit = data.user_limit
+    plan.terminal_limit = data.terminal_limit
+    plan.storage_limit_mb = data.storage_limit_mb
+    plan.monthly_price = data.monthly_price
+    plan.is_active = data.is_active
+    plan.updated_at = datetime.utcnow()
+    session.add(plan)
+    session.add(AuditEvent(
+        actor_id=actor.id, tenant_id=None, store_id=None, platform_scope=True,
+        action="platform.plan.updated", target=f"service_plan:{plan.id}",
+        payload=json.dumps({
+            "plan_id": str(plan.id), "previous": previous,
+            "current": {
+                "code": plan.code, "name": plan.name, "is_active": plan.is_active,
+                "store_limit": plan.store_limit, "user_limit": plan.user_limit,
+                "terminal_limit": plan.terminal_limit, "storage_limit_mb": plan.storage_limit_mb,
+                "monthly_price": str(plan.monthly_price),
+            },
+        }),
     ))
     session.commit()
     session.refresh(plan)
