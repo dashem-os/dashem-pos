@@ -7,10 +7,10 @@ from sqlmodel import Session, select
 from app.api.v1.endpoints.identity import (
     OwnerBillingCreate, OwnerInitialAdminCreate, OwnerQuotaCreate,
     OwnerTenantContractUpdate, OwnerTenantProvisionCreate, PlatformTenantCreate,
-    PlatformTenantAdministratorReplace,
+    PlatformTenantAdministratorReplace, SaasBillingAccountUpdate,
     ServicePlanCreate, create_service_plan,
     platform_tenant_detail, provision_owner_tenant, tenant_capability_catalog,
-    update_owner_tenant_contract, provision_platform_tenant,
+    update_owner_tenant_contract, update_saas_billing_account, provision_platform_tenant,
     replace_platform_tenant_administrator, _normalize_tax_id,
 )
 from app.core.database import engine
@@ -155,6 +155,7 @@ def test_owner_can_combine_niches_and_version_existing_contract(monkeypatch):
             billing=OwnerBillingCreate(contact_name="Novo Financeiro", email=f"cobranca-{suffix}@example.test", monthly_amount=229, billing_day=15),
             subscription_status=SubscriptionStatusEnum.ACTIVE,
             expected_contract_version=1,
+            expected_billing_account_version=1,
             reason="Ampliação da operação híbrida.",
         ), principal, session)
         assert detail.contract.version == 2
@@ -177,9 +178,44 @@ def test_owner_can_combine_niches_and_version_existing_contract(monkeypatch):
                 ),
                 subscription_status=SubscriptionStatusEnum.ACTIVE,
                 expected_contract_version=1,
+                expected_billing_account_version=1,
                 reason="Tentativa com versão contratual obsoleta.",
             ), principal, session)
         assert stale.value.status_code == 409
+
+        billing = update_saas_billing_account(
+            provisioned.tenant.id,
+            SaasBillingAccountUpdate(
+                legal_name="Empreendedora Híbrida",
+                tax_id="11222333000181",
+                contact_name="Financeiro dedicado",
+                contact_email=f"dedicado-{suffix}@example.test",
+                expected_version=2,
+                reason="Atualização independente da conta de cobrança.",
+            ),
+            principal,
+            session,
+        )
+        assert billing.version == 3
+        with pytest.raises(HTTPException) as stale_billing:
+            update_owner_tenant_contract(provisioned.tenant.id, OwnerTenantContractUpdate(
+                plan_id=plan.id, niches=[BusinessNiche.RETAIL],
+                capability_keys=["catalog", "inventory", "payments"],
+                quotas=OwnerQuotaCreate(users=8, devices=4, units=2, storage_mb=4096),
+                billing=OwnerBillingCreate(
+                    contact_name="Sobrescrita", email=f"sobrescrita-{suffix}@example.test",
+                    monthly_amount=229, billing_day=15,
+                ),
+                subscription_status=SubscriptionStatusEnum.ACTIVE,
+                expected_contract_version=2,
+                expected_billing_account_version=2,
+                reason="Tentativa com versão da conta de cobrança obsoleta.",
+            ), principal, session)
+        assert stale_billing.value.status_code == 409
+        after_conflict = platform_tenant_detail(provisioned.tenant.id, principal, session)
+        assert after_conflict.contract.version == 2
+        assert after_conflict.billing_account.version == 3
+        assert after_conflict.billing_account.contact_name == "Financeiro dedicado"
 
 
 def test_owner_can_regularize_legacy_tenant_and_recognizes_existing_admin():
@@ -209,6 +245,7 @@ def test_owner_can_regularize_legacy_tenant_and_recognizes_existing_admin():
             billing=OwnerBillingCreate(contact_name="Financeiro", email=f"financeiro-{suffix}@example.test", monthly_amount=119, billing_day=12),
             subscription_status=SubscriptionStatusEnum.ACTIVE,
             expected_contract_version=0,
+            expected_billing_account_version=0,
             reason="Regularização do tenant anterior ao contrato Owner.",
         ), principal, session)
         assert detail.contract.version == 1

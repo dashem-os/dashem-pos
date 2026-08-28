@@ -17,6 +17,12 @@ OWNER_FINANCE_MODEL = (
     / "models"
     / "owner_finance.py"
 )
+FINANCE_PERMISSION_MIGRATION = (
+    Path(__file__).resolve().parents[1]
+    / "alembic"
+    / "versions"
+    / "051_platform_finance_permissions.py"
+)
 
 
 def test_control_has_no_tenant_operational_metrics_route():
@@ -45,3 +51,17 @@ def test_owner_finance_has_no_manual_delinquency_source():
     assert "overdue_subscriptions" not in identity_source
     assert "item.billing_status" not in identity_source
     assert "delinquency: bool = False" in identity_source
+
+
+def test_finance_authorization_tables_are_platform_only():
+    source = FINANCE_PERMISSION_MIGRATION.read_text(encoding="utf-8")
+
+    for table in (
+        "platform_permission_definitions",
+        "platform_role_permissions",
+        "platform_permission_grants",
+    ):
+        assert f'"{table}"' in source
+    assert "ENABLE ROW LEVEL SECURITY" in source
+    assert "FORCE ROW LEVEL SECURITY" in source
+    assert "CREATE POLICY {table}_platform_only" in source

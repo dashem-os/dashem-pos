@@ -1055,6 +1055,17 @@ export interface SaasBillingAccount {
   version: number
 }
 
+export interface SaasBillingAccountUpdate {
+  legal_name: string
+  tax_id: string
+  contact_name: string
+  contact_email: string
+  contact_phone?: string
+  currency: 'BRL'
+  expected_version: number
+  reason: string
+}
+
 export interface ControlLead {
   id: string
   company_name: string
@@ -1587,12 +1598,24 @@ export async function updateOwnerTenantContract(tenantId: string, input: {
   subscription_status: SubscriptionStatus
   next_due_date?: string
   expected_contract_version: number
+  expected_billing_account_version: number
   reason: string
 }): Promise<PlatformTenantDetail> {
   const res = await fetch(`${API_BASE_URL}/api/v1/identity/platform/tenants/${tenantId}/contract`, {
     method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
   })
   if (!res.ok) throw await apiError(res, 'Não foi possível atualizar o contrato do cliente.')
+  return res.json()
+}
+
+export async function updateSaasBillingAccount(
+  tenantId: string,
+  input: SaasBillingAccountUpdate,
+): Promise<SaasBillingAccount> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/identity/platform/finance/billing-accounts/${tenantId}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível atualizar a conta de cobrança SaaS.')
   return res.json()
 }
 

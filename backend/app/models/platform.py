@@ -73,6 +73,56 @@ class PlatformMembership(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class PlatformPermissionDefinition(SQLModel, table=True):
+    """Permission contract owned by the Control plane, never by a tenant."""
+
+    __tablename__ = "platform_permission_definitions"
+
+    key: str = Field(primary_key=True, max_length=120)
+    name: str = Field(max_length=160)
+    description: str = Field(sa_column=Column(Text, nullable=False))
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class PlatformRolePermission(SQLModel, table=True):
+    __tablename__ = "platform_role_permissions"
+    __table_args__ = (
+        UniqueConstraint("role", "permission_key", name="uq_platform_role_permission"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    role: PlatformRoleEnum = Field(sa_column=Column(String, nullable=False, index=True))
+    permission_key: str = Field(
+        foreign_key="platform_permission_definitions.key", index=True, max_length=120
+    )
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class PlatformPermissionGrant(SQLModel, table=True):
+    """Per-membership override. Explicit denial wins over the role default."""
+
+    __tablename__ = "platform_permission_grants"
+    __table_args__ = (
+        UniqueConstraint(
+            "platform_membership_id", "permission_key",
+            name="uq_platform_membership_permission_grant",
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    platform_membership_id: uuid.UUID = Field(
+        foreign_key="platform_memberships.id", index=True
+    )
+    permission_key: str = Field(
+        foreign_key="platform_permission_definitions.key", index=True, max_length=120
+    )
+    allowed: bool = Field(nullable=False)
+    reason: str = Field(sa_column=Column(Text, nullable=False))
+    granted_by: uuid.UUID = Field(foreign_key="users.id", index=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class Lead(SQLModel, table=True):
     __tablename__ = "platform_leads"
 

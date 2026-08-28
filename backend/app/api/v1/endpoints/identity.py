@@ -9,11 +9,12 @@ from typing import Any, List, Optional
 import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, Field as PydanticField
-from sqlalchemy import func, or_, text
+from sqlalchemy import func, or_, text, update as sa_update
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from app.core.access import (
-    get_platform_membership, get_request_user, require_platform_role,
+    get_platform_membership, get_request_user, require_platform_permission, require_platform_role,
     require_tenant_admin,
 )
 from app.core.database import get_session
@@ -45,6 +46,8 @@ from app.modules.capabilities.niches import (
 
 router = APIRouter(dependencies=[Depends(get_current_principal)])
 PLATFORM_MANAGERS = {PlatformRoleEnum.PLATFORM_OWNER, PlatformRoleEnum.PLATFORM_ADMIN}
+FINANCE_READ = "control.finance.read"
+FINANCE_MANAGE_BILLING = "control.finance.manage_billing"
 
 
 def _digits(value: Optional[str]) -> Optional[str]:
@@ -352,6 +355,19 @@ class PlatformFinanceOverview(BaseModel):
     subscriptions: List[PlatformFinanceSubscription]
 
 
+class SaasBillingAccountUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    legal_name: str = PydanticField(min_length=2, max_length=200)
+    tax_id: str = PydanticField(min_length=11, max_length=18)
+    contact_name: str = PydanticField(min_length=2, max_length=160)
+    contact_email: str = PydanticField(min_length=5, max_length=254)
+    contact_phone: Optional[str] = PydanticField(default=None, max_length=32)
+    currency: str = PydanticField(default="BRL", pattern=r"^BRL$")
+    expected_version: int = PydanticField(ge=0)
+    reason: str = PydanticField(min_length=4, max_length=500)
+
+
 class CapabilityCatalogItem(BaseModel):
     key: str
     name: str
@@ -449,6 +465,7 @@ class OwnerTenantContractUpdate(BaseModel):
     subscription_status: SubscriptionStatusEnum
     next_due_date: Optional[date] = None
     expected_contract_version: int = PydanticField(ge=0)
+    expected_billing_account_version: int = PydanticField(ge=0)
     reason: str = PydanticField(min_length=4, max_length=500)
 
 
@@ -778,7 +795,7 @@ def platform_finance_overview(
     session: Session = Depends(get_session),
 ):
     """Contractual SaaS revenue projection; never reads tenant sales or cash data."""
-    require_platform_role(session, principal, PLATFORM_MANAGERS, require_aal2=True)
+    require_platform_permission(session, principal, FINANCE_READ)
     subscriptions = list(session.exec(select(TenantSubscription)).all())
     tenants = {item.id: item for item in session.exec(select(Tenant)).all()}
     plans = {item.id: item for item in session.exec(select(ServicePlan)).all()}
@@ -820,6 +837,119 @@ def platform_finance_overview(
         facts=PlatformFinanceFactsAvailability(),
         subscriptions=rows,
     )
+
+
+@router.put(
+    "/platform/finance/billing-accounts/{tenant_id}",
+    response_model=SaasBillingAccount,
+)
+def update_saas_billing_account(
+    tenant_id: uuid.UUID,
+    data: SaasBillingAccountUpdate,
+    principal: AuthPrincipal = Depends(get_current_principal),
+    session: Session = Depends(get_session),
+):
+    """Versioned platform billing master; never reads tenant operations."""
+    actor = require_platform_permission(
+        session, principal, FINANCE_MANAGE_BILLING, require_aal2=True
+    )
+    assert actor is not None
+    if session.get(Tenant, tenant_id) is None:
+        raise HTTPException(status_code=404, detail="Tenant não encontrado.")
+
+    normalized_tax_id = _normalize_tax_id(data.tax_id)
+    email = data.contact_email.strip().lower()
+    if "@" not in email or email.startswith("@") or email.endswith("@"):
+        raise HTTPException(status_code=422, detail="Informe um e-mail de cobrança válido.")
+    values = {
+        "legal_name": data.legal_name.strip(),
+        "tax_id": normalized_tax_id,
+        "contact_name": data.contact_name.strip(),
+        "contact_email": email,
+        "contact_phone": data.contact_phone.strip() if data.contact_phone else None,
+        "currency": data.currency,
+        "updated_at": datetime.utcnow(),
+    }
+    account = session.exec(
+        select(SaasBillingAccount).where(SaasBillingAccount.tenant_id == tenant_id)
+    ).first()
+    previous_version = account.version if account else 0
+    previous = {
+        "version": previous_version,
+        "legal_name": account.legal_name if account else None,
+        "tax_id_suffix": account.tax_id[-4:] if account and account.tax_id else None,
+        "contact_name": account.contact_name if account else None,
+        "contact_email": account.contact_email if account else None,
+        "contact_phone": account.contact_phone if account else None,
+        "currency": account.currency if account else None,
+    }
+
+    if account is None:
+        if data.expected_version != 0:
+            raise HTTPException(
+                status_code=409,
+                detail="A conta de cobrança foi alterada por outra sessão. Recarregue os dados antes de salvar.",
+            )
+        account = SaasBillingAccount(tenant_id=tenant_id, version=1, **values)
+        session.add(account)
+        try:
+            session.flush()
+        except IntegrityError as exc:
+            session.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail="A conta de cobrança foi criada por outra sessão. Recarregue os dados antes de salvar.",
+            ) from exc
+    else:
+        result = session.exec(
+            sa_update(SaasBillingAccount)
+            .where(
+                SaasBillingAccount.id == account.id,
+                SaasBillingAccount.version == data.expected_version,
+            )
+            .values(**values, version=data.expected_version + 1)
+        )
+        if result.rowcount != 1:
+            raise HTTPException(
+                status_code=409,
+                detail="A conta de cobrança foi alterada por outra sessão. Recarregue os dados antes de salvar.",
+            )
+        session.expire(account)
+        session.refresh(account)
+
+    payload = {
+        "tenant_id": str(tenant_id),
+        "billing_account_id": str(account.id),
+        "previous": previous,
+        "current": {
+            "version": account.version,
+            "legal_name": account.legal_name,
+            "tax_id_suffix": account.tax_id[-4:] if account.tax_id else None,
+            "contact_name": account.contact_name,
+            "contact_email": account.contact_email,
+            "contact_phone": account.contact_phone,
+            "currency": account.currency,
+        },
+        "reason": data.reason.strip(),
+    }
+    audit, _ = reliability_service.write_audit_and_outbox(
+        session,
+        tenant_id=tenant_id,
+        store_id=None,
+        actor_id=actor.id,
+        action="platform.finance.billing_account_updated",
+        target=f"saas_billing_account:{account.id}",
+        audit_payload=payload,
+        aggregate_type="saas_billing_account",
+        aggregate_id=str(account.id),
+        event_type="platform.finance.billing_account_updated",
+        outbox_payload=payload,
+    )
+    audit.platform_scope = True
+    session.add(audit)
+    session.commit()
+    session.refresh(account)
+    return account
 
 
 @router.get("/platform/niches", response_model=List[OwnerNicheRead])
@@ -877,13 +1007,46 @@ def _upsert_saas_billing_account(
     tenant: Tenant,
     profile: Optional[TenantProfile],
     billing: OwnerBillingCreate,
+    expected_version: Optional[int] = None,
 ) -> SaasBillingAccount:
     account = session.exec(
         select(SaasBillingAccount).where(SaasBillingAccount.tenant_id == tenant.id)
     ).first()
     if account is None:
+        if expected_version not in {None, 0}:
+            raise HTTPException(
+                status_code=409,
+                detail="A conta de cobrança foi alterada por outra sessão. Recarregue os dados antes de salvar.",
+            )
         account = SaasBillingAccount(tenant_id=tenant.id)
     else:
+        if expected_version is not None:
+            result = session.exec(
+                sa_update(SaasBillingAccount)
+                .where(
+                    SaasBillingAccount.id == account.id,
+                    SaasBillingAccount.version == expected_version,
+                )
+                .values(
+                    legal_name=(profile.legal_name if profile and profile.legal_name else tenant.legal_name),
+                    tax_id=profile.tax_id if profile else None,
+                    contact_name=billing.contact_name.strip(),
+                    contact_email=billing.email.strip().lower(),
+                    contact_phone=billing.phone.strip() if billing.phone else None,
+                    currency="BRL",
+                    version=expected_version + 1,
+                    updated_at=datetime.utcnow(),
+                )
+            )
+            if result.rowcount != 1:
+                session.rollback()
+                raise HTTPException(
+                    status_code=409,
+                    detail="A conta de cobrança foi alterada por outra sessão. Recarregue os dados antes de salvar.",
+                )
+            session.expire(account)
+            session.refresh(account)
+            return account
         account.version += 1
     account.legal_name = profile.legal_name if profile and profile.legal_name else tenant.legal_name
     account.tax_id = profile.tax_id if profile else None
@@ -1454,7 +1617,9 @@ def update_owner_tenant_contract(
     principal: AuthPrincipal = Depends(get_current_principal),
     session: Session = Depends(get_session),
 ):
-    actor = require_platform_role(session, principal, PLATFORM_MANAGERS, require_aal2=True)
+    actor = require_platform_permission(
+        session, principal, FINANCE_MANAGE_BILLING, require_aal2=True
+    )
     assert actor is not None
     tenant = session.get(Tenant, tenant_id)
     if tenant is None:
@@ -1563,6 +1728,7 @@ def update_owner_tenant_contract(
     session.add(contract)
     _upsert_saas_billing_account(
         session, tenant=tenant, profile=profile, billing=data.billing,
+        expected_version=data.expected_billing_account_version,
     )
     payload = {
         "tenant_id": str(tenant_id), "plan_id": str(plan.id),

@@ -5,10 +5,11 @@ import {
   fetchTenantCapabilityCatalog, OwnerNiche, PlatformTenantDetail, replacePlatformTenantAdministrator,
   PlatformTenantSummary, ServicePlan, SubscriptionStatus, TenantPhase, TenantType,
   updateOwnerTenantContract, updatePlatformTenantLifecycle, updatePlatformTenantProfile,
+  updateSaasBillingAccount,
 } from '../../services/api'
 import { formatBrazilianPhone, formatBrazilianPostalCode, isValidCpfCnpj, lookupBrazilianPostalCode, onlyDigits } from '../../utils/brazil'
 
-type Tab = 'summary' | 'registration' | 'contract' | 'administrator'
+type Tab = 'summary' | 'registration' | 'billing' | 'contract' | 'administrator'
 const nicheLabel: Record<BusinessNiche, string> = { FOOD_SERVICE: 'Food Service', RETAIL: 'Retail', BEAUTY_RESELLER: 'Beauty Reseller' }
 const phaseLabel: Record<TenantPhase, string> = { TEST: 'Teste controlado', PILOT: 'Piloto', PRODUCTION: 'Produção' }
 const statusLabel: Record<string, string> = { PENDING: 'Pendente', TRIAL: 'Avaliação', ACTIVE: 'Ativa', PAUSED: 'Pausada', CANCELED: 'Cancelada' }
@@ -46,15 +47,53 @@ export function TenantWorkspace({ tenant, onBack, onManagePlans, onChanged }: { 
     {error && <p className="mt-4 rounded-xl border border-[#ffbf00] bg-amber-50 p-4 text-sm font-bold text-[#6b4b00]">{error}</p>}
     {notice && <p className="mt-4 flex items-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50 p-4 text-sm font-bold text-emerald-800"><CheckCircle2 className="h-5 w-5" />{notice}</p>}
     <section className="mt-6 rounded-3xl bg-[#022444] p-7 text-white sm:p-9"><div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between"><div><div className="flex flex-wrap gap-2"><span className="rounded-full bg-white/10 px-3 py-1 text-xs font-black">{detail.profile?.tenant_type === 'INTERNAL' ? 'INTERNO' : 'CLIENTE'} · {phaseLabel[detail.profile?.lifecycle_phase || 'TEST']}</span>{detail.niches.map(niche => <span key={niche} className="rounded-full bg-emerald-400/15 px-3 py-1 text-xs font-black text-emerald-300">{nicheLabel[niche]}</span>)}{detail.niches.length === 0 && <span className="rounded-full bg-amber-400/15 px-3 py-1 text-xs font-black text-amber-300">Sem filtro de nicho</span>}</div><h2 className="mt-5 text-3xl font-black">{detail.tenant.name}</h2><p className="mt-2 text-slate-300">{detail.profile?.legal_name || 'Razão social ou nome civil não informado'} · {detail.profile?.tax_id || 'CPF/CNPJ pendente'}</p></div><div className="flex flex-wrap gap-3"><button onClick={() => setLifecycle('PAUSED')} className="flex h-11 items-center gap-2 rounded-xl bg-[#ffbf00] px-4 font-black text-[#022444]"><Ban className="h-4 w-4" />Pausar</button><button onClick={() => setLifecycle('ARCHIVED')} className="h-11 rounded-xl border border-red-300/50 px-4 font-black text-red-200">Arquivar</button></div></div></section>
-    <nav className="mt-5 flex gap-2 overflow-x-auto border-b border-slate-200">{([['summary', 'Resumo contratual'], ['registration', 'Cadastro'], ['contract', 'Contrato'], ['administrator', 'Administrador inicial']] as Array<[Tab, string]>).map(([key, label]) => <button key={key} onClick={() => { setTab(key); setNotice('') }} className={`shrink-0 border-b-2 px-4 py-4 text-sm font-black ${tab === key ? 'border-[#E12120] text-[#E12120]' : 'border-transparent text-slate-500'}`}>{label}</button>)}</nav>
+    <nav className="mt-5 flex gap-2 overflow-x-auto border-b border-slate-200">{([['summary', 'Resumo contratual'], ['registration', 'Cadastro'], ['billing', 'Conta de cobrança'], ['contract', 'Contrato'], ['administrator', 'Administrador inicial']] as Array<[Tab, string]>).map(([key, label]) => <button key={key} onClick={() => { setTab(key); setNotice('') }} className={`shrink-0 border-b-2 px-4 py-4 text-sm font-black ${tab === key ? 'border-[#E12120] text-[#E12120]' : 'border-transparent text-slate-500'}`}>{label}</button>)}</nav>
     <div className="mt-7">
       {tab === 'summary' && <div className="grid gap-5 lg:grid-cols-3"><Card icon={Building2} title="Contrato" value={detail.plan?.name || 'Sem plano'} hint={`${detail.niches.length ? detail.niches.map(item => nicheLabel[item]).join(' + ') : 'Sem filtro'} · versão ${detail.contract?.version ?? '—'}`} /><Card icon={WalletCards} title="Mensalidade SaaS" value={money(detail.subscription?.monthly_amount)} hint={`Vencimento contratual dia ${detail.subscription?.billing_day || '—'} · assinatura ${detail.subscription?.status || 'PENDING'}`} /><Card icon={Users} title="Administrador" value={admin?.full_name || 'Pendente'} hint={admin?.email || 'Primeiro acesso ainda não entregue'} /><section className="rounded-2xl border border-slate-200 bg-white p-6 lg:col-span-3"><h3 className="text-lg font-black">Limites contratados</h3><div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><Limit label="Usuários" value={limits.users} /><Limit label="Dispositivos" value={limits.devices} /><Limit label="Unidades" value={limits.units} /><Limit label="Storage" value={limits.storage_mb ? `${limits.storage_mb} MB` : undefined} /></div></section></div>}
       {tab === 'registration' && <RegistrationEditor detail={detail} onSaved={changed} />}
+      {tab === 'billing' && <BillingAccountPanel detail={detail} onSaved={changed} />}
       {tab === 'contract' && <ContractEditor detail={detail} catalog={catalog} niches={niches} plans={plans} onManagePlans={onManagePlans} onSaved={changed} />}
       {tab === 'administrator' && <AdministratorPanel tenantId={tenant.id} admin={admin} onSaved={changed} />}
     </div>
     {lifecycle && <LifecycleModal status={lifecycle} onClose={() => setLifecycle(null)} onConfirm={async reason => { await updatePlatformTenantLifecycle(tenant.id, lifecycle, reason); setLifecycle(null); onBack(); onChanged() }} />}
   </div>
+}
+
+function BillingAccountPanel({ detail, onSaved }: { detail: PlatformTenantDetail; onSaved: () => Promise<void> }) {
+  const account = detail.billing_account
+  const primaryContact = detail.contacts.find(item => item.is_primary) || detail.contacts[0]
+  const [editing, setEditing] = useState(!account)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [form, setForm] = useState({
+    legal_name: account?.legal_name || detail.profile?.legal_name || '',
+    tax_id: digits(account?.tax_id || detail.profile?.tax_id || ''),
+    contact_name: account?.contact_name || primaryContact?.full_name || '',
+    contact_email: account?.contact_email || primaryContact?.email || detail.profile?.company_email || '',
+    contact_phone: digits(account?.contact_phone || primaryContact?.phone || '', 11),
+    reason: 'Atualização da conta de cobrança solicitada pelo Owner.',
+  })
+  const set = (key: keyof typeof form, value: string) => setForm(current => ({ ...current, [key]: value }))
+  const save = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (saving) return
+    if (!isValidCpfCnpj(form.tax_id)) { setError('Informe um CPF ou CNPJ válido.'); return }
+    if (!form.contact_email.includes('@')) { setError('Informe um e-mail de cobrança válido.'); return }
+    if (form.contact_phone && ![10, 11].includes(form.contact_phone.length)) { setError('Informe o DDD e o telefone de cobrança.'); return }
+    setSaving(true); setError('')
+    try {
+      await updateSaasBillingAccount(detail.tenant.id, {
+        legal_name: form.legal_name.trim(), tax_id: digits(form.tax_id),
+        contact_name: form.contact_name.trim(), contact_email: form.contact_email.trim(),
+        contact_phone: form.contact_phone || undefined, currency: 'BRL',
+        expected_version: account?.version ?? 0, reason: form.reason.trim(),
+      })
+      await onSaved(); setEditing(false)
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Não foi possível salvar a conta de cobrança.') }
+    finally { setSaving(false) }
+  }
+  if (!editing) return <div><div className="mb-5 flex justify-end"><button onClick={() => setEditing(true)} className="flex h-11 items-center gap-2 rounded-xl bg-[#E12120] px-5 font-black text-white"><Pencil className="h-4 w-4" />Editar conta de cobrança</button></div><InfoSection title="Conta de cobrança SaaS"><Info label="Razão social / nome civil" value={account?.legal_name} /><Info label="CPF ou CNPJ" value={account?.tax_id} /><Info label="Contato de cobrança" value={account?.contact_name} /><Info label="E-mail" value={account?.contact_email} /><Info label="Telefone" value={account?.contact_phone} /><Info label="Moeda contratual" value={account?.currency} /><Info label="Versão" value={account ? String(account.version) : undefined} /></InfoSection><p className="mt-5 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm font-semibold text-blue-900">Este cadastro pertence à cobrança da assinatura Dashem. Não contém faturamento, caixa, vendas ou lucro do tenant.</p></div>
+  return <form onSubmit={save} className="rounded-2xl border border-slate-200 bg-white p-6"><div className="flex items-center justify-between"><div><h3 className="text-xl font-black">Editar conta de cobrança SaaS</h3><p className="mt-1 text-sm text-slate-500">Salvamento versionado, auditado e restrito ao Financeiro do Control.</p></div>{account && <button type="button" onClick={() => setEditing(false)} className="rounded-xl border border-slate-200 p-2"><X className="h-5 w-5" /></button>}</div>{error && <p className="mt-4 rounded-xl border border-[#ffbf00] bg-amber-50 p-3 text-sm font-bold text-[#6b4b00]">{error}</p>}<div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3"><TextField label="Razão social / nome civil" value={form.legal_name} onChange={value => set('legal_name', value)} /><TextField label="CPF ou CNPJ" value={form.tax_id} onChange={value => set('tax_id', digits(value))} /><TextField label="Contato de cobrança" value={form.contact_name} onChange={value => set('contact_name', value)} /><TextField label="E-mail de cobrança" type="email" value={form.contact_email} onChange={value => set('contact_email', value)} /><TextField label="Telefone de cobrança" value={formatBrazilianPhone(form.contact_phone)} onChange={value => set('contact_phone', digits(value, 11))} /><label className="text-sm font-black">Moeda contratual<input value="BRL" readOnly className={`${inputClass} bg-slate-100 text-slate-500`} /></label><div className="md:col-span-2 xl:col-span-3"><TextField label="Motivo da alteração" value={form.reason} onChange={value => set('reason', value)} /></div></div><button disabled={saving || form.legal_name.trim().length < 2 || form.contact_name.trim().length < 2 || form.reason.trim().length < 4} className="mt-6 flex h-11 items-center gap-2 rounded-xl bg-[#E12120] px-5 font-black text-white disabled:opacity-40">{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}{saving ? 'Salvando…' : 'Salvar nova versão'}</button></form>
 }
 
 function RegistrationEditor({ detail, onSaved }: { detail: PlatformTenantDetail; onSaved: () => Promise<void> }) {
@@ -140,7 +179,10 @@ function ContractEditor({ detail, catalog, niches, plans, onManagePlans, onSaved
         plan_id: planId, niches: selectedNiches, capability_keys: keys, quotas,
         billing: { contact_name: contactName.trim(), email: email.trim(), phone: phone || undefined, monthly_amount: Number(String(amount).replace(',', '.')) || 0, billing_day: dueDay },
         subscription_status: subscriptionStatus,
-        next_due_date: nextDueDate || undefined, expected_contract_version: detail.contract?.version ?? 0, reason,
+        next_due_date: nextDueDate || undefined,
+        expected_contract_version: detail.contract?.version ?? 0,
+        expected_billing_account_version: detail.billing_account?.version ?? 0,
+        reason,
       })
       await onSaved()
       setEditing(false)

@@ -43,7 +43,7 @@ Teste de regressão mínimo: `frontend/tests/owner_finance_saas.test.ts`.
 - storage explicitamente marcado como contratual e sem medição;
 - saúde técnica baseada em sondagens e evidências reais.
 
-### Incremento atual — Fundação financeira honesta
+### Incremento concluído — Financeiro F1.2
 
 Implementado no código, aguardando o commit desta entrega:
 
@@ -62,27 +62,44 @@ Implementado no código, aguardando o commit desta entrega:
 - faturas, recebimentos e inadimplência aparecem como **Em implementação**;
 - tabela contratual abre diretamente o workspace do cliente;
 - conta apta significa apenas cadastro fiscal e contato completos; não significa
-  que houve emissão, pagamento ou conciliação.
+  que houve emissão, pagamento ou conciliação;
+- migration `051_platform_finance_permissions` com definições, padrões por papel
+  e overrides individuais protegidos por RLS `platform-only`;
+- `PLATFORM_OWNER` com todas as permissões financeiras, `PLATFORM_ADMIN` sem
+  estorno, `AUDITOR` somente leitura e demais papéis sem acesso por padrão;
+- leitura do overview protegida por `control.finance.read`;
+- alterações da conta e do contrato protegidas por
+  `control.finance.manage_billing` e AAL2;
+- aba dedicada **Conta de cobrança**, sem remover Cadastro, Contrato, nichos,
+  capabilities, limites ou Administrador inicial;
+- `PUT /api/v1/identity/platform/finance/billing-accounts/{tenant_id}` com
+  `expected_version`, conflito `409`, CPF/CNPJ e e-mail validados;
+- salvamento do contrato também exige `expected_billing_account_version`,
+  impedindo que o editor contratual sobrescreva uma alteração concorrente da
+  aba financeira;
+- auditoria platform-scope e outbox
+  `platform.finance.billing_account_updated` gravados na mesma transação;
+- nenhuma fatura, recebimento ou inadimplência foi simulada para esta entrega.
 
 ### Evidência executada nesta etapa
 
-- frontend: `npm test` — **66/66**;
-- frontend: `npm run build` — concluído;
-- backend selecionado: **19/19** em `test_owner_console.py`,
-  `test_owner_p0.py` e `test_owner_data_boundary.py`;
+- backend focado F1.2: **24/24** em `test_owner_finance_permissions.py`,
+  `test_owner_console.py`, `test_owner_p0.py` e `test_owner_data_boundary.py`;
 - Python: `compileall` concluído;
-- migration 050 aplicada ao PostgreSQL local.
-- banco isolado `dashem_pos_finance_validation`: migrations **001 → 050**
-  executadas do zero e ciclo **050 → 049 → 050** concluído;
-- suíte backend completa: **106/119 passaram**. As 13 falhas são dos testes HTTP
-  S6–S17 apontando para o backend Docker já iniciado com outro banco, enquanto
-  as verificações SQL diretas usavam o banco isolado; `CONTRACT_TEST` também foi
-  recusado porque esse backend não estava em `ENVIRONMENT=test`. Não são falhas
-  do Financeiro, mas também não são registradas como suíte verde.
+- banco isolado `dashem_pos_finance_validation`: upgrade **050 → 051** e ciclo
+  **051 → 050 → 051** concluídos;
+- RLS confirmado no catálogo real do PostgreSQL para as três tabelas de
+  autorização;
+- suíte backend completa: **125/125**, com API, testes SQL e testes HTTP usando o
+  mesmo `DATABASE_URL`, `ENVIRONMENT=test` e `TEST_BASE_URL`;
+- frontend: `npm test` — **66/66** e `npm run build` concluído.
 
-O escopo diretamente alterado permanece verde em banco isolado. Para obter uma
-suíte integral comparável, a próxima sessão deve iniciar backend e testes HTTP
-com o mesmo `DATABASE_URL`, `ENVIRONMENT=test` e `TEST_BASE_URL`.
+Observação local: o banco padrão `dashem_pos` já possuía objetos da migration
+050, mas o `alembic_version` permanecia em 049. A tentativa normal de upgrade
+foi interrompida por coluna duplicada. Nenhum `stamp`, drop ou correção forçada
+foi realizado. O banco isolado financeiro é a evidência canônica desta entrega;
+a divergência do banco padrão deve ser reconciliada separadamente antes de usá-lo
+como alvo de migrations.
 
 ## Matriz de verdade da tela
 
@@ -99,14 +116,11 @@ com o mesmo `DATABASE_URL`, `ENVIRONMENT=test` e `TEST_BASE_URL`.
 
 ## Próximas etapas obrigatórias
 
-### Financeiro F1.2 — concluir a fundação
+### Financeiro F1.2 — concluído
 
-1. criar permissões granulares `control.finance.*` além do papel amplo atual;
-2. definir autorização de leitura, gestão de cobrança, conciliação, estorno e
-   exportação;
-3. preservar AAL2 para comandos e auditoria/outbox na mesma transação;
-4. disponibilizar edição dedicada da conta de cobrança com controle de versão;
-5. encerrar a Fase 1 somente com testes de concorrência, RLS e fronteira.
+Permissões, AAL2, conta de cobrança versionada, auditoria/outbox, concorrência,
+RLS e fronteira estão implementados e testados. Não reabrir esta fase para
+inserir valores fictícios ou estado manual de pagamento.
 
 ### Financeiro F2 — faturamento SaaS
 
@@ -155,7 +169,8 @@ Até lá, a nomenclatura correta da tela atual é **Saúde financeira contratual
 3. confirmar a migration head e executar testes antes de editar;
 4. não remover nichos, capabilities, limites nem telas existentes ao evoluir o
    Financeiro;
-5. implementar somente a próxima etapa indicada acima;
+5. iniciar pela **Financeiro F2 — faturamento SaaS**, sem antecipar cards de
+   faturado, recebido ou inadimplente;
 6. atualizar este checkpoint com estado, arquivos, testes e próximo passo;
 7. fazer commit e push somente depois das evidências locais proporcionais ao
    risco.

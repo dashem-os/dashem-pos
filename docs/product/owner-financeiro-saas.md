@@ -490,6 +490,20 @@ somente as permissões financeiras necessárias. `AUDITOR` possui leitura sem
 segredos e sem comandos. `SALES`, `SUPPORT` e `OPERATIONS` não recebem acesso
 financeiro por padrão.
 
+Matriz inicial implementada na migration `051_platform_finance_permissions`:
+
+| Papel | Permissões financeiras padrão |
+|---|---|
+| `PLATFORM_OWNER` | todas as sete permissões |
+| `PLATFORM_ADMIN` | leitura, conta de cobrança, cobrança, conciliação, exportação e configuração; sem estorno |
+| `AUDITOR` | somente `control.finance.read` |
+| `SALES`, `SUPPORT`, `OPERATIONS` | nenhuma |
+
+Os padrões ficam persistidos em `platform_role_permissions`. Uma concessão ou
+negação individual em `platform_permission_grants` prevalece sobre o papel;
+permissão ausente é negada. As três tabelas de autorização usam RLS
+`platform-only`.
+
 Comandos financeiros exigem AAL2. Estorno, baixa manual, crédito e cancelamento
 exigem motivo; valores acima de limite configurado podem exigir segunda
 aprovação.
@@ -564,18 +578,34 @@ Estado: **concluída no primeiro sprint do S18.1**.
 
 ### Fase 1 — fundação comercial
 
-Estado em 28 de agosto de 2026: **fundação estrutural implementada; permissões
-granulares ainda pendentes**. A projeção contratual, a navegação **Financeiro
-SaaS**, o endpoint `GET /api/v1/identity/platform/finance/overview`, a conta de
-cobrança platform-owned e o versionamento concorrente do contrato estão
-implementados. O antigo status financeiro manual foi removido. Estado de
+Estado em 28 de agosto de 2026: **concluída**. A projeção contratual, a
+navegação **Financeiro SaaS**, o endpoint
+`GET /api/v1/identity/platform/finance/overview`, a conta de cobrança
+platform-owned, a autorização `control.finance.*` e o versionamento concorrente
+estão implementados. O antigo status financeiro manual foi removido. Estado de
 adimplência será criado somente quando houver fatos de fatura.
 
 - [x] consolidar conta de cobrança e assinatura existentes;
 - [x] versionar alterações concorrentes do contrato;
 - [x] separar estado contratual de futuro estado derivado das faturas;
-- [ ] criar permissões financeiras granulares;
-- [ ] concluir auditoria dedicada da conta de cobrança.
+- [x] criar permissões financeiras granulares;
+- [x] concluir auditoria dedicada da conta de cobrança;
+- [x] disponibilizar a aba **Conta de cobrança** com `expected_version` e
+  conflito `409`;
+- [x] exigir `expected_billing_account_version` no contrato para impedir
+  sobrescrita concorrente entre os dois editores;
+- [x] gravar `platform.finance.billing_account_updated` em auditoria e outbox na
+  mesma transação.
+
+Endpoint implementado nesta fase:
+
+```text
+PUT /api/v1/identity/platform/finance/billing-accounts/{tenant_id}
+```
+
+Ele aceita somente cadastro fiscal e contato de cobrança da assinatura Dashem.
+Não aceita status de fatura, adimplência, pagamento ou qualquer dado
+operacional do tenant.
 
 ### Enforcement dos limites comerciais
 

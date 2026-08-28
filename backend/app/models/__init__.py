@@ -8,6 +8,7 @@ from app.models.identity import (
 )
 from app.models.platform import (
     Lead, LeadStatusEnum, PlatformMembership, PlatformRoleEnum,
+    PlatformPermissionDefinition, PlatformRolePermission, PlatformPermissionGrant,
     TenantCapability, CapabilityDefinition, CapabilityDependency,
     CapabilityProfile, CapabilityProfileItem, StoreCapabilityOverride,
     CapabilityScopeEnum, CapabilityStatusEnum, EntitlementStatusEnum,
@@ -109,6 +110,9 @@ __all__ = [
     "LeadStatusEnum",
     "PlatformMembership",
     "PlatformRoleEnum",
+    "PlatformPermissionDefinition",
+    "PlatformRolePermission",
+    "PlatformPermissionGrant",
     "TenantCapability",
     "CapabilityDefinition",
     "CapabilityDependency",
