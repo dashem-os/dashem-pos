@@ -1,6 +1,7 @@
 import uuid
 
 import pytest
+from fastapi import HTTPException
 from sqlmodel import Session, select
 
 from app.api.v1.endpoints.identity import (
@@ -152,15 +153,33 @@ def test_owner_can_combine_niches_and_version_existing_contract(monkeypatch):
             capability_keys=["catalog", "inventory", "payments", "receivables"],
             quotas=OwnerQuotaCreate(users=8, devices=4, units=2, storage_mb=4096),
             billing=OwnerBillingCreate(contact_name="Novo Financeiro", email=f"cobranca-{suffix}@example.test", monthly_amount=229, billing_day=15),
-            subscription_status=SubscriptionStatusEnum.ACTIVE, billing_status="CURRENT",
+            subscription_status=SubscriptionStatusEnum.ACTIVE,
+            expected_contract_version=1,
             reason="Ampliação da operação híbrida.",
         ), principal, session)
         assert detail.contract.version == 2
         assert detail.niches == [BusinessNiche.RETAIL, BusinessNiche.BEAUTY_RESELLER]
         assert detail.subscription.monthly_amount == 229
         assert detail.subscription.billing_day == 15
-        assert detail.subscription.billing_status == "CURRENT"
+        assert detail.billing_account.contact_name == "Novo Financeiro"
+        assert detail.billing_account.contact_email == f"cobranca-{suffix}@example.test"
+        assert detail.billing_account.version == 2
         assert {item.key for item in detail.capabilities if item.enabled} >= {"catalog", "inventory", "payments", "receivables"}
+
+        with pytest.raises(HTTPException) as stale:
+            update_owner_tenant_contract(provisioned.tenant.id, OwnerTenantContractUpdate(
+                plan_id=plan.id, niches=[BusinessNiche.RETAIL],
+                capability_keys=["catalog", "inventory", "payments"],
+                quotas=OwnerQuotaCreate(users=8, devices=4, units=2, storage_mb=4096),
+                billing=OwnerBillingCreate(
+                    contact_name="Concorrente", email=f"concorrente-{suffix}@example.test",
+                    monthly_amount=229, billing_day=15,
+                ),
+                subscription_status=SubscriptionStatusEnum.ACTIVE,
+                expected_contract_version=1,
+                reason="Tentativa com versão contratual obsoleta.",
+            ), principal, session)
+        assert stale.value.status_code == 409
 
 
 def test_owner_can_regularize_legacy_tenant_and_recognizes_existing_admin():
@@ -188,7 +207,8 @@ def test_owner_can_regularize_legacy_tenant_and_recognizes_existing_admin():
             capability_keys=["catalog", "inventory", "payments"],
             quotas=OwnerQuotaCreate(users=4, devices=2, units=1, storage_mb=1024),
             billing=OwnerBillingCreate(contact_name="Financeiro", email=f"financeiro-{suffix}@example.test", monthly_amount=119, billing_day=12),
-            subscription_status=SubscriptionStatusEnum.ACTIVE, billing_status="CURRENT",
+            subscription_status=SubscriptionStatusEnum.ACTIVE,
+            expected_contract_version=0,
             reason="Regularização do tenant anterior ao contrato Owner.",
         ), principal, session)
         assert detail.contract.version == 1

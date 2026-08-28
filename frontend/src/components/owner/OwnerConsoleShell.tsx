@@ -50,6 +50,11 @@ export function OwnerConsoleShell({ me }: { me: AuthMe }) {
     setView(next); setFilter(nextFilter); setSelected(null); setMobileNav(false); window.scrollTo({ top: 0 })
   }
   const openTenant = (tenant: PlatformTenantSummary) => { setSelected(tenant); setView('tenant'); window.scrollTo({ top: 0 }) }
+  const openTenantById = (tenantId: string) => {
+    const tenant = overview?.tenants.find(item => item.id === tenantId)
+    if (tenant) openTenant(tenant)
+    else navigate('organizations')
+  }
   const openCreateTenant = async () => {
     if (checkingPlans) return
     setCheckingPlans(true); setError(null)
@@ -84,7 +89,7 @@ export function OwnerConsoleShell({ me }: { me: AuthMe }) {
       {view === 'overview' && <OverviewView overview={overview} health={health} onOrganizations={nextFilter => navigate('organizations', nextFilter)} onHealth={() => navigate('health')} onTenant={openTenant} />}
       {view === 'organizations' && <OrganizationsView overview={overview} filter={filter} onFilter={setFilter} onTenant={openTenant} />}
       {view === 'plans' && <ServicePlansView />}
-      {view === 'finance' && <FinanceSaasView />}
+      {view === 'finance' && <FinanceSaasView onTenant={openTenantById} />}
       {view === 'operations' && <ControlOperationsView />}
       {view === 'health' && <SystemHealthView health={health} onRefresh={load} onOrganizations={() => navigate('organizations')} />}
       {view === 'tenant' && selected && <TenantWorkspace tenant={selected} onBack={() => navigate('organizations')} onManagePlans={() => navigate('plans')} onChanged={load} />}

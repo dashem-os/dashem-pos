@@ -142,6 +142,9 @@ Food Service, do motor financeiro e da conclusão do Control Plane está em
 O Financeiro do Control, restrito à receita e à cobrança da própria Dashem e sem
 métricas operacionais dos tenants, está especificado em
 [`docs/product/owner-financeiro-saas.md`](docs/product/owner-financeiro-saas.md).
+O estado exato, as evidências e o próximo passo para retomar o desenvolvimento
+em outra sessão estão em
+[`docs/product/owner-financeiro-saas-checkpoint.md`](docs/product/owner-financeiro-saas-checkpoint.md).
 
 Estado atual em 26/08/2026: **Integration Hardening / Operational Acceptance —
 pré-piloto bloqueado**. O Gate B foi reaberto após reprovação da jornada no

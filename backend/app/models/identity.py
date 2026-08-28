@@ -195,11 +195,11 @@ class TenantSubscription(SQLModel, table=True):
         sa_column=Column(Numeric(14, 2), nullable=False, default=0),
     )
     billing_day: int = Field(default=1)
-    billing_status: str = Field(default="PENDING", max_length=32)
     next_due_date: Optional[date] = None
     contracted_user_limit: Optional[int] = None
     contracted_device_limit: Optional[int] = None
     contracted_store_limit: Optional[int] = None
+    version: int = Field(default=1, ge=1)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 

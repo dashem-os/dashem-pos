@@ -18,6 +18,7 @@ from app.models.platform import (
     OperationalHardeningRun, OperationalHardeningEvidence,
     CommercialPilot, PilotObservation, PilotIncidentGate,
 )
+from app.models.owner_finance import SaasBillingAccount
 from app.models.channel import SalesChannel, SalesChannelTypeEnum
 from app.models.intelligence import (
     ContextEdge, AgentRun, AgentRunStatusEnum, AgentToolCall,
@@ -240,4 +241,5 @@ __all__ = [
     "ReceivableCollectionEvent",
     "FinancialReconciliation", "ReconciliationEvent", "ReconciliationStatusEnum", "PaymentRefund",
     "BiDailyFact", "BiProjectionState", "BiFactScopeEnum",
+    "SaasBillingAccount",
 ]

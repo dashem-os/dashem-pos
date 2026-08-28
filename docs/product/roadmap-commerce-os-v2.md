@@ -1189,11 +1189,13 @@ transporte temporário não é representado como infraestrutura pronta.
 
 ### S18.1 — Owner Financeiro SaaS e minimização operacional
 
-Estado em 28 de agosto de 2026: Fase 0 concluída; fundação contratual da Fase 1
-iniciada com navegação Financeiro SaaS, MRR baseado em assinaturas reais,
-drill-down contratual, limites de usuários/dispositivos/unidades aplicados no
-backend e saúde técnica navegável por evidência. Faturas, recebimentos e
-conciliação SaaS permanecem nos incrementos seguintes.
+Estado em 28 de agosto de 2026: Fase 0 concluída; fundação estrutural da Fase 1
+implementada com navegação Financeiro SaaS, MRR baseado em assinaturas reais,
+conta de cobrança platform-owned, concorrência contratual, drill-down, limites
+de usuários/dispositivos/unidades no backend e saúde técnica por evidência. O
+status financeiro manual foi removido: faturas, recebimentos, inadimplência e
+conciliação permanecem explicitamente como **Em implementação**, sem números
+simulados. Permissões financeiras granulares ainda encerram a Fase 1.
 
 Objetivo: administrar a receita recorrente e a cobrança da própria Dashem sem
 usar o Control como janela para a operação comercial ou financeira dos tenants.

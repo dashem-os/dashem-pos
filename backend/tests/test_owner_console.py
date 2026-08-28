@@ -252,16 +252,17 @@ def test_owner_finance_projects_only_saas_contracts():
         assert subscription is not None
         subscription.status = SubscriptionStatusEnum.ACTIVE
         subscription.monthly_amount = Decimal("249.90")
-        subscription.billing_status = "OVERDUE"
         session.add(subscription); session.commit()
 
         overview = platform_finance_overview(principal, session)
         row = next(item for item in overview.subscriptions if item.tenant_id == created.tenant.id)
         assert row.tenant_name == f"Finance SaaS {suffix}"
         assert row.monthly_amount == Decimal("249.90")
-        assert row.billing_status == "OVERDUE"
+        assert row.billing_account_ready is False
         assert overview.contracted_mrr >= Decimal("249.90")
-        assert overview.overdue_subscriptions >= 1
+        assert overview.facts.invoices is False
+        assert overview.facts.payments is False
+        assert overview.facts.delinquency is False
 
 
 def test_owner_can_open_tenant_and_invite_first_user(monkeypatch):

@@ -11,8 +11,11 @@ test('exposes a real SaaS finance view without tenant operating data', async () 
 
   assert.match(shell, /label="Financeiro SaaS"/)
   assert.match(finance, /fetchPlatformFinanceOverview/)
-  assert.match(finance, /Base real disponível agora/)
-  assert.match(finance, /Clique para filtrar os contratos/)
+  assert.match(finance, /Disponível com fonte real/)
+  assert.match(finance, /Em implementação/)
+  assert.match(finance, /não recebem valor zero fictício/)
+  assert.doesNotMatch(finance, /overview\?\.overdue_subscriptions/)
+  assert.doesNotMatch(finance, /billing_status/)
   assert.match(api, /platform\/finance\/overview/)
   for (const forbidden of ['vendas do tenant', 'caixas abertos', 'lucro do tenant']) {
     assert.doesNotMatch(finance.toLowerCase(), new RegExp(forbidden))

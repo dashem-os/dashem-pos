@@ -957,8 +957,8 @@ export interface TenantSubscription {
   ends_at?: string
   monthly_amount: number
   billing_day: number
-  billing_status: string
   next_due_date?: string
+  version: number
 }
 
 export interface OwnerBilling {
@@ -1019,17 +1019,40 @@ export interface PlatformFinanceSubscription {
   plan_name?: string
   subscription_status: SubscriptionStatus
   monthly_amount: number
-  billing_status: string
   next_due_date?: string
+  contract_version?: number
+  billing_account_ready: boolean
+  billing_contact_name?: string
+  billing_contact_email?: string
 }
 
 export interface PlatformFinanceOverview {
   contracted_mrr: number
   active_subscriptions: number
   trial_subscriptions: number
-  overdue_subscriptions: number
   pending_subscriptions: number
+  billing_accounts_ready: number
+  billing_accounts_total: number
+  facts: {
+    subscriptions: boolean
+    billing_accounts: boolean
+    invoices: boolean
+    payments: boolean
+    delinquency: boolean
+  }
   subscriptions: PlatformFinanceSubscription[]
+}
+
+export interface SaasBillingAccount {
+  id: string
+  tenant_id: string
+  legal_name?: string
+  tax_id?: string
+  contact_name?: string
+  contact_email?: string
+  contact_phone?: string
+  currency: string
+  version: number
 }
 
 export interface ControlLead {
@@ -1095,6 +1118,7 @@ export interface PlatformTenantDetail {
   niche?: BusinessNiche
   niches: BusinessNiche[]
   contract?: TenantContract
+  billing_account?: SaasBillingAccount
 }
 
 export interface PaymentConfirmResponse {
@@ -1561,8 +1585,8 @@ export async function updateOwnerTenantContract(tenantId: string, input: {
   quotas: { users: number; devices: number; units: number; storage_mb: number }
   billing: OwnerBilling
   subscription_status: SubscriptionStatus
-  billing_status: string
   next_due_date?: string
+  expected_contract_version: number
   reason: string
 }): Promise<PlatformTenantDetail> {
   const res = await fetch(`${API_BASE_URL}/api/v1/identity/platform/tenants/${tenantId}/contract`, {

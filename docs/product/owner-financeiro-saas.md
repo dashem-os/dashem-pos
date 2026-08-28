@@ -8,6 +8,18 @@ Superfície: **Dashem Control** (`/owner`)
 
 Ator principal: **Platform Owner / Financeiro interno da Dashem**
 
+Checkpoint executável para retomada em outra sessão:
+[`owner-financeiro-saas-checkpoint.md`](owner-financeiro-saas-checkpoint.md).
+
+### Política de integridade da interface
+
+O Financeiro SaaS não usa fixtures, números demonstrativos ou estados positivos
+sem evidência. Um valor zero só pode ser exibido quando o fato financeiro já
+existe e sua consulta real retorna zero. Capacidade ainda não implementada deve
+aparecer como **Previsto** ou **Em implementação**, sem total fictício. Textos e
+rótulos podem ser estáticos; dados de negócio e estados precisam ser
+persistidos, server-authoritative e rastreáveis.
+
 ## 1. Objetivo
 
 O Owner Financeiro administra exclusivamente a saúde financeira do SaaS
@@ -336,8 +348,10 @@ evoluído sem criar uma segunda fonte de verdade:
 - desconto recorrente e período de vigência, quando houver;
 - versão concorrente para atualização otimista.
 
-O campo textual `billing_status` atual deve ser substituído gradualmente por
-estado derivado das faturas, evitando divergência editável manualmente.
+O antigo campo textual `billing_status` foi removido na migration
+`050_saas_finance_foundation`: ele permitia declarar `CURRENT` ou `OVERDUE` sem
+uma fatura que comprovasse o estado. Situação financeira será derivada das
+faturas, evitando divergência editável manualmente.
 
 #### `SaasInvoice`
 
@@ -550,16 +564,18 @@ Estado: **concluída no primeiro sprint do S18.1**.
 
 ### Fase 1 — fundação comercial
 
-Estado: **iniciada**. A projeção contratual de assinaturas, a navegação
-**Financeiro SaaS** e o endpoint
-`GET /api/v1/identity/platform/finance/overview` estão implementados. O
-versionamento concorrente, as permissões financeiras granulares e a separação
-por fatos de fatura continuam pendentes.
+Estado em 28 de agosto de 2026: **fundação estrutural implementada; permissões
+granulares ainda pendentes**. A projeção contratual, a navegação **Financeiro
+SaaS**, o endpoint `GET /api/v1/identity/platform/finance/overview`, a conta de
+cobrança platform-owned e o versionamento concorrente do contrato estão
+implementados. O antigo status financeiro manual foi removido. Estado de
+adimplência será criado somente quando houver fatos de fatura.
 
-- consolidar conta de cobrança e assinatura existentes;
-- versionar alterações concorrentes;
-- separar estado contratual de estado derivado das faturas;
-- criar permissões e auditoria financeira.
+- [x] consolidar conta de cobrança e assinatura existentes;
+- [x] versionar alterações concorrentes do contrato;
+- [x] separar estado contratual de futuro estado derivado das faturas;
+- [ ] criar permissões financeiras granulares;
+- [ ] concluir auditoria dedicada da conta de cobrança.
 
 ### Enforcement dos limites comerciais
 

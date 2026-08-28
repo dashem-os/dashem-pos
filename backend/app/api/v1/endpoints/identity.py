@@ -31,6 +31,7 @@ from app.models.platform import (
     IdentityDeliveryEvent, TenantContract, TenantProfileAssignment,
     CapabilityProfileRevision,
 )
+from app.models.owner_finance import SaasBillingAccount
 from app.models.reliability import AuditEvent, OutboxEvent, OutboxStatusEnum
 from app.models.reliability import ServiceHeartbeat
 from app.services import identity_service, reliability_service, supabase_admin
@@ -295,6 +296,7 @@ class PlatformTenantDetail(BaseModel):
     niche: Optional[BusinessNiche] = None
     niches: List[BusinessNiche] = PydanticField(default_factory=list)
     contract: Optional[TenantContract] = None
+    billing_account: Optional[SaasBillingAccount] = None
 
 
 class HealthComponent(BaseModel):
@@ -324,16 +326,29 @@ class PlatformFinanceSubscription(BaseModel):
     plan_name: Optional[str] = None
     subscription_status: SubscriptionStatusEnum
     monthly_amount: Decimal
-    billing_status: str
     next_due_date: Optional[date] = None
+    contract_version: Optional[int] = None
+    billing_account_ready: bool
+    billing_contact_name: Optional[str] = None
+    billing_contact_email: Optional[str] = None
+
+
+class PlatformFinanceFactsAvailability(BaseModel):
+    subscriptions: bool = True
+    billing_accounts: bool = True
+    invoices: bool = False
+    payments: bool = False
+    delinquency: bool = False
 
 
 class PlatformFinanceOverview(BaseModel):
     contracted_mrr: Decimal
     active_subscriptions: int
     trial_subscriptions: int
-    overdue_subscriptions: int
     pending_subscriptions: int
+    billing_accounts_ready: int
+    billing_accounts_total: int
+    facts: PlatformFinanceFactsAvailability
     subscriptions: List[PlatformFinanceSubscription]
 
 
@@ -417,10 +432,10 @@ class TenantSubscriptionUpdate(BaseModel):
 
     plan_id: Optional[uuid.UUID] = None
     status: SubscriptionStatusEnum
-    monthly_amount: Decimal = PydanticField(default=Decimal("0.00"), ge=0)
-    billing_day: int = PydanticField(default=1, ge=1, le=28)
-    billing_status: str = PydanticField(default="PENDING", max_length=32)
+    monthly_amount: Optional[Decimal] = PydanticField(default=None, ge=0)
+    billing_day: Optional[int] = PydanticField(default=None, ge=1, le=28)
     next_due_date: Optional[date] = None
+    expected_version: Optional[int] = PydanticField(default=None, ge=1)
 
 
 class OwnerTenantContractUpdate(BaseModel):
@@ -432,8 +447,8 @@ class OwnerTenantContractUpdate(BaseModel):
     quotas: OwnerQuotaCreate
     billing: OwnerBillingCreate
     subscription_status: SubscriptionStatusEnum
-    billing_status: str = PydanticField(default="PENDING", max_length=32)
     next_due_date: Optional[date] = None
+    expected_contract_version: int = PydanticField(ge=0)
     reason: str = PydanticField(min_length=4, max_length=500)
 
 
@@ -767,6 +782,14 @@ def platform_finance_overview(
     subscriptions = list(session.exec(select(TenantSubscription)).all())
     tenants = {item.id: item for item in session.exec(select(Tenant)).all()}
     plans = {item.id: item for item in session.exec(select(ServicePlan)).all()}
+    accounts = {
+        item.tenant_id: item for item in session.exec(select(SaasBillingAccount)).all()
+    }
+    contracts = {}
+    for contract in session.exec(
+        select(TenantContract).order_by(TenantContract.tenant_id, TenantContract.version.desc())
+    ).all():
+        contracts.setdefault(contract.tenant_id, contract)
 
     rows = [
         PlatformFinanceSubscription(
@@ -775,12 +798,15 @@ def platform_finance_overview(
             plan_name=plans[item.plan_id].name if item.plan_id in plans else None,
             subscription_status=item.status,
             monthly_amount=item.monthly_amount,
-            billing_status=item.billing_status,
             next_due_date=item.next_due_date,
+            contract_version=contracts[item.tenant_id].version if item.tenant_id in contracts else None,
+            billing_account_ready=_billing_account_ready(accounts.get(item.tenant_id)),
+            billing_contact_name=(accounts[item.tenant_id].contact_name if item.tenant_id in accounts else None),
+            billing_contact_email=(accounts[item.tenant_id].contact_email if item.tenant_id in accounts else None),
         )
         for item in subscriptions
     ]
-    rows.sort(key=lambda item: (item.billing_status != "OVERDUE", item.tenant_name.lower()))
+    rows.sort(key=lambda item: (item.billing_account_ready, item.tenant_name.lower()))
     return PlatformFinanceOverview(
         contracted_mrr=sum(
             (item.monthly_amount for item in subscriptions if item.status == SubscriptionStatusEnum.ACTIVE),
@@ -788,8 +814,10 @@ def platform_finance_overview(
         ),
         active_subscriptions=sum(item.status == SubscriptionStatusEnum.ACTIVE for item in subscriptions),
         trial_subscriptions=sum(item.status == SubscriptionStatusEnum.TRIAL for item in subscriptions),
-        overdue_subscriptions=sum(item.billing_status == "OVERDUE" for item in subscriptions),
-        pending_subscriptions=sum(item.billing_status == "PENDING" for item in subscriptions),
+        pending_subscriptions=sum(item.status == SubscriptionStatusEnum.PENDING for item in subscriptions),
+        billing_accounts_ready=sum(_billing_account_ready(item) for item in accounts.values()),
+        billing_accounts_total=len(accounts),
+        facts=PlatformFinanceFactsAvailability(),
         subscriptions=rows,
     )
 
@@ -831,6 +859,41 @@ def _validate_quota(label: str, requested: int, maximum: Optional[int]) -> None:
             status_code=422,
             detail=f"A quota de {label} ({requested}) excede o limite do plano ({maximum}).",
         )
+
+
+def _billing_account_ready(account: Optional[SaasBillingAccount]) -> bool:
+    return bool(
+        account
+        and account.legal_name
+        and account.tax_id
+        and account.contact_name
+        and account.contact_email
+    )
+
+
+def _upsert_saas_billing_account(
+    session: Session,
+    *,
+    tenant: Tenant,
+    profile: Optional[TenantProfile],
+    billing: OwnerBillingCreate,
+) -> SaasBillingAccount:
+    account = session.exec(
+        select(SaasBillingAccount).where(SaasBillingAccount.tenant_id == tenant.id)
+    ).first()
+    if account is None:
+        account = SaasBillingAccount(tenant_id=tenant.id)
+    else:
+        account.version += 1
+    account.legal_name = profile.legal_name if profile and profile.legal_name else tenant.legal_name
+    account.tax_id = profile.tax_id if profile else None
+    account.contact_name = billing.contact_name.strip()
+    account.contact_email = billing.email.strip().lower()
+    account.contact_phone = billing.phone.strip() if billing.phone else None
+    account.currency = "BRL"
+    account.updated_at = datetime.utcnow()
+    session.add(account)
+    return account
 
 
 @router.post("/platform/tenants", response_model=PlatformTenantProvisioned, status_code=201)
@@ -910,7 +973,6 @@ def provision_owner_tenant(
     )
     subscription.monthly_amount = data.billing.monthly_amount
     subscription.billing_day = data.billing.billing_day
-    subscription.billing_status = "PENDING" if subscription.status == SubscriptionStatusEnum.TRIAL else "CURRENT"
     subscription.contracted_user_limit = data.quotas.users
     subscription.contracted_device_limit = data.quotas.devices
     subscription.contracted_store_limit = data.quotas.units
@@ -961,6 +1023,9 @@ def provision_owner_tenant(
         reason="Provisionamento comercial completo pelo Owner.", created_by=actor.id,
     )
     session.add(contract)
+    _upsert_saas_billing_account(
+        session, tenant=tenant, profile=profile, billing=data.billing,
+    )
     membership = identity_service.provision_tenant_access(
         session, tenant=tenant, email=email, full_name=data.initial_admin.full_name,
         role=RoleEnum.TENANT_OWNER, store_id=None, actor_id=actor.id,
@@ -1076,6 +1141,9 @@ def platform_tenant_detail(
     contract = session.exec(
         select(TenantContract).where(TenantContract.tenant_id == tenant_id).order_by(TenantContract.version.desc())
     ).first()
+    billing_account = session.exec(
+        select(SaasBillingAccount).where(SaasBillingAccount.tenant_id == tenant_id)
+    ).first()
     assignment_row = session.exec(
         select(TenantProfileAssignment, CapabilityProfileRevision)
         .join(CapabilityProfileRevision, CapabilityProfileRevision.id == TenantProfileAssignment.revision_id)
@@ -1111,6 +1179,7 @@ def platform_tenant_detail(
         niche=niche,
         niches=niches,
         contract=contract,
+        billing_account=billing_account,
     )
 
 
@@ -1348,12 +1417,19 @@ def update_tenant_subscription(
     if data.plan_id and session.get(ServicePlan, data.plan_id) is None:
         raise HTTPException(status_code=422, detail="Plano não encontrado.")
     subscription = session.get(TenantSubscription, tenant_id) or TenantSubscription(tenant_id=tenant_id)
+    if data.expected_version is not None and subscription.version != data.expected_version:
+        raise HTTPException(
+            status_code=409,
+            detail="A assinatura foi alterada por outra sessão. Recarregue os dados antes de salvar.",
+        )
     subscription.plan_id = data.plan_id
     subscription.status = data.status
-    subscription.monthly_amount = data.monthly_amount
-    subscription.billing_day = data.billing_day
-    subscription.billing_status = data.billing_status
+    if data.monthly_amount is not None:
+        subscription.monthly_amount = data.monthly_amount
+    if data.billing_day is not None:
+        subscription.billing_day = data.billing_day
     subscription.next_due_date = data.next_due_date
+    subscription.version += 1
     subscription.updated_at = datetime.utcnow()
     session.add(subscription)
     payload = {
@@ -1386,6 +1462,15 @@ def update_owner_tenant_contract(
     plan = session.get(ServicePlan, data.plan_id)
     if plan is None or not plan.is_active:
         raise HTTPException(status_code=422, detail="Selecione um plano ativo.")
+    previous_contract = session.exec(select(TenantContract).where(
+        TenantContract.tenant_id == tenant_id,
+    ).order_by(TenantContract.version.desc())).first()
+    current_contract_version = previous_contract.version if previous_contract else 0
+    if data.expected_contract_version != current_contract_version:
+        raise HTTPException(
+            status_code=409,
+            detail="O contrato foi alterado por outra sessão. Recarregue os dados antes de salvar.",
+        )
     _validate_quota("usuários", data.quotas.users, plan.user_limit)
     _validate_quota("dispositivos", data.quotas.devices, plan.terminal_limit)
     _validate_quota("unidades", data.quotas.units, plan.store_limit)
@@ -1445,17 +1530,14 @@ def update_owner_tenant_contract(
     subscription.status = data.subscription_status
     subscription.monthly_amount = data.billing.monthly_amount
     subscription.billing_day = data.billing.billing_day
-    subscription.billing_status = data.billing_status
     subscription.next_due_date = data.next_due_date
     subscription.contracted_user_limit = data.quotas.users
     subscription.contracted_device_limit = data.quotas.devices
     subscription.contracted_store_limit = data.quotas.units
+    subscription.version += 1
     subscription.updated_at = datetime.utcnow()
     session.add(subscription)
 
-    previous_contract = session.exec(select(TenantContract).where(
-        TenantContract.tenant_id == tenant_id,
-    ).order_by(TenantContract.version.desc())).first()
     limits = {
         "users": data.quotas.users,
         "devices": data.quotas.devices,
@@ -1479,6 +1561,9 @@ def update_owner_tenant_contract(
         reason=data.reason.strip(), created_by=actor.id,
     )
     session.add(contract)
+    _upsert_saas_billing_account(
+        session, tenant=tenant, profile=profile, billing=data.billing,
+    )
     payload = {
         "tenant_id": str(tenant_id), "plan_id": str(plan.id),
         "niches": [niche.value for niche in selected_niches],
