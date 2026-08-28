@@ -17,6 +17,14 @@ OWNER_FINANCE_MODEL = (
     / "models"
     / "owner_finance.py"
 )
+OWNER_FINANCE_ENDPOINT = (
+    Path(__file__).resolve().parents[1]
+    / "app" / "api" / "v1" / "endpoints" / "owner_finance.py"
+)
+OWNER_FINANCE_SERVICE = (
+    Path(__file__).resolve().parents[1]
+    / "app" / "services" / "owner_finance_service.py"
+)
 FINANCE_PERMISSION_MIGRATION = (
     Path(__file__).resolve().parents[1]
     / "alembic"
@@ -34,6 +42,8 @@ def test_owner_identity_does_not_import_operational_finance_models():
     source = "\n".join((
         IDENTITY_ENDPOINT.read_text(encoding="utf-8"),
         OWNER_FINANCE_MODEL.read_text(encoding="utf-8"),
+        OWNER_FINANCE_ENDPOINT.read_text(encoding="utf-8"),
+        OWNER_FINANCE_SERVICE.read_text(encoding="utf-8"),
     ))
     forbidden_imports = (
         "from app.models.payment import",
@@ -43,6 +53,15 @@ def test_owner_identity_does_not_import_operational_finance_models():
     )
 
     assert not [item for item in forbidden_imports if item in source]
+
+
+def test_owner_invoicing_routes_are_platform_scoped_and_visible():
+    paths = app.openapi()["paths"]
+    assert "/api/v1/control/finance/invoices" in paths
+    assert "/api/v1/control/finance/invoices/generate" in paths
+    assert "/api/v1/control/finance/invoices/{invoice_id}" in paths
+    assert "/api/v1/control/finance/invoices/{invoice_id}/issue" in paths
+    assert "/api/v1/control/finance/invoices/{invoice_id}/void" in paths
 
 
 def test_owner_finance_has_no_manual_delinquency_source():

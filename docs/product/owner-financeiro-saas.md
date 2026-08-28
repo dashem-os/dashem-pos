@@ -1,6 +1,6 @@
 # Owner Financeiro SaaS — especificação funcional e técnica
 
-Status: **especificação canônica; Fase 0 concluída e fundação contratual da Fase 1 implementada**
+Status: **especificação canônica; Fases 0, 1 e 2 concluídas no escopo persistido**
 
 Data: 28 de agosto de 2026
 
@@ -129,11 +129,11 @@ não confundir esta superfície com o financeiro do estabelecimento.
 ### 3.2 Visão financeira
 
 Estado implementado em 28 de agosto de 2026: a entrada lateral **Financeiro
-SaaS** e a visão contratual inicial já consultam dados reais de
-`tenant_subscriptions`. A tela apresenta MRR contratado das assinaturas ativas,
-quantidades por estado e drill-down para a lista de contratos. Ela declara
-explicitamente que ainda não existem fatos de fatura, recebimento ou
-conciliação e não simula esses números.
+SaaS** consulta assinaturas, contas de cobrança e faturas reais. A tela apresenta
+MRR contratado, estados contratuais, valor emitido, saldo aberto, rascunhos e
+anulações, todos derivados no backend e com drill-down. Recebimentos,
+inadimplência, ARR e churn continuam como capacidades futuras e não recebem
+zero fictício.
 
 A página inicial apresenta, para um período explícito:
 
@@ -184,6 +184,11 @@ O módulo permite:
 Cada item da fatura preserva o snapshot de descrição, quantidade, valor unitário,
 desconto e versão contratual. A alteração posterior do plano não muda o documento
 emitido.
+
+Estado entregue na Fase 2: geração mensal para assinaturas `ACTIVE`, emissão
+`DRAFT → OPEN`, anulação `OPEN → VOID`, listagem paginada, detalhe e exportação
+CSV. Envio, substituição, pagamento parcial, vencimento derivado e emissão fiscal
+dependem dos fatos e providers das fases seguintes; não são simulados.
 
 ### 3.5 Recebimentos e conciliação SaaS
 
@@ -293,6 +298,10 @@ DRAFT → OPEN → PARTIALLY_PAID → PAID
 - `VOID` foi cancelada sem recebimento válido;
 - `UNCOLLECTIBLE` preserva a dívida reconhecida como não recuperável.
 
+Na Fase 2 somente `DRAFT`, `OPEN` e `VOID` possuem comandos. Os demais estados
+estão reservados no modelo e só poderão ser produzidos pelos fatos de pagamento,
+saldo e vencimento da Fase 3.
+
 ### 5.3 Pagamento SaaS
 
 ```text
@@ -366,6 +375,11 @@ faturas, evitando divergência editável manualmente.
 - timestamps de emissão, pagamento, cancelamento e atualização;
 - `version` para concorrência otimista.
 
+Implementação: `backend/app/models/owner_finance.py`, migration
+`052_saas_invoicing`. Emissão e anulação guardam ator, motivo, chave de
+idempotência e hash da requisição no próprio agregado platform-owned, sem usar o
+repositório de idempotência operacional dos tenants.
+
 Restrição mínima: uma fatura recorrente por assinatura, competência e versão de
 reprocessamento. Repetir o job não duplica documento.
 
@@ -430,7 +444,7 @@ vendas, caixa, equipe, estoque ou BI do tenant.
 - concorrência de pagamento é serializada antes da alocação;
 - timestamps são armazenados em UTC e apresentados no timezone financeiro.
 
-### 6.4 API proposta
+### 6.4 API canônica
 
 Base canônica:
 
@@ -438,34 +452,27 @@ Base canônica:
 /api/v1/control/finance
 ```
 
-Consultas:
+Consultas implementadas na Fase 2:
 
 ```text
-GET /overview?from=&to=
-GET /subscriptions
-GET /subscriptions/{tenant_id}
 GET /invoices
 GET /invoices/{invoice_id}
-GET /payments
-GET /payments/{payment_id}
-GET /collections
-GET /metrics/mrr?from=&to=
-GET /exports/invoices?from=&to=
+GET /invoices/export
 ```
 
-Comandos:
+Comandos implementados na Fase 2:
 
 ```text
 POST /invoices/generate
 POST /invoices/{invoice_id}/issue
-POST /invoices/{invoice_id}/send
 POST /invoices/{invoice_id}/void
-POST /payments/{payment_id}/reconcile
-POST /payments/{payment_id}/refund
-POST /invoices/{invoice_id}/collection-events
-PUT  /billing-accounts/{tenant_id}
-PUT  /settings/collection-policy
 ```
+
+O overview contratual permanece em
+`GET /api/v1/identity/platform/finance/overview` e a conta de cobrança em
+`PUT /api/v1/identity/platform/finance/billing-accounts/{tenant_id}`. Rotas de
+pagamento, cobrança, provider e projeções continuam previstas para as Fases 3 e
+4 e não existem como stubs que retornam sucesso.
 
 Webhooks de provider ficam em rota própria, validam assinatura, persistem o
 payload mínimo sanitizado e entregam o comando ao domínio com idempotência.
@@ -515,6 +522,7 @@ Toda mutação grava auditoria e outbox na mesma transação. Eventos mínimos:
 - `saas.subscription.changed`;
 - `saas.invoice.generated`;
 - `saas.invoice.issued`;
+- `saas.invoice.voided`;
 - `saas.invoice.overdue`;
 - `saas.payment.processing`;
 - `saas.payment.succeeded`;
@@ -626,10 +634,21 @@ ela nunca pode substituir ou esconder o editor já construído.
 
 ### Fase 2 — faturamento SaaS
 
-- criar faturas e itens com snapshots;
-- implementar geração por competência e idempotência;
-- entregar listagens, detalhe e exportação;
-- integrar emissão fiscal da própria Dashem quando configurada.
+Estado em 28 de agosto de 2026: **concluída no escopo persistido e sem provider
+fiscal configurado**.
+
+- [x] criar faturas e itens platform-owned com snapshots;
+- [x] implementar geração por competência e idempotência;
+- [x] proteger unicidade por assinatura, competência e revisão;
+- [x] entregar `DRAFT → OPEN → VOID`, motivo, AAL2, versão concorrente e
+  idempotência;
+- [x] impedir alteração do snapshot e dos itens após emissão por trigger no
+  PostgreSQL;
+- [x] entregar listagem paginada, detalhe e exportação CSV;
+- [x] liberar cards reais de valor emitido, saldo aberto, rascunhos e anulações;
+- [x] manter recebimento e inadimplência como **Em implementação**;
+- [ ] integrar emissão fiscal da própria Dashem quando um provider real for
+  selecionado e configurado; até lá nenhuma emissão é declarada.
 
 ### Fase 3 — recebimentos e cobrança
 

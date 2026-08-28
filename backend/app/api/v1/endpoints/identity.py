@@ -32,7 +32,7 @@ from app.models.platform import (
     IdentityDeliveryEvent, TenantContract, TenantProfileAssignment,
     CapabilityProfileRevision,
 )
-from app.models.owner_finance import SaasBillingAccount
+from app.models.owner_finance import SaasBillingAccount, SaasInvoice, SaasInvoiceStatusEnum
 from app.models.reliability import AuditEvent, OutboxEvent, OutboxStatusEnum
 from app.models.reliability import ServiceHeartbeat
 from app.services import identity_service, reliability_service, supabase_admin
@@ -339,7 +339,7 @@ class PlatformFinanceSubscription(BaseModel):
 class PlatformFinanceFactsAvailability(BaseModel):
     subscriptions: bool = True
     billing_accounts: bool = True
-    invoices: bool = False
+    invoices: bool = True
     payments: bool = False
     delinquency: bool = False
 
@@ -351,6 +351,11 @@ class PlatformFinanceOverview(BaseModel):
     pending_subscriptions: int
     billing_accounts_ready: int
     billing_accounts_total: int
+    invoiced_total: Decimal
+    open_invoice_balance: Decimal
+    draft_invoices: int
+    open_invoices: int
+    void_invoices: int
     facts: PlatformFinanceFactsAvailability
     subscriptions: List[PlatformFinanceSubscription]
 
@@ -802,6 +807,7 @@ def platform_finance_overview(
     accounts = {
         item.tenant_id: item for item in session.exec(select(SaasBillingAccount)).all()
     }
+    invoices = list(session.exec(select(SaasInvoice)).all())
     contracts = {}
     for contract in session.exec(
         select(TenantContract).order_by(TenantContract.tenant_id, TenantContract.version.desc())
@@ -834,6 +840,20 @@ def platform_finance_overview(
         pending_subscriptions=sum(item.status == SubscriptionStatusEnum.PENDING for item in subscriptions),
         billing_accounts_ready=sum(_billing_account_ready(item) for item in accounts.values()),
         billing_accounts_total=len(accounts),
+        invoiced_total=sum(
+            (
+                item.total_amount for item in invoices
+                if item.status not in {SaasInvoiceStatusEnum.DRAFT, SaasInvoiceStatusEnum.VOID}
+            ),
+            Decimal("0.00"),
+        ),
+        open_invoice_balance=sum(
+            (item.balance_amount for item in invoices if item.status == SaasInvoiceStatusEnum.OPEN),
+            Decimal("0.00"),
+        ),
+        draft_invoices=sum(item.status == SaasInvoiceStatusEnum.DRAFT for item in invoices),
+        open_invoices=sum(item.status == SaasInvoiceStatusEnum.OPEN for item in invoices),
+        void_invoices=sum(item.status == SaasInvoiceStatusEnum.VOID for item in invoices),
         facts=PlatformFinanceFactsAvailability(),
         subscriptions=rows,
     )

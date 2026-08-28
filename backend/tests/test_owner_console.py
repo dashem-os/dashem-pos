@@ -260,7 +260,7 @@ def test_owner_finance_projects_only_saas_contracts():
         assert row.monthly_amount == Decimal("249.90")
         assert row.billing_account_ready is False
         assert overview.contracted_mrr >= Decimal("249.90")
-        assert overview.facts.invoices is False
+        assert overview.facts.invoices is True
         assert overview.facts.payments is False
         assert overview.facts.delinquency is False
 

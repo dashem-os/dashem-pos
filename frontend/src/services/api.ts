@@ -1033,6 +1033,11 @@ export interface PlatformFinanceOverview {
   pending_subscriptions: number
   billing_accounts_ready: number
   billing_accounts_total: number
+  invoiced_total: number
+  open_invoice_balance: number
+  draft_invoices: number
+  open_invoices: number
+  void_invoices: number
   facts: {
     subscriptions: boolean
     billing_accounts: boolean
@@ -1041,6 +1046,63 @@ export interface PlatformFinanceOverview {
     delinquency: boolean
   }
   subscriptions: PlatformFinanceSubscription[]
+}
+
+export type SaasInvoiceStatus = 'DRAFT' | 'OPEN' | 'PARTIALLY_PAID' | 'PAID' | 'OVERDUE' | 'VOID' | 'UNCOLLECTIBLE'
+
+export interface SaasInvoice {
+  id: string
+  public_number: string
+  tenant_id: string
+  billing_account_id: string
+  subscription_id: string
+  contract_id: string
+  plan_id: string
+  period_start: string
+  period_end: string
+  due_date: string
+  currency: string
+  subtotal: number
+  discount_amount: number
+  tax_amount: number
+  total_amount: number
+  balance_amount: number
+  status: SaasInvoiceStatus
+  generation_revision: number
+  contract_version: number
+  plan_code_snapshot: string
+  plan_name_snapshot: string
+  description_snapshot: string
+  billing_legal_name_snapshot: string
+  billing_tax_id_snapshot: string
+  billing_contact_email_snapshot: string
+  issued_at?: string
+  voided_at?: string
+  void_reason?: string
+  version: number
+  created_at: string
+  updated_at: string
+}
+
+export interface SaasInvoiceLine {
+  id: string
+  invoice_id: string
+  line_type: 'PLAN' | 'CAPABILITY' | 'ADD_ON' | 'DISCOUNT' | 'CREDIT' | 'TAX' | 'ADJUSTMENT'
+  description: string
+  quantity: number
+  unit_amount: number
+  total_amount: number
+  contract_version: number
+  created_at: string
+}
+
+export interface SaasInvoiceListItem { invoice: SaasInvoice; tenant_name: string }
+export interface SaasInvoiceListResult { items: SaasInvoiceListItem[]; total: number; page: number; size: number }
+export interface SaasInvoiceDetail { invoice: SaasInvoice; tenant_name: string; lines: SaasInvoiceLine[] }
+export interface SaasInvoiceGenerateResult {
+  generated: SaasInvoice[]
+  existing: SaasInvoice[]
+  skipped: Array<{ tenant_id: string; code: string; detail: string }>
 }
 
 export interface SaasBillingAccount {
@@ -1533,6 +1595,55 @@ export async function fetchPlatformFinanceOverview(): Promise<PlatformFinanceOve
   const res = await fetch(`${API_BASE_URL}/api/v1/identity/platform/finance/overview`)
   if (!res.ok) throw await apiError(res, 'Não foi possível carregar a saúde financeira do SaaS.')
   return res.json()
+}
+
+export async function fetchSaasInvoices(status?: SaasInvoiceStatus): Promise<SaasInvoiceListResult> {
+  const params = new URLSearchParams({ page: '1', size: '200' })
+  if (status) params.set('status', status)
+  const res = await fetch(`${API_BASE_URL}/api/v1/control/finance/invoices?${params}`)
+  if (!res.ok) throw await apiError(res, 'Não foi possível carregar as faturas SaaS.')
+  return res.json()
+}
+
+export async function fetchSaasInvoice(invoiceId: string): Promise<SaasInvoiceDetail> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/control/finance/invoices/${invoiceId}`)
+  if (!res.ok) throw await apiError(res, 'Não foi possível carregar a fatura SaaS.')
+  return res.json()
+}
+
+export async function generateSaasInvoices(competence: string, tenantId?: string): Promise<SaasInvoiceGenerateResult> {
+  const key = `saas-invoice-${competence}-${tenantId || 'all'}-r1`
+  const res = await fetch(`${API_BASE_URL}/api/v1/control/finance/invoices/generate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': key },
+    body: JSON.stringify({ competence, tenant_id: tenantId }),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível gerar as faturas SaaS.')
+  return res.json()
+}
+
+export async function issueSaasInvoice(invoiceId: string, expectedVersion: number, reason: string): Promise<SaasInvoice> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/control/finance/invoices/${invoiceId}/issue`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `saas-invoice-issue-${invoiceId}-${expectedVersion}` },
+    body: JSON.stringify({ expected_version: expectedVersion, reason }),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível emitir a fatura SaaS.')
+  return res.json()
+}
+
+export async function voidSaasInvoice(invoiceId: string, expectedVersion: number, reason: string): Promise<SaasInvoice> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/control/finance/invoices/${invoiceId}/void`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `saas-invoice-void-${invoiceId}-${expectedVersion}` },
+    body: JSON.stringify({ expected_version: expectedVersion, reason }),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível anular a fatura SaaS.')
+  return res.json()
+}
+
+export async function fetchSaasInvoiceExport(): Promise<Blob> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/control/finance/invoices/export`)
+  if (!res.ok) throw await apiError(res, 'Não foi possível exportar as faturas SaaS.')
+  return res.blob()
 }
 
 export async function fetchControlLeads(): Promise<ControlLead[]> {

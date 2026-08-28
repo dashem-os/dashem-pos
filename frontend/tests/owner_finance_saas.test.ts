@@ -4,7 +4,7 @@ import test from 'node:test'
 
 const source = (path: string) => readFile(new URL(path, import.meta.url), 'utf8')
 
-test('exposes a real SaaS finance view without tenant operating data', async () => {
+test('exposes real SaaS invoicing without tenant operating data or fake financial states', async () => {
   const shell = await source('../src/components/owner/OwnerConsoleShell.tsx')
   const finance = await source('../src/components/owner/FinanceSaasView.tsx')
   const workspace = await source('../src/components/owner/TenantWorkspace.tsx')
@@ -12,16 +12,27 @@ test('exposes a real SaaS finance view without tenant operating data', async () 
 
   assert.match(shell, /label="Financeiro SaaS"/)
   assert.match(finance, /fetchPlatformFinanceOverview/)
-  assert.match(finance, /Disponível com fonte real/)
+  assert.match(finance, /fetchSaasInvoices/)
+  assert.match(finance, /generateSaasInvoices/)
+  assert.match(finance, /issueSaasInvoice/)
+  assert.match(finance, /voidSaasInvoice/)
+  assert.match(finance, /Exportar CSV/)
+  assert.match(finance, /Faturas exibidas abaixo existem no domínio financeiro SaaS/)
+  assert.match(finance, /Recebimentos/)
+  assert.match(finance, /Inadimplência/)
   assert.match(finance, /Em implementação/)
-  assert.match(finance, /não recebem valor zero fictício/)
   assert.doesNotMatch(finance, /overview\?\.overdue_subscriptions/)
   assert.doesNotMatch(finance, /billing_status/)
+  assert.doesNotMatch(finance, /const mock|fixture|Math\.random/i)
+
   assert.match(api, /platform\/finance\/overview/)
   assert.match(api, /platform\/finance\/billing-accounts/)
+  assert.match(api, /control\/finance\/invoices/)
+  assert.match(api, /Idempotency-Key/)
   assert.match(workspace, /Conta de cobrança/)
   assert.match(workspace, /expected_version: account\?\.version \?\? 0/)
   assert.match(workspace, /Não contém faturamento, caixa, vendas ou lucro do tenant/)
+
   for (const forbidden of ['vendas do tenant', 'caixas abertos', 'lucro do tenant']) {
     assert.doesNotMatch(finance.toLowerCase(), new RegExp(forbidden))
   }

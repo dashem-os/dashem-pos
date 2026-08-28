@@ -3,174 +3,158 @@
 Atualizado em: **28 de agosto de 2026**
 
 Este é o documento de retomada operacional do módulo. Em uma nova conta, novo
-chat ou nova sessão de desenvolvimento, leia primeiro este checkpoint e depois
+chat ou nova sessão, leia primeiro este checkpoint e depois
 [`owner-financeiro-saas.md`](owner-financeiro-saas.md). O roadmap canônico
 permanece em [`roadmap-commerce-os-v2.md`](roadmap-commerce-os-v2.md), seção
 S18.1.
 
 ## Regra permanente: produto sem fantasia
 
-O Control não pode exibir número, estado positivo ou alerta financeiro sem um
-fato persistido e rastreável que o sustente.
+- texto explicativo e rótulos podem estar no código;
+- valores, totais, datas e estados de negócio precisam vir de fatos persistidos;
+- `0` só aparece quando o domínio e a consulta real existem;
+- capacidade ainda sem fatos aparece como **Em implementação** ou **Previsto**;
+- todo card numérico leva aos registros que compõem o total;
+- o Owner jamais consulta venda, pedido, caixa, lucro, estoque, funcionários,
+  recebíveis ou BI operacional do tenant;
+- nichos, capabilities, limites e as telas comerciais existentes não podem ser
+  removidos ao evoluir o Financeiro.
 
-- texto explicativo e rótulos de interface podem estar no código;
-- valores de negócio, totais, datas e estados nunca podem ser fixtures,
-  constantes demonstrativas, respostas simuladas ou números calculados apenas
-  para preencher a tela;
-- `0` só aparece quando o domínio existe, a consulta real foi executada e o
-  resultado comprovado é zero;
-- quando o domínio ainda não existe, a interface mostra **Em implementação** ou
-  **Previsto**, sem inventar total;
-- `UNKNOWN`, ausência de heartbeat ou ausência de provider nunca equivale a
-  saudável, pago, conciliado ou em dia;
-- todo card numérico é clicável e chega aos registros que formam seu total;
-- nenhuma métrica do Owner pode consultar venda, pedido, caixa, lucro, estoque,
-  funcionários ou recebíveis operacionais do tenant.
+Regressões mínimas:
 
-Teste de regressão mínimo: `frontend/tests/owner_finance_saas.test.ts`.
+- `backend/tests/test_owner_data_boundary.py`;
+- `backend/tests/test_owner_finance_f2.py`;
+- `frontend/tests/owner_finance_saas.test.ts`.
 
 ## Estado exato da execução
 
-### Concluído antes deste checkpoint
+### Fases 0 e 1 — concluídas
 
-- fronteira Owner/tenant protegida por testes;
-- remoção de usuários ativos, unidades em operação, caixas e vendas do Control;
+- fronteira Owner/tenant protegida;
 - navegação lateral **Financeiro SaaS**;
-- overview contratual consultando `tenant_subscriptions` reais;
-- MRR contratado como soma server-side das mensalidades de assinaturas `ACTIVE`;
-- cards contratuais com drill-down;
-- limites de usuários, dispositivos e unidades aplicados no backend;
-- storage explicitamente marcado como contratual e sem medição;
-- saúde técnica baseada em sondagens e evidências reais.
+- overview contratual sobre `tenant_subscriptions` reais;
+- `SaasBillingAccount` platform-owned, versionada e auditada;
+- permissões `control.finance.*`, overrides individuais e AAL2;
+- limites de usuários, dispositivos e unidades aplicados no backend do tenant,
+  sem publicar contagens de consumo ao Owner;
+- storage permanece apenas limite contratual enquanto não houver medidor;
+- abas Plano e cobrança, Modelos de negócio, Capabilities, Limites e Conta de
+  cobrança preservadas.
 
-### Incremento concluído — Financeiro F1.2
+### Fase 2 — faturamento SaaS concluído no escopo persistido
 
-Implementado no código, aguardando o commit desta entrega:
+Entregue no código desta etapa:
 
-- agregado platform-owned `SaasBillingAccount` em
+- `SaasInvoice` e `SaasInvoiceLine` em
   `backend/app/models/owner_finance.py`;
-- migration `050_saas_finance_foundation` com RLS platform-only, backfill apenas
-  de cadastro/contrato e versão concorrente da assinatura;
-- conta de cobrança criada/atualizada junto do contrato, sem consultar operação
-  do estabelecimento;
-- proteção otimista do contrato por `expected_contract_version`, retornando
-  `409` quando outra sessão já salvou nova versão;
-- remoção do antigo `billing_status` manual, que permitia declarar atraso ou
-  adimplência sem fatura;
-- overview informa disponibilidade dos fatos (`subscriptions`,
-  `billing_accounts`, `invoices`, `payments`, `delinquency`);
-- faturas, recebimentos e inadimplência aparecem como **Em implementação**;
-- tabela contratual abre diretamente o workspace do cliente;
-- conta apta significa apenas cadastro fiscal e contato completos; não significa
-  que houve emissão, pagamento ou conciliação;
-- migration `051_platform_finance_permissions` com definições, padrões por papel
-  e overrides individuais protegidos por RLS `platform-only`;
-- `PLATFORM_OWNER` com todas as permissões financeiras, `PLATFORM_ADMIN` sem
-  estorno, `AUDITOR` somente leitura e demais papéis sem acesso por padrão;
-- leitura do overview protegida por `control.finance.read`;
-- alterações da conta e do contrato protegidas por
-  `control.finance.manage_billing` e AAL2;
-- aba dedicada **Conta de cobrança**, sem remover Cadastro, Contrato, nichos,
-  capabilities, limites ou Administrador inicial;
-- `PUT /api/v1/identity/platform/finance/billing-accounts/{tenant_id}` com
-  `expected_version`, conflito `409`, CPF/CNPJ e e-mail validados;
-- salvamento do contrato também exige `expected_billing_account_version`,
-  impedindo que o editor contratual sobrescreva uma alteração concorrente da
-  aba financeira;
-- auditoria platform-scope e outbox
-  `platform.finance.billing_account_updated` gravados na mesma transação;
-- nenhuma fatura, recebimento ou inadimplência foi simulada para esta entrega.
+- migration `052_saas_invoicing` com constraints monetárias, unicidade por
+  assinatura/competência/revisão, RLS `platform-only` e triggers de imutabilidade;
+- geração mensal somente para assinaturas `ACTIVE` com conta de cobrança,
+  contrato ativo e plano reais;
+- snapshot de versão contratual, plano, descrição, valor, competência e cadastro
+  de cobrança;
+- fonte incompleta não gera documento de valor zero: retorna
+  `INVOICE_SOURCE_INCOMPLETE`;
+- transições implementadas `DRAFT → OPEN → VOID`;
+- emissão e anulação com `expected_version`, AAL2, motivo obrigatório, chave de
+  idempotência, hash da requisição, ator, auditoria e outbox;
+- documentos e itens emitidos protegidos contra reescrita no PostgreSQL;
+- listagem paginada, filtros server-side, detalhe e exportação CSV;
+- overview com total emitido, saldo aberto, rascunhos, abertas e anuladas;
+- cards clicáveis e tabela de fatos reais em `FinanceSaasView.tsx`;
+- recebimentos e inadimplência continuam explicitamente **Em implementação**;
+- nenhuma rota ou consulta usa módulos de venda, caixa, pagamento, recebível,
+  estoque ou BI do tenant.
 
-### Evidência executada nesta etapa
+### Rotas disponíveis
 
-- backend focado F1.2: **24/24** em `test_owner_finance_permissions.py`,
-  `test_owner_console.py`, `test_owner_p0.py` e `test_owner_data_boundary.py`;
-- Python: `compileall` concluído;
-- banco isolado `dashem_pos_finance_validation`: upgrade **050 → 051** e ciclo
-  **051 → 050 → 051** concluídos;
-- RLS confirmado no catálogo real do PostgreSQL para as três tabelas de
-  autorização;
-- suíte backend completa: **125/125**, com API, testes SQL e testes HTTP usando o
-  mesmo `DATABASE_URL`, `ENVIRONMENT=test` e `TEST_BASE_URL`;
-- frontend: `npm test` — **66/66** e `npm run build` concluído.
+```text
+GET  /api/v1/identity/platform/finance/overview
+PUT  /api/v1/identity/platform/finance/billing-accounts/{tenant_id}
 
-Observação local: o banco padrão `dashem_pos` já possuía objetos da migration
-050, mas o `alembic_version` permanecia em 049. A tentativa normal de upgrade
-foi interrompida por coluna duplicada. Nenhum `stamp`, drop ou correção forçada
-foi realizado. O banco isolado financeiro é a evidência canônica desta entrega;
-a divergência do banco padrão deve ser reconciliada separadamente antes de usá-lo
-como alvo de migrations.
+GET  /api/v1/control/finance/invoices
+GET  /api/v1/control/finance/invoices/export
+GET  /api/v1/control/finance/invoices/{invoice_id}
+POST /api/v1/control/finance/invoices/generate
+POST /api/v1/control/finance/invoices/{invoice_id}/issue
+POST /api/v1/control/finance/invoices/{invoice_id}/void
+```
+
+Os três comandos exigem `control.finance.collect`, sessão AAL2 e
+`Idempotency-Key`. Consulta exige `control.finance.read`; exportação exige
+`control.finance.export`.
 
 ## Matriz de verdade da tela
 
-| Elemento | Fonte real atual | Pode exibir valor? | Drill-down |
+| Elemento | Fonte real atual | Exibe valor? | Drill-down |
 |---|---|---:|---|
-| MRR contratado | `tenant_subscriptions.monthly_amount`, somente `ACTIVE` | sim | assinaturas filtradas |
-| Assinaturas ativas | `tenant_subscriptions.status` | sim | assinaturas filtradas |
-| Em avaliação | `tenant_subscriptions.status = TRIAL` | sim | assinaturas filtradas |
-| Contas aptas | `saas_billing_accounts` com cadastro obrigatório completo | sim | contratos/contas |
-| Faturas | domínio ainda inexistente | não | Em implementação |
-| Recebimentos | domínio ainda inexistente | não | Em implementação |
-| Inadimplência | domínio ainda inexistente | não | Em implementação |
-| ARR/churn/movimentos de MRR | projeção ainda inexistente | não | fase futura |
+| MRR contratado | mensalidades de assinaturas `ACTIVE` | sim | contratos filtrados |
+| Assinaturas ativas/trial | `tenant_subscriptions.status` | sim | contratos filtrados |
+| Contas aptas | cadastro obrigatório completo em `saas_billing_accounts` | sim | contratos/contas |
+| Faturado SaaS | faturas emitidas, excluídos rascunhos e anuladas | sim | faturas abertas na F2 |
+| Saldo aberto | `balance_amount` das faturas `OPEN` | sim | faturas abertas |
+| Rascunhos | faturas `DRAFT` | sim | faturas filtradas |
+| Anuladas | faturas `VOID` | sim | faturas filtradas |
+| Recebimentos | agregado ainda inexistente | não | Em implementação |
+| Inadimplência | saldo vencido ainda não derivado | não | Em implementação |
+| ARR/churn/movimentos MRR | projeção ainda inexistente | não | Fase 4 |
 
-## Próximas etapas obrigatórias
+Na Fase 2, os estados `PARTIALLY_PAID`, `PAID`, `OVERDUE` e `UNCOLLECTIBLE`
+existem apenas no vocabulário do modelo. Nenhum comando atual os produz. Eles só
+serão ativados com fatos de recebimento, saldo e vencimento na Fase 3.
 
-### Financeiro F1.2 — concluído
+## Evidência desta etapa
 
-Permissões, AAL2, conta de cobrança versionada, auditoria/outbox, concorrência,
-RLS e fronteira estão implementados e testados. Não reabrir esta fase para
-inserir valores fictícios ou estado manual de pagamento.
+- Python `compileall`: concluído;
+- frontend `npm test`: **66/66**;
+- frontend `npm run build`: concluído;
+- banco isolado `dashem_pos_finance_validation`: ciclo
+  **052 → 051 → 052** concluído;
+- testes F2 no PostgreSQL real: **3/3**;
+- triggers de snapshot e itens exercitados por tentativa real de `UPDATE` após
+  emissão;
+- RLS confirmado no catálogo para `saas_invoices` e `saas_invoice_lines`.
+- suíte backend completa: **129/129**, com API, testes SQL e testes HTTP usando o
+  mesmo `DATABASE_URL`, `ENVIRONMENT=test`, `AUTH_MODE=disabled` e
+  `TEST_BASE_URL`;
 
-### Financeiro F2 — faturamento SaaS
+Observação local permanente: o banco padrão `dashem_pos` possuía objetos da
+migration 050 com marcador Alembic 049. Nenhum `stamp`, drop ou correção forçada
+foi executado. O banco isolado financeiro é a evidência canônica; a divergência
+do banco padrão deve ser reconciliada separadamente antes de receber migrations.
 
-1. criar `SaasInvoice` e `SaasInvoiceLine` platform-owned;
-2. snapshot de contrato, plano, descrição, valor e competência;
-3. gerar uma única fatura por assinatura/competência/idempotência;
-4. implementar estados e transições sem reescrever documento emitido;
-5. listar, detalhar e exportar faturas reais;
-6. somente então liberar cards de valor faturado, saldo e vencimento.
+## Próxima etapa: Financeiro F3 — recebimentos e cobrança
 
-### Financeiro F3 — recebimentos e cobrança
+Ordem obrigatória:
 
-1. provider adapter, webhook assinado e payload sanitizado;
-2. pagamentos, alocações, estornos e créditos imutáveis/compensatórios;
-3. conciliação de resultado `UNKNOWN` antes de qualquer retry;
-4. régua e eventos de cobrança auditados;
-5. derivar inadimplência de saldo de fatura vencida;
-6. somente então liberar cards de recebido e em atraso.
+1. escolher/configurar provider real; não criar adapter falso;
+2. criar `SaasPayment` e `SaasPaymentAllocation` platform-owned;
+3. validar webhook assinado, sanitizar payload e garantir idempotência externa;
+4. conciliar `UNKNOWN` antes de qualquer retry;
+5. implementar recebimento parcial/total e saldo derivado;
+6. implementar estorno/crédito como fatos compensatórios imutáveis;
+7. criar job idempotente que deriva vencimento do saldo e da data;
+8. implementar eventos/régua de cobrança auditados;
+9. somente então liberar cards de recebido, vencido e inadimplência.
 
-### Financeiro F4 — projeções
+Integração fiscal da própria Dashem permanece pendente até existir provider real
+selecionado. `fiscal_reference` e `provider_reference` são apenas campos de
+integração; ausência de valor não equivale a documento emitido externamente.
 
-1. MRR/ARR histórico e movimentos de novo/expansão/contração/churn;
-2. projeção reconstruível com versão de fórmula, watermark e atraso;
-3. drill-down integral até assinatura, fatura e recebimento;
-4. validação por conjuntos financeiros fechados.
+## Fase 4 — projeções
 
-## Definição de pronto do módulo
-
-O Financeiro SaaS só está pronto quando a Dashem consegue percorrer, sem dados
-do estabelecimento:
-
-```text
-Contrato versionado
-  → Conta de cobrança
-    → Fatura SaaS com snapshot
-      → Pagamento/alocação/estorno
-        → Indicador reconstruível e rastreável
-```
-
-Até lá, a nomenclatura correta da tela atual é **Saúde financeira contratual**.
+- MRR/ARR histórico e movimentos de novo/expansão/contração/churn;
+- projeção reconstruível com fórmula versionada, watermark e atraso;
+- drill-down integral até assinatura, fatura e recebimento;
+- validação por conjuntos financeiros fechados.
 
 ## Protocolo para a próxima sessão
 
-1. verificar `git status --short` e o último commit;
-2. ler este arquivo e a seção 8 de `owner-financeiro-saas.md`;
-3. confirmar a migration head e executar testes antes de editar;
-4. não remover nichos, capabilities, limites nem telas existentes ao evoluir o
-   Financeiro;
-5. iniciar pela **Financeiro F2 — faturamento SaaS**, sem antecipar cards de
-   faturado, recebido ou inadimplente;
-6. atualizar este checkpoint com estado, arquivos, testes e próximo passo;
-7. fazer commit e push somente depois das evidências locais proporcionais ao
-   risco.
+1. executar `git status --short` e `git log -1 --oneline`;
+2. ler este checkpoint e a seção 8 da especificação funcional/técnica;
+3. confirmar `alembic current` no alvo escolhido antes de editar;
+4. não usar o banco padrão divergente até sua reconciliação explícita;
+5. executar os três testes mínimos de regressão;
+6. iniciar pela Fase 3 na ordem acima, sem criar valores ou estados simulados;
+7. atualizar este checkpoint com arquivos, migrations, testes e próximo passo;
+8. fazer commit e push somente após todas as evidências passarem.
