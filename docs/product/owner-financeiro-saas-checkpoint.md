@@ -138,6 +138,17 @@ Causas e correções registradas:
   `pg_catalog, public` nas três funções de trigger sensíveis;
 - `test_owner_finance_f2.py` impede regressão do `search_path` dessas funções.
 
+Validação remota concluída:
+
+- GitHub Actions
+  [Dashem Commerce OS CI #57](https://github.com/dashem-os/dashem-pos/actions/runs/33217940304):
+  **Success** em 1m33s;
+- frontend, backend PostgreSQL/RLS, Alembic canonical schema e Operational access
+  E2E: **4/4 jobs aprovados**;
+- permanecem apenas avisos não bloqueantes de depreciação do runtime Node 20 nas
+  versões das actions oficiais. A atualização dessas actions é manutenção de CI,
+  separada da recuperação funcional e de schema aqui concluída.
+
 Alertas externos que não são falhas do código do Financeiro:
 
 - **Leaked Password Protection Disabled** é uma configuração do Supabase Auth e
