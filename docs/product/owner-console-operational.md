@@ -45,14 +45,16 @@ contrato, não um caminho alternativo no código.
 
 ## Saúde e métricas
 
-### Por cliente
+### Fronteira por cliente
 
-- usuários convidados, ativos, suspensos e revogados;
-- unidades e terminais ativos versus limites contratados;
-- última atividade conhecida;
-- vendas, sessões de caixa e falhas operacionais no período selecionado;
-- eventos de outbox pendentes ou falhos;
-- uso e estado de cada capacidade contratada.
+O Control acompanha somente estado comercial, contrato, plano, capabilities,
+limites contratados, onboarding, entrega do administrador contratual, suporte e
+incidentes técnicos sanitizados.
+
+Usuários ativos, funcionários, unidades em operação, terminais utilizados,
+vendas, faturamento, lucro, produtos, estoque e sessões de caixa pertencem ao
+Gestor do tenant no Dashem Gestão. Esses dados não compõem a visão geral, a
+saúde da plataforma nem métricas por cliente no Owner.
 
 ### Plataforma
 
@@ -66,10 +68,15 @@ contrato, não um caminho alternativo no código.
 Gráficos só serão apresentados para séries temporais armazenadas. Um estado
 instantâneo não deve ser disfarçado de histórico.
 
+A saúde financeira da assinatura SaaS é uma superfície separada e segue
+[`owner-financeiro-saas.md`](owner-financeiro-saas.md). Ela não consulta o
+financeiro operacional dos tenants.
+
 ## Ordem de implementação
 
 1. Ficha mestre, matriz/filiais, classificação, ciclo de vida e contrato.
 2. Gestão auditada de acessos, limites e capacidades.
-3. Métricas reais por tenant, com períodos e estados vazios honestos.
+3. Resumo contratual, onboarding e incidentes por tenant, sem métricas da
+   operação comercial do cliente.
 4. Registro de verificações e painel de saúde dos componentes da plataforma.
 5. Alertas, incidentes, SLA/SLO e integrações de IA quando houver provedores.

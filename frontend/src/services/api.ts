@@ -861,7 +861,6 @@ export interface PlatformTenantSummary {
   slug: string
   status: TenantLifecycleStatus
   created_at: string
-  store_count: number
   customer_type: TenantCustomerType
   tenant_type?: TenantType
   lifecycle_phase?: TenantPhase
@@ -1007,7 +1006,11 @@ export interface PlatformSystemHealth {
   checked_at: string
   status: 'HEALTHY' | 'DEGRADED' | 'UNHEALTHY'
   components: HealthComponent[]
-  totals: Record<string, number>
+  totals: {
+    tenants: number
+    pending_outbox: number
+    failed_outbox: number
+  }
 }
 
 export interface ControlLead {
@@ -1029,39 +1032,6 @@ export interface ControlHealthComponent {
   last_seen_at?: string
   age_seconds?: number
   details: Record<string, unknown>
-}
-
-export interface TenantDailyMetric {
-  date: string
-  sales_count: number
-  revenue: number
-}
-
-export interface TenantOperationalMetrics {
-  tenant_id: string
-  checked_at: string
-  status: 'HEALTHY' | 'DEGRADED'
-  stores_total: number
-  stores_active: number
-  users_total: number
-  users_active: number
-  users_invited: number
-  users_suspended: number
-  users_revoked: number
-  registers_active: number
-  cash_sessions_open: number
-  products_total: number
-  low_stock_items: number
-  sales_today: number
-  sales_30d: number
-  revenue_today: number
-  revenue_30d: number
-  outbox_pending: number
-  outbox_failed: number
-  agent_runs_30d: number
-  agent_failures_30d: number
-  last_activity_at?: string
-  daily: TenantDailyMetric[]
 }
 
 export interface PlatformOverview {
@@ -1514,12 +1484,6 @@ export async function fetchControlLeads(): Promise<ControlLead[]> {
 export async function fetchControlHealth(): Promise<{ checked_at: string; components: ControlHealthComponent[] }> {
   const res = await fetch(`${API_BASE_URL}/api/v1/control/health/components`)
   if (!res.ok) throw await apiError(res, 'Não foi possível carregar a instrumentação do Control.')
-  return res.json()
-}
-
-export async function fetchTenantMetrics(tenantId: string): Promise<TenantOperationalMetrics> {
-  const res = await fetch(`${API_BASE_URL}/api/v1/identity/platform/tenants/${tenantId}/metrics`)
-  if (!res.ok) throw await apiError(res, 'Não foi possível carregar as métricas do cliente.')
   return res.json()
 }
 

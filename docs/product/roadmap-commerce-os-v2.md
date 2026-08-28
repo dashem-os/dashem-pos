@@ -1187,6 +1187,40 @@ Componentes sem heartbeat são projetados como `UNINSTRUMENTED`. O Resend
 permanece um gate externo desativado até existir domínio próprio validado; o
 transporte temporário não é representado como infraestrutura pronta.
 
+### S18.1 — Owner Financeiro SaaS e minimização operacional
+
+Objetivo: administrar a receita recorrente e a cobrança da própria Dashem sem
+usar o Control como janela para a operação comercial ou financeira dos tenants.
+
+Entregas:
+
+- retirada de usuários ativos, unidades em operação, caixas, vendas,
+  faturamento, estoque e quadro de funcionários das métricas do Control;
+- conta de cobrança, assinatura, faturas e itens SaaS com snapshot contratual;
+- pagamentos, alocações, estornos e conciliação exclusivos da receita Dashem;
+- inadimplência, régua de cobrança e alterações manuais auditadas;
+- MRR, ARR, movimentos de MRR, churn e recebimentos com fórmulas rastreáveis;
+- permissões financeiras, AAL2, idempotência, auditoria e outbox;
+- observabilidade técnica separada de indicadores comerciais e financeiros.
+
+Gate:
+
+- Control não consulta nem exibe dados operacionais ou financeiros dos tenants;
+- Gestão continua sendo a única superfície das métricas do estabelecimento;
+- fatura emitida e pagamento confirmado são preservados como fatos imutáveis;
+- retry não duplica fatura, cobrança, pagamento ou alocação;
+- todo indicador financeiro chega aos contratos e faturas SaaS de origem;
+- nenhum cálculo depende de `Sale`, `CashSession`, pagamentos do PDV ou BI do
+  tenant.
+
+Estado: **implementação iniciada**. O primeiro sprint concluiu a minimização
+operacional: removeu do contrato e da interface do Control os totais de unidades
+ativas, usuários ativos e caixas abertos; retirou a contagem de unidades da
+listagem de organizações; e eliminou o endpoint de métricas operacionais por
+tenant. Faturas, recebimentos, cobrança e projeções financeiras SaaS permanecem
+planejados. A especificação funcional e técnica está em
+[`owner-financeiro-saas.md`](owner-financeiro-saas.md).
+
 ### S19 — Capability Profiles e Module Contributions
 
 Objetivo: compor verticais e experiências sem forks, menus hardcoded ou módulos
@@ -1353,6 +1387,7 @@ S8 + S9 + S13 + S14 + S15 → S16 Cash/Fiscal/Reconciliation
 GESTÃO E PLATAFORMA
 S11 + S12 + S13 + S14 + S15 + S16 → S17 BI
 S2 + fontes de saúde de S8–S17 → S18 Dashem Control Completion
+S18 + contratos SaaS → S18.1 Owner Financeiro SaaS e minimização operacional
 capabilities reais de S9–S18 → S19 Capability Profiles
 
 PILOTO
@@ -1399,6 +1434,8 @@ e aparece como `não configurada`, nunca como pronta.
 | CI valida componentes, mas não a jornada real | OA-4 | Playwright + evidência no deploy | **bloqueador identificado** |
 | Impressora sem tela tratada como usuário ou referência suficiente | S21.1 | Print Bridge pareado e revogável | contrato definido; implementação/hardware pendentes |
 | Endpoint de identidade e saúde ainda amplos | S18 | routers e observabilidade por domínio | resolvido: router Control e instrumentação explícita |
+| Control expõe caixas, vendas, unidades em operação ou quadro de funcionários do tenant | S18.1 | somente contrato, cobrança SaaS e observabilidade técnica no Owner | **resolvido e protegido por testes no primeiro sprint** |
+| Cobrança SaaS limitada a campos editáveis da assinatura | S18.1 | faturas, recebimentos, inadimplência e métricas SaaS rastreáveis | **planejado** |
 | Segurança/confiabilidade deixadas para o fim | contínuo + S20 | gate por sprint e prova combinada | política corrigida |
 | Cliente capaz de escolher o autor de uma mutação | Gate A | ator derivado do principal ou service actor emitido pelo servidor | resolvido e testado; retirada dos campos legados fica para evolução de contrato |
 

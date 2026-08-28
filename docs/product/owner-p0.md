@@ -56,10 +56,15 @@ O OWNER-P0 administra o acordo comercial por organização: plano, mensalidade
 negociada, vencimento, estado da assinatura, estado da cobrança e próxima data.
 Isso não substitui um razão financeiro.
 
-O futuro contexto Owner Financeiro deve ser separado do financeiro dos tenants
-e cobrir faturas, cobranças, recebimentos, inadimplência, conciliação, MRR,
-churn, impostos e integrações de pagamento. Nenhum dado financeiro operacional
-do tenant deve atravessar essa fronteira.
+O contexto Owner Financeiro é separado do financeiro dos tenants e cobre
+faturas, cobranças, recebimentos, inadimplência, conciliação, MRR, churn,
+impostos e integrações de pagamento referentes exclusivamente à receita do
+SaaS. Faturamento, lucro, vendas, caixas, estoque, unidades em operação e quadro
+de funcionários do tenant não atravessam essa fronteira e permanecem sob
+responsabilidade do Gestor no Dashem Gestão.
+
+A especificação funcional, técnica, os indicadores e os gates de privacidade
+estão em [`owner-financeiro-saas.md`](owner-financeiro-saas.md).
 
 ## Gate de aceite
 

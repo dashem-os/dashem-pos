@@ -57,6 +57,12 @@ Uso exclusivo da equipe Dashem:
 - saúde, erros e integrações;
 - auditoria global.
 
+A observabilidade do Control é técnica e contratual. Ela não agrega usuários
+ativos, funcionários, unidades em operação, vendas, faturamento, lucro, caixas,
+estoque ou BI do tenant. A cobrança da própria Dashem pertence ao Owner
+Financeiro SaaS; a operação e o financeiro do estabelecimento permanecem no
+Commerce Plane, sob responsabilidade do Gestor do tenant.
+
 Papéis iniciais: `PLATFORM_OWNER`, `PLATFORM_ADMIN`, `SALES`, `SUPPORT`,
 `OPERATIONS` e `AUDITOR`.
 
@@ -82,6 +88,11 @@ O Control Plane não atribui funções internas do cliente. Ele controla contrat
 plano, limites, capabilities contratadas e ciclo de vida da organização. A
 administração do tenant controla usuários, papéis, permissões e escopos por
 unidade dentro desses limites.
+
+O Control conhece o limite contratado, mas não transforma a quantidade de
+funcionários, caixas, vendas ou unidades em operação em métrica de plataforma.
+Essa separação é detalhada em
+[`owner-financeiro-saas.md`](../product/owner-financeiro-saas.md).
 
 ### 3.2 Commerce Plane
 

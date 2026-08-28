@@ -2,7 +2,7 @@ import json
 import re
 import time
 import uuid
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, List, Optional
 
@@ -33,10 +33,6 @@ from app.models.platform import (
 )
 from app.models.reliability import AuditEvent, OutboxEvent, OutboxStatusEnum
 from app.models.reliability import ServiceHeartbeat
-from app.models.payment import CashSession, CashSessionStatusEnum, Register
-from app.models.sale import Sale, SaleStatusEnum
-from app.models.catalog import InventoryBalance, Product
-from app.models.intelligence import AgentRun, AgentRunStatusEnum
 from app.services import identity_service, reliability_service, supabase_admin
 from app.modules.capabilities.registry import CAPABILITY_REGISTRY, IMPLEMENTED_CAPABILITIES, resolve_dependencies
 from app.modules.capabilities.niches import (
@@ -117,7 +113,6 @@ def _profile_complete(profile: Optional[TenantProfile], contacts: list[TenantCon
 def _tenant_read(
     tenant: Tenant,
     *,
-    store_count: int,
     profile: Optional[TenantProfile] = None,
     contacts: Optional[list[TenantContact]] = None,
     stores: Optional[list[Store]] = None,
@@ -128,7 +123,6 @@ def _tenant_read(
         slug=tenant.slug,
         status=getattr(tenant.status, "value", str(tenant.status)),
         created_at=tenant.created_at,
-        store_count=store_count,
         customer_type=(
             getattr(profile.customer_type, "value", str(profile.customer_type))
             if profile else None
@@ -250,7 +244,6 @@ class PlatformTenantRead(BaseModel):
     slug: str
     status: str
     created_at: datetime
-    store_count: int
     customer_type: Optional[str] = None
     tenant_type: Optional[str] = None
     lifecycle_phase: Optional[str] = None
@@ -311,44 +304,17 @@ class HealthComponent(BaseModel):
     details: dict[str, Any] = PydanticField(default_factory=dict)
 
 
+class PlatformHealthTotals(BaseModel):
+    tenants: int
+    pending_outbox: int
+    failed_outbox: int
+
+
 class PlatformSystemHealth(BaseModel):
     checked_at: datetime
     status: str
     components: List[HealthComponent]
-    totals: dict[str, int]
-
-
-class TenantDailyMetric(BaseModel):
-    date: date
-    sales_count: int
-    revenue: Decimal
-
-
-class TenantOperationalMetrics(BaseModel):
-    tenant_id: uuid.UUID
-    checked_at: datetime
-    status: str
-    stores_total: int
-    stores_active: int
-    users_total: int
-    users_active: int
-    users_invited: int
-    users_suspended: int
-    users_revoked: int
-    registers_active: int
-    cash_sessions_open: int
-    products_total: int
-    low_stock_items: int
-    sales_today: int
-    sales_30d: int
-    revenue_today: Decimal
-    revenue_30d: Decimal
-    outbox_pending: int
-    outbox_failed: int
-    agent_runs_30d: int
-    agent_failures_30d: int
-    last_activity_at: Optional[datetime]
-    daily: List[TenantDailyMetric]
+    totals: PlatformHealthTotals
 
 
 class CapabilityCatalogItem(BaseModel):
@@ -643,9 +609,7 @@ def platform_overview(
     store_map: dict[uuid.UUID, list[Store]] = {}
     for contact in contacts:
         contact_map.setdefault(contact.tenant_id, []).append(contact)
-    store_counts: dict[uuid.UUID, int] = {}
     for store in stores:
-        store_counts[store.tenant_id] = store_counts.get(store.tenant_id, 0) + 1
         store_map.setdefault(store.tenant_id, []).append(store)
     leads = session.exec(select(Lead).where(Lead.status != LeadStatusEnum.LOST)).all()
     return PlatformOverview(
@@ -656,7 +620,6 @@ def platform_overview(
         tenants=[
             _tenant_read(
                 tenant,
-                store_count=store_counts.get(tenant.id, 0),
                 profile=profile_map.get(tenant.id),
                 contacts=contact_map.get(tenant.id, []),
                 stores=store_map.get(tenant.id, []),
@@ -747,85 +710,11 @@ def platform_system_health(
         checked_at=checked_at,
         status=overall,
         components=components,
-        totals={
-            "tenants": _count(session, Tenant),
-            "active_stores": _count(session, Store, Store.is_active == True),  # noqa: E712
-            "active_users": _count(session, User, User.is_active == True),  # noqa: E712
-            "open_cash_sessions": _count(session, CashSession, CashSession.status == CashSessionStatusEnum.OPEN),
-            "pending_outbox": pending,
-            "failed_outbox": failed,
-        },
-    )
-
-
-@router.get("/platform/tenants/{tenant_id}/metrics", response_model=TenantOperationalMetrics)
-def platform_tenant_metrics(
-    tenant_id: uuid.UUID,
-    principal: AuthPrincipal = Depends(get_current_principal),
-    session: Session = Depends(get_session),
-):
-    require_platform_role(session, principal, PLATFORM_MANAGERS, require_aal2=True)
-    if session.get(Tenant, tenant_id) is None:
-        raise HTTPException(status_code=404, detail="Tenant não encontrado.")
-    now = datetime.utcnow()
-    today = datetime(now.year, now.month, now.day)
-    since_30d = today - timedelta(days=29)
-    memberships = session.exec(select(Membership).where(Membership.tenant_id == tenant_id)).all()
-    access_counts = {status.value: 0 for status in MembershipStatusEnum}
-    for membership in memberships:
-        access_counts[getattr(membership.status, "value", str(membership.status))] += 1
-
-    paid_statuses = {SaleStatusEnum.PAID, SaleStatusEnum.COMPLETED}
-    sale_rows = session.exec(
-        select(
-            func.date(Sale.created_at),
-            func.count(Sale.id),
-            func.coalesce(func.sum(Sale.net_total), 0),
-        ).where(
-            Sale.tenant_id == tenant_id,
-            Sale.created_at >= since_30d,
-            Sale.status.in_(paid_statuses),
-        ).group_by(func.date(Sale.created_at)).order_by(func.date(Sale.created_at))
-    ).all()
-    by_date = {
-        row[0]: (int(row[1]), Decimal(str(row[2] or 0))) for row in sale_rows
-    }
-    daily = []
-    for offset in range(30):
-        current = (since_30d + timedelta(days=offset)).date()
-        count, revenue = by_date.get(current, (0, Decimal("0")))
-        daily.append(TenantDailyMetric(date=current, sales_count=count, revenue=revenue))
-
-    sales_today = sum(item.sales_count for item in daily if item.date == today.date())
-    revenue_today = sum((item.revenue for item in daily if item.date == today.date()), Decimal("0"))
-    sales_30d = sum(item.sales_count for item in daily)
-    revenue_30d = sum((item.revenue for item in daily), Decimal("0"))
-    outbox_pending = _count(session, OutboxEvent, OutboxEvent.tenant_id == tenant_id, OutboxEvent.status.in_({OutboxStatusEnum.PENDING, OutboxStatusEnum.PROCESSING}))
-    outbox_failed = _count(session, OutboxEvent, OutboxEvent.tenant_id == tenant_id, OutboxEvent.status == OutboxStatusEnum.FAILED)
-    agent_runs = _count(session, AgentRun, AgentRun.tenant_id == tenant_id, AgentRun.created_at >= since_30d)
-    agent_failures = _count(session, AgentRun, AgentRun.tenant_id == tenant_id, AgentRun.created_at >= since_30d, AgentRun.status == AgentRunStatusEnum.FAILED)
-    last_sale = session.exec(select(func.max(Sale.created_at)).where(Sale.tenant_id == tenant_id)).one()
-    last_audit = session.exec(select(func.max(AuditEvent.created_at)).where(AuditEvent.tenant_id == tenant_id)).one()
-    last_activity = max((value for value in (last_sale, last_audit) if value is not None), default=None)
-    status = "DEGRADED" if outbox_failed or access_counts[MembershipStatusEnum.ACTIVE.value] == 0 else "HEALTHY"
-    return TenantOperationalMetrics(
-        tenant_id=tenant_id, checked_at=now, status=status,
-        stores_total=_count(session, Store, Store.tenant_id == tenant_id),
-        stores_active=_count(session, Store, Store.tenant_id == tenant_id, Store.is_active == True),  # noqa: E712
-        users_total=len(memberships),
-        users_active=access_counts[MembershipStatusEnum.ACTIVE.value],
-        users_invited=access_counts[MembershipStatusEnum.INVITED.value],
-        users_suspended=access_counts[MembershipStatusEnum.SUSPENDED.value],
-        users_revoked=access_counts[MembershipStatusEnum.REVOKED.value],
-        registers_active=_count(session, Register, Register.tenant_id == tenant_id, Register.is_active == True),  # noqa: E712
-        cash_sessions_open=_count(session, CashSession, CashSession.tenant_id == tenant_id, CashSession.status == CashSessionStatusEnum.OPEN),
-        products_total=_count(session, Product, Product.tenant_id == tenant_id),
-        low_stock_items=_count(session, InventoryBalance, InventoryBalance.tenant_id == tenant_id, InventoryBalance.quantity <= InventoryBalance.minimum_stock),
-        sales_today=sales_today, sales_30d=sales_30d,
-        revenue_today=revenue_today, revenue_30d=revenue_30d,
-        outbox_pending=outbox_pending, outbox_failed=outbox_failed,
-        agent_runs_30d=agent_runs, agent_failures_30d=agent_failures,
-        last_activity_at=last_activity, daily=daily,
+        totals=PlatformHealthTotals(
+            tenants=_count(session, Tenant),
+            pending_outbox=pending,
+            failed_outbox=failed,
+        ),
     )
 
 
@@ -1131,7 +1020,7 @@ def platform_tenant_detail(
     ).all()
     return PlatformTenantDetail(
         tenant=_tenant_read(
-            tenant, store_count=len(stores), profile=profile, contacts=list(contacts), stores=list(stores),
+            tenant, profile=profile, contacts=list(contacts), stores=list(stores),
         ),
         profile=profile,
         contacts=list(contacts),

@@ -139,6 +139,9 @@ A matriz responsiva validada está em
 A sequência oficial de construção das experiências do cliente, dos domínios
 Food Service, do motor financeiro e da conclusão do Control Plane está em
 [`docs/product/roadmap-commerce-os-v2.md`](docs/product/roadmap-commerce-os-v2.md).
+O Financeiro do Control, restrito à receita e à cobrança da própria Dashem e sem
+métricas operacionais dos tenants, está especificado em
+[`docs/product/owner-financeiro-saas.md`](docs/product/owner-financeiro-saas.md).
 
 Estado atual em 26/08/2026: **Integration Hardening / Operational Acceptance —
 pré-piloto bloqueado**. O Gate B foi reaberto após reprovação da jornada no

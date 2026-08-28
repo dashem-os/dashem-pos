@@ -20,7 +20,6 @@ from app.api.v1.endpoints.identity import (
     platform_overview,
     platform_system_health,
     platform_tenant_detail,
-    platform_tenant_metrics,
     tenant_capability_catalog,
     invite_platform_tenant_user,
     provision_platform_tenant,
@@ -125,7 +124,7 @@ def test_owner_first_access_and_atomic_tenant_provisioning():
         assert me_after["onboarding_completed"] is True
 
         overview = platform_overview(principal=principal, session=session)
-        assert any(item.id == created.tenant.id and item.store_count == 1 for item in overview.tenants)
+        assert any(item.id == created.tenant.id for item in overview.tenants)
 
 
 def test_owner_mutations_require_aal2():
@@ -211,7 +210,7 @@ def test_owner_manages_capabilities_with_real_dependencies_and_audit():
         assert audit is not None
 
 
-def test_owner_reads_real_platform_health_and_tenant_metrics(monkeypatch):
+def test_owner_health_contains_only_contractual_and_technical_totals(monkeypatch):
     suffix = uuid.uuid4().hex[:8]
 
     class HealthyAuth:
@@ -221,25 +220,20 @@ def test_owner_reads_real_platform_health_and_tenant_metrics(monkeypatch):
     with Session(engine) as session:
         subject, _ = _owner(session)
         principal = _principal(subject)
-        created = provision_platform_tenant(
+        provision_platform_tenant(
             data=PlatformTenantCreate(
                 name=f"Metrics {suffix}", slug=f"metrics-{suffix}",
                 first_store_name="Matriz", first_store_code="MATRIZ",
             ), principal=principal, session=session,
         )
-        metrics = platform_tenant_metrics(created.tenant.id, principal, session)
-        assert metrics.stores_total == 1
-        assert metrics.stores_active == 1
-        assert len(metrics.daily) == 30
-        assert metrics.sales_30d == 0
-        assert metrics.revenue_30d == 0
-
         health = platform_system_health(principal, session)
         components = {component.key: component for component in health.components}
         assert components["api"].status == "HEALTHY"
         assert components["database"].status == "HEALTHY"
         assert components["outbox"].details["failed"] >= 0
-        assert health.totals["tenants"] >= 1
+        totals = health.totals.model_dump()
+        assert set(totals) == {"tenants", "pending_outbox", "failed_outbox"}
+        assert totals["tenants"] >= 1
 
 
 def test_owner_can_open_tenant_and_invite_first_user(monkeypatch):
