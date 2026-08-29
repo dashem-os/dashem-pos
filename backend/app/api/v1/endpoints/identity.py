@@ -32,7 +32,10 @@ from app.models.platform import (
     IdentityDeliveryEvent, TenantContract, TenantProfileAssignment,
     CapabilityProfileRevision,
 )
-from app.models.owner_finance import SaasBillingAccount, SaasInvoice, SaasInvoiceStatusEnum
+from app.models.owner_finance import (
+    SaasBillingAccount, SaasInvoice, SaasInvoiceStatusEnum,
+    SaasPaymentAllocation, SaasRefund,
+)
 from app.models.reliability import AuditEvent, OutboxEvent, OutboxStatusEnum
 from app.models.reliability import ServiceHeartbeat
 from app.services import identity_service, reliability_service, supabase_admin
@@ -340,8 +343,8 @@ class PlatformFinanceFactsAvailability(BaseModel):
     subscriptions: bool = True
     billing_accounts: bool = True
     invoices: bool = True
-    payments: bool = False
-    delinquency: bool = False
+    payments: bool = True
+    delinquency: bool = True
 
 
 class PlatformFinanceOverview(BaseModel):
@@ -352,9 +355,15 @@ class PlatformFinanceOverview(BaseModel):
     billing_accounts_ready: int
     billing_accounts_total: int
     invoiced_total: Decimal
+    received_total: Decimal
+    refunded_total: Decimal
     open_invoice_balance: Decimal
+    overdue_invoice_balance: Decimal
     draft_invoices: int
     open_invoices: int
+    partially_paid_invoices: int
+    paid_invoices: int
+    overdue_invoices: int
     void_invoices: int
     facts: PlatformFinanceFactsAvailability
     subscriptions: List[PlatformFinanceSubscription]
@@ -808,6 +817,8 @@ def platform_finance_overview(
         item.tenant_id: item for item in session.exec(select(SaasBillingAccount)).all()
     }
     invoices = list(session.exec(select(SaasInvoice)).all())
+    allocations = list(session.exec(select(SaasPaymentAllocation)).all())
+    refunds = list(session.exec(select(SaasRefund)).all())
     contracts = {}
     for contract in session.exec(
         select(TenantContract).order_by(TenantContract.tenant_id, TenantContract.version.desc())
@@ -847,12 +858,33 @@ def platform_finance_overview(
             ),
             Decimal("0.00"),
         ),
+        received_total=(
+            sum((item.amount for item in allocations), Decimal("0.00"))
+            - sum((item.amount for item in refunds), Decimal("0.00"))
+        ),
+        refunded_total=sum((item.amount for item in refunds), Decimal("0.00")),
         open_invoice_balance=sum(
-            (item.balance_amount for item in invoices if item.status == SaasInvoiceStatusEnum.OPEN),
+            (
+                item.balance_amount for item in invoices
+                if item.status in {
+                    SaasInvoiceStatusEnum.OPEN,
+                    SaasInvoiceStatusEnum.PARTIALLY_PAID,
+                    SaasInvoiceStatusEnum.OVERDUE,
+                }
+            ),
+            Decimal("0.00"),
+        ),
+        overdue_invoice_balance=sum(
+            (item.balance_amount for item in invoices if item.status == SaasInvoiceStatusEnum.OVERDUE),
             Decimal("0.00"),
         ),
         draft_invoices=sum(item.status == SaasInvoiceStatusEnum.DRAFT for item in invoices),
         open_invoices=sum(item.status == SaasInvoiceStatusEnum.OPEN for item in invoices),
+        partially_paid_invoices=sum(
+            item.status == SaasInvoiceStatusEnum.PARTIALLY_PAID for item in invoices
+        ),
+        paid_invoices=sum(item.status == SaasInvoiceStatusEnum.PAID for item in invoices),
+        overdue_invoices=sum(item.status == SaasInvoiceStatusEnum.OVERDUE for item in invoices),
         void_invoices=sum(item.status == SaasInvoiceStatusEnum.VOID for item in invoices),
         facts=PlatformFinanceFactsAvailability(),
         subscriptions=rows,

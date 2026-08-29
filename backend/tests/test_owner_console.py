@@ -261,8 +261,8 @@ def test_owner_finance_projects_only_saas_contracts():
         assert row.billing_account_ready is False
         assert overview.contracted_mrr >= Decimal("249.90")
         assert overview.facts.invoices is True
-        assert overview.facts.payments is False
-        assert overview.facts.delinquency is False
+        assert overview.facts.payments is True
+        assert overview.facts.delinquency is True
 
 
 def test_owner_can_open_tenant_and_invite_first_user(monkeypatch):

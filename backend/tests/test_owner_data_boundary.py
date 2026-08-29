@@ -64,12 +64,24 @@ def test_owner_invoicing_routes_are_platform_scoped_and_visible():
     assert "/api/v1/control/finance/invoices/{invoice_id}/void" in paths
 
 
+def test_owner_receipt_and_collection_routes_are_platform_scoped_and_visible():
+    paths = app.openapi()["paths"]
+    assert "/api/v1/control/finance/payments" in paths
+    assert "/api/v1/control/finance/payments/manual" in paths
+    assert "/api/v1/control/finance/payments/{payment_id}/reconcile" in paths
+    assert "/api/v1/control/finance/payments/{payment_id}/refunds" in paths
+    assert "/api/v1/control/finance/collections/mark-overdue" in paths
+    assert "/api/v1/control/finance/collections/events" in paths
+    assert "/api/v1/control/finance/provider/webhooks/{provider}" in paths
+
+
 def test_owner_finance_has_no_manual_delinquency_source():
     identity_source = IDENTITY_ENDPOINT.read_text(encoding="utf-8")
 
     assert "overdue_subscriptions" not in identity_source
     assert "item.billing_status" not in identity_source
-    assert "delinquency: bool = False" in identity_source
+    assert "delinquency: bool = True" in identity_source
+    assert "SaasInvoiceStatusEnum.OVERDUE" in identity_source
 
 
 def test_finance_authorization_tables_are_platform_only():

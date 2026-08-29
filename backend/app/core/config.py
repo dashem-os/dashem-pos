@@ -23,6 +23,12 @@ class Settings(BaseSettings):
     AUTH_TEST_SECRET: Optional[str] = None
     APP_URL: str = "http://localhost:5173"
 
+    # Optional provider-neutral ingress for SaaS receipt confirmations. The
+    # endpoint remains unavailable until both values are configured; it never
+    # acknowledges a provider event without authenticated evidence.
+    SAAS_PAYMENT_WEBHOOK_SECRET: Optional[str] = None
+    SAAS_PAYMENT_WEBHOOK_ACTOR_ID: Optional[str] = None
+
     # Conservative defaults for small managed Postgres instances. These values
     # can be overridden per environment without changing application code.
     DB_POOL_SIZE: int = 5

@@ -1189,15 +1189,13 @@ transporte temporário não é representado como infraestrutura pronta.
 
 ### S18.1 — Owner Financeiro SaaS e minimização operacional
 
-Estado em 28 de agosto de 2026: Fases 0 e 1 concluídas; fundação da Fase 1
-implementada com navegação Financeiro SaaS, MRR baseado em assinaturas reais,
-conta de cobrança platform-owned, concorrência contratual, drill-down, limites
-de usuários/dispositivos/unidades no backend e saúde técnica por evidência. O
-status financeiro manual foi removido: faturas, recebimentos, inadimplência e
-conciliação permanecem explicitamente como **Em implementação**, sem números
-simulados. Permissões `control.finance.*`, conta de cobrança versionada,
-auditoria/outbox e RLS encerram a Fase 1. O próximo incremento é a Fase 2,
-faturamento SaaS com faturas e itens persistidos.
+Estado em 29 de agosto de 2026: Fases 0 a 3 concluídas no escopo persistido.
+Além da fronteira, contratos, limites e faturamento SaaS, o Control possui agora
+pagamentos, alocações, estornos, vencimentos e eventos de cobrança reais, com
+RLS, AAL2, idempotência, auditoria/outbox e webhook HMAC fail-closed. Provider
+comercial e transporte externo ainda não foram escolhidos e permanecem
+desativados, sem adapter ou sucesso simulado. O próximo incremento é a Fase 4,
+com projeções recorrentes reconstruíveis.
 
 Objetivo: administrar a receita recorrente e a cobrança da própria Dashem sem
 usar o Control como janela para a operação comercial ou financeira dos tenants.
@@ -1223,12 +1221,11 @@ Gate:
 - nenhum cálculo depende de `Sale`, `CashSession`, pagamentos do PDV ou BI do
   tenant.
 
-Estado: **implementação iniciada**. O primeiro sprint concluiu a minimização
-operacional: removeu do contrato e da interface do Control os totais de unidades
-ativas, usuários ativos e caixas abertos; retirou a contagem de unidades da
-listagem de organizações; e eliminou o endpoint de métricas operacionais por
-tenant. Faturas, recebimentos, cobrança e projeções financeiras SaaS permanecem
-planejados. A especificação funcional e técnica está em
+Estado: **Fases 0 a 3 concluídas; Fase 4 pendente**. Contratos, contas de
+cobrança, faturas, recebimentos, estornos, saldo vencido e ações de cobrança são
+fatos platform-owned rastreáveis. Projeções históricas de MRR/ARR/churn ainda
+permanecem planejadas e só serão exibidas quando existir a projeção
+reconstruível. A especificação funcional e técnica está em
 [`owner-financeiro-saas.md`](owner-financeiro-saas.md).
 
 ### S19 — Capability Profiles e Module Contributions

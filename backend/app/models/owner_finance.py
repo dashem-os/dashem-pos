@@ -30,6 +30,23 @@ class SaasInvoiceLineTypeEnum(str, Enum):
     ADJUSTMENT = "ADJUSTMENT"
 
 
+class SaasPaymentStatusEnum(str, Enum):
+    PENDING = "PENDING"
+    PROCESSING = "PROCESSING"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+    UNKNOWN = "UNKNOWN"
+    PARTIALLY_REFUNDED = "PARTIALLY_REFUNDED"
+    REFUNDED = "REFUNDED"
+
+
+class SaasCollectionEventTypeEnum(str, Enum):
+    OVERDUE_MARKED = "OVERDUE_MARKED"
+    CONTACT_ATTEMPT = "CONTACT_ATTEMPT"
+    PROMISE_TO_PAY = "PROMISE_TO_PAY"
+    MANUAL_NOTE = "MANUAL_NOTE"
+
+
 class SaasBillingAccount(SQLModel, table=True):
     """Platform-owned billing identity for a Dashem SaaS customer.
 
@@ -137,6 +154,7 @@ class SaasInvoice(SQLModel, table=True):
     void_reason: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     void_idempotency_key: Optional[str] = Field(default=None, max_length=160)
     void_request_hash: Optional[str] = Field(default=None, max_length=64)
+    paid_at: Optional[datetime] = Field(default=None, index=True)
     created_by: uuid.UUID = Field(foreign_key="users.id", index=True)
     version: int = Field(default=1)
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
@@ -162,4 +180,105 @@ class SaasInvoiceLine(SQLModel, table=True):
     unit_amount: Decimal = Field(sa_column=Column(Numeric(14, 2), nullable=False))
     total_amount: Decimal = Field(sa_column=Column(Numeric(14, 2), nullable=False))
     contract_version: int
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class SaasPayment(SQLModel, table=True):
+    """Money received by Dashem for its SaaS invoices, never tenant payments."""
+
+    __tablename__ = "saas_payments"
+    __table_args__ = (
+        UniqueConstraint("idempotency_key", name="uq_saas_payments_idempotency_key"),
+        UniqueConstraint(
+            "reconcile_idempotency_key", name="uq_saas_payments_reconcile_idempotency"
+        ),
+        UniqueConstraint(
+            "provider", "provider_payment_reference",
+            name="uq_saas_payments_provider_reference",
+        ),
+        CheckConstraint("amount > 0", name="ck_saas_payments_amount_positive"),
+        CheckConstraint("version >= 1", name="ck_saas_payments_version_positive"),
+        Index("ix_saas_payments_received_status", "received_at", "status"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(foreign_key="tenants.id", index=True)
+    billing_account_id: uuid.UUID = Field(foreign_key="saas_billing_accounts.id", index=True)
+    provider: str = Field(max_length=60, index=True)
+    provider_payment_reference: Optional[str] = Field(default=None, max_length=180, index=True)
+    external_event_id: Optional[str] = Field(default=None, max_length=180, index=True)
+    idempotency_key: str = Field(max_length=160)
+    request_hash: str = Field(max_length=64)
+    reconcile_idempotency_key: Optional[str] = Field(default=None, max_length=160)
+    reconcile_request_hash: Optional[str] = Field(default=None, max_length=64)
+    status: SaasPaymentStatusEnum = Field(
+        sa_column=Column(EnumString(SaasPaymentStatusEnum), nullable=False, index=True)
+    )
+    currency: str = Field(default="BRL", max_length=3)
+    amount: Decimal = Field(sa_column=Column(Numeric(14, 2), nullable=False))
+    payment_method_summary: Optional[str] = Field(default=None, max_length=80)
+    failure_code: Optional[str] = Field(default=None, max_length=80)
+    evidence_reference: str = Field(max_length=240)
+    received_at: datetime = Field(index=True)
+    succeeded_at: Optional[datetime] = Field(default=None, index=True)
+    created_by: uuid.UUID = Field(foreign_key="users.id", index=True)
+    version: int = Field(default=1)
+    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class SaasPaymentAllocation(SQLModel, table=True):
+    __tablename__ = "saas_payment_allocations"
+    __table_args__ = (
+        UniqueConstraint("idempotency_key", name="uq_saas_payment_allocations_idempotency_key"),
+        CheckConstraint("amount > 0", name="ck_saas_payment_allocations_amount_positive"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    payment_id: uuid.UUID = Field(foreign_key="saas_payments.id", index=True)
+    invoice_id: uuid.UUID = Field(foreign_key="saas_invoices.id", index=True)
+    amount: Decimal = Field(sa_column=Column(Numeric(14, 2), nullable=False))
+    idempotency_key: str = Field(max_length=160)
+    allocated_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+
+
+class SaasRefund(SQLModel, table=True):
+    __tablename__ = "saas_refunds"
+    __table_args__ = (
+        UniqueConstraint("idempotency_key", name="uq_saas_refunds_idempotency_key"),
+        CheckConstraint("amount > 0", name="ck_saas_refunds_amount_positive"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    payment_id: uuid.UUID = Field(foreign_key="saas_payments.id", index=True)
+    invoice_id: uuid.UUID = Field(foreign_key="saas_invoices.id", index=True)
+    amount: Decimal = Field(sa_column=Column(Numeric(14, 2), nullable=False))
+    reason: str = Field(sa_column=Column(Text, nullable=False))
+    evidence_reference: str = Field(max_length=240)
+    idempotency_key: str = Field(max_length=160)
+    refunded_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    created_by: uuid.UUID = Field(foreign_key="users.id", index=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class SaasCollectionEvent(SQLModel, table=True):
+    __tablename__ = "saas_collection_events"
+    __table_args__ = (
+        UniqueConstraint("idempotency_key", name="uq_saas_collection_events_idempotency_key"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    invoice_id: uuid.UUID = Field(foreign_key="saas_invoices.id", index=True)
+    tenant_id: uuid.UUID = Field(foreign_key="tenants.id", index=True)
+    event_type: SaasCollectionEventTypeEnum = Field(
+        sa_column=Column(EnumString(SaasCollectionEventTypeEnum), nullable=False, index=True)
+    )
+    channel: str = Field(max_length=40)
+    outcome: str = Field(max_length=80)
+    recipient_masked: Optional[str] = Field(default=None, max_length=160)
+    detail: str = Field(sa_column=Column(Text, nullable=False))
+    evidence_reference: Optional[str] = Field(default=None, max_length=240)
+    idempotency_key: str = Field(max_length=160)
+    actor_id: uuid.UUID = Field(foreign_key="users.id", index=True)
+    occurred_at: datetime = Field(default_factory=datetime.utcnow, index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)

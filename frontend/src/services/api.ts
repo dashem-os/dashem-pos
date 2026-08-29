@@ -1034,9 +1034,15 @@ export interface PlatformFinanceOverview {
   billing_accounts_ready: number
   billing_accounts_total: number
   invoiced_total: number
+  received_total: number
+  refunded_total: number
   open_invoice_balance: number
+  overdue_invoice_balance: number
   draft_invoices: number
   open_invoices: number
+  partially_paid_invoices: number
+  paid_invoices: number
+  overdue_invoices: number
   void_invoices: number
   facts: {
     subscriptions: boolean
@@ -1079,6 +1085,7 @@ export interface SaasInvoice {
   issued_at?: string
   voided_at?: string
   void_reason?: string
+  paid_at?: string
   version: number
   created_at: string
   updated_at: string
@@ -1104,6 +1111,30 @@ export interface SaasInvoiceGenerateResult {
   existing: SaasInvoice[]
   skipped: Array<{ tenant_id: string; code: string; detail: string }>
 }
+
+export type SaasPaymentStatus = 'PENDING' | 'PROCESSING' | 'SUCCEEDED' | 'FAILED' | 'UNKNOWN' | 'PARTIALLY_REFUNDED' | 'REFUNDED'
+export interface SaasPayment {
+  id: string
+  tenant_id: string
+  billing_account_id: string
+  provider: string
+  provider_payment_reference?: string
+  external_event_id?: string
+  status: SaasPaymentStatus
+  currency: string
+  amount: number
+  payment_method_summary?: string
+  failure_code?: string
+  evidence_reference: string
+  received_at: string
+  succeeded_at?: string
+  version: number
+}
+export interface SaasPaymentAllocation { id: string; payment_id: string; invoice_id: string; amount: number; allocated_at: string }
+export interface SaasRefund { id: string; payment_id: string; invoice_id: string; amount: number; reason: string; evidence_reference: string; refunded_at: string }
+export interface SaasPaymentListItem { payment: SaasPayment; tenant_name: string; allocated_amount: number; refunded_amount: number; invoice_ids: string[] }
+export interface SaasPaymentListResult { items: SaasPaymentListItem[]; total: number; page: number; size: number }
+export interface SaasPaymentDetail { payment: SaasPayment; tenant_name: string; allocations: SaasPaymentAllocation[]; refunds: SaasRefund[] }
 
 export interface SaasBillingAccount {
   id: string
@@ -1644,6 +1675,52 @@ export async function fetchSaasInvoiceExport(): Promise<Blob> {
   const res = await fetch(`${API_BASE_URL}/api/v1/control/finance/invoices/export`)
   if (!res.ok) throw await apiError(res, 'Não foi possível exportar as faturas SaaS.')
   return res.blob()
+}
+
+export async function fetchSaasPayments(status?: SaasPaymentStatus): Promise<SaasPaymentListResult> {
+  const params = new URLSearchParams({ page: '1', size: '200' })
+  if (status) params.set('status', status)
+  const res = await fetch(`${API_BASE_URL}/api/v1/control/finance/payments?${params}`)
+  if (!res.ok) throw await apiError(res, 'Não foi possível carregar os recebimentos SaaS.')
+  return res.json()
+}
+
+export async function recordManualSaasPayment(input: {
+  invoice_id: string; expected_invoice_version: number; amount: number
+  received_at: string; evidence_reference: string; reason: string; payment_method_summary: string
+}): Promise<SaasPayment> {
+  const key = `saas-manual-payment-${input.invoice_id}-${input.expected_invoice_version}-${input.evidence_reference}`
+  const res = await fetch(`${API_BASE_URL}/api/v1/control/finance/payments/manual`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': key.slice(0, 160) },
+    body: JSON.stringify({
+      amount: input.amount, currency: 'BRL', received_at: input.received_at,
+      evidence_reference: input.evidence_reference, reason: input.reason,
+      payment_method_summary: input.payment_method_summary,
+      allocations: [{ invoice_id: input.invoice_id, amount: input.amount, expected_invoice_version: input.expected_invoice_version }],
+    }),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível registrar o recebimento SaaS.')
+  return res.json()
+}
+
+export async function refundSaasPayment(paymentId: string, input: {
+  invoice_id: string; expected_invoice_version: number; amount: number; reason: string; evidence_reference: string
+}): Promise<SaasRefund> {
+  const key = `saas-refund-${paymentId}-${input.invoice_id}-${input.expected_invoice_version}-${input.evidence_reference}`
+  const res = await fetch(`${API_BASE_URL}/api/v1/control/finance/payments/${paymentId}/refunds`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': key.slice(0, 160) },
+    body: JSON.stringify(input),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível registrar o estorno SaaS.')
+  return res.json()
+}
+
+export async function markSaasInvoicesOverdue(asOf: string): Promise<SaasInvoice[]> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/control/finance/collections/mark-overdue`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ as_of: asOf }),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível derivar os vencimentos SaaS.')
+  return res.json()
 }
 
 export async function fetchControlLeads(): Promise<ControlLead[]> {

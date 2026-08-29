@@ -128,12 +128,12 @@ não confundir esta superfície com o financeiro do estabelecimento.
 
 ### 3.2 Visão financeira
 
-Estado implementado em 28 de agosto de 2026: a entrada lateral **Financeiro
-SaaS** consulta assinaturas, contas de cobrança e faturas reais. A tela apresenta
-MRR contratado, estados contratuais, valor emitido, saldo aberto, rascunhos e
-anulações, todos derivados no backend e com drill-down. Recebimentos,
-inadimplência, ARR e churn continuam como capacidades futuras e não recebem
-zero fictício.
+Estado implementado em 29 de agosto de 2026: a entrada lateral **Financeiro
+SaaS** consulta assinaturas, contas de cobrança, faturas, pagamentos, alocações,
+estornos e vencimentos reais. A tela apresenta valores contratuais, faturados,
+recebidos, estornados e vencidos derivados no backend e com drill-down. ARR,
+churn e movimentos históricos de MRR continuam previstos para a Fase 4 e não
+recebem zero fictício.
 
 A página inicial apresenta, para um período explícito:
 
@@ -187,8 +187,9 @@ emitido.
 
 Estado entregue na Fase 2: geração mensal para assinaturas `ACTIVE`, emissão
 `DRAFT → OPEN`, anulação `OPEN → VOID`, listagem paginada, detalhe e exportação
-CSV. Envio, substituição, pagamento parcial, vencimento derivado e emissão fiscal
-dependem dos fatos e providers das fases seguintes; não são simulados.
+CSV. Pagamento parcial/total e vencimento derivado foram entregues na Fase 3.
+Envio, substituição e emissão fiscal dependem de provider real; não são
+simulados.
 
 ### 3.5 Recebimentos e conciliação SaaS
 
@@ -205,6 +206,12 @@ Deve suportar:
 
 Uma venda paga no PDV do tenant nunca é um recebimento do SaaS.
 
+Estado entregue na Fase 3: ledger provider-neutral persistido, baixa manual com
+evidência e AAL2, webhook HMAC fail-closed, idempotência, conciliação explícita
+de `UNKNOWN`, alocação parcial/total e estorno compensatório imutável. A
+automação externa só pode ser ativada depois da escolha e configuração de um
+provider real.
+
 ### 3.6 Inadimplência e cobrança
 
 Uma fatura aberta ultrapassando o vencimento torna-se vencida por processo
@@ -220,6 +227,11 @@ server-side idempotente. O módulo permite:
 Inadimplência não suspende silenciosamente o tenant. Qualquer impacto no ciclo de
 vida da assinatura exige política configurada, ação auditada e comunicação. A
 fatura continua sendo preservada como fato financeiro.
+
+Estado entregue na Fase 3: derivação idempotente de `OVERDUE` por saldo e data
+de corte e histórico append-only de ações de cobrança. Envio automático de
+mensagens e política de suspensão continuam desativados enquanto não houver
+transporte e regra comercial configurados.
 
 ### 3.7 Configuração
 
@@ -375,9 +387,10 @@ faturas, evitando divergência editável manualmente.
 - timestamps de emissão, pagamento, cancelamento e atualização;
 - `version` para concorrência otimista.
 
-Implementação: `backend/app/models/owner_finance.py`, migration
-`052_saas_invoicing`. Emissão e anulação guardam ator, motivo, chave de
-idempotência e hash da requisição no próprio agregado platform-owned, sem usar o
+Implementação: `backend/app/models/owner_finance.py`, migrations
+`052_saas_invoicing` e `054_saas_receipts_collections`. Emissão, anulação,
+recebimento, estorno e cobrança guardam ator, motivo/evidência, chave de
+idempotência e hash da requisição no agregado platform-owned, sem usar o
 repositório de idempotência operacional dos tenants.
 
 Restrição mínima: uma fatura recorrente por assinatura, competência e versão de
@@ -452,27 +465,36 @@ Base canônica:
 /api/v1/control/finance
 ```
 
-Consultas implementadas na Fase 2:
+Consultas implementadas nas Fases 2 e 3:
 
 ```text
 GET /invoices
 GET /invoices/{invoice_id}
 GET /invoices/export
+GET /payments
+GET /payments/{payment_id}
+GET /collections/events
 ```
 
-Comandos implementados na Fase 2:
+Comandos implementados nas Fases 2 e 3:
 
 ```text
 POST /invoices/generate
 POST /invoices/{invoice_id}/issue
 POST /invoices/{invoice_id}/void
+POST /payments/manual
+POST /payments/{payment_id}/reconcile
+POST /payments/{payment_id}/refunds
+POST /collections/mark-overdue
+POST /collections/events
 ```
 
 O overview contratual permanece em
 `GET /api/v1/identity/platform/finance/overview` e a conta de cobrança em
-`PUT /api/v1/identity/platform/finance/billing-accounts/{tenant_id}`. Rotas de
-pagamento, cobrança, provider e projeções continuam previstas para as Fases 3 e
-4 e não existem como stubs que retornam sucesso.
+`PUT /api/v1/identity/platform/finance/billing-accounts/{tenant_id}`. O ingresso
+externo está em `POST /api/v1/control/finance/provider/webhooks/{provider}` e
+permanece fail-closed sem configuração. Rotas de projeção continuam previstas
+para a Fase 4 e não existem como stubs que retornam sucesso.
 
 Webhooks de provider ficam em rota própria, validam assinatura, persistem o
 payload mínimo sanitizado e entregam o comando ao domínio com idempotência.
@@ -652,10 +674,17 @@ fiscal configurado**.
 
 ### Fase 3 — recebimentos e cobrança
 
-- adicionar adapter de provider, webhooks, pagamentos e alocações;
-- conciliar resultados desconhecidos;
-- executar régua de cobrança;
-- implementar estornos, créditos e ações manuais auditadas.
+Estado em 29 de agosto de 2026: **concluída no escopo provider-neutral e
+persistido**.
+
+- [x] persistir pagamentos, alocações, estornos e eventos de cobrança;
+- [x] aceitar webhook HMAC somente com segredo e identidade técnica;
+- [x] garantir idempotência externa e rejeitar replays divergentes;
+- [x] conciliar resultados `UNKNOWN` antes de alocar valor;
+- [x] derivar recebimento parcial/total, saldo, pagamento e vencimento;
+- [x] registrar baixa manual, estorno e cobrança com AAL2, evidência e auditoria;
+- [ ] escolher e configurar provider comercial real e sua consulta automática;
+- [ ] configurar transporte e política real para mensagens da régua de cobrança.
 
 ### Fase 4 — saúde financeira
 

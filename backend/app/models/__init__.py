@@ -22,6 +22,8 @@ from app.models.platform import (
 from app.models.owner_finance import (
     SaasBillingAccount, SaasInvoice, SaasInvoiceLine,
     SaasInvoiceStatusEnum, SaasInvoiceLineTypeEnum,
+    SaasPayment, SaasPaymentAllocation, SaasRefund, SaasCollectionEvent,
+    SaasPaymentStatusEnum, SaasCollectionEventTypeEnum,
 )
 from app.models.channel import SalesChannel, SalesChannelTypeEnum
 from app.models.intelligence import (
@@ -250,4 +252,6 @@ __all__ = [
     "BiDailyFact", "BiProjectionState", "BiFactScopeEnum",
     "SaasBillingAccount",
     "SaasInvoice", "SaasInvoiceLine", "SaasInvoiceStatusEnum", "SaasInvoiceLineTypeEnum",
+    "SaasPayment", "SaasPaymentAllocation", "SaasRefund", "SaasCollectionEvent",
+    "SaasPaymentStatusEnum", "SaasCollectionEventTypeEnum",
 ]

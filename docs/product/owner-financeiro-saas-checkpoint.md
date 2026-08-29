@@ -1,6 +1,6 @@
 # Checkpoint de continuidade — Owner Financeiro SaaS
 
-Atualizado em: **28 de agosto de 2026**
+Atualizado em: **29 de agosto de 2026**
 
 Este é o documento de retomada operacional do módulo. Em uma nova conta, novo
 chat ou nova sessão, leia primeiro este checkpoint e depois
@@ -62,9 +62,35 @@ Entregue no código desta etapa:
 - listagem paginada, filtros server-side, detalhe e exportação CSV;
 - overview com total emitido, saldo aberto, rascunhos, abertas e anuladas;
 - cards clicáveis e tabela de fatos reais em `FinanceSaasView.tsx`;
-- recebimentos e inadimplência continuam explicitamente **Em implementação**;
+- recebimentos e inadimplência permaneceram explícitos como **Em implementação**
+  até a entrega dos fatos da Fase 3;
 - nenhuma rota ou consulta usa módulos de venda, caixa, pagamento, recebível,
   estoque ou BI do tenant.
+
+### Fase 3 — recebimentos e cobrança concluída no escopo provider-neutral
+
+Entregue no código desta etapa:
+
+- `SaasPayment`, `SaasPaymentAllocation`, `SaasRefund` e
+  `SaasCollectionEvent` platform-owned;
+- migration `054_saas_receipts_collections` com RLS forçada, constraints,
+  índices, referências e proteção de fatos imutáveis no PostgreSQL;
+- recebimento manual somente com AAL2, permissão, motivo, evidência externa,
+  versão da fatura e chave idempotente;
+- pagamento parcial e total, saldo e estado da fatura derivados no backend;
+- estorno como fato compensatório imutável, sem apagar a alocação original;
+- entrada de provider com HMAC, payload estrito e idempotência externa;
+- endpoint do provider responde `503` sem segredo e identidade técnica e `401`
+  para assinatura inválida; não existe confirmação simulada;
+- `UNKNOWN` não aloca valor e exige reconciliação explícita antes de virar
+  `SUCCEEDED` ou `FAILED`;
+- processo idempotente deriva `OVERDUE` de vencimento e saldo, registrando
+  auditoria, outbox e evento de cobrança;
+- ações de cobrança são append-only, idempotentes, sanitizadas e auditadas;
+- cards de recebido, estornado, saldo vencido e faturas vencidas consultam
+  agregados reais e levam ao ledger ou às faturas que formam o valor;
+- seleção de provider comercial, consulta automática do provider e régua de
+  mensagens externas permanecem gates de configuração, não mocks.
 
 ### Rotas disponíveis
 
@@ -78,11 +104,23 @@ GET  /api/v1/control/finance/invoices/{invoice_id}
 POST /api/v1/control/finance/invoices/generate
 POST /api/v1/control/finance/invoices/{invoice_id}/issue
 POST /api/v1/control/finance/invoices/{invoice_id}/void
+
+GET  /api/v1/control/finance/payments
+GET  /api/v1/control/finance/payments/{payment_id}
+POST /api/v1/control/finance/payments/manual
+POST /api/v1/control/finance/payments/{payment_id}/reconcile
+POST /api/v1/control/finance/payments/{payment_id}/refunds
+GET  /api/v1/control/finance/collections/events
+POST /api/v1/control/finance/collections/events
+POST /api/v1/control/finance/collections/mark-overdue
+POST /api/v1/control/finance/provider/webhooks/{provider}
 ```
 
-Os três comandos exigem `control.finance.collect`, sessão AAL2 e
-`Idempotency-Key`. Consulta exige `control.finance.read`; exportação exige
-`control.finance.export`.
+Os comandos humanos de emissão, baixa, reconciliação, estorno e cobrança exigem
+a permissão granular correspondente e sessão AAL2. Mutações repetíveis usam
+`Idempotency-Key`; consulta exige `control.finance.read` e exportação exige
+`control.finance.export`. O webhook usa HMAC e identidade técnica configurada,
+sem depender da sessão humana.
 
 ## Matriz de verdade da tela
 
@@ -92,16 +130,18 @@ Os três comandos exigem `control.finance.collect`, sessão AAL2 e
 | Assinaturas ativas/trial | `tenant_subscriptions.status` | sim | contratos filtrados |
 | Contas aptas | cadastro obrigatório completo em `saas_billing_accounts` | sim | contratos/contas |
 | Faturado SaaS | faturas emitidas, excluídos rascunhos e anuladas | sim | faturas abertas na F2 |
-| Saldo aberto | `balance_amount` das faturas `OPEN` | sim | faturas abertas |
+| Saldo aberto | `balance_amount` das faturas abertas, parciais e vencidas | sim | faturas |
 | Rascunhos | faturas `DRAFT` | sim | faturas filtradas |
 | Anuladas | faturas `VOID` | sim | faturas filtradas |
-| Recebimentos | agregado ainda inexistente | não | Em implementação |
-| Inadimplência | saldo vencido ainda não derivado | não | Em implementação |
+| Recebido SaaS | alocações confirmadas menos estornos | sim | ledger de pagamentos |
+| Estornado | fatos `SaasRefund` persistidos | sim | ledger de pagamentos |
+| Saldo vencido | saldo de faturas `OVERDUE` derivadas pelo backend | sim | faturas vencidas |
+| Faturas vencidas | contagem de faturas `OVERDUE` | sim | faturas vencidas |
 | ARR/churn/movimentos MRR | projeção ainda inexistente | não | Fase 4 |
 
-Na Fase 2, os estados `PARTIALLY_PAID`, `PAID`, `OVERDUE` e `UNCOLLECTIBLE`
-existem apenas no vocabulário do modelo. Nenhum comando atual os produz. Eles só
-serão ativados com fatos de recebimento, saldo e vencimento na Fase 3.
+Os estados `PARTIALLY_PAID`, `PAID` e `OVERDUE` agora são produzidos somente por
+pagamentos, estornos, saldo e data de corte persistidos. `UNCOLLECTIBLE` continua
+sem comando até existir uma política explícita; portanto não é inferido pela UI.
 
 ## Evidência desta etapa
 
@@ -119,6 +159,17 @@ serão ativados com fatos de recebimento, saldo e vencimento na Fase 3.
 - suíte backend completa: **130/130**, com API, testes SQL e testes HTTP usando o
   mesmo `DATABASE_URL`, `ENVIRONMENT=test`, `AUTH_MODE=disabled` e
   `TEST_BASE_URL`;
+
+Evidência local da Fase 3 em 29 de agosto de 2026:
+
+- frontend `npm test`: **66/66**;
+- frontend `npm run build`: concluído;
+- backend completo com API local e PostgreSQL: **136/136**;
+- conjunto focado da Fase 3, faturamento, permissões e fronteira: **19/19**;
+- banco isolado `dashem_finance_f3_validation` na revisão
+  `054_saas_receipts_collections`;
+- `alembic check`: **sem novas operações detectadas**;
+- CI remoto da Fase 3: **aguardando publicação desta revisão**.
 
 ## Recuperação do CI após a Fase 2
 
@@ -162,19 +213,14 @@ migration 050 com marcador Alembic 049. Nenhum `stamp`, drop ou correção forç
 foi executado. O banco isolado financeiro é a evidência canônica; a divergência
 do banco padrão deve ser reconciliada separadamente antes de receber migrations.
 
-## Próxima etapa: Financeiro F3 — recebimentos e cobrança
+## Gate externo posterior à Fase 3
 
-Ordem obrigatória:
-
-1. escolher/configurar provider real; não criar adapter falso;
-2. criar `SaasPayment` e `SaasPaymentAllocation` platform-owned;
-3. validar webhook assinado, sanitizar payload e garantir idempotência externa;
-4. conciliar `UNKNOWN` antes de qualquer retry;
-5. implementar recebimento parcial/total e saldo derivado;
-6. implementar estorno/crédito como fatos compensatórios imutáveis;
-7. criar job idempotente que deriva vencimento do saldo e da data;
-8. implementar eventos/régua de cobrança auditados;
-9. somente então liberar cards de recebido, vencido e inadimplência.
+O ledger e o ingresso provider-neutral estão prontos, mas nenhum provider
+comercial foi escolhido. Para ativar recebimento automático em produção é
+obrigatório escolher um provider real, cadastrar segredo HMAC e identidade
+técnica com autoridade de plataforma, documentar consulta/retry e validar
+webhooks reais. Até lá a rota permanece indisponível e a baixa manual exige
+evidência; não há adapter falso.
 
 Integração fiscal da própria Dashem permanece pendente até existir provider real
 selecionado. `fiscal_reference` e `provider_reference` são apenas campos de
@@ -194,7 +240,8 @@ integração; ausência de valor não equivale a documento emitido externamente.
 3. confirmar `alembic current` no alvo escolhido antes de editar;
 4. não usar o banco padrão divergente até sua reconciliação explícita;
 5. executar os três testes mínimos de regressão;
-6. iniciar pela Fase 3 na ordem acima, sem criar valores ou estados simulados;
+6. iniciar pela Fase 4 somente depois do CI verde da Fase 3, sem criar valores
+   ou estados simulados;
 7. atualizar este checkpoint com arquivos, migrations, testes e próximo passo;
 8. fazer commit e push somente após todas as evidências passarem;
 9. após o push, acompanhar o GitHub Actions até o estado final; não iniciar a
