@@ -1136,6 +1136,54 @@ export interface SaasPaymentListItem { payment: SaasPayment; tenant_name: string
 export interface SaasPaymentListResult { items: SaasPaymentListItem[]; total: number; page: number; size: number }
 export interface SaasPaymentDetail { payment: SaasPayment; tenant_name: string; allocations: SaasPaymentAllocation[]; refunds: SaasRefund[] }
 
+export type SaasMrrMovementType = 'BASELINE' | 'NONE' | 'NEW' | 'EXPANSION' | 'CONTRACTION' | 'CHURN'
+export interface SaasFinanceDailyMetric {
+  id: string
+  metric_date: string
+  formula_version: string
+  watermark: string
+  source_fingerprint: string
+  active_subscriptions: number
+  excluded_subscriptions: number
+  contracted_mrr: number
+  projected_arr: number
+  new_mrr?: number
+  expansion_mrr?: number
+  contraction_mrr?: number
+  churned_mrr?: number
+  net_new_mrr?: number
+  logo_churn_rate?: number
+  invoiced_total: number
+  received_total: number
+  refunded_total: number
+  open_balance: number
+  overdue_balance: number
+  collection_rate?: number
+  delinquency_rate?: number
+  invoice_count: number
+  paid_invoice_count: number
+  overdue_invoice_count: number
+  version: number
+  calculated_at: string
+}
+export interface SaasFinanceSubscriptionSnapshot {
+  id: string
+  tenant_id: string
+  subscription_version: number
+  subscription_status: SubscriptionStatus
+  contract_id?: string
+  contract_version?: number
+  included_in_mrr: boolean
+  exclusion_reason?: string
+  previous_mrr?: number
+  current_mrr: number
+  movement_type: SaasMrrMovementType
+  movement_amount?: number
+}
+export interface SaasFinanceProjectionSubscription { snapshot: SaasFinanceSubscriptionSnapshot; tenant_name: string }
+export interface SaasFinanceProjectionDetail { metric: SaasFinanceDailyMetric; subscriptions: SaasFinanceProjectionSubscription[] }
+export interface SaasFinanceProjectionList { items: SaasFinanceDailyMetric[]; total: number; page: number; size: number }
+
 export interface SaasBillingAccount {
   id: string
   tenant_id: string
@@ -1720,6 +1768,29 @@ export async function markSaasInvoicesOverdue(asOf: string): Promise<SaasInvoice
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ as_of: asOf }),
   })
   if (!res.ok) throw await apiError(res, 'Não foi possível derivar os vencimentos SaaS.')
+  return res.json()
+}
+
+export async function fetchLatestSaasFinanceProjection(): Promise<SaasFinanceProjectionDetail | null> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/control/finance/projections/latest`)
+  if (res.status === 404) return null
+  if (!res.ok) throw await apiError(res, 'Não foi possível carregar a projeção financeira SaaS.')
+  return res.json()
+}
+
+export async function fetchSaasFinanceProjections(): Promise<SaasFinanceProjectionList> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/control/finance/projections?page=1&size=366`)
+  if (!res.ok) throw await apiError(res, 'Não foi possível carregar o histórico financeiro SaaS.')
+  return res.json()
+}
+
+export async function rebuildSaasFinanceProjection(metricDate: string): Promise<SaasFinanceDailyMetric> {
+  const key = `saas-finance-projection-${metricDate}-${Date.now()}`
+  const res = await fetch(`${API_BASE_URL}/api/v1/control/finance/projections/rebuild`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': key },
+    body: JSON.stringify({ metric_date: metricDate }),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível reconstruir a projeção financeira SaaS.')
   return res.json()
 }
 

@@ -92,6 +92,32 @@ Entregue no código desta etapa:
 - seleção de provider comercial, consulta automática do provider e régua de
   mensagens externas permanecem gates de configuração, não mocks.
 
+### Fase 4 — saúde financeira concluída no escopo reconstruível
+
+Entregue no código desta etapa:
+
+- `SaasFinanceDailyMetric` e `SaasFinanceSubscriptionSnapshot` platform-owned;
+- migration `055_saas_finance_projections` com RLS forçada, unicidade diária,
+  índices e remoção em cascata somente dos detalhes derivados;
+- fórmula versionada `SAAS_FINANCE_V1`, watermark, fingerprint das fontes e
+  versão de reconstrução;
+- MRR somente para assinatura `ACTIVE`, valor positivo e contrato vigente
+  `ACTIVE`; toda exclusão fica persistida com motivo;
+- ARR como `MRR × 12` e movimentos de novo, expansão, contração, churn e net new
+  calculados contra o snapshot diário anterior;
+- primeiro snapshot tratado como baseline: movimentos sem período anterior e
+  taxas sem denominador ficam `null` e aparecem como **Sem baseline anterior**;
+- agregados de faturamento, recebimento, estorno, saldo aberto, saldo vencido,
+  taxa de recebimento e inadimplência derivados somente de fatos SaaS;
+- reconstrução idempotente restrita pela API à data corrente em
+  `America/Sao_Paulo`, sem inventar snapshots retroativos;
+- drill-down até assinatura e contrato com versões, valor anterior/atual,
+  movimento, inclusão ou motivo de exclusão;
+- cards clicáveis, histórico materializado e metadados de fórmula, watermark e
+  fingerprint em `FinanceSaasView.tsx`;
+- auditoria e outbox por tenant afetado, sem dependência de venda, caixa,
+  pagamento, recebível ou BI operacional do tenant.
+
 ### Rotas disponíveis
 
 ```text
@@ -114,6 +140,11 @@ GET  /api/v1/control/finance/collections/events
 POST /api/v1/control/finance/collections/events
 POST /api/v1/control/finance/collections/mark-overdue
 POST /api/v1/control/finance/provider/webhooks/{provider}
+
+GET  /api/v1/control/finance/projections/latest
+GET  /api/v1/control/finance/projections
+GET  /api/v1/control/finance/projections/{metric_date}
+POST /api/v1/control/finance/projections/rebuild
 ```
 
 Os comandos humanos de emissão, baixa, reconciliação, estorno e cobrança exigem
@@ -137,7 +168,9 @@ sem depender da sessão humana.
 | Estornado | fatos `SaasRefund` persistidos | sim | ledger de pagamentos |
 | Saldo vencido | saldo de faturas `OVERDUE` derivadas pelo backend | sim | faturas vencidas |
 | Faturas vencidas | contagem de faturas `OVERDUE` | sim | faturas vencidas |
-| ARR/churn/movimentos MRR | projeção ainda inexistente | não | Fase 4 |
+| MRR/ARR diário | `SaasFinanceDailyMetric`, assinatura e contrato versionados | sim, após materialização | assinaturas/contratos incluídos |
+| Novo/expansão/contração/churn | comparação com snapshot diário anterior | sim; `null` no primeiro baseline | assinaturas por movimento |
+| Taxas de recebimento/inadimplência | faturas, alocações e estornos SaaS | sim quando há denominador | pagamentos/faturas |
 
 Os estados `PARTIALLY_PAID`, `PAID` e `OVERDUE` agora são produzidos somente por
 pagamentos, estornos, saldo e data de corte persistidos. `UNCOLLECTIBLE` continua
@@ -169,7 +202,20 @@ Evidência local da Fase 3 em 29 de agosto de 2026:
 - banco isolado `dashem_finance_f3_validation` na revisão
   `054_saas_receipts_collections`;
 - `alembic check`: **sem novas operações detectadas**;
-- CI remoto da Fase 3: **aguardando publicação desta revisão**.
+- CI remoto da Fase 3: [Dashem Commerce OS CI #59](https://github.com/dashem-os/dashem-pos/actions/runs/33250416181),
+  **Success**, com **4/4 jobs aprovados**.
+
+Evidência local da Fase 4 em 29 de agosto de 2026:
+
+- frontend `npm test`: **66/66**;
+- frontend `npm run build`: concluído;
+- backend completo com API local e PostgreSQL: **139/139**;
+- conjunto focado das Fases 2, 3 e 4, permissões e fronteira: **22/22**;
+- migration `055_saas_finance_projections`: downgrade para
+  `054_saas_receipts_collections`, upgrade para head e `alembic check`
+  concluídos;
+- `alembic check`: **sem novas operações detectadas**;
+- CI remoto da Fase 4: **aguardando publicação desta revisão**.
 
 ## Recuperação do CI após a Fase 2
 
@@ -226,12 +272,14 @@ Integração fiscal da própria Dashem permanece pendente até existir provider 
 selecionado. `fiscal_reference` e `provider_reference` são apenas campos de
 integração; ausência de valor não equivale a documento emitido externamente.
 
-## Fase 4 — projeções
+## Estado após a Fase 4
 
-- MRR/ARR histórico e movimentos de novo/expansão/contração/churn;
-- projeção reconstruível com fórmula versionada, watermark e atraso;
-- drill-down integral até assinatura, fatura e recebimento;
-- validação por conjuntos financeiros fechados.
+As Fases 0 a 4 do Financeiro SaaS estão concluídas no escopo interno
+persistido. Não há nova fase funcional pendente neste recorte. Permanecem gates
+externos independentes: escolher/configurar provider comercial e fiscal real,
+definir transporte/política real da régua de cobrança e reconciliar o banco
+padrão local divergente antes de usá-lo como alvo de migrations. Nenhum desses
+gates pode ser apresentado como ativo sem a respectiva evidência externa.
 
 ## Protocolo para a próxima sessão
 
@@ -240,9 +288,11 @@ integração; ausência de valor não equivale a documento emitido externamente.
 3. confirmar `alembic current` no alvo escolhido antes de editar;
 4. não usar o banco padrão divergente até sua reconciliação explícita;
 5. executar os três testes mínimos de regressão;
-6. iniciar pela Fase 4 somente depois do CI verde da Fase 3, sem criar valores
-   ou estados simulados;
+6. confirmar que o CI final da Fase 4 está verde; se não estiver, recuperar o
+   run antes de iniciar qualquer novo incremento;
 7. atualizar este checkpoint com arquivos, migrations, testes e próximo passo;
 8. fazer commit e push somente após todas as evidências passarem;
 9. após o push, acompanhar o GitHub Actions até o estado final; não iniciar a
-   sprint seguinte enquanto qualquer job estiver vermelho ou ainda em execução.
+   sprint seguinte enquanto qualquer job estiver vermelho ou ainda em execução;
+10. novos incrementos dependem de decisão explícita sobre os gates externos ou
+    de um novo escopo funcional, não de números ou providers simulados.

@@ -1189,13 +1189,13 @@ transporte temporário não é representado como infraestrutura pronta.
 
 ### S18.1 — Owner Financeiro SaaS e minimização operacional
 
-Estado em 29 de agosto de 2026: Fases 0 a 3 concluídas no escopo persistido.
+Estado em 29 de agosto de 2026: Fases 0 a 4 concluídas no escopo persistido.
 Além da fronteira, contratos, limites e faturamento SaaS, o Control possui agora
 pagamentos, alocações, estornos, vencimentos e eventos de cobrança reais, com
 RLS, AAL2, idempotência, auditoria/outbox e webhook HMAC fail-closed. Provider
 comercial e transporte externo ainda não foram escolhidos e permanecem
-desativados, sem adapter ou sucesso simulado. O próximo incremento é a Fase 4,
-com projeções recorrentes reconstruíveis.
+desativados, sem adapter ou sucesso simulado. A Fase 4 materializa projeções
+diárias reconstruíveis com fórmula, watermark, fingerprint e drill-down.
 
 Objetivo: administrar a receita recorrente e a cobrança da própria Dashem sem
 usar o Control como janela para a operação comercial ou financeira dos tenants.
@@ -1221,11 +1221,13 @@ Gate:
 - nenhum cálculo depende de `Sale`, `CashSession`, pagamentos do PDV ou BI do
   tenant.
 
-Estado: **Fases 0 a 3 concluídas; Fase 4 pendente**. Contratos, contas de
+Estado: **Fases 0 a 4 concluídas no escopo interno**. Contratos, contas de
 cobrança, faturas, recebimentos, estornos, saldo vencido e ações de cobrança são
-fatos platform-owned rastreáveis. Projeções históricas de MRR/ARR/churn ainda
-permanecem planejadas e só serão exibidas quando existir a projeção
-reconstruível. A especificação funcional e técnica está em
+fatos platform-owned rastreáveis. MRR, ARR, novo, expansão, contração, churn,
+taxas e históricos são projeções reconstruíveis `SAAS_FINANCE_V1`; o primeiro
+dia permanece baseline explícito, sem movimento zero fictício. Restam somente
+gates externos de provider comercial, fiscal e transporte de cobrança, que não
+são simulados. A especificação funcional e técnica está em
 [`owner-financeiro-saas.md`](owner-financeiro-saas.md).
 
 ### S19 — Capability Profiles e Module Contributions

@@ -4,6 +4,7 @@ import uuid
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
@@ -21,6 +22,7 @@ from app.models.owner_finance import (
     SaasInvoice, SaasInvoiceLine, SaasInvoiceStatusEnum,
     SaasCollectionEvent, SaasCollectionEventTypeEnum, SaasPayment,
     SaasPaymentAllocation, SaasPaymentStatusEnum, SaasRefund,
+    SaasFinanceDailyMetric, SaasFinanceSubscriptionSnapshot,
 )
 from app.services import owner_finance_service
 
@@ -32,6 +34,7 @@ FINANCE_COLLECT = "control.finance.collect"
 FINANCE_RECONCILE = "control.finance.reconcile"
 FINANCE_REFUND = "control.finance.refund"
 FINANCE_EXPORT = "control.finance.export"
+FINANCE_CONFIGURE = "control.finance.configure"
 
 
 class InvoiceGenerateRequest(BaseModel):
@@ -161,6 +164,28 @@ class CollectionEventRequest(BaseModel):
     recipient_masked: Optional[str] = PydanticField(default=None, max_length=160)
     detail: str = PydanticField(min_length=4, max_length=1000)
     evidence_reference: Optional[str] = PydanticField(default=None, max_length=240)
+
+
+class ProjectionRebuildRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    metric_date: date
+
+
+class ProjectionListResult(BaseModel):
+    items: list[SaasFinanceDailyMetric]
+    total: int
+    page: int
+    size: int
+
+
+class ProjectionSubscriptionItem(BaseModel):
+    snapshot: SaasFinanceSubscriptionSnapshot
+    tenant_name: str
+
+
+class ProjectionDetail(BaseModel):
+    metric: SaasFinanceDailyMetric
+    subscriptions: list[ProjectionSubscriptionItem]
 
 
 def _invoice_query(
@@ -520,6 +545,92 @@ def list_collection_events(
     return list(session.exec(
         query.order_by(SaasCollectionEvent.occurred_at.desc()).limit(500)
     ).all())
+
+
+@router.post("/projections/rebuild", response_model=SaasFinanceDailyMetric)
+def rebuild_projection(
+    data: ProjectionRebuildRequest,
+    idempotency_key: str = Header(alias="Idempotency-Key", min_length=8, max_length=160),
+    principal: AuthPrincipal = Depends(get_current_principal),
+    session: Session = Depends(get_session),
+):
+    actor = require_platform_permission(session, principal, FINANCE_CONFIGURE, require_aal2=True)
+    assert actor is not None
+    today = datetime.now(ZoneInfo("America/Sao_Paulo")).date()
+    if data.metric_date != today:
+        raise HTTPException(
+            status_code=422,
+            detail="A projeção diária só aceita a data corrente; datas passadas não são retroinventadas.",
+        )
+    return owner_finance_service.rebuild_finance_projection(
+        session, metric_date=data.metric_date, actor_id=actor.id,
+        idempotency_key=idempotency_key,
+    )
+
+
+@router.get("/projections/latest", response_model=ProjectionDetail)
+def latest_projection(
+    principal: AuthPrincipal = Depends(get_current_principal),
+    session: Session = Depends(get_session),
+):
+    require_platform_permission(session, principal, FINANCE_READ)
+    metric = session.exec(select(SaasFinanceDailyMetric).order_by(
+        SaasFinanceDailyMetric.metric_date.desc()
+    )).first()
+    if metric is None:
+        raise HTTPException(status_code=404, detail="Nenhuma projeção financeira foi materializada.")
+    return _projection_detail(metric, session)
+
+
+@router.get("/projections", response_model=ProjectionListResult)
+def list_projections(
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=31, ge=1, le=366),
+    principal: AuthPrincipal = Depends(get_current_principal),
+    session: Session = Depends(get_session),
+):
+    require_platform_permission(session, principal, FINANCE_READ)
+    query = select(SaasFinanceDailyMetric)
+    total = int(session.exec(select(func.count()).select_from(query.subquery())).one())
+    items = list(session.exec(query.order_by(
+        SaasFinanceDailyMetric.metric_date.desc()
+    ).offset((page - 1) * size).limit(size)).all())
+    return ProjectionListResult(items=items, total=total, page=page, size=size)
+
+
+@router.get("/projections/{metric_date}", response_model=ProjectionDetail)
+def get_projection(
+    metric_date: date,
+    principal: AuthPrincipal = Depends(get_current_principal),
+    session: Session = Depends(get_session),
+):
+    require_platform_permission(session, principal, FINANCE_READ)
+    metric = session.exec(select(SaasFinanceDailyMetric).where(
+        SaasFinanceDailyMetric.metric_date == metric_date
+    )).first()
+    if metric is None:
+        raise HTTPException(status_code=404, detail="Projeção financeira não encontrada.")
+    return _projection_detail(metric, session)
+
+
+def _projection_detail(metric: SaasFinanceDailyMetric, session: Session) -> ProjectionDetail:
+    snapshots = list(session.exec(select(SaasFinanceSubscriptionSnapshot).where(
+        SaasFinanceSubscriptionSnapshot.metric_id == metric.id
+    ).order_by(SaasFinanceSubscriptionSnapshot.movement_type,
+               SaasFinanceSubscriptionSnapshot.current_mrr.desc())).all())
+    tenant_ids = {item.tenant_id for item in snapshots}
+    tenants = {
+        item.id: item.name for item in session.exec(
+            select(Tenant).where(Tenant.id.in_(tenant_ids))
+        ).all()
+    } if tenant_ids else {}
+    return ProjectionDetail(
+        metric=metric,
+        subscriptions=[ProjectionSubscriptionItem(
+            snapshot=item,
+            tenant_name=tenants.get(item.tenant_id, "Tenant removido"),
+        ) for item in snapshots],
+    )
 
 
 @provider_router.post("/webhooks/{provider}", response_model=SaasPayment)

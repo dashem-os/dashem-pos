@@ -1,16 +1,17 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
-  ArrowRight, FilePlus2, Loader2, RefreshCw, ShieldAlert,
-  Download, Eye, X, CalendarClock, RotateCcw,
+  ArrowRight, FilePlus2, Loader2, RefreshCw,
+  Download, Eye, X, CalendarClock, RotateCcw, BarChart3,
 } from 'lucide-react'
 
 import {
   fetchPlatformFinanceOverview, fetchSaasInvoice, fetchSaasInvoiceExport,
   fetchSaasInvoices, generateSaasInvoices, issueSaasInvoice, voidSaasInvoice,
   fetchSaasPayments, markSaasInvoicesOverdue, recordManualSaasPayment, refundSaasPayment,
+  fetchLatestSaasFinanceProjection, fetchSaasFinanceProjections, rebuildSaasFinanceProjection,
   PlatformFinanceOverview, PlatformFinanceSubscription, SaasInvoice,
   SaasInvoiceDetail, SaasInvoiceListItem, SaasInvoiceStatus, SaasPaymentListItem,
-  SubscriptionStatus,
+  SaasFinanceProjectionDetail, SaasFinanceDailyMetric, SaasMrrMovementType, SubscriptionStatus,
 } from '../../services/api'
 
 type ContractFilter = 'ALL' | 'ACTIVE' | 'TRIAL' | 'PENDING' | 'BILLING_READY'
@@ -34,6 +35,9 @@ export function FinanceSaasView({ onTenant }: { onTenant: (tenantId: string) => 
   const [invoiceTotal, setInvoiceTotal] = useState(0)
   const [payments, setPayments] = useState<SaasPaymentListItem[]>([])
   const [paymentTotal, setPaymentTotal] = useState(0)
+  const [projection, setProjection] = useState<SaasFinanceProjectionDetail | null>(null)
+  const [projectionHistory, setProjectionHistory] = useState<SaasFinanceDailyMetric[]>([])
+  const [projectionFilter, setProjectionFilter] = useState<'ALL' | 'INCLUDED' | SaasMrrMovementType>('ALL')
   const [contractFilter, setContractFilter] = useState<ContractFilter>('ALL')
   const [invoiceFilter, setInvoiceFilter] = useState<InvoiceFilter>('ALL')
   const [competence, setCompetence] = useState(competenceNow)
@@ -55,9 +59,15 @@ export function FinanceSaasView({ onTenant }: { onTenant: (tenantId: string) => 
     const result = await fetchSaasPayments()
     setPayments(result.items); setPaymentTotal(result.total)
   }
+  const loadProjections = async () => {
+    const [latest, history] = await Promise.all([
+      fetchLatestSaasFinanceProjection(), fetchSaasFinanceProjections(),
+    ])
+    setProjection(latest); setProjectionHistory(history.items)
+  }
   const refresh = async () => {
     setLoading(true); setError('')
-    try { await Promise.all([loadOverview(), loadInvoices(), loadPayments()]) }
+    try { await Promise.all([loadOverview(), loadInvoices(), loadPayments(), loadProjections()]) }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Não foi possível carregar o financeiro SaaS.') }
     finally { setLoading(false) }
   }
@@ -105,6 +115,15 @@ export function FinanceSaasView({ onTenant }: { onTenant: (tenantId: string) => 
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Não foi possível abrir o estorno.') }
     finally { setWorking(false) }
   }
+  const rebuildProjection = async () => {
+    setWorking(true); setError(''); setNotice('')
+    try {
+      await rebuildSaasFinanceProjection(new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' }))
+      setNotice('Projeção financeira reconstruída exclusivamente a partir dos fatos SaaS persistidos.')
+      await loadProjections()
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Não foi possível reconstruir a projeção.') }
+    finally { setWorking(false) }
+  }
 
   const invoiceCards: Array<{ label: string; value: string | number; filter: InvoiceFilter; hint: string }> = [
     { label: 'Faturado SaaS', value: money(overview?.invoiced_total ?? 0), filter: 'OPEN', hint: 'Faturas emitidas e não anuladas' },
@@ -144,7 +163,7 @@ export function FinanceSaasView({ onTenant }: { onTenant: (tenantId: string) => 
       <SectionTitle title="Base contratual" detail="Assinaturas que alimentam a geração das faturas." />
       <section className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{contractCards.map(card => <MetricCard key={card.label} {...card} active={contractFilter === card.filter} onClick={() => setContractFilter(card.filter)} />)}</section>
       <SubscriptionTable rows={contractRows} filter={contractFilter} onAll={() => setContractFilter('ALL')} onTenant={onTenant} />
-      <section className="mt-7"><SectionTitle title="Próxima capacidade financeira" detail="Indicadores recorrentes só serão exibidos após a projeção reconstruível da Fase 4." /><div className="mt-4"><PlannedCard icon={ShieldAlert} label="MRR, ARR e churn históricos" detail="Previsto para a Fase 4 com watermark, versão de fórmula e drill-down até os fatos SaaS." /></div></section>
+      <ProjectionSection projection={projection} history={projectionHistory} filter={projectionFilter} onFilter={setProjectionFilter} onRebuild={rebuildProjection} onTenant={onTenant} working={working} onInvoices={() => { setInvoiceFilter('OVERDUE'); document.getElementById('saas-invoices')?.scrollIntoView({ behavior: 'smooth' }) }} onPayments={() => document.getElementById('saas-payments')?.scrollIntoView({ behavior: 'smooth' })} />
     </>}
     {detail && <InvoiceDetailModal detail={detail} onClose={() => setDetail(null)} />}
     {command && <InvoiceCommandModal command={command} onClose={() => setCommand(null)} onDone={async () => { setCommand(null); await Promise.all([loadOverview(), loadInvoices()]) }} />}
@@ -170,7 +189,27 @@ function PaymentTable({ rows, total, onRefund }: { rows: SaasPaymentListItem[]; 
 function SubscriptionTable({ rows, filter, onAll, onTenant }: { rows: PlatformFinanceSubscription[]; filter: ContractFilter; onAll: () => void; onTenant: (tenantId: string) => void }) {
   return <section className="mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"><div className="flex items-center justify-between border-b border-slate-100 p-5"><div><h3 className="font-black">Contratos SaaS</h3><p className="text-sm text-slate-500">{filter === 'ALL' ? 'Todos os registros contratuais' : `Filtro ativo: ${filter}`}</p></div>{filter !== 'ALL' && <button onClick={onAll} className="text-sm font-black text-[#E12120]">Ver todos</button>}</div><div className="overflow-x-auto"><table className="w-full min-w-[900px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-400"><tr><th className="px-5 py-3">Cliente</th><th className="px-5 py-3">Plano</th><th className="px-5 py-3">Assinatura</th><th className="px-5 py-3">Mensalidade</th><th className="px-5 py-3">Conta de cobrança</th><th className="px-5 py-3">Próximo vencimento contratual</th></tr></thead><tbody className="divide-y divide-slate-100">{rows.map(item => <tr key={item.tenant_id}><td className="px-5 py-4"><button onClick={() => onTenant(item.tenant_id)} className="flex items-center gap-2 text-left font-black hover:text-[#E12120]">{item.tenant_name}<ArrowRight className="h-4 w-4" /></button><p className="mt-1 text-xs text-slate-400">Contrato v{item.contract_version ?? '—'}</p></td><td className="px-5 py-4">{item.plan_name || 'Sem plano'}</td><td className="px-5 py-4">{subscriptionLabel[item.subscription_status]}</td><td className="px-5 py-4 font-bold">{money(item.monthly_amount)}</td><td className="px-5 py-4"><span className={`rounded-full px-2.5 py-1 text-xs font-black ${item.billing_account_ready ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-800'}`}>{item.billing_account_ready ? 'APTA' : 'INCOMPLETA'}</span><p className="mt-2 text-xs text-slate-500">{item.billing_contact_email || 'Contato não configurado'}</p></td><td className="px-5 py-4">{localDate(item.next_due_date)}</td></tr>)}{rows.length === 0 && <tr><td colSpan={6} className="px-5 py-12 text-center text-slate-500">Nenhum contrato neste filtro.</td></tr>}</tbody></table></div></section>
 }
-function PlannedCard({ icon: Icon, label, detail }: { icon: typeof ShieldAlert; label: string; detail: string }) { return <article className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-5"><div className="flex items-start justify-between"><Icon className="h-5 w-5 text-slate-500" /><span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-black text-amber-800">Em implementação</span></div><h4 className="mt-4 font-black">{label}</h4><p className="mt-2 text-sm text-slate-500">{detail}</p></article> }
+
+const movementLabel: Record<SaasMrrMovementType, string> = { BASELINE: 'Baseline inicial', NONE: 'Sem movimento', NEW: 'Novo MRR', EXPANSION: 'Expansão', CONTRACTION: 'Contração', CHURN: 'Churn' }
+const rate = (value?: number) => value == null ? 'Sem denominador' : Number(value).toLocaleString('pt-BR', { style: 'percent', minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const baselineMoney = (value?: number) => value == null ? 'Sem baseline anterior' : money(value)
+
+function ProjectionSection({ projection, history, filter, onFilter, onRebuild, onTenant, working, onInvoices, onPayments }: { projection: SaasFinanceProjectionDetail | null; history: SaasFinanceDailyMetric[]; filter: 'ALL' | 'INCLUDED' | SaasMrrMovementType; onFilter: (value: 'ALL' | 'INCLUDED' | SaasMrrMovementType) => void; onRebuild: () => Promise<void>; onTenant: (tenantId: string) => void; working: boolean; onInvoices: () => void; onPayments: () => void }) {
+  if (!projection) return <section className="mt-7"><SectionTitle title="Projeção financeira reconstruível" detail="Nenhum indicador é exibido antes da primeira materialização sobre fatos SaaS reais." /><article className="mt-4 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6"><div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"><div><div className="flex items-center gap-2"><BarChart3 className="h-5 w-5 text-slate-500" /><span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-black text-amber-800">Ainda não materializada</span></div><h4 className="mt-4 font-black">MRR, ARR e movimentos não calculados</h4><p className="mt-2 text-sm text-slate-500">Reconstrua a projeção para registrar fórmula, watermark, fingerprint e drill-down. Nenhum zero provisório será criado.</p></div><button onClick={() => void onRebuild()} disabled={working} className="h-11 rounded-xl bg-[#E12120] px-5 text-sm font-black text-white disabled:opacity-50">{working ? 'Reconstruindo…' : 'Reconstruir projeção de hoje'}</button></div></article></section>
+  const metric = projection.metric
+  const movementCards: Array<{ label: string; value: string; filter: 'ALL' | 'INCLUDED' | SaasMrrMovementType; hint: string }> = [
+    { label: 'MRR projetado', value: money(metric.contracted_mrr), filter: 'INCLUDED', hint: 'Assinaturas ativas com contrato rastreável' },
+    { label: 'ARR projetado', value: money(metric.projected_arr), filter: 'INCLUDED', hint: 'MRR × 12; não é caixa recebido' },
+    { label: 'Novo MRR', value: baselineMoney(metric.new_mrr), filter: 'NEW', hint: 'Entradas desde o baseline anterior' },
+    { label: 'Expansão', value: baselineMoney(metric.expansion_mrr), filter: 'EXPANSION', hint: 'Aumentos recorrentes comprovados' },
+    { label: 'Contração', value: baselineMoney(metric.contraction_mrr), filter: 'CONTRACTION', hint: 'Reduções sem encerramento' },
+    { label: 'Churned MRR', value: baselineMoney(metric.churned_mrr), filter: 'CHURN', hint: 'MRR encerrado desde o baseline' },
+    { label: 'Net New MRR', value: baselineMoney(metric.net_new_mrr), filter: 'ALL', hint: 'Novo + expansão − contração − churn' },
+    { label: 'Logo churn', value: metric.logo_churn_rate == null ? 'Sem baseline anterior' : rate(metric.logo_churn_rate), filter: 'CHURN', hint: 'Logos encerrados ÷ logos no início' },
+  ]
+  const rows = projection.subscriptions.filter(item => filter === 'ALL' ? true : filter === 'INCLUDED' ? item.snapshot.included_in_mrr : item.snapshot.movement_type === filter)
+  return <section className="mt-7"><div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><SectionTitle title="Projeção financeira reconstruível" detail={`Competência ${localDate(metric.metric_date)} · fórmula ${metric.formula_version}`} /><button onClick={() => void onRebuild()} disabled={working} className="h-11 rounded-xl border border-slate-300 bg-white px-4 text-sm font-black disabled:opacity-50">{working ? 'Reconstruindo…' : 'Reconstruir fatos de hoje'}</button></div><div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{movementCards.map(card => <MetricCard key={card.label} label={card.label} value={card.value} hint={card.hint} active={filter === card.filter} onClick={() => { onFilter(card.filter); document.getElementById('projection-details')?.scrollIntoView({ behavior: 'smooth' }) }} />)}</div><div className="mt-4 grid gap-4 sm:grid-cols-2"><MetricCard label="Taxa de recebimento" value={rate(metric.collection_rate)} hint="Abrir recebimentos que sustentam a taxa" active={false} onClick={onPayments} /><MetricCard label="Taxa de inadimplência" value={rate(metric.delinquency_rate)} hint="Abrir faturas vencidas que sustentam a taxa" active={false} onClick={onInvoices} /></div><div className="mt-5 grid gap-3 rounded-2xl border border-slate-200 bg-white p-5 text-sm sm:grid-cols-2 xl:grid-cols-4"><p><b>Watermark:</b><br />{new Date(metric.watermark).toLocaleString('pt-BR')}</p><p><b>Calculada em:</b><br />{new Date(metric.calculated_at).toLocaleString('pt-BR')}</p><p><b>Versão da projeção:</b><br />{metric.version}</p><p><b>Fingerprint:</b><br /><span className="font-mono text-xs">{metric.source_fingerprint.slice(0, 16)}…</span></p></div><section id="projection-details" className="mt-5 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"><div className="flex items-center justify-between border-b p-5"><div><h4 className="font-black">Drill-down de assinaturas</h4><p className="text-sm text-slate-500">{rows.length} fonte(s) no filtro · {metric.excluded_subscriptions} excluída(s) pela fórmula</p></div>{filter !== 'ALL' && <button onClick={() => onFilter('ALL')} className="text-sm font-black text-[#E12120]">Ver todas</button>}</div><div className="overflow-x-auto"><table className="w-full min-w-[900px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-400"><tr><th className="px-5 py-3">Cliente</th><th className="px-5 py-3">Assinatura / contrato</th><th className="px-5 py-3">MRR anterior</th><th className="px-5 py-3">MRR atual</th><th className="px-5 py-3">Movimento</th><th className="px-5 py-3">Inclusão</th></tr></thead><tbody className="divide-y">{rows.map(({ snapshot, tenant_name }) => <tr key={snapshot.id}><td className="px-5 py-4"><button onClick={() => onTenant(snapshot.tenant_id)} className="flex items-center gap-1 font-black hover:text-[#E12120]">{tenant_name}<ArrowRight className="h-4 w-4" /></button></td><td className="px-5 py-4">{subscriptionLabel[snapshot.subscription_status]} v{snapshot.subscription_version}<p className="text-xs text-slate-500">Contrato {snapshot.contract_version ? `v${snapshot.contract_version}` : 'ausente'}</p></td><td className="px-5 py-4">{snapshot.previous_mrr == null ? 'Baseline inicial' : money(snapshot.previous_mrr)}</td><td className="px-5 py-4 font-black">{money(snapshot.current_mrr)}</td><td className="px-5 py-4">{movementLabel[snapshot.movement_type]}<p className="text-xs text-slate-500">{snapshot.movement_amount == null ? 'Sem comparação anterior' : money(snapshot.movement_amount)}</p></td><td className="px-5 py-4"><span className={`rounded-full px-2.5 py-1 text-xs font-black ${snapshot.included_in_mrr ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>{snapshot.included_in_mrr ? 'INCLUÍDA' : snapshot.exclusion_reason}</span></td></tr>)}{rows.length === 0 && <tr><td colSpan={6} className="p-10 text-center text-slate-500">Nenhuma assinatura neste filtro.</td></tr>}</tbody></table></div></section><section className="mt-5 overflow-hidden rounded-2xl border bg-white"><div className="border-b p-5"><h4 className="font-black">Histórico materializado</h4><p className="text-sm text-slate-500">Snapshots diários persistidos; datas ausentes não são retroinventadas.</p></div><div className="overflow-x-auto"><table className="w-full min-w-[720px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-400"><tr><th className="px-5 py-3">Data</th><th className="px-5 py-3">MRR</th><th className="px-5 py-3">ARR</th><th className="px-5 py-3">Net New</th><th className="px-5 py-3">Watermark</th><th className="px-5 py-3">Fórmula</th></tr></thead><tbody className="divide-y">{history.map(item => <tr key={item.id}><td className="px-5 py-4 font-black">{localDate(item.metric_date)}</td><td className="px-5 py-4">{money(item.contracted_mrr)}</td><td className="px-5 py-4">{money(item.projected_arr)}</td><td className="px-5 py-4">{baselineMoney(item.net_new_mrr)}</td><td className="px-5 py-4">{new Date(item.watermark).toLocaleString('pt-BR')}</td><td className="px-5 py-4 font-mono text-xs">{item.formula_version}</td></tr>)}</tbody></table></div></section></section>
+}
 
 function InvoiceDetailModal({ detail, onClose }: { detail: SaasInvoiceDetail; onClose: () => void }) {
   const { invoice } = detail

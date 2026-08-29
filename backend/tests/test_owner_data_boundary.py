@@ -73,6 +73,10 @@ def test_owner_receipt_and_collection_routes_are_platform_scoped_and_visible():
     assert "/api/v1/control/finance/collections/mark-overdue" in paths
     assert "/api/v1/control/finance/collections/events" in paths
     assert "/api/v1/control/finance/provider/webhooks/{provider}" in paths
+    assert "/api/v1/control/finance/projections" in paths
+    assert "/api/v1/control/finance/projections/latest" in paths
+    assert "/api/v1/control/finance/projections/rebuild" in paths
+    assert "/api/v1/control/finance/projections/{metric_date}" in paths
 
 
 def test_owner_finance_has_no_manual_delinquency_source():

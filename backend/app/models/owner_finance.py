@@ -47,6 +47,15 @@ class SaasCollectionEventTypeEnum(str, Enum):
     MANUAL_NOTE = "MANUAL_NOTE"
 
 
+class SaasMrrMovementTypeEnum(str, Enum):
+    BASELINE = "BASELINE"
+    NONE = "NONE"
+    NEW = "NEW"
+    EXPANSION = "EXPANSION"
+    CONTRACTION = "CONTRACTION"
+    CHURN = "CHURN"
+
+
 class SaasBillingAccount(SQLModel, table=True):
     """Platform-owned billing identity for a Dashem SaaS customer.
 
@@ -282,3 +291,81 @@ class SaasCollectionEvent(SQLModel, table=True):
     actor_id: uuid.UUID = Field(foreign_key="users.id", index=True)
     occurred_at: datetime = Field(default_factory=datetime.utcnow, index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class SaasFinanceDailyMetric(SQLModel, table=True):
+    """Rebuildable daily projection sourced only from platform SaaS facts."""
+
+    __tablename__ = "saas_finance_daily_metrics"
+    __table_args__ = (
+        UniqueConstraint("metric_date", name="uq_saas_finance_daily_metrics_date"),
+        UniqueConstraint(
+            "rebuild_idempotency_key",
+            name="uq_saas_finance_daily_metrics_rebuild_idempotency",
+        ),
+        CheckConstraint("version >= 1", name="ck_saas_finance_daily_metrics_version_positive"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    metric_date: date = Field(index=True)
+    formula_version: str = Field(max_length=40, index=True)
+    watermark: datetime = Field(index=True)
+    source_fingerprint: str = Field(max_length=64)
+    rebuild_idempotency_key: str = Field(max_length=160)
+    rebuild_request_hash: str = Field(max_length=64)
+    active_subscriptions: int = Field(default=0, ge=0)
+    excluded_subscriptions: int = Field(default=0, ge=0)
+    contracted_mrr: Decimal = Field(sa_column=Column(Numeric(14, 2), nullable=False))
+    projected_arr: Decimal = Field(sa_column=Column(Numeric(14, 2), nullable=False))
+    new_mrr: Optional[Decimal] = Field(default=None, sa_column=Column(Numeric(14, 2), nullable=True))
+    expansion_mrr: Optional[Decimal] = Field(default=None, sa_column=Column(Numeric(14, 2), nullable=True))
+    contraction_mrr: Optional[Decimal] = Field(default=None, sa_column=Column(Numeric(14, 2), nullable=True))
+    churned_mrr: Optional[Decimal] = Field(default=None, sa_column=Column(Numeric(14, 2), nullable=True))
+    net_new_mrr: Optional[Decimal] = Field(default=None, sa_column=Column(Numeric(14, 2), nullable=True))
+    logo_churn_rate: Optional[Decimal] = Field(default=None, sa_column=Column(Numeric(9, 6), nullable=True))
+    invoiced_total: Decimal = Field(sa_column=Column(Numeric(14, 2), nullable=False))
+    received_total: Decimal = Field(sa_column=Column(Numeric(14, 2), nullable=False))
+    refunded_total: Decimal = Field(sa_column=Column(Numeric(14, 2), nullable=False))
+    open_balance: Decimal = Field(sa_column=Column(Numeric(14, 2), nullable=False))
+    overdue_balance: Decimal = Field(sa_column=Column(Numeric(14, 2), nullable=False))
+    collection_rate: Optional[Decimal] = Field(default=None, sa_column=Column(Numeric(9, 6), nullable=True))
+    delinquency_rate: Optional[Decimal] = Field(default=None, sa_column=Column(Numeric(9, 6), nullable=True))
+    invoice_count: int = Field(default=0, ge=0)
+    paid_invoice_count: int = Field(default=0, ge=0)
+    overdue_invoice_count: int = Field(default=0, ge=0)
+    version: int = Field(default=1, ge=1)
+    calculated_by: uuid.UUID = Field(foreign_key="users.id", index=True)
+    calculated_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class SaasFinanceSubscriptionSnapshot(SQLModel, table=True):
+    """Tenant-level drill-down captured with a daily financial projection."""
+
+    __tablename__ = "saas_finance_subscription_snapshots"
+    __table_args__ = (
+        UniqueConstraint(
+            "metric_id", "tenant_id",
+            name="uq_saas_finance_subscription_snapshot_metric_tenant",
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    metric_id: uuid.UUID = Field(
+        foreign_key="saas_finance_daily_metrics.id", ondelete="CASCADE", index=True
+    )
+    tenant_id: uuid.UUID = Field(foreign_key="tenants.id", index=True)
+    subscription_version: int = Field(ge=1)
+    subscription_status: str = Field(max_length=32, index=True)
+    contract_id: Optional[uuid.UUID] = Field(default=None, foreign_key="tenant_contracts.id")
+    contract_version: Optional[int] = None
+    included_in_mrr: bool = Field(default=False, index=True)
+    exclusion_reason: Optional[str] = Field(default=None, max_length=80)
+    previous_mrr: Optional[Decimal] = Field(default=None, sa_column=Column(Numeric(14, 2), nullable=True))
+    current_mrr: Decimal = Field(sa_column=Column(Numeric(14, 2), nullable=False))
+    movement_type: SaasMrrMovementTypeEnum = Field(
+        sa_column=Column(EnumString(SaasMrrMovementTypeEnum), nullable=False, index=True)
+    )
+    movement_amount: Optional[Decimal] = Field(default=None, sa_column=Column(Numeric(14, 2), nullable=True))
+    captured_at: datetime = Field(default_factory=datetime.utcnow)

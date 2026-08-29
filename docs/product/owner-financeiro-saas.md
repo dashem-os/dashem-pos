@@ -1,8 +1,8 @@
 # Owner Financeiro SaaS — especificação funcional e técnica
 
-Status: **especificação canônica; Fases 0, 1 e 2 concluídas no escopo persistido**
+Status: **especificação canônica; Fases 0 a 4 concluídas no escopo persistido**
 
-Data: 28 de agosto de 2026
+Data: 29 de agosto de 2026
 
 Superfície: **Dashem Control** (`/owner`)
 
@@ -130,10 +130,11 @@ não confundir esta superfície com o financeiro do estabelecimento.
 
 Estado implementado em 29 de agosto de 2026: a entrada lateral **Financeiro
 SaaS** consulta assinaturas, contas de cobrança, faturas, pagamentos, alocações,
-estornos e vencimentos reais. A tela apresenta valores contratuais, faturados,
-recebidos, estornados e vencidos derivados no backend e com drill-down. ARR,
-churn e movimentos históricos de MRR continuam previstos para a Fase 4 e não
-recebem zero fictício.
+estornos, vencimentos e projeções diárias reais. A tela apresenta valores
+contratuais, faturados, recebidos, estornados e vencidos derivados no backend,
+além de MRR, ARR, movimentos de MRR e churn materializados com drill-down.
+O primeiro snapshot é um baseline: movimentos que dependem de período anterior
+aparecem como **Sem baseline anterior**, nunca como zero inventado.
 
 A página inicial apresenta, para um período explícito:
 
@@ -465,7 +466,7 @@ Base canônica:
 /api/v1/control/finance
 ```
 
-Consultas implementadas nas Fases 2 e 3:
+Consultas implementadas nas Fases 2, 3 e 4:
 
 ```text
 GET /invoices
@@ -474,9 +475,12 @@ GET /invoices/export
 GET /payments
 GET /payments/{payment_id}
 GET /collections/events
+GET /projections/latest
+GET /projections
+GET /projections/{metric_date}
 ```
 
-Comandos implementados nas Fases 2 e 3:
+Comandos implementados nas Fases 2, 3 e 4:
 
 ```text
 POST /invoices/generate
@@ -487,14 +491,16 @@ POST /payments/{payment_id}/reconcile
 POST /payments/{payment_id}/refunds
 POST /collections/mark-overdue
 POST /collections/events
+POST /projections/rebuild
 ```
 
 O overview contratual permanece em
 `GET /api/v1/identity/platform/finance/overview` e a conta de cobrança em
 `PUT /api/v1/identity/platform/finance/billing-accounts/{tenant_id}`. O ingresso
 externo está em `POST /api/v1/control/finance/provider/webhooks/{provider}` e
-permanece fail-closed sem configuração. Rotas de projeção continuam previstas
-para a Fase 4 e não existem como stubs que retornam sucesso.
+permanece fail-closed sem configuração. A reconstrução de projeção aceita apenas
+a data corrente em `America/Sao_Paulo`: datas históricas ausentes não são
+retrofabricadas como se tivessem sido calculadas naquele dia.
 
 Webhooks de provider ficam em rota própria, validam assinatura, persistem o
 payload mínimo sanitizado e entregam o comando ao domínio com idempotência.
@@ -688,10 +694,20 @@ persistido**.
 
 ### Fase 4 — saúde financeira
 
-- materializar MRR, ARR, movimentos de MRR, churn e inadimplência;
-- fornecer drill-down até os fatos SaaS;
-- validar fórmulas contra conjuntos fechados de faturas e assinaturas;
-- apresentar atraso, watermark e versão da projeção.
+Estado em 29 de agosto de 2026: **concluída no escopo persistido e reconstruível**.
+
+- [x] materializar diariamente MRR, ARR, movimentos de novo, expansão,
+  contração e churn, faturamento, recebimento, estorno e inadimplência;
+- [x] usar a fórmula versionada `SAAS_FINANCE_V1`, watermark e fingerprint das
+  fontes para tornar o cálculo explicável e repetível;
+- [x] tratar o primeiro snapshot como baseline, mantendo movimentos e taxas sem
+  denominador como `null`, sem zero fictício;
+- [x] fornecer drill-down até assinatura e contrato, com versões, inclusão ou
+  motivo de exclusão e valores anterior/atual;
+- [x] reconstruir idempotentemente o dia corrente e preservar histórico diário;
+- [x] proteger métricas e detalhes com RLS `platform-only`, auditoria e outbox;
+- [x] validar fórmulas em conjuntos fechados e impedir dependências de fatos
+  operacionais dos tenants.
 
 ## 9. Critérios de aceite
 

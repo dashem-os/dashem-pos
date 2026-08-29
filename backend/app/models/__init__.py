@@ -24,6 +24,8 @@ from app.models.owner_finance import (
     SaasInvoiceStatusEnum, SaasInvoiceLineTypeEnum,
     SaasPayment, SaasPaymentAllocation, SaasRefund, SaasCollectionEvent,
     SaasPaymentStatusEnum, SaasCollectionEventTypeEnum,
+    SaasFinanceDailyMetric, SaasFinanceSubscriptionSnapshot,
+    SaasMrrMovementTypeEnum,
 )
 from app.models.channel import SalesChannel, SalesChannelTypeEnum
 from app.models.intelligence import (
@@ -254,4 +256,6 @@ __all__ = [
     "SaasInvoice", "SaasInvoiceLine", "SaasInvoiceStatusEnum", "SaasInvoiceLineTypeEnum",
     "SaasPayment", "SaasPaymentAllocation", "SaasRefund", "SaasCollectionEvent",
     "SaasPaymentStatusEnum", "SaasCollectionEventTypeEnum",
+    "SaasFinanceDailyMetric", "SaasFinanceSubscriptionSnapshot",
+    "SaasMrrMovementTypeEnum",
 ]

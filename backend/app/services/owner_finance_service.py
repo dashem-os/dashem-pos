@@ -6,7 +6,7 @@ from decimal import Decimal
 from typing import Optional
 
 from fastapi import HTTPException
-from sqlalchemy import update as sa_update
+from sqlalchemy import delete, update as sa_update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
@@ -18,6 +18,8 @@ from app.models.owner_finance import (
     SaasInvoiceLineTypeEnum, SaasInvoiceStatusEnum,
     SaasCollectionEvent, SaasCollectionEventTypeEnum, SaasPayment,
     SaasPaymentAllocation, SaasPaymentStatusEnum, SaasRefund,
+    SaasFinanceDailyMetric, SaasFinanceSubscriptionSnapshot,
+    SaasMrrMovementTypeEnum,
 )
 from app.models.platform import TenantContract
 from app.models.reliability import AuditEvent
@@ -961,3 +963,303 @@ def record_collection_event(
     session.commit()
     session.refresh(event)
     return event
+
+
+SAAS_FINANCE_FORMULA_VERSION = "SAAS_FINANCE_V1"
+RATE = Decimal("0.000001")
+
+
+def _money_sum(values) -> Decimal:
+    return sum((Decimal(value) for value in values), Decimal("0.00")).quantize(MONEY)
+
+
+def _enum_value(value) -> str:
+    return getattr(value, "value", str(value))
+
+
+def _rate(numerator: Decimal, denominator: Decimal) -> Optional[Decimal]:
+    if denominator <= 0:
+        return None
+    return (numerator / denominator).quantize(RATE)
+
+
+def _movement(
+    previous: Optional[Decimal], current: Decimal,
+) -> tuple[SaasMrrMovementTypeEnum, Optional[Decimal]]:
+    if previous is None:
+        return SaasMrrMovementTypeEnum.BASELINE, None
+    if previous == 0 and current > 0:
+        return SaasMrrMovementTypeEnum.NEW, current
+    if previous > 0 and current > previous:
+        return SaasMrrMovementTypeEnum.EXPANSION, (current - previous).quantize(MONEY)
+    if previous > current > 0:
+        return SaasMrrMovementTypeEnum.CONTRACTION, (previous - current).quantize(MONEY)
+    if previous > 0 and current == 0:
+        return SaasMrrMovementTypeEnum.CHURN, previous
+    return SaasMrrMovementTypeEnum.NONE, Decimal("0.00")
+
+
+def rebuild_finance_projection(
+    session: Session,
+    *,
+    metric_date: date,
+    actor_id: uuid.UUID,
+    idempotency_key: str,
+) -> SaasFinanceDailyMetric:
+    """Materialize one honest daily view from Control-owned SaaS facts only."""
+    subscriptions = list(session.exec(
+        select(TenantSubscription).order_by(TenantSubscription.tenant_id).with_for_update()
+    ).all())
+    if not subscriptions:
+        raise HTTPException(status_code=409, detail="Não há assinaturas SaaS para projetar.")
+    contracts: dict[uuid.UUID, TenantContract] = {}
+    for contract in session.exec(select(TenantContract).order_by(
+        TenantContract.tenant_id, TenantContract.version.desc()
+    )).all():
+        contracts.setdefault(contract.tenant_id, contract)
+    invoices = list(session.exec(select(SaasInvoice)).all())
+    payments = list(session.exec(select(SaasPayment)).all())
+    allocations = list(session.exec(select(SaasPaymentAllocation)).all())
+    refunds = list(session.exec(select(SaasRefund)).all())
+
+    source_rows = {
+        "subscriptions": [
+            {
+                "tenant_id": str(item.tenant_id), "version": item.version,
+                "status": _enum_value(item.status), "monthly_amount": str(item.monthly_amount),
+                "updated_at": item.updated_at.isoformat(),
+                "contract_version": contracts[item.tenant_id].version if item.tenant_id in contracts else None,
+                "contract_status": contracts[item.tenant_id].status if item.tenant_id in contracts else None,
+            }
+            for item in subscriptions
+        ],
+        "invoices": [
+            {"id": str(item.id), "status": _enum_value(item.status), "total": str(item.total_amount),
+             "balance": str(item.balance_amount), "due_date": item.due_date.isoformat(),
+             "version": item.version, "updated_at": item.updated_at.isoformat()}
+            for item in sorted(invoices, key=lambda value: str(value.id))
+        ],
+        "payments": [
+            {"id": str(item.id), "status": _enum_value(item.status), "amount": str(item.amount),
+             "version": item.version, "updated_at": item.updated_at.isoformat()}
+            for item in sorted(payments, key=lambda value: str(value.id))
+        ],
+        "allocations": [
+            {"id": str(item.id), "payment_id": str(item.payment_id),
+             "invoice_id": str(item.invoice_id), "amount": str(item.amount),
+             "allocated_at": item.allocated_at.isoformat()}
+            for item in sorted(allocations, key=lambda value: str(value.id))
+        ],
+        "refunds": [
+            {"id": str(item.id), "payment_id": str(item.payment_id),
+             "invoice_id": str(item.invoice_id), "amount": str(item.amount),
+             "refunded_at": item.refunded_at.isoformat()}
+            for item in sorted(refunds, key=lambda value: str(value.id))
+        ],
+    }
+    source_fingerprint = reliability_service.compute_request_hash(source_rows)
+    request_hash = reliability_service.compute_request_hash({
+        "metric_date": metric_date.isoformat(),
+        "formula_version": SAAS_FINANCE_FORMULA_VERSION,
+        "source_fingerprint": source_fingerprint,
+    })
+    same_key = session.exec(select(SaasFinanceDailyMetric).where(
+        SaasFinanceDailyMetric.rebuild_idempotency_key == idempotency_key
+    )).first()
+    if same_key is not None:
+        if same_key.rebuild_request_hash != request_hash:
+            raise HTTPException(status_code=409, detail="Chave de reconstrução reutilizada após mudança dos fatos.")
+        return same_key
+
+    previous_metric = session.exec(select(SaasFinanceDailyMetric).where(
+        SaasFinanceDailyMetric.metric_date < metric_date
+    ).order_by(SaasFinanceDailyMetric.metric_date.desc())).first()
+    previous_by_tenant: dict[uuid.UUID, Decimal] = {}
+    if previous_metric is not None:
+        previous_by_tenant = {
+            item.tenant_id: Decimal(item.current_mrr)
+            for item in session.exec(select(SaasFinanceSubscriptionSnapshot).where(
+                SaasFinanceSubscriptionSnapshot.metric_id == previous_metric.id
+            )).all()
+        }
+
+    captured_at = datetime.utcnow()
+    timestamps = [item.updated_at for item in subscriptions]
+    timestamps.extend(item.created_at for item in contracts.values())
+    timestamps.extend(item.updated_at for item in invoices)
+    timestamps.extend(item.updated_at for item in payments)
+    timestamps.extend(item.allocated_at for item in allocations)
+    timestamps.extend(item.refunded_at for item in refunds)
+    watermark = max(timestamps) if timestamps else captured_at
+
+    detail_values: list[dict] = []
+    for subscription in subscriptions:
+        contract = contracts.get(subscription.tenant_id)
+        included = bool(
+            subscription.status == SubscriptionStatusEnum.ACTIVE
+            and Decimal(subscription.monthly_amount) > 0
+            and contract is not None and contract.status == "ACTIVE"
+        )
+        exclusion_reason = None
+        if not included:
+            if subscription.status != SubscriptionStatusEnum.ACTIVE:
+                exclusion_reason = f"SUBSCRIPTION_{_enum_value(subscription.status)}"
+            elif Decimal(subscription.monthly_amount) <= 0:
+                exclusion_reason = "NON_POSITIVE_MRR"
+            else:
+                exclusion_reason = "ACTIVE_CONTRACT_MISSING"
+        current = Decimal(subscription.monthly_amount).quantize(MONEY) if included else Decimal("0.00")
+        previous = (
+            previous_by_tenant.get(subscription.tenant_id, Decimal("0.00"))
+            if previous_metric is not None else None
+        )
+        movement_type, movement_amount = _movement(previous, current)
+        detail_values.append({
+            "tenant_id": subscription.tenant_id,
+            "subscription_version": subscription.version,
+            "subscription_status": _enum_value(subscription.status),
+            "contract_id": contract.id if contract else None,
+            "contract_version": contract.version if contract else None,
+            "included_in_mrr": included,
+            "exclusion_reason": exclusion_reason,
+            "previous_mrr": previous,
+            "current_mrr": current,
+            "movement_type": movement_type,
+            "movement_amount": movement_amount,
+        })
+
+    has_baseline = previous_metric is not None
+    movement_total = lambda kind: _money_sum(
+        item["movement_amount"] or Decimal("0.00")
+        for item in detail_values if item["movement_type"] == kind
+    )
+    new_mrr = movement_total(SaasMrrMovementTypeEnum.NEW) if has_baseline else None
+    expansion_mrr = movement_total(SaasMrrMovementTypeEnum.EXPANSION) if has_baseline else None
+    contraction_mrr = movement_total(SaasMrrMovementTypeEnum.CONTRACTION) if has_baseline else None
+    churned_mrr = movement_total(SaasMrrMovementTypeEnum.CHURN) if has_baseline else None
+    net_new_mrr = (
+        (new_mrr + expansion_mrr - contraction_mrr - churned_mrr).quantize(MONEY)
+        if has_baseline else None
+    )
+    previous_active = sum(value > 0 for value in previous_by_tenant.values())
+    churned_logos = sum(
+        item["movement_type"] == SaasMrrMovementTypeEnum.CHURN for item in detail_values
+    )
+
+    issued_invoices = [
+        item for item in invoices
+        if item.status not in {SaasInvoiceStatusEnum.DRAFT, SaasInvoiceStatusEnum.VOID}
+    ]
+    open_states = {
+        SaasInvoiceStatusEnum.OPEN, SaasInvoiceStatusEnum.PARTIALLY_PAID,
+        SaasInvoiceStatusEnum.OVERDUE,
+    }
+    due_invoice_ids = {
+        item.id for item in issued_invoices if item.due_date < metric_date
+    }
+    due_total = _money_sum(
+        item.total_amount for item in issued_invoices if item.id in due_invoice_ids
+    )
+    due_received = (
+        _money_sum(item.amount for item in allocations if item.invoice_id in due_invoice_ids)
+        - _money_sum(item.amount for item in refunds if item.invoice_id in due_invoice_ids)
+    ).quantize(MONEY)
+    invoiced_total = _money_sum(item.total_amount for item in issued_invoices)
+    received_total = (
+        _money_sum(item.amount for item in allocations)
+        - _money_sum(item.amount for item in refunds)
+    ).quantize(MONEY)
+    refunded_total = _money_sum(item.amount for item in refunds)
+    open_balance = _money_sum(
+        item.balance_amount for item in invoices if item.status in open_states
+    )
+    overdue_balance = _money_sum(
+        item.balance_amount for item in invoices if item.status == SaasInvoiceStatusEnum.OVERDUE
+    )
+
+    metric = session.exec(select(SaasFinanceDailyMetric).where(
+        SaasFinanceDailyMetric.metric_date == metric_date
+    ).with_for_update()).first()
+    if metric is None:
+        metric = SaasFinanceDailyMetric(
+            metric_date=metric_date,
+            formula_version=SAAS_FINANCE_FORMULA_VERSION,
+            watermark=watermark,
+            source_fingerprint=source_fingerprint,
+            rebuild_idempotency_key=idempotency_key,
+            rebuild_request_hash=request_hash,
+            contracted_mrr=Decimal("0.00"), projected_arr=Decimal("0.00"),
+            invoiced_total=Decimal("0.00"), received_total=Decimal("0.00"),
+            refunded_total=Decimal("0.00"), open_balance=Decimal("0.00"),
+            overdue_balance=Decimal("0.00"), calculated_by=actor_id,
+        )
+        session.add(metric)
+        session.flush()
+    else:
+        session.exec(delete(SaasFinanceSubscriptionSnapshot).where(
+            SaasFinanceSubscriptionSnapshot.metric_id == metric.id
+        ))
+        metric.version += 1
+    contracted_mrr = _money_sum(item["current_mrr"] for item in detail_values)
+    metric.formula_version = SAAS_FINANCE_FORMULA_VERSION
+    metric.watermark = watermark
+    metric.source_fingerprint = source_fingerprint
+    metric.rebuild_idempotency_key = idempotency_key
+    metric.rebuild_request_hash = request_hash
+    metric.active_subscriptions = sum(item["included_in_mrr"] for item in detail_values)
+    metric.excluded_subscriptions = len(detail_values) - metric.active_subscriptions
+    metric.contracted_mrr = contracted_mrr
+    metric.projected_arr = (contracted_mrr * 12).quantize(MONEY)
+    metric.new_mrr = new_mrr
+    metric.expansion_mrr = expansion_mrr
+    metric.contraction_mrr = contraction_mrr
+    metric.churned_mrr = churned_mrr
+    metric.net_new_mrr = net_new_mrr
+    metric.logo_churn_rate = _rate(Decimal(churned_logos), Decimal(previous_active)) if has_baseline else None
+    metric.invoiced_total = invoiced_total
+    metric.received_total = received_total
+    metric.refunded_total = refunded_total
+    metric.open_balance = open_balance
+    metric.overdue_balance = overdue_balance
+    metric.collection_rate = _rate(due_received, due_total)
+    metric.delinquency_rate = _rate(overdue_balance, due_total)
+    metric.invoice_count = len(issued_invoices)
+    metric.paid_invoice_count = sum(item.status == SaasInvoiceStatusEnum.PAID for item in invoices)
+    metric.overdue_invoice_count = sum(item.status == SaasInvoiceStatusEnum.OVERDUE for item in invoices)
+    metric.calculated_by = actor_id
+    metric.calculated_at = captured_at
+    metric.updated_at = captured_at
+    session.add(metric)
+    session.flush()
+
+    for values in detail_values:
+        snapshot = SaasFinanceSubscriptionSnapshot(
+            metric_id=metric.id, captured_at=captured_at, **values
+        )
+        session.add(snapshot)
+        audit, _ = reliability_service.write_audit_and_outbox(
+            session,
+            tenant_id=values["tenant_id"], store_id=None, actor_id=actor_id,
+            action="saas.finance.projection.rebuilt",
+            target=f"saas_finance_metric:{metric.id}",
+            audit_payload={
+                "metric_id": str(metric.id), "metric_date": metric.metric_date.isoformat(),
+                "formula_version": metric.formula_version,
+                "watermark": metric.watermark.isoformat(),
+                "source_fingerprint": metric.source_fingerprint,
+                "subscription_version": values["subscription_version"],
+                "contract_version": values["contract_version"],
+                "movement_type": values["movement_type"].value,
+            },
+            aggregate_type="saas_finance_metric", aggregate_id=str(metric.id),
+            event_type="saas.finance.projection.rebuilt",
+            outbox_payload={
+                "metric_id": str(metric.id), "metric_date": metric.metric_date.isoformat(),
+                "formula_version": metric.formula_version,
+            },
+        )
+        audit.platform_scope = True
+        session.add(audit)
+    session.commit()
+    session.refresh(metric)
+    return metric
