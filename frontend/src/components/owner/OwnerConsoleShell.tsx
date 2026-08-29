@@ -88,11 +88,11 @@ export function OwnerConsoleShell({ me }: { me: AuthMe }) {
       {error && <div className="mx-auto mt-5 max-w-[1500px] px-5 sm:px-8"><p className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">{error}<button onClick={load} className="ml-3 underline">Tentar novamente</button></p></div>}
       {view === 'overview' && <OverviewView overview={overview} health={health} onOrganizations={nextFilter => navigate('organizations', nextFilter)} onHealth={() => navigate('health')} onTenant={openTenant} />}
       {view === 'organizations' && <OrganizationsView overview={overview} filter={filter} onFilter={setFilter} onTenant={openTenant} />}
-      {view === 'plans' && <ServicePlansView />}
-      {view === 'finance' && <FinanceSaasView onTenant={openTenantById} />}
+      {view === 'plans' && <ServicePlansView onOrganizations={() => navigate('organizations')} />}
+      {view === 'finance' && <FinanceSaasView onTenant={openTenantById} onOrganizations={() => navigate('organizations')} onPlans={() => navigate('plans')} />}
       {view === 'operations' && <ControlOperationsView />}
       {view === 'health' && <SystemHealthView health={health} onRefresh={load} onOrganizations={() => navigate('organizations')} />}
-      {view === 'tenant' && selected && <TenantWorkspace tenant={selected} onBack={() => navigate('organizations')} onManagePlans={() => navigate('plans')} onChanged={load} />}
+      {view === 'tenant' && selected && <TenantWorkspace tenant={selected} onBack={() => navigate('organizations')} onManagePlans={() => navigate('plans')} onFinance={() => navigate('finance')} onChanged={load} />}
     </main>
     {createOpen && <CreateTenantPanel onClose={() => setCreateOpen(false)} onManagePlans={() => { setCreateOpen(false); navigate('plans') }} onCreated={async () => { setCreateOpen(false); await load(); navigate('organizations') }} />}
   </div>
