@@ -11,7 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from app.models.identity import (
-    ServicePlan, SubscriptionStatusEnum, Tenant, TenantSubscription,
+    ServicePlan, ServicePlanRevision, SubscriptionStatusEnum, Tenant, TenantSubscription,
 )
 from app.models.owner_finance import (
     SaasBillingAccount, SaasInvoice, SaasInvoiceLine,
@@ -23,7 +23,7 @@ from app.models.owner_finance import (
 )
 from app.models.platform import TenantContract
 from app.models.reliability import AuditEvent
-from app.services import reliability_service
+from app.services import commercial_pricing, reliability_service
 
 
 def invoice_period(competence: date) -> tuple[date, date]:
@@ -108,6 +108,10 @@ def generate_invoices(
             TenantContract.status == "ACTIVE",
         ).order_by(TenantContract.version.desc())).first()
         plan = session.get(ServicePlan, subscription.plan_id) if subscription.plan_id else None
+        plan_revision = (
+            session.get(ServicePlanRevision, contract.plan_revision_id)
+            if contract is not None and contract.plan_revision_id else None
+        )
         missing: list[str] = []
         if tenant is None:
             missing.append("tenant")
@@ -125,14 +129,17 @@ def generate_invoices(
             })
             continue
         assert tenant is not None and account is not None and contract is not None and plan is not None
+        plan_snapshot = plan_revision or plan
 
-        amount = Decimal(subscription.monthly_amount).quantize(Decimal("0.01"))
+        gross_amount, discount_amount, net_amount = commercial_pricing.subscription_amounts(
+            subscription, effective_on=period_start
+        )
         invoice_id = uuid.uuid4()
         generation_key = hashlib.sha256(
             f"{idempotency_key}:{subscription.tenant_id}:{period_start.isoformat()}:1".encode("utf-8")
         ).hexdigest()
         public_number = f"DSH-{period_start:%Y%m}-{invoice_id.hex[:12].upper()}"
-        description = f"Assinatura {plan.name} — competência {period_start:%m/%Y}"
+        description = f"Assinatura {plan_snapshot.name} — competência {period_start:%m/%Y}"
         due_date = date(period_start.year, period_start.month, min(max(subscription.billing_day, 1), 28))
         invoice = SaasInvoice(
             id=invoice_id,
@@ -146,17 +153,17 @@ def generate_invoices(
             period_end=period_end,
             due_date=due_date,
             currency=account.currency,
-            subtotal=amount,
-            discount_amount=Decimal("0.00"),
+            subtotal=gross_amount,
+            discount_amount=discount_amount,
             tax_amount=Decimal("0.00"),
-            total_amount=amount,
-            balance_amount=amount,
+            total_amount=net_amount,
+            balance_amount=net_amount,
             status=SaasInvoiceStatusEnum.DRAFT,
             generation_key=generation_key,
             generation_revision=1,
             contract_version=contract.version,
-            plan_code_snapshot=plan.code,
-            plan_name_snapshot=plan.name,
+            plan_code_snapshot=plan_snapshot.code,
+            plan_name_snapshot=plan_snapshot.name,
             description_snapshot=description,
             billing_legal_name_snapshot=account.legal_name,
             billing_tax_id_snapshot=account.tax_id,
@@ -168,8 +175,8 @@ def generate_invoices(
             line_type=SaasInvoiceLineTypeEnum.PLAN,
             description=description,
             quantity=Decimal("1.0000"),
-            unit_amount=amount,
-            total_amount=amount,
+            unit_amount=gross_amount,
+            total_amount=gross_amount,
             contract_version=contract.version,
         )
         try:
@@ -177,6 +184,19 @@ def generate_invoices(
                 session.add(invoice)
                 session.flush()
                 session.add(line)
+                if discount_amount > 0:
+                    discount_description = (
+                        f"Desconto {subscription.discount_reason_code or 'CONTRATUAL'}"
+                    )
+                    session.add(SaasInvoiceLine(
+                        invoice_id=invoice.id,
+                        line_type=SaasInvoiceLineTypeEnum.DISCOUNT,
+                        description=discount_description,
+                        quantity=Decimal("1.0000"),
+                        unit_amount=-discount_amount,
+                        total_amount=-discount_amount,
+                        contract_version=contract.version,
+                    ))
                 session.flush()
         except IntegrityError:
             duplicate = session.exec(select(SaasInvoice).where(
@@ -201,6 +221,8 @@ def generate_invoices(
                 "period_start": invoice.period_start.isoformat(),
                 "period_end": invoice.period_end.isoformat(),
                 "contract_version": invoice.contract_version,
+                "gross_amount": str(invoice.subtotal),
+                "discount_amount": str(invoice.discount_amount),
                 "total_amount": str(invoice.total_amount),
                 "currency": invoice.currency,
             },
@@ -244,7 +266,11 @@ def issue_invoice(
                 SaasInvoice.status == SaasInvoiceStatusEnum.DRAFT,
                 SaasInvoice.version == expected_version,
             ).values(
-                status=SaasInvoiceStatusEnum.OPEN.value,
+                status=(
+                    SaasInvoiceStatusEnum.NO_PAYMENT_DUE.value
+                    if Decimal(invoice.total_amount) == Decimal("0.00")
+                    else SaasInvoiceStatusEnum.OPEN.value
+                ),
                 issued_at=now,
                 issued_by=actor_id,
                 issue_idempotency_key=idempotency_key,
@@ -310,14 +336,17 @@ def void_invoice(
         if invoice.void_request_hash != request_hash:
             raise HTTPException(status_code=409, detail="Chave de idempotência reutilizada com outro conteúdo.")
         return invoice
-    if invoice.status != SaasInvoiceStatusEnum.OPEN:
-        raise HTTPException(status_code=409, detail="Somente uma fatura aberta pode ser anulada.")
+    if invoice.status not in {SaasInvoiceStatusEnum.OPEN, SaasInvoiceStatusEnum.NO_PAYMENT_DUE}:
+        raise HTTPException(status_code=409, detail="Somente uma fatura emitida sem baixa pode ser anulada.")
     now = datetime.utcnow()
     try:
         result = session.exec(
             sa_update(SaasInvoice).where(
                 SaasInvoice.id == invoice_id,
-                SaasInvoice.status == SaasInvoiceStatusEnum.OPEN,
+                SaasInvoice.status.in_([
+                    SaasInvoiceStatusEnum.OPEN,
+                    SaasInvoiceStatusEnum.NO_PAYMENT_DUE,
+                ]),
                 SaasInvoice.version == expected_version,
             ).values(
                 status=SaasInvoiceStatusEnum.VOID.value,
@@ -355,7 +384,11 @@ def void_invoice(
         payload={
             "invoice_id": str(invoice.id),
             "public_number": invoice.public_number,
-            "previous_status": SaasInvoiceStatusEnum.OPEN.value,
+            "previous_status": (
+                SaasInvoiceStatusEnum.NO_PAYMENT_DUE.value
+                if Decimal(invoice.total_amount) == Decimal("0.00")
+                else SaasInvoiceStatusEnum.OPEN.value
+            ),
             "current_status": invoice.status.value,
             "total_amount": str(invoice.total_amount),
             "reason": reason.strip(),
@@ -965,7 +998,7 @@ def record_collection_event(
     return event
 
 
-SAAS_FINANCE_FORMULA_VERSION = "SAAS_FINANCE_V1"
+SAAS_FINANCE_FORMULA_VERSION = "SAAS_FINANCE_V2"
 RATE = Decimal("0.000001")
 
 
@@ -1027,6 +1060,11 @@ def rebuild_finance_projection(
             {
                 "tenant_id": str(item.tenant_id), "version": item.version,
                 "status": _enum_value(item.status), "monthly_amount": str(item.monthly_amount),
+                "gross_monthly_amount": str(item.gross_monthly_amount),
+                "discount_type": item.discount_type,
+                "discount_value": str(item.discount_value),
+                "discount_starts_on": item.discount_starts_on.isoformat() if item.discount_starts_on else None,
+                "discount_ends_on": item.discount_ends_on.isoformat() if item.discount_ends_on else None,
                 "updated_at": item.updated_at.isoformat(),
                 "contract_version": contracts[item.tenant_id].version if item.tenant_id in contracts else None,
                 "contract_status": contracts[item.tenant_id].status if item.tenant_id in contracts else None,
@@ -1095,20 +1133,23 @@ def rebuild_finance_projection(
     detail_values: list[dict] = []
     for subscription in subscriptions:
         contract = contracts.get(subscription.tenant_id)
+        gross, discount, net = commercial_pricing.subscription_amounts(
+            subscription, effective_on=metric_date
+        )
         included = bool(
             subscription.status == SubscriptionStatusEnum.ACTIVE
-            and Decimal(subscription.monthly_amount) > 0
+            and gross > 0
             and contract is not None and contract.status == "ACTIVE"
         )
         exclusion_reason = None
         if not included:
             if subscription.status != SubscriptionStatusEnum.ACTIVE:
                 exclusion_reason = f"SUBSCRIPTION_{_enum_value(subscription.status)}"
-            elif Decimal(subscription.monthly_amount) <= 0:
-                exclusion_reason = "NON_POSITIVE_MRR"
+            elif gross <= 0:
+                exclusion_reason = "NON_POSITIVE_GROSS_MRR"
             else:
                 exclusion_reason = "ACTIVE_CONTRACT_MISSING"
-        current = Decimal(subscription.monthly_amount).quantize(MONEY) if included else Decimal("0.00")
+        current = net if included else Decimal("0.00")
         previous = (
             previous_by_tenant.get(subscription.tenant_id, Decimal("0.00"))
             if previous_metric is not None else None
@@ -1124,6 +1165,8 @@ def rebuild_finance_projection(
             "exclusion_reason": exclusion_reason,
             "previous_mrr": previous,
             "current_mrr": current,
+            "gross_mrr": gross if included else Decimal("0.00"),
+            "discount_mrr": discount if included else Decimal("0.00"),
             "movement_type": movement_type,
             "movement_amount": movement_amount,
         })
@@ -1188,7 +1231,8 @@ def rebuild_finance_projection(
             source_fingerprint=source_fingerprint,
             rebuild_idempotency_key=idempotency_key,
             rebuild_request_hash=request_hash,
-            contracted_mrr=Decimal("0.00"), projected_arr=Decimal("0.00"),
+            contracted_mrr=Decimal("0.00"), gross_mrr=Decimal("0.00"),
+            discount_mrr=Decimal("0.00"), projected_arr=Decimal("0.00"),
             invoiced_total=Decimal("0.00"), received_total=Decimal("0.00"),
             refunded_total=Decimal("0.00"), open_balance=Decimal("0.00"),
             overdue_balance=Decimal("0.00"), calculated_by=actor_id,
@@ -1201,6 +1245,8 @@ def rebuild_finance_projection(
         ))
         metric.version += 1
     contracted_mrr = _money_sum(item["current_mrr"] for item in detail_values)
+    gross_mrr = _money_sum(item["gross_mrr"] for item in detail_values)
+    discount_mrr = _money_sum(item["discount_mrr"] for item in detail_values)
     metric.formula_version = SAAS_FINANCE_FORMULA_VERSION
     metric.watermark = watermark
     metric.source_fingerprint = source_fingerprint
@@ -1209,6 +1255,8 @@ def rebuild_finance_projection(
     metric.active_subscriptions = sum(item["included_in_mrr"] for item in detail_values)
     metric.excluded_subscriptions = len(detail_values) - metric.active_subscriptions
     metric.contracted_mrr = contracted_mrr
+    metric.gross_mrr = gross_mrr
+    metric.discount_mrr = discount_mrr
     metric.projected_arr = (contracted_mrr * 12).quantize(MONEY)
     metric.new_mrr = new_mrr
     metric.expansion_mrr = expansion_mrr

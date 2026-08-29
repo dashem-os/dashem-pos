@@ -262,6 +262,9 @@ class TenantContract(SQLModel, table=True):
     version: int = Field(default=1)
     status: str = Field(default="DRAFT", index=True, max_length=32)
     plan_id: Optional[uuid.UUID] = Field(default=None, foreign_key="service_plans.id", index=True)
+    plan_revision_id: Optional[uuid.UUID] = Field(
+        default=None, foreign_key="service_plan_revisions.id", index=True
+    )
     limits: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON, nullable=False, default=dict))
     capability_keys: list[str] = Field(default_factory=list, sa_column=Column(JSON, nullable=False, default=list))
     starts_at: Optional[datetime] = None

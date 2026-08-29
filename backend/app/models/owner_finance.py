@@ -15,6 +15,7 @@ class SaasInvoiceStatusEnum(str, Enum):
     OPEN = "OPEN"
     PARTIALLY_PAID = "PARTIALLY_PAID"
     PAID = "PAID"
+    NO_PAYMENT_DUE = "NO_PAYMENT_DUE"
     OVERDUE = "OVERDUE"
     VOID = "VOID"
     UNCOLLECTIBLE = "UNCOLLECTIBLE"
@@ -316,6 +317,8 @@ class SaasFinanceDailyMetric(SQLModel, table=True):
     active_subscriptions: int = Field(default=0, ge=0)
     excluded_subscriptions: int = Field(default=0, ge=0)
     contracted_mrr: Decimal = Field(sa_column=Column(Numeric(14, 2), nullable=False))
+    gross_mrr: Decimal = Field(sa_column=Column(Numeric(14, 2), nullable=False))
+    discount_mrr: Decimal = Field(sa_column=Column(Numeric(14, 2), nullable=False))
     projected_arr: Decimal = Field(sa_column=Column(Numeric(14, 2), nullable=False))
     new_mrr: Optional[Decimal] = Field(default=None, sa_column=Column(Numeric(14, 2), nullable=True))
     expansion_mrr: Optional[Decimal] = Field(default=None, sa_column=Column(Numeric(14, 2), nullable=True))
@@ -364,6 +367,8 @@ class SaasFinanceSubscriptionSnapshot(SQLModel, table=True):
     exclusion_reason: Optional[str] = Field(default=None, max_length=80)
     previous_mrr: Optional[Decimal] = Field(default=None, sa_column=Column(Numeric(14, 2), nullable=True))
     current_mrr: Decimal = Field(sa_column=Column(Numeric(14, 2), nullable=False))
+    gross_mrr: Decimal = Field(sa_column=Column(Numeric(14, 2), nullable=False))
+    discount_mrr: Decimal = Field(sa_column=Column(Numeric(14, 2), nullable=False))
     movement_type: SaasMrrMovementTypeEnum = Field(
         sa_column=Column(EnumString(SaasMrrMovementTypeEnum), nullable=False, index=True)
     )

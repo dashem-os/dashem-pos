@@ -78,6 +78,7 @@ def test_f4_projection_has_baseline_version_watermark_and_real_movements():
         assert replay.id == baseline.id and replay.source_fingerprint == baseline.source_fingerprint
 
         subscription.monthly_amount = Decimal("349.90")
+        subscription.gross_monthly_amount = Decimal("349.90")
         subscription.version += 1
         subscription.updated_at = datetime.utcnow()
         session.add(subscription); session.commit()

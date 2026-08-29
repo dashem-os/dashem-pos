@@ -3,7 +3,7 @@ from datetime import date, datetime
 from enum import Enum
 from typing import Optional, List
 from decimal import Decimal
-from sqlalchemy import CheckConstraint, Column, Index, Numeric, String, Text, text
+from sqlalchemy import CheckConstraint, Column, Index, JSON, Numeric, String, Text, text
 from sqlmodel import SQLModel, Field, Relationship, UniqueConstraint
 
 class RoleEnum(str, Enum):
@@ -170,12 +170,45 @@ class ServicePlan(SQLModel, table=True):
     user_limit: Optional[int] = None
     terminal_limit: Optional[int] = None
     storage_limit_mb: Optional[int] = None
+    capability_keys: list[str] = Field(
+        default_factory=list, sa_column=Column(JSON, nullable=False, default=list)
+    )
     monthly_price: Decimal = Field(
         default=Decimal("0.00"),
         sa_column=Column(Numeric(14, 2), nullable=False, default=0),
     )
+    version: int = Field(default=1, ge=1)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ServicePlanRevision(SQLModel, table=True):
+    """Immutable commercial snapshot used by versioned tenant contracts."""
+
+    __tablename__ = "service_plan_revisions"
+    __table_args__ = (
+        UniqueConstraint("plan_id", "version", name="uq_service_plan_revision"),
+        CheckConstraint("version >= 1", name="ck_service_plan_revision_version_positive"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    plan_id: uuid.UUID = Field(foreign_key="service_plans.id", index=True)
+    version: int = Field(ge=1)
+    code: str = Field(max_length=60)
+    name: str = Field(max_length=120)
+    description: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    is_active: bool
+    store_limit: Optional[int] = None
+    user_limit: Optional[int] = None
+    terminal_limit: Optional[int] = None
+    storage_limit_mb: Optional[int] = None
+    capability_keys: list[str] = Field(
+        default_factory=list, sa_column=Column(JSON, nullable=False, default=list)
+    )
+    monthly_price: Decimal = Field(sa_column=Column(Numeric(14, 2), nullable=False))
+    reason: str = Field(sa_column=Column(Text, nullable=False))
+    created_by: Optional[uuid.UUID] = Field(default=None, foreign_key="users.id", index=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
 
 
 class TenantSubscription(SQLModel, table=True):
@@ -184,6 +217,18 @@ class TenantSubscription(SQLModel, table=True):
         CheckConstraint(
             "version >= 1",
             name="ck_tenant_subscriptions_version_positive",
+        ),
+        CheckConstraint(
+            "gross_monthly_amount >= 0 AND discount_value >= 0 AND discount_amount >= 0",
+            name="ck_tenant_subscriptions_commercial_amounts_nonnegative",
+        ),
+        CheckConstraint(
+            "discount_amount <= gross_monthly_amount",
+            name="ck_tenant_subscriptions_discount_not_above_gross",
+        ),
+        CheckConstraint(
+            "monthly_amount = gross_monthly_amount - discount_amount",
+            name="ck_tenant_subscriptions_net_formula",
         ),
     )
 
@@ -200,6 +245,24 @@ class TenantSubscription(SQLModel, table=True):
         default=Decimal("0.00"),
         sa_column=Column(Numeric(14, 2), nullable=False, default=0),
     )
+    gross_monthly_amount: Decimal = Field(
+        default=Decimal("0.00"),
+        sa_column=Column(Numeric(14, 2), nullable=False, default=0),
+    )
+    discount_type: Optional[str] = Field(default=None, max_length=20)
+    discount_value: Decimal = Field(
+        default=Decimal("0.00"),
+        sa_column=Column(Numeric(14, 4), nullable=False, default=0),
+    )
+    discount_amount: Decimal = Field(
+        default=Decimal("0.00"),
+        sa_column=Column(Numeric(14, 2), nullable=False, default=0),
+    )
+    discount_reason_code: Optional[str] = Field(default=None, max_length=40)
+    discount_reason: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    discount_starts_on: Optional[date] = None
+    discount_ends_on: Optional[date] = None
+    discount_review_on: Optional[date] = None
     billing_day: int = Field(default=1)
     next_due_date: Optional[date] = None
     contracted_user_limit: Optional[int] = None

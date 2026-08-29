@@ -252,6 +252,7 @@ def test_owner_finance_projects_only_saas_contracts():
         assert subscription is not None
         subscription.status = SubscriptionStatusEnum.ACTIVE
         subscription.monthly_amount = Decimal("249.90")
+        subscription.gross_monthly_amount = Decimal("249.90")
         session.add(subscription); session.commit()
 
         overview = platform_finance_overview(principal, session)

@@ -912,6 +912,8 @@ export interface ServicePlan {
   name: string
   description?: string
   is_active: boolean
+  version: number
+  capability_keys: string[]
   store_limit?: number
   user_limit?: number
   terminal_limit?: number
@@ -941,6 +943,7 @@ export interface TenantContract {
   version: number
   status: string
   plan_id?: string
+  plan_revision_id?: string
   limits: { users?: number; devices?: number; units?: number; storage_mb?: number; niche?: BusinessNiche; business_niches?: BusinessNiche[]; billing?: OwnerBilling }
   capability_keys: string[]
   starts_at?: string
@@ -956,6 +959,15 @@ export interface TenantSubscription {
   trial_ends_at?: string
   ends_at?: string
   monthly_amount: number
+  gross_monthly_amount: number
+  discount_type?: 'PERCENTAGE' | 'FIXED'
+  discount_value: number
+  discount_amount: number
+  discount_reason_code?: string
+  discount_reason?: string
+  discount_starts_on?: string
+  discount_ends_on?: string
+  discount_review_on?: string
   billing_day: number
   next_due_date?: string
   version: number
@@ -967,6 +979,15 @@ export interface OwnerBilling {
   phone?: string
   monthly_amount: number | string
   billing_day: number
+  discount?: {
+    type: 'PERCENTAGE' | 'FIXED'
+    value: number | string
+    reason_code: string
+    reason: string
+    starts_on?: string
+    ends_on?: string
+    review_on?: string
+  }
 }
 
 export interface TenantCapability {
@@ -1019,6 +1040,10 @@ export interface PlatformFinanceSubscription {
   plan_name?: string
   subscription_status: SubscriptionStatus
   monthly_amount: number
+  gross_monthly_amount: number
+  discount_amount: number
+  discount_reason_code?: string
+  discount_ends_on?: string
   next_due_date?: string
   contract_version?: number
   billing_account_ready: boolean
@@ -1028,6 +1053,8 @@ export interface PlatformFinanceSubscription {
 
 export interface PlatformFinanceOverview {
   contracted_mrr: number
+  gross_mrr: number
+  discount_mrr: number
   active_subscriptions: number
   trial_subscriptions: number
   pending_subscriptions: number
@@ -1054,7 +1081,7 @@ export interface PlatformFinanceOverview {
   subscriptions: PlatformFinanceSubscription[]
 }
 
-export type SaasInvoiceStatus = 'DRAFT' | 'OPEN' | 'PARTIALLY_PAID' | 'PAID' | 'OVERDUE' | 'VOID' | 'UNCOLLECTIBLE'
+export type SaasInvoiceStatus = 'DRAFT' | 'NO_PAYMENT_DUE' | 'OPEN' | 'PARTIALLY_PAID' | 'PAID' | 'OVERDUE' | 'VOID' | 'UNCOLLECTIBLE'
 
 export interface SaasInvoice {
   id: string
@@ -1146,6 +1173,8 @@ export interface SaasFinanceDailyMetric {
   active_subscriptions: number
   excluded_subscriptions: number
   contracted_mrr: number
+  gross_mrr: number
+  discount_mrr: number
   projected_arr: number
   new_mrr?: number
   expansion_mrr?: number
@@ -1177,6 +1206,8 @@ export interface SaasFinanceSubscriptionSnapshot {
   exclusion_reason?: string
   previous_mrr?: number
   current_mrr: number
+  gross_mrr: number
+  discount_mrr: number
   movement_type: SaasMrrMovementType
   movement_amount?: number
 }
@@ -1905,6 +1936,8 @@ export type ServicePlanInput = {
   terminal_limit?: number
   storage_limit_mb?: number
   monthly_price: number
+  capability_keys: string[]
+  reason: string
 }
 
 export async function createServicePlan(input: ServicePlanInput): Promise<ServicePlan> {

@@ -99,7 +99,7 @@ Entregue no código desta etapa:
 - `SaasFinanceDailyMetric` e `SaasFinanceSubscriptionSnapshot` platform-owned;
 - migration `055_saas_finance_projections` com RLS forçada, unicidade diária,
   índices e remoção em cascata somente dos detalhes derivados;
-- fórmula versionada `SAAS_FINANCE_V1`, watermark, fingerprint das fontes e
+- fórmula versionada `SAAS_FINANCE_V2`, watermark, fingerprint das fontes e
   versão de reconstrução;
 - MRR somente para assinatura `ACTIVE`, valor positivo e contrato vigente
   `ACTIVE`; toda exclusão fica persistida com motivo;
@@ -117,6 +117,21 @@ Entregue no código desta etapa:
   fingerprint em `FinanceSaasView.tsx`;
 - auditoria e outbox por tenant afetado, sem dependência de venda, caixa,
   pagamento, recebível ou BI operacional do tenant.
+
+### Fase 5 — catálogo e descontos concluídos no escopo Owner-first
+
+- migration `056_owner_commercial_pricing` cria revisões imutáveis de plano,
+  ancora o contrato à revisão e materializa bruto, desconto e líquido;
+- catálogo inicial: Essencial R$ 119, Profissional R$ 229, Performance R$ 389
+  e Omnichannel R$ 649, este último inativo até o Integration Hub;
+- cada plano possui pacote padrão de capabilities e limites versionados;
+- desconto contratual fixo ou percentual exige razão e justificativa; desconto
+  integral exige encerramento ou revisão;
+- oferta inicial do Essencial é representada por desconto fixo de R$ 59,10,
+  resultando em R$ 59,90 sem adulterar o preço de tabela;
+- fatura preserva o snapshot da revisão do plano, cria linha negativa de
+  desconto e usa `NO_PAYMENT_DUE` quando o total é zero;
+- overview e projeção separam MRR bruto, desconto MRR e MRR líquido.
 
 ### Rotas disponíveis
 
@@ -157,7 +172,7 @@ sem depender da sessão humana.
 
 | Elemento | Fonte real atual | Exibe valor? | Drill-down |
 |---|---|---:|---|
-| MRR contratado | mensalidades de assinaturas `ACTIVE` | sim | contratos filtrados |
+| MRR bruto/desconto/líquido | termos comerciais vigentes de assinaturas `ACTIVE` | sim | contratos filtrados |
 | Assinaturas ativas/trial | `tenant_subscriptions.status` | sim | contratos filtrados |
 | Contas aptas | cadastro obrigatório completo em `saas_billing_accounts` | sim | contratos/contas |
 | Faturado SaaS | faturas emitidas, excluídos rascunhos e anuladas | sim | faturas abertas na F2 |
@@ -217,6 +232,19 @@ Evidência local da Fase 4 em 29 de agosto de 2026:
 - `alembic check`: **sem novas operações detectadas**;
 - CI remoto da Fase 4: **aguardando publicação desta revisão**.
 
+Evidência local da Fase 5 em 29 de agosto de 2026:
+
+- frontend `npm run build`: concluído;
+- migration completa `base → 056_owner_commercial_pricing` concluída em banco
+  PostgreSQL isolado `dashem_pricing_migration_test2`;
+- quatro planos semeados com preços, situação e snapshots de capabilities
+  conferidos diretamente no banco;
+- conjunto focado do Owner, faturamento e projeções: **25/25**;
+- teste dedicado confirma Essencial `119,00 - 59,10 = 59,90`, snapshot da
+  revisão do plano, linha de desconto e fatura zerada `NO_PAYMENT_DUE`;
+- banco padrão divergente permaneceu inalterado após o upgrade transacional
+  falhar na migration 050; não foi aplicado `stamp` nem reparo destrutivo.
+
 ## Recuperação do CI após a Fase 2
 
 Os runs 53 a 56 foram publicados sem aguardar a conclusão do GitHub Actions. A
@@ -272,9 +300,9 @@ Integração fiscal da própria Dashem permanece pendente até existir provider 
 selecionado. `fiscal_reference` e `provider_reference` são apenas campos de
 integração; ausência de valor não equivale a documento emitido externamente.
 
-## Estado após a Fase 4
+## Estado após a Fase 5
 
-As Fases 0 a 4 do Financeiro SaaS estão concluídas no escopo interno
+As Fases 0 a 5 do Financeiro SaaS estão concluídas no escopo interno
 persistido. Não há nova fase funcional pendente neste recorte. Permanecem gates
 externos independentes: escolher/configurar provider comercial e fiscal real,
 definir transporte/política real da régua de cobrança e reconciliar o banco
@@ -288,7 +316,7 @@ gates pode ser apresentado como ativo sem a respectiva evidência externa.
 3. confirmar `alembic current` no alvo escolhido antes de editar;
 4. não usar o banco padrão divergente até sua reconciliação explícita;
 5. executar os três testes mínimos de regressão;
-6. confirmar que o CI final da Fase 4 está verde; se não estiver, recuperar o
+6. confirmar que o CI final da Fase 5 está verde; se não estiver, recuperar o
    run antes de iniciar qualquer novo incremento;
 7. atualizar este checkpoint com arquivos, migrations, testes e próximo passo;
 8. fazer commit e push somente após todas as evidências passarem;

@@ -1,6 +1,6 @@
 # Owner Financeiro SaaS — especificação funcional e técnica
 
-Status: **especificação canônica; Fases 0 a 4 concluídas no escopo persistido**
+Status: **especificação canônica; Fases 0 a 5 concluídas no escopo persistido**
 
 Data: 29 de agosto de 2026
 
@@ -138,7 +138,7 @@ aparecem como **Sem baseline anterior**, nunca como zero inventado.
 
 A página inicial apresenta, para um período explícito:
 
-- MRR atual;
+- MRR bruto, descontos vigentes e MRR líquido atual;
 - ARR projetado;
 - MRR novo, expansão, contração e churn no período;
 - clientes com assinatura paga, trial, pausada e cancelada;
@@ -167,6 +167,11 @@ Ela permite:
 - alterar contrato com nova versão auditada;
 - consultar a linha do tempo comercial e financeira do SaaS.
 
+O preço de tabela pertence à versão do plano; o desconto pertence à versão
+do contrato. O desconto pode ser fixo ou percentual, sempre com motivo, código
+de razão e vigência. Um desconto integral exige data de encerramento ou revisão.
+Não existe empilhamento de descontos nesta fase.
+
 Alterar o contrato não reescreve faturas já emitidas. Uma mudança futura deve
 afetar a competência seguinte ou gerar ajuste explícito, conforme a data de
 efeito registrada.
@@ -186,8 +191,9 @@ Cada item da fatura preserva o snapshot de descrição, quantidade, valor unitá
 desconto e versão contratual. A alteração posterior do plano não muda o documento
 emitido.
 
-Estado entregue na Fase 2: geração mensal para assinaturas `ACTIVE`, emissão
-`DRAFT → OPEN`, anulação `OPEN → VOID`, listagem paginada, detalhe e exportação
+Estado entregue nas Fases 2 e 5: geração mensal para assinaturas `ACTIVE`,
+emissão `DRAFT → OPEN` ou `DRAFT → NO_PAYMENT_DUE` quando o total é zero,
+anulação de documento emitido sem baixa, listagem paginada, detalhe e exportação
 CSV. Pagamento parcial/total e vencimento derivado foram entregues na Fase 3.
 Envio, substituição e emissão fiscal dependem de provider real; não são
 simulados.
@@ -257,7 +263,9 @@ Os indicadores usam valores monetários decimais e uma competência explícita.
 
 | Indicador | Definição |
 | --- | --- |
-| MRR | Soma do valor recorrente mensal normalizado das assinaturas comerciais vigentes no último dia do período. Trial gratuito e assinatura cancelada não entram. Assinatura inadimplente continua no MRR até cancelamento ou encerramento contratual. |
+| MRR bruto | Soma dos valores recorrentes antes dos descontos das assinaturas comerciais vigentes. |
+| Desconto MRR | Soma dos descontos contratuais vigentes na data de corte. |
+| MRR líquido | `MRR bruto - desconto MRR`. Assinatura ativa com desconto integral permanece no denominador comercial, com MRR líquido zero. Trial e assinatura cancelada não entram. |
 | ARR | `MRR × 12`; projeção, não caixa recebido. |
 | Novo MRR | MRR de assinaturas que se tornaram pagas no período. |
 | Expansão de MRR | Aumento recorrente por upgrade ou adicional contratado. |
@@ -298,12 +306,15 @@ fatura. Situação contratual e situação financeira são eixos separados.
 
 ```text
 DRAFT → OPEN → PARTIALLY_PAID → PAID
-          ├──→ OVERDUE ───────→ PAID
-          ├──→ VOID
-          └──→ UNCOLLECTIBLE
+  │       ├──→ OVERDUE ───────→ PAID
+  │       ├──→ VOID
+  │       └──→ UNCOLLECTIBLE
+  └──────→ NO_PAYMENT_DUE → VOID
 ```
 
 - `DRAFT` pode ser recalculada antes da emissão;
+- `NO_PAYMENT_DUE` é uma fatura emitida com total zero por desconto válido;
+  não representa recebimento e nunca é marcada como `PAID`;
 - `OPEN` é um documento emitido com saldo integral;
 - `PARTIALLY_PAID` possui alocação confirmada menor que o total;
 - `PAID` possui saldo zero por recebimento ou crédito válido;
@@ -311,9 +322,8 @@ DRAFT → OPEN → PARTIALLY_PAID → PAID
 - `VOID` foi cancelada sem recebimento válido;
 - `UNCOLLECTIBLE` preserva a dívida reconhecida como não recuperável.
 
-Na Fase 2 somente `DRAFT`, `OPEN` e `VOID` possuem comandos. Os demais estados
-estão reservados no modelo e só poderão ser produzidos pelos fatos de pagamento,
-saldo e vencimento da Fase 3.
+`DRAFT`, `OPEN`, `NO_PAYMENT_DUE` e `VOID` possuem comandos diretos. Os demais
+estados são derivados dos fatos de pagamento, saldo e vencimento.
 
 ### 5.3 Pagamento SaaS
 
@@ -369,6 +379,18 @@ evoluído sem criar uma segunda fonte de verdade:
 - política de cobrança aplicável;
 - desconto recorrente e período de vigência, quando houver;
 - versão concorrente para atualização otimista.
+
+Os campos `gross_monthly_amount`, `discount_type`, `discount_value`,
+`discount_amount`, razão e datas materializam os termos vigentes. O campo
+`monthly_amount` é o valor líquido corrente e obedece à restrição
+`líquido = bruto - desconto`.
+
+#### `ServicePlanRevision`
+
+Cada alteração de plano cria snapshot imutável de código, nome, preço-base,
+limites, capabilities, situação, motivo e ator. O contrato aponta para a revisão
+aplicável; por isso uma edição posterior do catálogo não muda a fatura do
+contrato vigente.
 
 O antigo campo textual `billing_status` foi removido na migration
 `050_saas_finance_foundation`: ele permitia declarar `CURRENT` ou `OVERDUE` sem
@@ -698,7 +720,7 @@ Estado em 29 de agosto de 2026: **concluída no escopo persistido e reconstruív
 
 - [x] materializar diariamente MRR, ARR, movimentos de novo, expansão,
   contração e churn, faturamento, recebimento, estorno e inadimplência;
-- [x] usar a fórmula versionada `SAAS_FINANCE_V1`, watermark e fingerprint das
+- [x] usar a fórmula versionada `SAAS_FINANCE_V2`, watermark e fingerprint das
   fontes para tornar o cálculo explicável e repetível;
 - [x] tratar o primeiro snapshot como baseline, mantendo movimentos e taxas sem
   denominador como `null`, sem zero fictício;
@@ -708,6 +730,24 @@ Estado em 29 de agosto de 2026: **concluída no escopo persistido e reconstruív
 - [x] proteger métricas e detalhes com RLS `platform-only`, auditoria e outbox;
 - [x] validar fórmulas em conjuntos fechados e impedir dependências de fatos
   operacionais dos tenants.
+
+### Fase 5 — catálogo versionado e descontos contratuais
+
+Estado em 29 de agosto de 2026: **concluída no escopo Owner-first**.
+
+- [x] semear `DASHEM Essencial` por R$ 119,00, `Profissional` por R$ 229,00,
+  `Performance` por R$ 389,00 e `Omnichannel` por R$ 649,00, inicialmente
+  inativo até a entrega do Integration Hub;
+- [x] versionar preço, limites e pacote de capabilities dos planos;
+- [x] vincular cada nova versão contratual a um snapshot do plano;
+- [x] aplicar desconto fixo ou percentual com motivo, vigência e auditoria;
+- [x] representar a oferta inicial do Essencial como R$ 119,00 de valor bruto,
+  desconto fixo de R$ 59,10 e valor líquido de R$ 59,90;
+- [x] emitir linha positiva do plano e linha negativa de desconto na fatura;
+- [x] emitir fatura zerada como `NO_PAYMENT_DUE`, sem criar recebimento fictício;
+- [x] separar MRR bruto, desconto MRR e MRR líquido na visão e projeção;
+- [x] exigir data final ou revisão para desconto integral;
+- [x] manter cupons, empilhamento e Hub de delivery fora desta fase.
 
 ## 9. Critérios de aceite
 

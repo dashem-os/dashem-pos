@@ -4,6 +4,7 @@ import time
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
+from enum import Enum
 from typing import Any, List, Optional
 
 import httpx
@@ -23,7 +24,7 @@ from app.core.security import AuthPrincipal, get_current_principal
 from app.core.tenancy import set_platform_db_context, set_tenant_db_context
 from app.models.identity import (
     Membership, MembershipStatusEnum, RoleEnum, Store, Tenant, TenantStatusEnum, User,
-    TenantProfile, TenantContact, TenantSubscription, ServicePlan,
+    TenantProfile, TenantContact, TenantSubscription, ServicePlan, ServicePlanRevision,
     TenantCustomerTypeEnum, TenantTypeEnum, TenantPhaseEnum, SubscriptionStatusEnum,
 )
 from app.models.platform import (
@@ -38,7 +39,7 @@ from app.models.owner_finance import (
 )
 from app.models.reliability import AuditEvent, OutboxEvent, OutboxStatusEnum
 from app.models.reliability import ServiceHeartbeat
-from app.services import identity_service, reliability_service, supabase_admin
+from app.services import commercial_pricing, identity_service, reliability_service, supabase_admin
 from app.services.contract_limit_service import effective_limit
 from app.modules.capabilities.registry import CAPABILITY_REGISTRY, IMPLEMENTED_CAPABILITIES, resolve_dependencies
 from app.modules.capabilities.niches import (
@@ -51,6 +52,111 @@ router = APIRouter(dependencies=[Depends(get_current_principal)])
 PLATFORM_MANAGERS = {PlatformRoleEnum.PLATFORM_OWNER, PlatformRoleEnum.PLATFORM_ADMIN}
 FINANCE_READ = "control.finance.read"
 FINANCE_MANAGE_BILLING = "control.finance.manage_billing"
+
+
+def _commercial_terms(subscription: TenantSubscription, billing: "OwnerBillingCreate") -> None:
+    gross = Decimal(billing.monthly_amount).quantize(Decimal("0.01"))
+    discount = billing.discount
+    if discount is None:
+        subscription.gross_monthly_amount = gross
+        subscription.discount_type = None
+        subscription.discount_value = Decimal("0.0000")
+        subscription.discount_amount = Decimal("0.00")
+        subscription.discount_reason_code = None
+        subscription.discount_reason = None
+        subscription.discount_starts_on = None
+        subscription.discount_ends_on = None
+        subscription.discount_review_on = None
+        subscription.monthly_amount = gross
+        return
+    commercial_pricing.validate_discount_dates(
+        starts_on=discount.starts_on,
+        ends_on=discount.ends_on,
+        review_on=discount.review_on,
+    )
+    is_full_discount = (
+        discount.type == ContractDiscountType.PERCENTAGE
+        and discount.value >= Decimal("100")
+    ) or (
+        discount.type == ContractDiscountType.FIXED
+        and discount.value >= gross
+    )
+    if is_full_discount and discount.ends_on is None and discount.review_on is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Desconto de 100% exige data final ou data de revisão.",
+        )
+    discount_amount = commercial_pricing.calculate_discount(
+        gross_amount=gross,
+        discount_type=discount.type.value,
+        discount_value=discount.value,
+        starts_on=discount.starts_on,
+        ends_on=discount.ends_on,
+        effective_on=date.today(),
+    )
+    subscription.gross_monthly_amount = gross
+    subscription.discount_type = discount.type.value
+    subscription.discount_value = discount.value
+    subscription.discount_amount = discount_amount
+    subscription.discount_reason_code = discount.reason_code.value
+    subscription.discount_reason = discount.reason.strip()
+    subscription.discount_starts_on = discount.starts_on
+    subscription.discount_ends_on = discount.ends_on
+    subscription.discount_review_on = discount.review_on
+    subscription.monthly_amount = (gross - discount_amount).quantize(Decimal("0.01"))
+
+
+def _snapshot_plan(
+    session: Session, *, plan: ServicePlan, actor_id: uuid.UUID, reason: str
+) -> ServicePlanRevision:
+    revision = ServicePlanRevision(
+        plan_id=plan.id,
+        version=plan.version,
+        code=plan.code,
+        name=plan.name,
+        description=plan.description,
+        is_active=plan.is_active,
+        store_limit=plan.store_limit,
+        user_limit=plan.user_limit,
+        terminal_limit=plan.terminal_limit,
+        storage_limit_mb=plan.storage_limit_mb,
+        capability_keys=list(plan.capability_keys),
+        monthly_price=plan.monthly_price,
+        reason=reason.strip(),
+        created_by=actor_id,
+    )
+    session.add(revision)
+    session.flush()
+    return revision
+
+
+def _current_plan_revision(session: Session, plan: ServicePlan) -> ServicePlanRevision:
+    revision = session.exec(select(ServicePlanRevision).where(
+        ServicePlanRevision.plan_id == plan.id,
+        ServicePlanRevision.version == plan.version,
+    )).first()
+    if revision is None:
+        raise HTTPException(status_code=409, detail="A versão atual do plano não possui snapshot comercial.")
+    return revision
+
+
+def _billing_contract_snapshot(billing: "OwnerBillingCreate", subscription: TenantSubscription) -> dict[str, Any]:
+    return {
+        "contact_name": billing.contact_name.strip(),
+        "email": billing.email.strip().lower(),
+        "phone": billing.phone.strip() if billing.phone else None,
+        "gross_monthly_amount": str(subscription.gross_monthly_amount),
+        "discount_type": subscription.discount_type,
+        "discount_value": str(subscription.discount_value),
+        "discount_amount": str(subscription.discount_amount),
+        "discount_reason_code": subscription.discount_reason_code,
+        "discount_reason": subscription.discount_reason,
+        "discount_starts_on": subscription.discount_starts_on.isoformat() if subscription.discount_starts_on else None,
+        "discount_ends_on": subscription.discount_ends_on.isoformat() if subscription.discount_ends_on else None,
+        "discount_review_on": subscription.discount_review_on.isoformat() if subscription.discount_review_on else None,
+        "monthly_amount": str(subscription.monthly_amount),
+        "billing_day": billing.billing_day,
+    }
 
 
 def _digits(value: Optional[str]) -> Optional[str]:
@@ -198,6 +304,33 @@ class OwnerInitialAdminCreate(BaseModel):
     email: str = PydanticField(min_length=5, max_length=254)
 
 
+class ContractDiscountType(str, Enum):
+    PERCENTAGE = "PERCENTAGE"
+    FIXED = "FIXED"
+
+
+class ContractDiscountReason(str, Enum):
+    INTERNAL_CONTROLLED_TEST = "INTERNAL_CONTROLLED_TEST"
+    COMMERCIAL_PILOT = "COMMERCIAL_PILOT"
+    LAUNCH_PROMOTION = "LAUNCH_PROMOTION"
+    PARTNERSHIP = "PARTNERSHIP"
+    RETENTION = "RETENTION"
+    COMMERCIAL_NEGOTIATION = "COMMERCIAL_NEGOTIATION"
+    SERVICE_COMPENSATION = "SERVICE_COMPENSATION"
+
+
+class OwnerContractDiscount(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: ContractDiscountType
+    value: Decimal = PydanticField(gt=0)
+    reason_code: ContractDiscountReason
+    reason: str = PydanticField(min_length=4, max_length=500)
+    starts_on: Optional[date] = None
+    ends_on: Optional[date] = None
+    review_on: Optional[date] = None
+
+
 class OwnerBillingCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -206,6 +339,7 @@ class OwnerBillingCreate(BaseModel):
     phone: Optional[str] = PydanticField(default=None, max_length=32)
     monthly_amount: Decimal = PydanticField(default=Decimal("0.00"), ge=0)
     billing_day: int = PydanticField(default=1, ge=1, le=28)
+    discount: Optional[OwnerContractDiscount] = None
 
 
 class OwnerTenantProvisionCreate(PlatformTenantCreate):
@@ -332,6 +466,10 @@ class PlatformFinanceSubscription(BaseModel):
     plan_name: Optional[str] = None
     subscription_status: SubscriptionStatusEnum
     monthly_amount: Decimal
+    gross_monthly_amount: Decimal
+    discount_amount: Decimal
+    discount_reason_code: Optional[str] = None
+    discount_ends_on: Optional[date] = None
     next_due_date: Optional[date] = None
     contract_version: Optional[int] = None
     billing_account_ready: bool
@@ -349,6 +487,8 @@ class PlatformFinanceFactsAvailability(BaseModel):
 
 class PlatformFinanceOverview(BaseModel):
     contracted_mrr: Decimal
+    gross_mrr: Decimal
+    discount_mrr: Decimal
     active_subscriptions: int
     trial_subscriptions: int
     pending_subscriptions: int
@@ -450,7 +590,9 @@ class ServicePlanCreate(BaseModel):
     user_limit: Optional[int] = PydanticField(default=None, ge=1)
     terminal_limit: Optional[int] = PydanticField(default=None, ge=1)
     storage_limit_mb: Optional[int] = PydanticField(default=None, ge=128)
+    capability_keys: List[str] = PydanticField(default_factory=list)
     monthly_price: Decimal = PydanticField(default=Decimal("0.00"), ge=0)
+    reason: str = PydanticField(default="Cadastro comercial inicial.", min_length=4, max_length=500)
 
 
 class ServicePlanUpdate(ServicePlanCreate):
@@ -825,13 +967,21 @@ def platform_finance_overview(
     ).all():
         contracts.setdefault(contract.tenant_id, contract)
 
+    amounts = {
+        item.tenant_id: commercial_pricing.subscription_amounts(item, effective_on=date.today())
+        for item in subscriptions
+    }
     rows = [
         PlatformFinanceSubscription(
             tenant_id=item.tenant_id,
             tenant_name=tenants[item.tenant_id].name if item.tenant_id in tenants else "Tenant removido",
             plan_name=plans[item.plan_id].name if item.plan_id in plans else None,
             subscription_status=item.status,
-            monthly_amount=item.monthly_amount,
+            monthly_amount=amounts[item.tenant_id][2],
+            gross_monthly_amount=amounts[item.tenant_id][0],
+            discount_amount=amounts[item.tenant_id][1],
+            discount_reason_code=item.discount_reason_code,
+            discount_ends_on=item.discount_ends_on,
             next_due_date=item.next_due_date,
             contract_version=contracts[item.tenant_id].version if item.tenant_id in contracts else None,
             billing_account_ready=_billing_account_ready(accounts.get(item.tenant_id)),
@@ -843,7 +993,15 @@ def platform_finance_overview(
     rows.sort(key=lambda item: (item.billing_account_ready, item.tenant_name.lower()))
     return PlatformFinanceOverview(
         contracted_mrr=sum(
-            (item.monthly_amount for item in subscriptions if item.status == SubscriptionStatusEnum.ACTIVE),
+            (amounts[item.tenant_id][2] for item in subscriptions if item.status == SubscriptionStatusEnum.ACTIVE),
+            Decimal("0.00"),
+        ),
+        gross_mrr=sum(
+            (amounts[item.tenant_id][0] for item in subscriptions if item.status == SubscriptionStatusEnum.ACTIVE),
+            Decimal("0.00"),
+        ),
+        discount_mrr=sum(
+            (amounts[item.tenant_id][1] for item in subscriptions if item.status == SubscriptionStatusEnum.ACTIVE),
             Decimal("0.00"),
         ),
         active_subscriptions=sum(item.status == SubscriptionStatusEnum.ACTIVE for item in subscriptions),
@@ -1128,7 +1286,7 @@ def provision_owner_tenant(
     _validate_quota("storage", data.quotas.storage_mb, plan.storage_limit_mb)
     selected_niches = list(dict.fromkeys(data.niches))
     try:
-        selected_keys = selected_entitlement_keys(data.capability_keys)
+        selected_keys = selected_entitlement_keys(data.capability_keys or plan.capability_keys)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -1186,7 +1344,7 @@ def provision_owner_tenant(
         if data.lifecycle_phase in {TenantPhaseEnum.TEST, TenantPhaseEnum.PILOT}
         else SubscriptionStatusEnum.ACTIVE
     )
-    subscription.monthly_amount = data.billing.monthly_amount
+    _commercial_terms(subscription, data.billing)
     subscription.billing_day = data.billing.billing_day
     subscription.contracted_user_limit = data.quotas.users
     subscription.contracted_device_limit = data.quotas.devices
@@ -1224,16 +1382,12 @@ def provision_owner_tenant(
         "storage_mb": data.quotas.storage_mb,
         "niche": selected_niches[0].value if selected_niches else None,
         "business_niches": [niche.value for niche in selected_niches],
-        "billing": {
-            "contact_name": data.billing.contact_name.strip(),
-            "email": data.billing.email.strip().lower(),
-            "phone": data.billing.phone.strip() if data.billing.phone else None,
-            "monthly_amount": str(data.billing.monthly_amount),
-            "billing_day": data.billing.billing_day,
-        },
+        "billing": _billing_contract_snapshot(data.billing, subscription),
     }
+    plan_revision = _current_plan_revision(session, plan)
     contract = TenantContract(
         tenant_id=tenant.id, version=1, status="ACTIVE", plan_id=plan.id,
+        plan_revision_id=plan_revision.id,
         limits=limits, capability_keys=list(selected_keys), starts_at=datetime.utcnow(),
         reason="Provisionamento comercial completo pelo Owner.", created_by=actor.id,
     )
@@ -1547,20 +1701,29 @@ def create_service_plan(
     actor = require_platform_role(session, principal, PLATFORM_MANAGERS, require_aal2=True)
     assert actor is not None
     code = data.code.strip().upper()
+    try:
+        capability_keys = list(selected_entitlement_keys(data.capability_keys))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if session.exec(select(ServicePlan).where(ServicePlan.code == code)).first():
         raise HTTPException(status_code=409, detail="Já existe um plano com este código.")
     plan = ServicePlan(
         code=code, name=data.name.strip(), description=data.description,
         store_limit=data.store_limit, user_limit=data.user_limit,
         terminal_limit=data.terminal_limit, storage_limit_mb=data.storage_limit_mb,
-        monthly_price=data.monthly_price,
+        capability_keys=capability_keys, monthly_price=data.monthly_price, version=1,
     )
     session.add(plan)
     session.flush()
+    revision = _snapshot_plan(session, plan=plan, actor_id=actor.id, reason=data.reason)
     session.add(AuditEvent(
         actor_id=actor.id, tenant_id=None, store_id=None, platform_scope=True,
         action="platform.plan.created", target=f"service_plan:{plan.id}",
-        payload=json.dumps({"plan_id": str(plan.id), "code": plan.code}),
+        payload=json.dumps({
+            "plan_id": str(plan.id), "code": plan.code,
+            "version": plan.version, "revision_id": str(revision.id),
+            "capability_keys": capability_keys,
+        }),
     ))
     session.commit()
     session.refresh(plan)
@@ -1581,6 +1744,10 @@ def update_service_plan(
         raise HTTPException(status_code=404, detail="Plano comercial não encontrado.")
     code = data.code.strip().upper()
     duplicate = session.exec(select(ServicePlan).where(ServicePlan.code == code, ServicePlan.id != plan_id)).first()
+    try:
+        capability_keys = list(selected_entitlement_keys(data.capability_keys))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if duplicate:
         raise HTTPException(status_code=409, detail="Já existe outro plano com este código.")
     previous = {
@@ -1588,6 +1755,7 @@ def update_service_plan(
         "store_limit": plan.store_limit, "user_limit": plan.user_limit,
         "terminal_limit": plan.terminal_limit, "storage_limit_mb": plan.storage_limit_mb,
         "monthly_price": str(plan.monthly_price),
+        "version": plan.version, "capability_keys": list(plan.capability_keys),
     }
     plan.code = code
     plan.name = data.name.strip()
@@ -1596,10 +1764,14 @@ def update_service_plan(
     plan.user_limit = data.user_limit
     plan.terminal_limit = data.terminal_limit
     plan.storage_limit_mb = data.storage_limit_mb
+    plan.capability_keys = capability_keys
     plan.monthly_price = data.monthly_price
     plan.is_active = data.is_active
+    plan.version += 1
     plan.updated_at = datetime.utcnow()
     session.add(plan)
+    session.flush()
+    revision = _snapshot_plan(session, plan=plan, actor_id=actor.id, reason=data.reason)
     session.add(AuditEvent(
         actor_id=actor.id, tenant_id=None, store_id=None, platform_scope=True,
         action="platform.plan.updated", target=f"service_plan:{plan.id}",
@@ -1610,6 +1782,8 @@ def update_service_plan(
                 "store_limit": plan.store_limit, "user_limit": plan.user_limit,
                 "terminal_limit": plan.terminal_limit, "storage_limit_mb": plan.storage_limit_mb,
                 "monthly_price": str(plan.monthly_price),
+                "version": plan.version, "revision_id": str(revision.id),
+                "capability_keys": capability_keys,
             },
         }),
     ))
@@ -1641,6 +1815,15 @@ def update_tenant_subscription(
     subscription.status = data.status
     if data.monthly_amount is not None:
         subscription.monthly_amount = data.monthly_amount
+        subscription.gross_monthly_amount = data.monthly_amount
+        subscription.discount_type = None
+        subscription.discount_value = Decimal("0.0000")
+        subscription.discount_amount = Decimal("0.00")
+        subscription.discount_reason_code = None
+        subscription.discount_reason = None
+        subscription.discount_starts_on = None
+        subscription.discount_ends_on = None
+        subscription.discount_review_on = None
     if data.billing_day is not None:
         subscription.billing_day = data.billing_day
     subscription.next_due_date = data.next_due_date
@@ -1694,7 +1877,7 @@ def update_owner_tenant_contract(
     _validate_quota("storage", data.quotas.storage_mb, plan.storage_limit_mb)
     selected_niches = list(dict.fromkeys(data.niches))
     try:
-        selected_keys = selected_entitlement_keys(data.capability_keys)
+        selected_keys = selected_entitlement_keys(data.capability_keys or plan.capability_keys)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -1745,7 +1928,7 @@ def update_owner_tenant_contract(
     subscription = session.get(TenantSubscription, tenant_id) or TenantSubscription(tenant_id=tenant_id)
     subscription.plan_id = plan.id
     subscription.status = data.subscription_status
-    subscription.monthly_amount = data.billing.monthly_amount
+    _commercial_terms(subscription, data.billing)
     subscription.billing_day = data.billing.billing_day
     subscription.next_due_date = data.next_due_date
     subscription.contracted_user_limit = data.quotas.users
@@ -1762,18 +1945,13 @@ def update_owner_tenant_contract(
         "storage_mb": data.quotas.storage_mb,
         "niche": selected_niches[0].value if selected_niches else None,
         "business_niches": [niche.value for niche in selected_niches],
-        "billing": {
-            "contact_name": data.billing.contact_name.strip(),
-            "email": data.billing.email.strip().lower(),
-            "phone": data.billing.phone.strip() if data.billing.phone else None,
-            "monthly_amount": str(data.billing.monthly_amount),
-            "billing_day": data.billing.billing_day,
-        },
+        "billing": _billing_contract_snapshot(data.billing, subscription),
     }
+    plan_revision = _current_plan_revision(session, plan)
     contract = TenantContract(
         tenant_id=tenant_id,
         version=(previous_contract.version + 1) if previous_contract else 1,
-        status="ACTIVE", plan_id=plan.id, limits=limits,
+        status="ACTIVE", plan_id=plan.id, plan_revision_id=plan_revision.id, limits=limits,
         capability_keys=list(selected_keys), starts_at=datetime.utcnow(),
         reason=data.reason.strip(), created_by=actor.id,
     )

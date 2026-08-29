@@ -17,7 +17,7 @@ from app.core.database import engine
 from app.core.security import AuthPrincipal
 from app.core.tenancy import set_platform_db_context
 from app.models.identity import (
-    AuthIdentity, ServicePlan, SubscriptionStatusEnum, Tenant, TenantStatusEnum,
+    AuthIdentity, ServicePlan, ServicePlanRevision, SubscriptionStatusEnum, Tenant, TenantStatusEnum,
     TenantSubscription, User,
 )
 from app.models.owner_finance import (
@@ -74,10 +74,19 @@ def _invoice_source(session: Session, actor: User):
     session.add(tenant)
     session.add(plan)
     session.flush()
+    revision = ServicePlanRevision(
+        plan_id=plan.id, version=1, code=plan.code, name=plan.name,
+        description=plan.description, is_active=True, capability_keys=[],
+        monthly_price=plan.monthly_price, reason="Versão comercial de teste.",
+        created_by=actor.id,
+    )
+    session.add(revision)
+    session.flush()
     subscription = TenantSubscription(
         tenant_id=tenant.id,
         plan_id=plan.id,
         status=SubscriptionStatusEnum.ACTIVE,
+        gross_monthly_amount=Decimal("249.90"),
         monthly_amount=Decimal("249.90"),
         billing_day=12,
     )
@@ -94,6 +103,7 @@ def _invoice_source(session: Session, actor: User):
         version=1,
         status="ACTIVE",
         plan_id=plan.id,
+        plan_revision_id=revision.id,
         limits={"users": 10, "devices": 5, "units": 2},
         capability_keys=["inventory"],
         reason="Contrato inicial usado como fonte real da fatura.",
@@ -153,6 +163,7 @@ def test_f2_invoice_lifecycle_is_real_idempotent_audited_and_immutable():
         original_total = invoice.total_amount
         plan.name = "Plano alterado depois da geração"
         subscription.monthly_amount = Decimal("999.00")
+        subscription.gross_monthly_amount = Decimal("999.00")
         session.add(plan); session.add(subscription); session.commit()
         session.refresh(invoice)
         assert invoice.plan_name_snapshot == original_plan_name
@@ -296,6 +307,81 @@ def test_f2_listing_detail_export_permissions_and_incomplete_sources():
                 page=1, size=50, principal=support, session=session,
             )
         assert support_read.value.status_code == 403
+
+
+def test_contract_discount_preserves_list_price_and_zero_invoice_is_not_paid():
+    with Session(engine) as session:
+        principal, actor = _platform_user(session, PlatformRoleEnum.PLATFORM_OWNER)
+        set_platform_db_context(session, actor.id)
+        tenant, plan, subscription, _, _ = _invoice_source(session, actor)
+
+        contracted_plan_name = plan.name
+        plan.monthly_price = Decimal("119.00")
+        plan.name = "Nome atual alterado após a contratação"
+        subscription.gross_monthly_amount = Decimal("119.00")
+        subscription.discount_type = "FIXED"
+        subscription.discount_value = Decimal("59.10")
+        subscription.discount_amount = Decimal("59.10")
+        subscription.discount_reason_code = "LAUNCH_PROMOTION"
+        subscription.discount_reason = "Primeiros clientes DASHEM Essencial."
+        subscription.monthly_amount = Decimal("59.90")
+        session.add(plan); session.add(subscription); session.commit()
+
+        overview = platform_finance_overview(principal, session)
+        row = next(item for item in overview.subscriptions if item.tenant_id == tenant.id)
+        assert row.gross_monthly_amount == Decimal("119.00")
+        assert row.discount_amount == Decimal("59.10")
+        assert row.monthly_amount == Decimal("59.90")
+
+        generated, _, _ = owner_finance_service.generate_invoices(
+            session, competence=date(2026, 9, 1), actor_id=actor.id,
+            idempotency_key=f"discount-{tenant.id}-2026-09", tenant_id=tenant.id,
+        )
+        invoice = generated[0]
+        lines = session.exec(select(SaasInvoiceLine).where(SaasInvoiceLine.invoice_id == invoice.id)).all()
+        assert invoice.plan_name_snapshot == contracted_plan_name
+        assert invoice.subtotal == Decimal("119.00")
+        assert invoice.discount_amount == Decimal("59.10")
+        assert invoice.total_amount == Decimal("59.90")
+        assert [line.total_amount for line in lines] == [Decimal("119.00"), Decimal("-59.10")]
+
+        subscription.discount_value = Decimal("119.00")
+        subscription.discount_amount = Decimal("119.00")
+        subscription.discount_reason_code = "INTERNAL_CONTROLLED_TEST"
+        subscription.discount_reason = "Teste interno controlado autorizado pelo Owner."
+        subscription.discount_review_on = date(2026, 11, 1)
+        subscription.monthly_amount = Decimal("0.00")
+        subscription.version += 1
+        session.add(subscription); session.commit()
+
+        zero_generated, _, _ = owner_finance_service.generate_invoices(
+            session, competence=date(2026, 10, 1), actor_id=actor.id,
+            idempotency_key=f"discount-{tenant.id}-2026-10", tenant_id=tenant.id,
+        )
+        zero_invoice = zero_generated[0]
+        assert zero_invoice.total_amount == Decimal("0.00")
+        issued = owner_finance_service.issue_invoice(
+            session, invoice_id=zero_invoice.id, expected_version=zero_invoice.version,
+            reason="Emissão do teste controlado.", actor_id=actor.id,
+            idempotency_key=f"issue-zero-{zero_invoice.id}",
+        )
+        assert issued.status == SaasInvoiceStatusEnum.NO_PAYMENT_DUE
+        assert issued.balance_amount == Decimal("0.00")
+        assert issued.status != SaasInvoiceStatusEnum.PAID
+
+
+def test_service_plan_revision_snapshot_is_immutable_in_database():
+    with Session(engine) as session:
+        _, actor = _platform_user(session, PlatformRoleEnum.PLATFORM_OWNER)
+        set_platform_db_context(session, actor.id)
+        _, _, _, _, contract = _invoice_source(session, actor)
+        assert contract.plan_revision_id is not None
+        with pytest.raises(DBAPIError):
+            session.exec(text(
+                "UPDATE service_plan_revisions SET name = 'tentativa' WHERE id = :revision_id"
+            ), params={"revision_id": contract.plan_revision_id})
+            session.commit()
+        session.rollback()
 
 
 def test_f2_invoice_tables_are_platform_only():
