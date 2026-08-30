@@ -105,7 +105,7 @@ def test_owner_p0_provisions_complete_tenant_by_niche(monkeypatch, niche, addons
                 niches=[niche], plan_id=plan.id,
                 capability_keys=list(NICHE_CONTRACTS[niche].required) + addons,
                 quotas=OwnerQuotaCreate(users=8, devices=4, units=2, storage_mb=2048),
-                billing=OwnerBillingCreate(contact_name="Financeiro", email=f"financeiro-{suffix}@example.test"),
+                billing=OwnerBillingCreate(contact_name="Financeiro", email=f"financeiro-{suffix}@example.test", billing_day=10),
                 initial_admin=OwnerInitialAdminCreate(full_name="Administrador Inicial", email=f"admin-{suffix}@example.test"),
             ), principal, session,
         )
