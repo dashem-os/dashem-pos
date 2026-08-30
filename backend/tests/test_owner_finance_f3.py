@@ -62,7 +62,7 @@ def test_f3_receipt_refund_and_overdue_are_real_idempotent_facts():
             payment_method_summary="TRANSFERENCIA_CONFIRMADA",
             evidence_reference="bank-statement:receipt-001",
             reason="Baixa manual conferida no extrato bancário.",
-            received_at=datetime(2027, 9, 10, 12, 0, 0),
+            received_at=datetime(2027, 9, 1, 12, 0, 0),
             actor_id=actor.id,
             idempotency_key=first_key,
         )
@@ -79,7 +79,7 @@ def test_f3_receipt_refund_and_overdue_are_real_idempotent_facts():
             payment_method_summary="TRANSFERENCIA_CONFIRMADA",
             evidence_reference="bank-statement:receipt-001",
             reason="Baixa manual conferida no extrato bancário.",
-            received_at=datetime(2027, 9, 10, 12, 0, 0), actor_id=actor.id,
+            received_at=datetime(2027, 9, 1, 12, 0, 0), actor_id=actor.id,
             idempotency_key=first_key,
         )
         assert replay.id == first.id
@@ -95,7 +95,7 @@ def test_f3_receipt_refund_and_overdue_are_real_idempotent_facts():
             payment_method_summary="PIX_CONFIRMADO",
             evidence_reference="bank-statement:receipt-002",
             reason="PIX identificado e conferido no extrato bancário.",
-            received_at=datetime(2027, 9, 11, 12, 0, 0), actor_id=actor.id,
+            received_at=datetime(2027, 9, 1, 13, 0, 0), actor_id=actor.id,
             idempotency_key=f"manual-receipt-{invoice.id}-2",
         )
         session.refresh(invoice)
