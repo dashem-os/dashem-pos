@@ -121,6 +121,8 @@ def generate_invoices(
             missing.append("contract")
         if plan is None:
             missing.append("plan")
+        if subscription.billing_day is None:
+            missing.append("billing_day")
         if missing:
             skipped.append({
                 "tenant_id": str(subscription.tenant_id),
@@ -140,11 +142,7 @@ def generate_invoices(
         ).hexdigest()
         public_number = f"DSH-{period_start:%Y%m}-{invoice_id.hex[:12].upper()}"
         description = f"Assinatura {plan_snapshot.name} — competência {period_start:%m/%Y}"
-        due_date = date(
-            period_start.year,
-            period_start.month,
-            min(max(subscription.billing_day, 1), 28),
-        )
+        due_date = date(period_start.year, period_start.month, subscription.billing_day)
         invoice = SaasInvoice(
             id=invoice_id,
             public_number=public_number,

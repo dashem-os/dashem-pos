@@ -338,7 +338,7 @@ class OwnerBillingCreate(BaseModel):
     email: str = PydanticField(min_length=5, max_length=254)
     phone: Optional[str] = PydanticField(default=None, max_length=32)
     monthly_amount: Decimal = PydanticField(default=Decimal("0.00"), ge=0)
-    billing_day: int = PydanticField(default=1, ge=1, le=28)
+    billing_day: int = PydanticField(ge=1, le=28)
     discount: Optional[OwnerContractDiscount] = None
 
 
@@ -470,7 +470,7 @@ class PlatformFinanceSubscription(BaseModel):
     discount_amount: Decimal
     discount_reason_code: Optional[str] = None
     discount_ends_on: Optional[date] = None
-    billing_day: int = PydanticField(ge=1, le=28)
+    billing_day: Optional[int] = PydanticField(default=None, ge=1, le=28)
     contract_version: Optional[int] = None
     billing_account_ready: bool
     billing_contact_name: Optional[str] = None

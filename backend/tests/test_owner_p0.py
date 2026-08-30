@@ -41,6 +41,12 @@ def test_owner_billing_contract_accepts_one_persisted_day_between_1_and_28():
         billing_day=28,
     )
     assert billing.billing_day == 28
+    with pytest.raises(ValueError):
+        OwnerBillingCreate(
+            contact_name="Financeiro",
+            email="financeiro@example.test",
+            monthly_amount=119,
+        )
     for invalid_day in (0, 29):
         with pytest.raises(ValueError):
             OwnerBillingCreate(

@@ -267,7 +267,7 @@ class TenantSubscription(SQLModel, table=True):
     discount_starts_on: Optional[date] = None
     discount_ends_on: Optional[date] = None
     discount_review_on: Optional[date] = None
-    billing_day: int = Field(default=1)
+    billing_day: Optional[int] = Field(default=None, nullable=True)
     contracted_user_limit: Optional[int] = None
     contracted_device_limit: Optional[int] = None
     contracted_store_limit: Optional[int] = None

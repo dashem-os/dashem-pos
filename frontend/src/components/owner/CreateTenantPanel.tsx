@@ -22,10 +22,10 @@ const steps = ['Cadastro', 'Modelos de negócio', 'Plano', 'Capabilities', 'Limi
 const initialForm: FormState = {
   name: '', legalName: '', slug: '', tenantType: 'CUSTOMER', phase: 'PILOT', taxId: '',
   companyPhone: '', companyEmail: '', contactName: '', contactEmail: '', contactPhone: '',
-  billingName: '', billingEmail: '', billingPhone: '', monthlyAmount: '0,00', billingDay: '1',
+  billingName: '', billingEmail: '', billingPhone: '', monthlyAmount: '0,00', billingDay: '',
   storeName: 'Matriz', storeCode: 'MATRIZ', postalCode: '', street: '', streetNumber: '',
   complement: '', district: '', city: '', state: '', niches: [], planId: '', capabilityKeys: [],
-  users: '2', devices: '1', units: '1', storageMb: '1024', adminName: '', adminEmail: '',
+  users: '', devices: '', units: '', storageMb: '', adminName: '', adminEmail: '',
 }
 const inputClass = 'mt-2 h-11 w-full rounded-xl border bg-white px-3 font-semibold outline-none transition focus:ring-4'
 const digits = (value: string, max = 14) => onlyDigits(value, max)
@@ -126,7 +126,7 @@ export function CreateTenantPanel({ onClose, onCreated, onManagePlans }: { onClo
       : [...current.niches, key],
   }))
   const toggleCapability = (key: string) => set('capabilityKeys', form.capabilityKeys.includes(key) ? form.capabilityKeys.filter(item => item !== key) : [...form.capabilityKeys, key])
-  const selectPlan = (plan: ServicePlan) => setForm(current => ({ ...current, planId: plan.id, capabilityKeys: plan.capability_keys || [], monthlyAmount: Number(plan.monthly_price || 0).toFixed(2).replace('.', ','), users: String(plan.user_limit ?? Number(current.users || 1)), devices: String(plan.terminal_limit ?? Number(current.devices || 1)), units: String(plan.store_limit ?? Number(current.units || 1)), storageMb: String(plan.storage_limit_mb ?? Number(current.storageMb || 128)) }))
+  const selectPlan = (plan: ServicePlan) => setForm(current => ({ ...current, planId: plan.id, capabilityKeys: plan.capability_keys || [], monthlyAmount: Number(plan.monthly_price || 0).toFixed(2).replace('.', ','), users: plan.user_limit == null ? current.users : String(plan.user_limit), devices: plan.terminal_limit == null ? current.devices : String(plan.terminal_limit), units: plan.store_limit == null ? current.units : String(plan.store_limit), storageMb: plan.storage_limit_mb == null ? current.storageMb : String(plan.storage_limit_mb) }))
   const submit = async () => {
     const errors = errorsForStep(); if (Object.keys(errors).length) { setFieldErrors(errors); setError('Revise os campos destacados para provisionar.'); return }
     setSaving(true); setError('')
