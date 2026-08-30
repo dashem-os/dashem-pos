@@ -1,5 +1,11 @@
 # OWNER-P0 — provisionamento do cliente SaaS
 
+> Direção comercial atualizada pelo ADR-025 em 30/08/2026: atividades comerciais,
+> capabilities e limites são definidos pelo Owner e persistidos em versão
+> contratual. O tenant pode solicitar mudanças, mas não concede direitos a si
+> próprio. Usuários, dispositivos e unidades configurados pertencem à operação
+> do tenant e são apenas observados pelo Owner.
+
 ## Fronteira do Owner
 
 O Platform Owner administra a relação comercial e contratual do SaaS. Ele
@@ -20,7 +26,8 @@ O fluxo persiste na mesma unidade de trabalho:
 - empresa ou profissional, com CPF ou CNPJ validado por dígito verificador;
 - responsável contratual, contato de cobrança e matriz;
 - tipo de tenant separado da fase do relacionamento;
-- zero, um ou vários tipos de negócio;
+- uma ou várias atividades comerciais para clientes; tenant interno sem
+  atividade exige exceção explícita e justificada do Owner;
 - plano, valor mensal negociado, dia e estado da cobrança;
 - limites de usuários, dispositivos, unidades e storage;
 - capabilities efetivamente escolhidas;
@@ -33,15 +40,15 @@ espalhados: o campo recebe borda âmbar `#ffbf00`, mensagem específica e foco.
 
 ## Tipos de negócio e capabilities
 
-`FOOD_SERVICE`, `RETAIL` e `BEAUTY_RESELLER` são perfis de recomendação,
-não barreiras comerciais. Um cliente pode combinar perfis — por exemplo,
-confeitaria e revenda de cosméticos — e alterá-los depois da contratação.
+`FOOD_SERVICE`, `RETAIL` e `BEAUTY_RESELLER` são atividades comerciais
+combináveis. O Owner define uma ou várias durante a contratação e somente uma
+nova versão contratual pode alterá-las. O tenant pode solicitar a mudança, mas
+não a aprova nem a executa diretamente.
 
-Os perfis sugerem capabilities e fornecem uma prévia. A contratação final é a
-seleção explícita de capabilities, validada apenas por dependências técnicas.
-Gestão e POS recebem exclusivamente os entitlements persistidos. Assim, Mesas
-ou KDS nunca aparecem por inferência em um retail, mas podem ser contratados
-quando a operação híbrida realmente exigir.
+Plano, atividades, add-ons e exceções produzem uma proposta inicial de
+capabilities. O Owner revisa essa proposta e persiste a seleção final com a
+procedência de cada entitlement. Gestão e POS recebem exclusivamente os
+entitlements persistidos; nenhuma capability aparece por inferência de runtime.
 
 ## Edição e legado
 

@@ -10,6 +10,7 @@
 | SaleItem herda fronteira da Sale | `test_capability_mesh.py` |
 | Provisionamento Owner é atômico e auditado | `test_owner_console.py` |
 | OWNER-P0 persiste nicho, plano, quotas, entitlements e administrador em uma jornada | `test_owner_p0.py` |
+| Governança Owner separa entitlement, configuração, reserva e medição; multiatividade não possui primária implícita | `test_owner_governance_sprint0.py` |
 | Retail/Beauty nunca recebem Mesas/KDS; Food recebe somente por add-on | `test_owner_p0.py` |
 | Owner não recebe lista de operadores do tenant | `test_owner_p0.py` |
 | Mutação do Control exige AAL2 | `test_owner_console.py` |

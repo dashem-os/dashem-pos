@@ -1,5 +1,11 @@
 # ADR-016 — Capability profiles e module contributions
 
+> Parcialmente substituído pelo ADR-025 em 30/08/2026. Profiles continuam
+> compondo propostas e contributions, mas atividades comerciais e entitlements
+> são definidos pelo Owner em contrato explícito. Um profile não concede nem
+> retira entitlement por inferência e uma operação multiatividade não possui
+> "primeiro profile" implícito.
+
 ## Estado
 
 Aceito em 24/08/2026.
