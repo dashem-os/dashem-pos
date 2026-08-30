@@ -978,7 +978,7 @@ export interface OwnerBilling {
   email: string
   phone?: string
   monthly_amount: number | string
-  billing_day: number
+  billing_day: 1
   discount?: {
     type: 'PERCENTAGE' | 'FIXED'
     value: number | string
@@ -1044,7 +1044,7 @@ export interface PlatformFinanceSubscription {
   discount_amount: number
   discount_reason_code?: string
   discount_ends_on?: string
-  next_due_date?: string
+  billing_day: 1
   contract_version?: number
   billing_account_ready: boolean
   billing_contact_name?: string
@@ -1886,7 +1886,6 @@ export async function updateOwnerTenantContract(tenantId: string, input: {
   quotas: { users: number; devices: number; units: number; storage_mb: number }
   billing: OwnerBilling
   subscription_status: SubscriptionStatus
-  next_due_date?: string
   expected_contract_version: number
   expected_billing_account_version: number
   reason: string

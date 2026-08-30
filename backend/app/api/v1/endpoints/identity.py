@@ -5,7 +5,7 @@ import uuid
 from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Any, List, Optional
+from typing import Any, List, Literal, Optional
 
 import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException
@@ -338,7 +338,7 @@ class OwnerBillingCreate(BaseModel):
     email: str = PydanticField(min_length=5, max_length=254)
     phone: Optional[str] = PydanticField(default=None, max_length=32)
     monthly_amount: Decimal = PydanticField(default=Decimal("0.00"), ge=0)
-    billing_day: int = PydanticField(default=1, ge=1, le=28)
+    billing_day: Literal[1] = 1
     discount: Optional[OwnerContractDiscount] = None
 
 
@@ -470,7 +470,7 @@ class PlatformFinanceSubscription(BaseModel):
     discount_amount: Decimal
     discount_reason_code: Optional[str] = None
     discount_ends_on: Optional[date] = None
-    next_due_date: Optional[date] = None
+    billing_day: Literal[1] = 1
     contract_version: Optional[int] = None
     billing_account_ready: bool
     billing_contact_name: Optional[str] = None
@@ -605,8 +605,7 @@ class TenantSubscriptionUpdate(BaseModel):
     plan_id: Optional[uuid.UUID] = None
     status: SubscriptionStatusEnum
     monthly_amount: Optional[Decimal] = PydanticField(default=None, ge=0)
-    billing_day: Optional[int] = PydanticField(default=None, ge=1, le=28)
-    next_due_date: Optional[date] = None
+    billing_day: Optional[Literal[1]] = None
     expected_version: Optional[int] = PydanticField(default=None, ge=1)
 
 
@@ -619,7 +618,6 @@ class OwnerTenantContractUpdate(BaseModel):
     quotas: OwnerQuotaCreate
     billing: OwnerBillingCreate
     subscription_status: SubscriptionStatusEnum
-    next_due_date: Optional[date] = None
     expected_contract_version: int = PydanticField(ge=0)
     expected_billing_account_version: int = PydanticField(ge=0)
     reason: str = PydanticField(min_length=4, max_length=500)
@@ -982,7 +980,7 @@ def platform_finance_overview(
             discount_amount=amounts[item.tenant_id][1],
             discount_reason_code=item.discount_reason_code,
             discount_ends_on=item.discount_ends_on,
-            next_due_date=item.next_due_date,
+            billing_day=1,
             contract_version=contracts[item.tenant_id].version if item.tenant_id in contracts else None,
             billing_account_ready=_billing_account_ready(accounts.get(item.tenant_id)),
             billing_contact_name=(accounts[item.tenant_id].contact_name if item.tenant_id in accounts else None),
@@ -1826,7 +1824,7 @@ def update_tenant_subscription(
         subscription.discount_review_on = None
     if data.billing_day is not None:
         subscription.billing_day = data.billing_day
-    subscription.next_due_date = data.next_due_date
+    subscription.next_due_date = None
     subscription.version += 1
     subscription.updated_at = datetime.utcnow()
     session.add(subscription)
@@ -1930,7 +1928,7 @@ def update_owner_tenant_contract(
     subscription.status = data.subscription_status
     _commercial_terms(subscription, data.billing)
     subscription.billing_day = data.billing.billing_day
-    subscription.next_due_date = data.next_due_date
+    subscription.next_due_date = None
     subscription.contracted_user_limit = data.quotas.users
     subscription.contracted_device_limit = data.quotas.devices
     subscription.contracted_store_limit = data.quotas.units

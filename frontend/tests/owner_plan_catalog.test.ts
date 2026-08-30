@@ -8,6 +8,7 @@ test('gives the Owner a real commercial plan catalog before tenant contracting',
   const shell = await source('../src/components/owner/OwnerConsoleShell.tsx')
   const plans = await source('../src/components/owner/ServicePlansView.tsx')
   const workspace = await source('../src/components/owner/TenantWorkspace.tsx')
+  const provisioning = await source('../src/components/owner/CreateTenantPanel.tsx')
   const api = await source('../src/services/api.ts')
 
   assert.match(shell, /label="Planos comerciais"/)
@@ -22,6 +23,9 @@ test('gives the Owner a real commercial plan catalog before tenant contracting',
   assert.match(workspace, /Limites contratados/)
   assert.match(workspace, /Cadastre um plano comercial ativo/)
   assert.match(workspace, /Ir para Planos comerciais/)
+  assert.match(provisioning, /Vencimento da assinatura/)
+  assert.match(provisioning, /Todo dia 1/)
+  assert.doesNotMatch(provisioning, /NumberField id="billingDay"/)
   assert.doesNotMatch(workspace, /if \(editing && selectablePlans\.length === 0\) return/)
   assert.match(api, /createServicePlan/)
   assert.match(api, /updateServicePlan/)

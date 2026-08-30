@@ -230,6 +230,10 @@ class TenantSubscription(SQLModel, table=True):
             "monthly_amount = gross_monthly_amount - discount_amount",
             name="ck_tenant_subscriptions_net_formula",
         ),
+        CheckConstraint(
+            "billing_day = 1",
+            name="ck_tenant_subscriptions_billing_day_first",
+        ),
     )
 
     tenant_id: uuid.UUID = Field(foreign_key="tenants.id", primary_key=True)

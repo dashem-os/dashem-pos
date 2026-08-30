@@ -122,6 +122,9 @@ Entregue no código desta etapa:
 
 - migration `056_owner_commercial_pricing` cria revisões imutáveis de plano,
   ancora o contrato à revisão e materializa bruto, desconto e líquido;
+- migration `057_saas_billing_day_first` normaliza todas as assinaturas para
+  vencimento no dia 1, elimina a data manual concorrente e protege a regra com
+  constraint no PostgreSQL;
 - catálogo inicial: Essencial R$ 119, Profissional R$ 229, Performance R$ 389
   e Omnichannel R$ 649, este último inativo até o Integration Hub;
 - cada plano possui pacote padrão de capabilities e limites versionados;
@@ -230,20 +233,20 @@ Evidência local da Fase 4 em 29 de agosto de 2026:
   `054_saas_receipts_collections`, upgrade para head e `alembic check`
   concluídos;
 - `alembic check`: **sem novas operações detectadas**;
-- CI remoto da Fase 4: **aguardando publicação desta revisão**.
+- CI remoto do fechamento comercial: **verde** nos quatro jobs oficiais.
 
-Evidência local da Fase 5 em 29 de agosto de 2026:
+Evidência local consolidada em 30 de agosto de 2026:
 
-- frontend `npm run build`: concluído;
-- migration completa `base → 056_owner_commercial_pricing` concluída em banco
-  PostgreSQL isolado `dashem_pricing_migration_test2`;
+- frontend: **66/66 testes** e `npm run build` concluídos;
+- migration completa `base → 057_saas_billing_day_first`, downgrade para 056 e
+  reaplicação concluídos no PostgreSQL isolado `dashem_billing_rule_ci`;
+- banco padrão reconciliado em `057_saas_billing_day_first`, sem assinatura
+  fora do dia 1, sem `next_due_date` manual e com a constraint presente;
 - quatro planos semeados com preços, situação e snapshots de capabilities
   conferidos diretamente no banco;
-- conjunto focado do Owner, faturamento e projeções: **25/25**;
+- conjunto focado do Owner, faturamento e projeções: **26/26**;
 - teste dedicado confirma Essencial `119,00 - 59,10 = 59,90`, snapshot da
   revisão do plano, linha de desconto e fatura zerada `NO_PAYMENT_DUE`;
-- banco padrão divergente permaneceu inalterado após o upgrade transacional
-  falhar na migration 050; não foi aplicado `stamp` nem reparo destrutivo.
 
 ## Recuperação do CI após a Fase 2
 

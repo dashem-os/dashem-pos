@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ArrowLeft, Ban, Building2, Check, CheckCircle2, Loader2, Pencil, Plus, Save, ShieldCheck, Users, WalletCards, X } from 'lucide-react'
+import { ArrowLeft, Ban, Building2, Check, CheckCircle2, ChevronRight, Loader2, Pencil, Plus, Save, ShieldCheck, Users, WalletCards, X } from 'lucide-react'
 import {
   BusinessNiche, CapabilityCatalogItem, fetchOwnerNiches, fetchPlatformTenantDetail, fetchServicePlans,
   fetchTenantCapabilityCatalog, OwnerNiche, PlatformTenantDetail, replacePlatformTenantAdministrator,
@@ -14,6 +14,8 @@ const nicheLabel: Record<BusinessNiche, string> = { FOOD_SERVICE: 'Food Service'
 const phaseLabel: Record<TenantPhase, string> = { TEST: 'Teste controlado', PILOT: 'Piloto', PRODUCTION: 'Produção' }
 const statusLabel: Record<string, string> = { PENDING: 'Pendente', TRIAL: 'Avaliação', ACTIVE: 'Ativa', PAUSED: 'Pausada', CANCELED: 'Cancelada' }
 const money = (value: number | string | undefined) => Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+const moneyInput = (value: number | string | undefined) => Number(value || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const moneyNumber = (value: string) => Number(value.replace(/\s/g, '').replace(/\./g, '').replace(',', '.')) || 0
 const inputClass = 'mt-2 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 font-semibold outline-none focus:border-[#E12120] focus:ring-4 focus:ring-red-100'
 const digits = (value: string, max = 14) => onlyDigits(value, max)
 
@@ -50,7 +52,12 @@ export function TenantWorkspace({ tenant, onBack, onManagePlans, onFinance, onCh
     <nav className="mt-5 flex gap-2 overflow-x-auto border-b border-slate-200">{([['summary', 'Resumo contratual'], ['registration', 'Cadastro'], ['billing', 'Conta de cobrança'], ['contract', 'Contrato'], ['administrator', 'Administrador inicial']] as Array<[Tab, string]>).map(([key, label]) => <button key={key} onClick={() => { setTab(key); setNotice('') }} className={`shrink-0 border-b-2 px-4 py-4 text-sm font-black ${tab === key ? 'border-[#E12120] text-[#E12120]' : 'border-transparent text-slate-500'}`}>{label}</button>)}</nav>
     <div className="mt-7">
       {tab === 'summary' && !detail.subscription && <section className="mb-5 rounded-2xl border border-amber-300 bg-amber-50 p-5"><p className="text-xs font-black uppercase tracking-wider text-amber-800">Financeiro bloqueado</p><h3 className="mt-2 text-xl font-black">Esta organização ainda não possui assinatura SaaS</h3><p className="mt-2 text-sm text-slate-600">Crie um plano comercial e salve a primeira versão do contrato. Até lá, mensalidade e situação da assinatura não serão presumidas.</p><div className="mt-4 flex flex-wrap gap-2"><button onClick={onManagePlans} className="h-10 rounded-xl bg-[#022444] px-4 text-sm font-black text-white">Cadastrar plano</button><button onClick={() => setTab('contract')} className="h-10 rounded-xl border border-amber-300 bg-white px-4 text-sm font-black">Configurar contrato</button></div></section>}
-      {tab === 'summary' && <div className="grid gap-5 lg:grid-cols-3"><Card icon={Building2} title="Contrato" value={detail.plan?.name || 'Sem plano'} hint={`${detail.niches.length ? detail.niches.map(item => nicheLabel[item]).join(' + ') : 'Sem filtro'} · versão ${detail.contract?.version ?? '—'}`} /><Card icon={WalletCards} title="Mensalidade SaaS" value={detail.subscription ? money(detail.subscription.monthly_amount) : 'Não configurada'} hint={detail.subscription ? `Vencimento contratual dia ${detail.subscription.billing_day || '—'} · assinatura ${detail.subscription.status}` : 'Salve a primeira versão do contrato'} /><Card icon={Users} title="Administrador" value={admin?.full_name || 'Pendente'} hint={admin?.email || 'Primeiro acesso ainda não entregue'} /><section className="rounded-2xl border border-slate-200 bg-white p-6 lg:col-span-3"><h3 className="text-lg font-black">Limites contratados</h3><div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><Limit label="Usuários" value={limits.users} /><Limit label="Dispositivos" value={limits.devices} /><Limit label="Unidades" value={limits.units} /><Limit label="Storage" value={limits.storage_mb ? `${limits.storage_mb} MB` : undefined} /></div></section></div>}
+      {tab === 'summary' && <div className="grid gap-5 lg:grid-cols-3">
+        <Card icon={Building2} title="Contrato" value={detail.plan?.name || 'Sem plano'} hint={`${detail.niches.length ? detail.niches.map(item => nicheLabel[item]).join(' + ') : 'Sem filtro'} · versão ${detail.contract?.version ?? '—'}`} onClick={() => setTab('contract')} />
+        <Card icon={WalletCards} title="Mensalidade SaaS" value={detail.subscription ? money(detail.subscription.monthly_amount) : 'Não configurada'} hint={detail.subscription ? `Vencimento todo dia 1 · assinatura ${statusLabel[detail.subscription.status] || detail.subscription.status}` : 'Salve a primeira versão do contrato'} onClick={() => setTab('contract')} />
+        <Card icon={Users} title="Administrador" value={admin?.full_name || 'Pendente'} hint={admin?.email || 'Primeiro acesso ainda não entregue'} onClick={() => setTab('administrator')} />
+        <section className="rounded-2xl border border-slate-200 bg-white p-6 lg:col-span-3"><h3 className="text-lg font-black">Limites contratados</h3><div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><Limit label="Usuários" value={limits.users} /><Limit label="Dispositivos" value={limits.devices} /><Limit label="Unidades" value={limits.units} /><Limit label="Storage" value={limits.storage_mb ? `${limits.storage_mb} MB` : undefined} /></div></section>
+      </div>}
       {tab === 'registration' && <RegistrationEditor detail={detail} onSaved={changed} />}
       {tab === 'billing' && <BillingAccountPanel detail={detail} onSaved={changed} />}
       {tab === 'contract' && <ContractEditor detail={detail} catalog={catalog} niches={niches} plans={plans} onManagePlans={onManagePlans} onFinance={onFinance} onSaved={changed} />}
@@ -158,7 +165,7 @@ function ContractEditor({ detail, catalog, niches, plans, onManagePlans, onFinan
   const [keys, setKeys] = useState(catalog.filter(item => item.enabled).map(item => item.key))
   const [users, setUsers] = useState(String(limits.users ?? 1)); const [devices, setDevices] = useState(String(limits.devices ?? 1)); const [units, setUnits] = useState(String(limits.units ?? 1)); const [storage, setStorage] = useState(String(limits.storage_mb ?? 128))
   const [contactName, setContactName] = useState(billing.contact_name || ''); const [email, setEmail] = useState(billing.email || ''); const [phone, setPhone] = useState(billing.phone || '')
-  const [amount, setAmount] = useState(String(billing.monthly_amount || detail.subscription?.monthly_amount || 0)); const [billingDay, setBillingDay] = useState(String(billing.billing_day || detail.subscription?.billing_day || 1)); const [subscriptionStatus, setSubscriptionStatus] = useState<SubscriptionStatus>(detail.subscription?.status || 'PENDING'); const [nextDueDate, setNextDueDate] = useState(detail.subscription?.next_due_date || ''); const [reason, setReason] = useState('Atualização comercial solicitada pelo Owner.')
+  const [amount, setAmount] = useState(moneyInput(billing.monthly_amount || detail.subscription?.monthly_amount || 0)); const [subscriptionStatus, setSubscriptionStatus] = useState<SubscriptionStatus>(detail.subscription?.status || 'PENDING'); const [reason, setReason] = useState('Atualização comercial solicitada pelo Owner.')
   const [discountType, setDiscountType] = useState<'NONE' | 'PERCENTAGE' | 'FIXED'>(detail.subscription?.discount_type || savedBilling.discount_type || 'NONE')
   const [discountValue, setDiscountValue] = useState(String(detail.subscription?.discount_value || savedBilling.discount_value || 0))
   const [discountReasonCode, setDiscountReasonCode] = useState(detail.subscription?.discount_reason_code || savedBilling.discount_reason_code || 'LAUNCH_PROMOTION')
@@ -168,20 +175,19 @@ function ContractEditor({ detail, catalog, niches, plans, onManagePlans, onFinan
   const [discountReviewOn, setDiscountReviewOn] = useState(detail.subscription?.discount_review_on || savedBilling.discount_review_on || '')
   const suggested = useMemo(() => new Set(niches.filter(item => selectedNiches.includes(item.key)).flatMap(item => [...item.required_capabilities, ...item.allowed_addons].map(capability => capability.key))), [niches, selectedNiches])
   const selectedPlan = plans.find(item => item.id === planId)
-  const grossAmount = Math.max(0, Number(String(amount).replace(',', '.')) || 0)
-  const discountInput = Math.max(0, Number(String(discountValue).replace(',', '.')) || 0)
+  const grossAmount = Math.max(0, moneyNumber(amount))
+  const discountInput = Math.max(0, discountType === 'FIXED' ? moneyNumber(discountValue) : Number(String(discountValue).replace(',', '.')) || 0)
   const previewDiscount = discountType === 'PERCENTAGE'
     ? Math.min(grossAmount, grossAmount * discountInput / 100)
     : discountType === 'FIXED' ? Math.min(grossAmount, discountInput) : 0
   const previewNet = Math.max(0, grossAmount - previewDiscount)
-  const selectablePlans = plans.filter(item => item.is_active || item.id === planId)
   const toggleNiche = (key: BusinessNiche) => setSelectedNiches(current => current.includes(key) ? current.filter(item => item !== key) : [...current, key])
   const toggleCapability = (key: string) => setKeys(current => current.includes(key) ? current.filter(item => item !== key) : [...current, key])
   const selectPlan = (value: string) => {
     setPlanId(value)
     const plan = plans.find(item => item.id === value)
     if (!plan) return
-    setAmount(String(plan.monthly_price))
+    setAmount(moneyInput(plan.monthly_price))
     setKeys(plan.capability_keys || [])
   }
   const save = async () => {
@@ -196,8 +202,6 @@ function ContractEditor({ detail, catalog, niches, plans, onManagePlans, onFinan
       setError('Complete o contato e o e-mail de cobrança na seção Plano e cobrança antes de salvar.')
       return
     }
-    const dueDay = Number(billingDay)
-    if (!Number.isInteger(dueDay) || dueDay < 1 || dueDay > 28) { setError('O dia de vencimento deve ficar entre 1 e 28.'); return }
     if (discountType === 'PERCENTAGE' && (discountInput <= 0 || discountInput > 100)) { setError('O desconto percentual deve ficar entre 0,01% e 100%.'); return }
     if (discountType === 'FIXED' && (discountInput <= 0 || discountInput > grossAmount)) { setError('O desconto fixo deve ser positivo e não pode superar o valor-base.'); return }
     if (discountType !== 'NONE' && discountReason.trim().length < 4) { setError('Registre a justificativa do desconto.'); return }
@@ -209,7 +213,7 @@ function ContractEditor({ detail, catalog, niches, plans, onManagePlans, onFinan
         plan_id: planId, niches: selectedNiches, capability_keys: keys, quotas,
         billing: {
           contact_name: contactName.trim(), email: email.trim(), phone: phone || undefined,
-          monthly_amount: grossAmount, billing_day: dueDay,
+          monthly_amount: grossAmount, billing_day: 1,
           discount: discountType === 'NONE' ? undefined : {
             type: discountType, value: discountInput, reason_code: discountReasonCode,
             reason: discountReason.trim(), starts_on: discountStartsOn || undefined,
@@ -217,7 +221,6 @@ function ContractEditor({ detail, catalog, niches, plans, onManagePlans, onFinan
           },
         },
         subscription_status: subscriptionStatus,
-        next_due_date: nextDueDate || undefined,
         expected_contract_version: detail.contract?.version ?? 0,
         expected_billing_account_version: detail.billing_account?.version ?? 0,
         reason,
@@ -236,11 +239,12 @@ function ContractEditor({ detail, catalog, niches, plans, onManagePlans, onFinan
     {error && <p className="rounded-xl border border-[#ffbf00] bg-amber-50 p-4 text-sm font-bold">{error}</p>}
     {contractSection === 'billing' && <section className="rounded-2xl border border-slate-200 bg-white p-6">
       <h4 className="font-black">Plano e cobrança SaaS</h4>
-      <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <Select label="Plano" value={planId} onChange={selectPlan} options={[["", "Selecione"], ...plans.map(plan => [plan.id, `${plan.name} · ${money(plan.monthly_price)}`] as [string, string])]} />
-        <TextField label="Valor-base contratado (R$)" value={amount} onChange={setAmount} />
-        <NumberInput label="Dia de vencimento" value={billingDay} min={1} max={28} onChange={setBillingDay} />
-        <TextField label="Próxima cobrança contratual prevista" type="date" value={nextDueDate} onChange={setNextDueDate} />
+      <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(320px,1.4fr)_minmax(220px,1fr)_minmax(220px,1fr)]">
+        <div className="min-w-0"><Select label="Plano" value={planId} onChange={selectPlan} options={[["", "Selecione"], ...plans.map(plan => [plan.id, plan.name] as [string, string])]} />{selectedPlan && <p className="mt-1 text-xs font-semibold text-slate-500">Preço de tabela: {money(selectedPlan.monthly_price)}</p>}</div>
+        <CurrencyInput label="Valor-base contratado" value={amount} onChange={setAmount} />
+        <ReadOnlyField label="Vencimento da assinatura" value="Todo dia 1" hint="A data é calculada automaticamente em cada competência." />
+      </div>
+      <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Select label="Assinatura" value={subscriptionStatus} onChange={value => setSubscriptionStatus(value as SubscriptionStatus)} options={[["PENDING", "Pendente"], ["TRIAL", "Avaliação"], ["ACTIVE", "Ativa"], ["PAUSED", "Pausada"], ["CANCELED", "Cancelada"]]} />
         <TextField label="Contato de cobrança" value={contactName} onChange={setContactName} />
         <TextField label="E-mail de cobrança" value={email} onChange={setEmail} />
@@ -249,7 +253,7 @@ function ContractEditor({ detail, catalog, niches, plans, onManagePlans, onFinan
       <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4">
         <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center"><div><h5 className="font-black">Desconto contratual</h5><p className="text-sm text-slate-500">Aplicado pelo Owner sem alterar o preço de tabela do plano.</p></div><Select label="Tipo" value={discountType} onChange={value => setDiscountType(value as typeof discountType)} options={[["NONE", "Sem desconto"], ["FIXED", "Valor fixo"], ["PERCENTAGE", "Percentual"]]} /></div>
         {discountType !== 'NONE' && <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <TextField label={discountType === 'PERCENTAGE' ? 'Desconto (%)' : 'Desconto (R$)'} value={discountValue} onChange={setDiscountValue} />
+          {discountType === 'PERCENTAGE' ? <TextField label="Desconto (%)" value={discountValue} onChange={setDiscountValue} /> : <CurrencyInput label="Desconto" value={discountValue} onChange={setDiscountValue} />}
           <Select label="Motivo" value={discountReasonCode} onChange={setDiscountReasonCode} options={[["INTERNAL_CONTROLLED_TEST", "Teste interno controlado"], ["COMMERCIAL_PILOT", "Piloto comercial"], ["LAUNCH_PROMOTION", "Promoção de lançamento"], ["PARTNERSHIP", "Parceria"], ["RETENTION", "Retenção"], ["COMMERCIAL_NEGOTIATION", "Negociação comercial"], ["SERVICE_COMPENSATION", "Compensação de serviço"]]} />
           <TextField label="Início" type="date" value={discountStartsOn} onChange={setDiscountStartsOn} />
           <TextField label="Encerramento" type="date" value={discountEndsOn} onChange={setDiscountEndsOn} />
@@ -286,11 +290,13 @@ function AdministratorPanel({ tenantId, admin, onSaved }: { tenantId: string; ad
   }
   return <section className="rounded-2xl border border-slate-200 bg-white p-6"><h3 className="text-xl font-black">Administrador contratual</h3><p className="mt-2 text-sm text-slate-500">O Owner pode corrigir ou substituir este acesso mediante solicitação do cliente. A equipe operacional continua sob responsabilidade do tenant.</p>{admin && <div className="mt-5 rounded-xl bg-emerald-50 p-4 text-sm"><strong>Acesso atual:</strong> {admin.full_name} · {admin.email} · {admin.status}</div>}<form onSubmit={submit} className="mt-6 grid gap-4 sm:grid-cols-2"><TextField label="Nome" value={form.full_name} onChange={value => setForm(current => ({ ...current, full_name: value }))} /><TextField label="E-mail administrativo" type="email" value={form.email} onChange={value => setForm(current => ({ ...current, email: value }))} /><div className="sm:col-span-2"><TextField label="Motivo da alteração" value={form.reason} onChange={value => setForm(current => ({ ...current, reason: value }))} /></div>{error && <p className="rounded-xl border border-[#ffbf00] bg-amber-50 p-3 text-sm font-bold text-[#6b4b00] sm:col-span-2">A alteração não foi salva. {error}</p>}<button disabled={saving || !form.email.includes('@') || form.full_name.trim().length < 2 || form.reason.trim().length < 4} className="flex h-11 items-center justify-center gap-2 rounded-xl bg-[#E12120] px-5 font-black text-white disabled:opacity-40 sm:col-span-2 sm:w-fit">{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}{saving ? 'Salvando…' : admin ? 'Salvar ou substituir administrador' : 'Entregar primeiro acesso'}</button></form></section>
 }
-function Card({ icon: Icon, title, value, hint }: { icon: React.ComponentType<{ className?: string }>; title: string; value: string; hint: string }) { return <article className="rounded-2xl border border-slate-200 bg-white p-6"><Icon className="h-6 w-6 text-[#E12120]" /><p className="mt-4 text-xs font-black uppercase text-slate-400">{title}</p><p className="mt-2 text-xl font-black">{value}</p><p className="mt-2 text-sm text-slate-500">{hint}</p></article> }
+function Card({ icon: Icon, title, value, hint, onClick }: { icon: React.ComponentType<{ className?: string }>; title: string; value: string; hint: string; onClick: () => void }) { return <button type="button" onClick={onClick} className="group rounded-2xl border border-slate-200 bg-white p-6 text-left transition hover:-translate-y-0.5 hover:border-[#E12120] hover:shadow-md focus:outline-none focus:ring-4 focus:ring-red-100"><div className="flex items-start justify-between gap-4"><Icon className="h-6 w-6 text-[#E12120]" /><ChevronRight className="h-5 w-5 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-[#E12120]" /></div><p className="mt-4 text-xs font-black uppercase text-slate-400">{title}</p><p className="mt-2 break-words text-xl font-black">{value}</p><p className="mt-2 break-words text-sm text-slate-500">{hint}</p></button> }
 function Limit({ label, value }: { label: string; value: unknown }) { return <div className="rounded-xl bg-slate-50 p-4"><p className="text-xs font-black uppercase text-slate-400">{label === 'Storage' ? 'Storage · sem medição' : label}</p><p className="mt-2 text-2xl font-black">{value === undefined ? '—' : String(value)}</p></div> }
 function InfoSection({ title, children }: { title: string; children: React.ReactNode }) { return <section className="rounded-2xl border border-slate-200 bg-white p-6"><h3 className="border-b border-slate-100 pb-4 text-lg font-black">{title}</h3><div className="mt-5 grid gap-5 sm:grid-cols-2">{children}</div></section> }
 function Info({ label, value }: { label: string; value?: string | null }) { return <div><p className="text-xs font-black uppercase text-slate-400">{label}</p><p className="mt-2 font-semibold">{value || 'Não informado'}</p></div> }
 function TextField({ label, value, onChange, type = 'text' }: { label: string; value: string; onChange: (value: string) => void; type?: string }) { return <label className="text-sm font-black">{label}<input type={type} value={value} onChange={event => onChange(event.target.value)} className={inputClass} /></label> }
+function CurrencyInput({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) { return <label className="text-sm font-black">{label}<div className="relative mt-2"><span className="pointer-events-none absolute inset-y-0 left-3 flex items-center font-bold text-slate-500">R$</span><input type="text" inputMode="decimal" value={value} onChange={event => onChange(event.target.value.replace(/[^\d.,]/g, ''))} onBlur={() => onChange(moneyInput(moneyNumber(value)))} className="h-11 w-full rounded-xl border border-slate-300 bg-white pl-11 pr-3 font-semibold outline-none focus:border-[#E12120] focus:ring-4 focus:ring-red-100" /></div></label> }
+function ReadOnlyField({ label, value, hint }: { label: string; value: string; hint: string }) { return <div><p className="text-sm font-black">{label}</p><div className="mt-2 flex h-11 items-center rounded-xl border border-slate-200 bg-slate-50 px-3 font-black text-[#022444]">{value}</div><p className="mt-1 text-xs font-semibold text-slate-500">{hint}</p></div> }
 function NumberInput({ label, value, onChange, min = 1, max }: { label: string; value: string; onChange: (value: string) => void; min?: number; max?: number }) { return <label className="text-sm font-black">{label === 'Storage (MB)' ? 'Storage (MB) — contratual, sem medição' : label}<input type="text" inputMode="numeric" value={value} onChange={event => onChange(onlyDigits(event.target.value).replace(/^0+(?=\d)/, ''))} className={inputClass} />{max && <span className="mt-1 block text-xs text-slate-400">Teto do plano: {max}</span>}{min > 1 && <span className="mt-1 block text-xs text-slate-400">Mínimo: {min}</span>}</label> }
 function Select({ label, value, options, onChange }: { label: string; value: string; options: Array<[string, string]>; onChange: (value: string) => void }) { return <label className="text-sm font-black">{label}<select value={value} onChange={event => onChange(event.target.value)} className={inputClass}>{options.map(([key, text]) => <option key={key} value={key}>{text}</option>)}</select></label> }
 function LifecycleModal({ status, onClose, onConfirm }: { status: 'PAUSED' | 'ARCHIVED'; onClose: () => void; onConfirm: (reason: string) => Promise<void> }) { const [reason, setReason] = useState(''); const [saving, setSaving] = useState(false); const [error, setError] = useState(''); const submit = async (event: React.FormEvent) => { event.preventDefault(); setSaving(true); try { await onConfirm(reason) } catch (cause) { setError(cause instanceof Error ? cause.message : 'Não foi possível concluir.'); setSaving(false) } }; return <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#022444]/60 p-4"><button className="absolute inset-0" onClick={onClose} /><form onSubmit={submit} className="relative w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl"><h2 className="text-xl font-black">{status === 'PAUSED' ? 'Pausar' : 'Arquivar'} cliente</h2><p className="mt-2 text-sm text-slate-500">A ação preserva contrato, cadastro e auditoria.</p><TextField label="Motivo" value={reason} onChange={setReason} />{error && <p className="mt-3 text-sm font-bold text-red-700">{error}</p>}<div className="mt-6 flex gap-3"><button type="button" onClick={onClose} className="h-11 flex-1 rounded-xl border border-slate-300 font-black">Cancelar</button><button disabled={saving || reason.trim().length < 3} className="h-11 flex-1 rounded-xl bg-[#E12120] font-black text-white disabled:opacity-40">Confirmar</button></div></form></div> }
