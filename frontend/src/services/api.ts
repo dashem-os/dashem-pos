@@ -969,7 +969,9 @@ export interface TenantSubscription {
   discount_ends_on?: string
   discount_review_on?: string
   billing_day: number
-  next_due_date?: string
+  contracted_user_limit?: number
+  contracted_device_limit?: number
+  contracted_store_limit?: number
   version: number
 }
 
@@ -978,7 +980,7 @@ export interface OwnerBilling {
   email: string
   phone?: string
   monthly_amount: number | string
-  billing_day: 1
+  billing_day: number
   discount?: {
     type: 'PERCENTAGE' | 'FIXED'
     value: number | string
@@ -1044,7 +1046,7 @@ export interface PlatformFinanceSubscription {
   discount_amount: number
   discount_reason_code?: string
   discount_ends_on?: string
-  billing_day: 1
+  billing_day: number
   contract_version?: number
   billing_account_ready: boolean
   billing_contact_name?: string

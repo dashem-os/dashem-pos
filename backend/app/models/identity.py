@@ -231,8 +231,8 @@ class TenantSubscription(SQLModel, table=True):
             name="ck_tenant_subscriptions_net_formula",
         ),
         CheckConstraint(
-            "billing_day = 1",
-            name="ck_tenant_subscriptions_billing_day_first",
+            "billing_day BETWEEN 1 AND 28",
+            name="ck_tenant_subscriptions_billing_day_range",
         ),
     )
 
@@ -268,7 +268,6 @@ class TenantSubscription(SQLModel, table=True):
     discount_ends_on: Optional[date] = None
     discount_review_on: Optional[date] = None
     billing_day: int = Field(default=1)
-    next_due_date: Optional[date] = None
     contracted_user_limit: Optional[int] = None
     contracted_device_limit: Optional[int] = None
     contracted_store_limit: Optional[int] = None

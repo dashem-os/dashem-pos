@@ -33,21 +33,22 @@ def _owner(session: Session) -> tuple[AuthPrincipal, User]:
     return AuthPrincipal(subject=subject, email=user.email, session_id=str(uuid.uuid4()), assurance_level="aal2", claims={"sub": subject, "aal": "aal2"}, provider="email"), user
 
 
-def test_owner_billing_contract_accepts_only_the_first_day_of_the_month():
+def test_owner_billing_contract_accepts_one_persisted_day_between_1_and_28():
     billing = OwnerBillingCreate(
         contact_name="Financeiro",
         email="financeiro@example.test",
         monthly_amount=119,
-        billing_day=1,
+        billing_day=28,
     )
-    assert billing.billing_day == 1
-    with pytest.raises(ValueError):
-        OwnerBillingCreate(
-            contact_name="Financeiro",
-            email="financeiro@example.test",
-            monthly_amount=119,
-            billing_day=2,
-        )
+    assert billing.billing_day == 28
+    for invalid_day in (0, 29):
+        with pytest.raises(ValueError):
+            OwnerBillingCreate(
+                contact_name="Financeiro",
+                email="financeiro@example.test",
+                monthly_amount=119,
+                billing_day=invalid_day,
+            )
 
 
 def _valid_cnpj(base: str) -> str:
@@ -169,7 +170,7 @@ def test_owner_can_combine_niches_and_version_existing_contract(monkeypatch):
             plan_id=plan.id, niches=[BusinessNiche.RETAIL, BusinessNiche.BEAUTY_RESELLER],
             capability_keys=["catalog", "inventory", "payments", "receivables"],
             quotas=OwnerQuotaCreate(users=8, devices=4, units=2, storage_mb=4096),
-            billing=OwnerBillingCreate(contact_name="Novo Financeiro", email=f"cobranca-{suffix}@example.test", monthly_amount=229, billing_day=1),
+            billing=OwnerBillingCreate(contact_name="Novo Financeiro", email=f"cobranca-{suffix}@example.test", monthly_amount=229, billing_day=12),
             subscription_status=SubscriptionStatusEnum.ACTIVE,
             expected_contract_version=1,
             expected_billing_account_version=1,
@@ -178,7 +179,7 @@ def test_owner_can_combine_niches_and_version_existing_contract(monkeypatch):
         assert detail.contract.version == 2
         assert detail.niches == [BusinessNiche.RETAIL, BusinessNiche.BEAUTY_RESELLER]
         assert detail.subscription.monthly_amount == 229
-        assert detail.subscription.billing_day == 1
+        assert detail.subscription.billing_day == 12
         assert detail.billing_account.contact_name == "Novo Financeiro"
         assert detail.billing_account.contact_email == f"cobranca-{suffix}@example.test"
         assert detail.billing_account.version == 2

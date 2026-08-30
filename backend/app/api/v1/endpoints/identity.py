@@ -5,7 +5,7 @@ import uuid
 from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Any, List, Literal, Optional
+from typing import Any, List, Optional
 
 import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException
@@ -338,7 +338,7 @@ class OwnerBillingCreate(BaseModel):
     email: str = PydanticField(min_length=5, max_length=254)
     phone: Optional[str] = PydanticField(default=None, max_length=32)
     monthly_amount: Decimal = PydanticField(default=Decimal("0.00"), ge=0)
-    billing_day: Literal[1] = 1
+    billing_day: int = PydanticField(default=1, ge=1, le=28)
     discount: Optional[OwnerContractDiscount] = None
 
 
@@ -470,7 +470,7 @@ class PlatformFinanceSubscription(BaseModel):
     discount_amount: Decimal
     discount_reason_code: Optional[str] = None
     discount_ends_on: Optional[date] = None
-    billing_day: Literal[1] = 1
+    billing_day: int = PydanticField(ge=1, le=28)
     contract_version: Optional[int] = None
     billing_account_ready: bool
     billing_contact_name: Optional[str] = None
@@ -605,7 +605,7 @@ class TenantSubscriptionUpdate(BaseModel):
     plan_id: Optional[uuid.UUID] = None
     status: SubscriptionStatusEnum
     monthly_amount: Optional[Decimal] = PydanticField(default=None, ge=0)
-    billing_day: Optional[Literal[1]] = None
+    billing_day: Optional[int] = PydanticField(default=None, ge=1, le=28)
     expected_version: Optional[int] = PydanticField(default=None, ge=1)
 
 
@@ -980,7 +980,7 @@ def platform_finance_overview(
             discount_amount=amounts[item.tenant_id][1],
             discount_reason_code=item.discount_reason_code,
             discount_ends_on=item.discount_ends_on,
-            billing_day=1,
+            billing_day=item.billing_day,
             contract_version=contracts[item.tenant_id].version if item.tenant_id in contracts else None,
             billing_account_ready=_billing_account_ready(accounts.get(item.tenant_id)),
             billing_contact_name=(accounts[item.tenant_id].contact_name if item.tenant_id in accounts else None),
@@ -1501,13 +1501,18 @@ def platform_tenant_detail(
         select(TenantContact).where(TenantContact.tenant_id == tenant_id).order_by(TenantContact.is_primary.desc(), TenantContact.full_name)
     ).all()
     subscription = session.get(TenantSubscription, tenant_id)
-    plan = session.get(ServicePlan, subscription.plan_id) if subscription and subscription.plan_id else None
     capabilities = session.exec(
         select(TenantCapability).where(TenantCapability.tenant_id == tenant_id).order_by(TenantCapability.key)
     ).all()
     contract = session.exec(
         select(TenantContract).where(TenantContract.tenant_id == tenant_id).order_by(TenantContract.version.desc())
     ).first()
+    effective_plan_id = (
+        subscription.plan_id if subscription and subscription.plan_id
+        else contract.plan_id if contract and contract.plan_id
+        else None
+    )
+    plan = session.get(ServicePlan, effective_plan_id) if effective_plan_id else None
     billing_account = session.exec(
         select(SaasBillingAccount).where(SaasBillingAccount.tenant_id == tenant_id)
     ).first()
@@ -1520,9 +1525,18 @@ def platform_tenant_detail(
     if assignment_row and assignment_row[1].profile_key in {item.value for item in BusinessNiche}:
         niche = BusinessNiche(assignment_row[1].profile_key)
     niche_values = contract.limits.get("business_niches", []) if contract else []
+    if not niche_values and contract and contract.limits.get("niche"):
+        niche_values = [contract.limits["niche"]]
     niches = [BusinessNiche(value) for value in niche_values if value in {item.value for item in BusinessNiche}]
     if not niches and niche:
         niches = [niche]
+    if not niches and profile and profile.industry:
+        known_niches = {item.value for item in BusinessNiche}
+        legacy_values = [
+            value.strip().upper().replace(" ", "_")
+            for value in profile.industry.split(",")
+        ]
+        niches = [BusinessNiche(value) for value in legacy_values if value in known_niches]
     if niches:
         niche = niches[0]
     store_map = {store.id: store for store in stores}
@@ -1824,7 +1838,6 @@ def update_tenant_subscription(
         subscription.discount_review_on = None
     if data.billing_day is not None:
         subscription.billing_day = data.billing_day
-    subscription.next_due_date = None
     subscription.version += 1
     subscription.updated_at = datetime.utcnow()
     session.add(subscription)
@@ -1928,7 +1941,6 @@ def update_owner_tenant_contract(
     subscription.status = data.subscription_status
     _commercial_terms(subscription, data.billing)
     subscription.billing_day = data.billing.billing_day
-    subscription.next_due_date = None
     subscription.contracted_user_limit = data.quotas.users
     subscription.contracted_device_limit = data.quotas.devices
     subscription.contracted_store_limit = data.quotas.units

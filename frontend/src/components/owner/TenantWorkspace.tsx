@@ -54,13 +54,13 @@ export function TenantWorkspace({ tenant, onBack, onManagePlans, onFinance, onCh
       {tab === 'summary' && !detail.subscription && <section className="mb-5 rounded-2xl border border-amber-300 bg-amber-50 p-5"><p className="text-xs font-black uppercase tracking-wider text-amber-800">Financeiro bloqueado</p><h3 className="mt-2 text-xl font-black">Esta organização ainda não possui assinatura SaaS</h3><p className="mt-2 text-sm text-slate-600">Crie um plano comercial e salve a primeira versão do contrato. Até lá, mensalidade e situação da assinatura não serão presumidas.</p><div className="mt-4 flex flex-wrap gap-2"><button onClick={onManagePlans} className="h-10 rounded-xl bg-[#022444] px-4 text-sm font-black text-white">Cadastrar plano</button><button onClick={() => setTab('contract')} className="h-10 rounded-xl border border-amber-300 bg-white px-4 text-sm font-black">Configurar contrato</button></div></section>}
       {tab === 'summary' && <div className="grid gap-5 lg:grid-cols-3">
         <Card icon={Building2} title="Contrato" value={detail.plan?.name || 'Sem plano'} hint={`${detail.niches.length ? detail.niches.map(item => nicheLabel[item]).join(' + ') : 'Sem filtro'} · versão ${detail.contract?.version ?? '—'}`} onClick={() => setTab('contract')} />
-        <Card icon={WalletCards} title="Mensalidade SaaS" value={detail.subscription ? money(detail.subscription.monthly_amount) : 'Não configurada'} hint={detail.subscription ? `Vencimento todo dia 1 · assinatura ${statusLabel[detail.subscription.status] || detail.subscription.status}` : 'Salve a primeira versão do contrato'} onClick={() => setTab('contract')} />
+        <Card icon={WalletCards} title="Mensalidade SaaS" value={detail.subscription ? money(detail.subscription.monthly_amount) : 'Não configurada'} hint={detail.subscription ? `Vencimento no dia ${detail.subscription.billing_day} · assinatura ${statusLabel[detail.subscription.status] || detail.subscription.status}` : 'Salve a primeira versão do contrato'} onClick={() => setTab('contract')} />
         <Card icon={Users} title="Administrador" value={admin?.full_name || 'Pendente'} hint={admin?.email || 'Primeiro acesso ainda não entregue'} onClick={() => setTab('administrator')} />
-        <section className="rounded-2xl border border-slate-200 bg-white p-6 lg:col-span-3"><h3 className="text-lg font-black">Limites contratados</h3><div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><Limit label="Usuários" value={limits.users} /><Limit label="Dispositivos" value={limits.devices} /><Limit label="Unidades" value={limits.units} /><Limit label="Storage" value={limits.storage_mb ? `${limits.storage_mb} MB` : undefined} /></div></section>
+        <section className="rounded-2xl border border-slate-200 bg-white p-6 lg:col-span-3"><div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between"><div><h3 className="text-lg font-black">Limites contratados</h3><p className="mt-1 text-sm text-slate-500">{detail.plan ? `Plano ${detail.plan.name}: ${detail.plan.capability_keys.length} capabilities incluídas` : 'Nenhum plano vinculado ao contrato'}</p></div>{detail.plan && <p className="text-xs font-bold text-slate-500">Pacote: {detail.plan.user_limit ?? '∞'} usuários · {detail.plan.terminal_limit ?? '∞'} dispositivos · {detail.plan.store_limit ?? '∞'} unidades · {detail.plan.storage_limit_mb ?? '∞'} MB</p>}</div><div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><Limit label="Usuários" value={limits.users ?? detail.subscription?.contracted_user_limit ?? detail.plan?.user_limit} /><Limit label="Dispositivos" value={limits.devices ?? detail.subscription?.contracted_device_limit ?? detail.plan?.terminal_limit} /><Limit label="Unidades" value={limits.units ?? detail.subscription?.contracted_store_limit ?? detail.plan?.store_limit} /><Limit label="Storage" value={(limits.storage_mb ?? detail.plan?.storage_limit_mb) ? `${limits.storage_mb ?? detail.plan?.storage_limit_mb} MB` : undefined} /></div></section>
       </div>}
       {tab === 'registration' && <RegistrationEditor detail={detail} onSaved={changed} />}
       {tab === 'billing' && <BillingAccountPanel detail={detail} onSaved={changed} />}
-      {tab === 'contract' && <ContractEditor detail={detail} catalog={catalog} niches={niches} plans={plans} onManagePlans={onManagePlans} onFinance={onFinance} onSaved={changed} />}
+      {tab === 'contract' && <ContractEditor key={`${detail.tenant.id}:${detail.contract?.version ?? 0}`} detail={detail} catalog={catalog} niches={niches} plans={plans} onManagePlans={onManagePlans} onFinance={onFinance} onSaved={changed} />}
       {tab === 'administrator' && <AdministratorPanel tenantId={tenant.id} admin={admin} onSaved={changed} />}
     </div>
     {lifecycle && <LifecycleModal status={lifecycle} onClose={() => setLifecycle(null)} onConfirm={async reason => { await updatePlatformTenantLifecycle(tenant.id, lifecycle, reason); setLifecycle(null); onBack(); onChanged() }} />}
@@ -141,6 +141,7 @@ function RegistrationEditor({ detail, onSaved }: { detail: PlatformTenantDetail;
 
 function ContractEditor({ detail, catalog, niches, plans, onManagePlans, onFinance, onSaved }: { detail: PlatformTenantDetail; catalog: CapabilityCatalogItem[]; niches: OwnerNiche[]; plans: ServicePlan[]; onManagePlans: () => void; onFinance: () => void; onSaved: () => Promise<void> }) {
   const limits = detail.contract?.limits || {}
+  const initialPlan = plans.find(item => item.id === detail.plan?.id)
   const primaryContact = detail.contacts.find(item => item.is_primary) || detail.contacts[0]
   const contractualAdmin = detail.accesses[0]
   const savedBilling = (limits.billing || {}) as {
@@ -162,10 +163,11 @@ function ContractEditor({ detail, catalog, niches, plans, onManagePlans, onFinan
   const [contractSection, setContractSection] = useState<'billing' | 'models' | 'capabilities' | 'limits'>('billing')
   const [planId, setPlanId] = useState(detail.plan?.id || '')
   const [selectedNiches, setSelectedNiches] = useState<BusinessNiche[]>(detail.niches || [])
-  const [keys, setKeys] = useState(catalog.filter(item => item.enabled).map(item => item.key))
-  const [users, setUsers] = useState(String(limits.users ?? 1)); const [devices, setDevices] = useState(String(limits.devices ?? 1)); const [units, setUnits] = useState(String(limits.units ?? 1)); const [storage, setStorage] = useState(String(limits.storage_mb ?? 128))
+  const [keys, setKeys] = useState(detail.contract?.capability_keys || catalog.filter(item => item.enabled).map(item => item.key))
+  const [users, setUsers] = useState(String(limits.users ?? detail.subscription?.contracted_user_limit ?? initialPlan?.user_limit ?? 1)); const [devices, setDevices] = useState(String(limits.devices ?? detail.subscription?.contracted_device_limit ?? initialPlan?.terminal_limit ?? 1)); const [units, setUnits] = useState(String(limits.units ?? detail.subscription?.contracted_store_limit ?? initialPlan?.store_limit ?? 1)); const [storage, setStorage] = useState(String(limits.storage_mb ?? initialPlan?.storage_limit_mb ?? 128))
   const [contactName, setContactName] = useState(billing.contact_name || ''); const [email, setEmail] = useState(billing.email || ''); const [phone, setPhone] = useState(billing.phone || '')
   const [amount, setAmount] = useState(moneyInput(billing.monthly_amount || detail.subscription?.monthly_amount || 0)); const [subscriptionStatus, setSubscriptionStatus] = useState<SubscriptionStatus>(detail.subscription?.status || 'PENDING'); const [reason, setReason] = useState('Atualização comercial solicitada pelo Owner.')
+  const [billingDay, setBillingDay] = useState(String(billing.billing_day))
   const [discountType, setDiscountType] = useState<'NONE' | 'PERCENTAGE' | 'FIXED'>(detail.subscription?.discount_type || savedBilling.discount_type || 'NONE')
   const [discountValue, setDiscountValue] = useState(String(detail.subscription?.discount_value || savedBilling.discount_value || 0))
   const [discountReasonCode, setDiscountReasonCode] = useState(detail.subscription?.discount_reason_code || savedBilling.discount_reason_code || 'LAUNCH_PROMOTION')
@@ -189,6 +191,10 @@ function ContractEditor({ detail, catalog, niches, plans, onManagePlans, onFinan
     if (!plan) return
     setAmount(moneyInput(plan.monthly_price))
     setKeys(plan.capability_keys || [])
+    setUsers(String(plan.user_limit ?? 1))
+    setDevices(String(plan.terminal_limit ?? 1))
+    setUnits(String(plan.store_limit ?? 1))
+    setStorage(String(plan.storage_limit_mb ?? 128))
   }
   const save = async () => {
     if (saving) return
@@ -198,6 +204,8 @@ function ContractEditor({ detail, catalog, niches, plans, onManagePlans, onFinan
       setError('Informe limites inteiros válidos. O storage mínimo é 128 MB.')
       return
     }
+    const parsedBillingDay = Number(billingDay)
+    if (!Number.isInteger(parsedBillingDay) || parsedBillingDay < 1 || parsedBillingDay > 28) { setError('Informe um dia de vencimento entre 1 e 28.'); return }
     if (!contactName.trim() || !email.trim()) {
       setError('Complete o contato e o e-mail de cobrança na seção Plano e cobrança antes de salvar.')
       return
@@ -213,7 +221,7 @@ function ContractEditor({ detail, catalog, niches, plans, onManagePlans, onFinan
         plan_id: planId, niches: selectedNiches, capability_keys: keys, quotas,
         billing: {
           contact_name: contactName.trim(), email: email.trim(), phone: phone || undefined,
-          monthly_amount: grossAmount, billing_day: 1,
+          monthly_amount: grossAmount, billing_day: parsedBillingDay,
           discount: discountType === 'NONE' ? undefined : {
             type: discountType, value: discountInput, reason_code: discountReasonCode,
             reason: discountReason.trim(), starts_on: discountStartsOn || undefined,
@@ -242,8 +250,9 @@ function ContractEditor({ detail, catalog, niches, plans, onManagePlans, onFinan
       <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(320px,1.4fr)_minmax(220px,1fr)_minmax(220px,1fr)]">
         <div className="min-w-0"><Select label="Plano" value={planId} onChange={selectPlan} options={[["", "Selecione"], ...plans.map(plan => [plan.id, plan.name] as [string, string])]} />{selectedPlan && <p className="mt-1 text-xs font-semibold text-slate-500">Preço de tabela: {money(selectedPlan.monthly_price)}</p>}</div>
         <CurrencyInput label="Valor-base contratado" value={amount} onChange={setAmount} />
-        <ReadOnlyField label="Vencimento da assinatura" value="Todo dia 1" hint="A data é calculada automaticamente em cada competência." />
+        <NumberInput label="Dia de vencimento" value={billingDay} min={1} max={28} maxHint="Máximo contratual: 28" onChange={setBillingDay} />
       </div>
+      {selectedPlan && <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900"><p className="font-black">Pacote {selectedPlan.name}</p><p className="mt-1">{selectedPlan.capability_keys.length} capabilities · {selectedPlan.user_limit ?? '∞'} usuários · {selectedPlan.terminal_limit ?? '∞'} dispositivos · {selectedPlan.store_limit ?? '∞'} unidades · {selectedPlan.storage_limit_mb ?? '∞'} MB</p><p className="mt-1 text-xs font-semibold">Ao selecionar o plano, capabilities e limites recebem este pacote; ajustes posteriores continuam sujeitos aos tetos do plano.</p></div>}
       <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Select label="Assinatura" value={subscriptionStatus} onChange={value => setSubscriptionStatus(value as SubscriptionStatus)} options={[["PENDING", "Pendente"], ["TRIAL", "Avaliação"], ["ACTIVE", "Ativa"], ["PAUSED", "Pausada"], ["CANCELED", "Cancelada"]]} />
         <TextField label="Contato de cobrança" value={contactName} onChange={setContactName} />
@@ -296,7 +305,6 @@ function InfoSection({ title, children }: { title: string; children: React.React
 function Info({ label, value }: { label: string; value?: string | null }) { return <div><p className="text-xs font-black uppercase text-slate-400">{label}</p><p className="mt-2 font-semibold">{value || 'Não informado'}</p></div> }
 function TextField({ label, value, onChange, type = 'text' }: { label: string; value: string; onChange: (value: string) => void; type?: string }) { return <label className="text-sm font-black">{label}<input type={type} value={value} onChange={event => onChange(event.target.value)} className={inputClass} /></label> }
 function CurrencyInput({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) { return <label className="text-sm font-black">{label}<div className="relative mt-2"><span className="pointer-events-none absolute inset-y-0 left-3 flex items-center font-bold text-slate-500">R$</span><input type="text" inputMode="decimal" value={value} onChange={event => onChange(event.target.value.replace(/[^\d.,]/g, ''))} onBlur={() => onChange(moneyInput(moneyNumber(value)))} className="h-11 w-full rounded-xl border border-slate-300 bg-white pl-11 pr-3 font-semibold outline-none focus:border-[#E12120] focus:ring-4 focus:ring-red-100" /></div></label> }
-function ReadOnlyField({ label, value, hint }: { label: string; value: string; hint: string }) { return <div><p className="text-sm font-black">{label}</p><div className="mt-2 flex h-11 items-center rounded-xl border border-slate-200 bg-slate-50 px-3 font-black text-[#022444]">{value}</div><p className="mt-1 text-xs font-semibold text-slate-500">{hint}</p></div> }
-function NumberInput({ label, value, onChange, min = 1, max }: { label: string; value: string; onChange: (value: string) => void; min?: number; max?: number }) { return <label className="text-sm font-black">{label === 'Storage (MB)' ? 'Storage (MB) — contratual, sem medição' : label}<input type="text" inputMode="numeric" value={value} onChange={event => onChange(onlyDigits(event.target.value).replace(/^0+(?=\d)/, ''))} className={inputClass} />{max && <span className="mt-1 block text-xs text-slate-400">Teto do plano: {max}</span>}{min > 1 && <span className="mt-1 block text-xs text-slate-400">Mínimo: {min}</span>}</label> }
+function NumberInput({ label, value, onChange, min = 1, max, maxHint }: { label: string; value: string; onChange: (value: string) => void; min?: number; max?: number; maxHint?: string }) { return <label className="text-sm font-black">{label === 'Storage (MB)' ? 'Storage (MB) — contratual, sem medição' : label}<input type="text" inputMode="numeric" value={value} onChange={event => onChange(onlyDigits(event.target.value).replace(/^0+(?=\d)/, ''))} className={inputClass} />{max && <span className="mt-1 block text-xs text-slate-400">{maxHint || `Teto do plano: ${max}`}</span>}{min > 1 && <span className="mt-1 block text-xs text-slate-400">Mínimo: {min}</span>}</label> }
 function Select({ label, value, options, onChange }: { label: string; value: string; options: Array<[string, string]>; onChange: (value: string) => void }) { return <label className="text-sm font-black">{label}<select value={value} onChange={event => onChange(event.target.value)} className={inputClass}>{options.map(([key, text]) => <option key={key} value={key}>{text}</option>)}</select></label> }
 function LifecycleModal({ status, onClose, onConfirm }: { status: 'PAUSED' | 'ARCHIVED'; onClose: () => void; onConfirm: (reason: string) => Promise<void> }) { const [reason, setReason] = useState(''); const [saving, setSaving] = useState(false); const [error, setError] = useState(''); const submit = async (event: React.FormEvent) => { event.preventDefault(); setSaving(true); try { await onConfirm(reason) } catch (cause) { setError(cause instanceof Error ? cause.message : 'Não foi possível concluir.'); setSaving(false) } }; return <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#022444]/60 p-4"><button className="absolute inset-0" onClick={onClose} /><form onSubmit={submit} className="relative w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl"><h2 className="text-xl font-black">{status === 'PAUSED' ? 'Pausar' : 'Arquivar'} cliente</h2><p className="mt-2 text-sm text-slate-500">A ação preserva contrato, cadastro e auditoria.</p><TextField label="Motivo" value={reason} onChange={setReason} />{error && <p className="mt-3 text-sm font-bold text-red-700">{error}</p>}<div className="mt-6 flex gap-3"><button type="button" onClick={onClose} className="h-11 flex-1 rounded-xl border border-slate-300 font-black">Cancelar</button><button disabled={saving || reason.trim().length < 3} className="h-11 flex-1 rounded-xl bg-[#E12120] font-black text-white disabled:opacity-40">Confirmar</button></div></form></div> }

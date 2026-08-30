@@ -160,9 +160,9 @@ Ela permite:
 
 - consultar responsável e endereço de cobrança;
 - consultar plano, capabilities e valor mensal contratado;
-- consultar a regra única de vencimento da assinatura, fixada no dia 1;
+- consultar e alterar o único dia contratual de vencimento, entre 1 e 28;
 - acompanhar trial, ativação, pausa, cancelamento e encerramento;
-- consultar a próxima competência; a data de vencimento é derivada pelo sistema;
+- consultar a próxima competência; a data da fatura é derivada desse dia pelo sistema;
 - aplicar desconto comercial com motivo e vigência;
 - alterar contrato com nova versão auditada;
 - consultar a linha do tempo comercial e financeira do SaaS.
@@ -247,7 +247,7 @@ Configurações do módulo:
 - moeda inicial `BRL`;
 - timezone financeiro `America/Sao_Paulo`;
 - numeração e série de faturas;
-- vencimento contratual fixo no dia 1 de cada competência;
+- dia contratual de vencimento, entre 1 e 28, usado para derivar cada competência;
 - regras de pró-rata e arredondamento;
 - régua de cobrança;
 - provider de pagamento e credenciais por secret manager;
@@ -375,7 +375,7 @@ evoluído sem criar uma segunda fonte de verdade:
 
 - `tenant_id`, `plan_id` e versão contratual vigente;
 - estado e datas de início, trial, cancelamento e encerramento;
-- valor recorrente, vencimento fixo no dia 1 e próxima competência;
+- valor recorrente e único dia contratual de vencimento, entre 1 e 28;
 - política de cobrança aplicável;
 - desconto recorrente e período de vigência, quando houver;
 - versão concorrente para atualização otimista.

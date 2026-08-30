@@ -88,7 +88,7 @@ def _invoice_source(session: Session, actor: User):
         status=SubscriptionStatusEnum.ACTIVE,
         gross_monthly_amount=Decimal("249.90"),
         monthly_amount=Decimal("249.90"),
-        billing_day=1,
+        billing_day=12,
     )
     account = SaasBillingAccount(
         tenant_id=tenant.id,
@@ -134,7 +134,7 @@ def test_f2_invoice_lifecycle_is_real_idempotent_audited_and_immutable():
         invoice = generated[0]
         assert invoice.period_start == date(2026, 9, 1)
         assert invoice.period_end == date(2026, 9, 30)
-        assert invoice.due_date == date(2026, 9, 1)
+        assert invoice.due_date == date(2026, 9, 12)
         assert invoice.total_amount == Decimal("249.90")
         assert invoice.balance_amount == invoice.total_amount
         assert invoice.contract_version == contract.version

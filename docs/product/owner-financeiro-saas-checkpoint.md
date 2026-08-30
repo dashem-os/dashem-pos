@@ -125,6 +125,10 @@ Entregue no código desta etapa:
 - migration `057_saas_billing_day_first` normaliza todas as assinaturas para
   vencimento no dia 1, elimina a data manual concorrente e protege a regra com
   constraint no PostgreSQL;
+- migration `058_single_subscription_billing_day` corrige a interpretação da
+  regra: mantém uma única fonte persistida, mas novamente configurável entre os
+  dias 1 e 28; remove a coluna concorrente e reconcilia vínculos legados de
+  plano e limites a partir do contrato mais recente, sem inferir plano ausente;
 - catálogo inicial: Essencial R$ 119, Profissional R$ 229, Performance R$ 389
   e Omnichannel R$ 649, este último inativo até o Integration Hub;
 - cada plano possui pacote padrão de capabilities e limites versionados;
@@ -235,16 +239,17 @@ Evidência local da Fase 4 em 29 de agosto de 2026:
 - `alembic check`: **sem novas operações detectadas**;
 - CI remoto do fechamento comercial: **verde** nos quatro jobs oficiais.
 
-Evidência local consolidada em 30 de agosto de 2026:
+Evidência local consolidada e corrigida em 30 de agosto de 2026:
 
-- frontend: **66/66 testes** e `npm run build` concluídos;
-- migration completa `base → 057_saas_billing_day_first`, downgrade para 056 e
-  reaplicação concluídos no PostgreSQL isolado `dashem_billing_rule_ci`;
-- banco padrão reconciliado em `057_saas_billing_day_first`, sem assinatura
-  fora do dia 1, sem `next_due_date` manual e com a constraint presente;
+- frontend: **66/66 testes** e typecheck concluídos;
+- banco padrão reconciliado em `058_subscription_billing_day`, sem dia fora do
+  intervalo 1–28, sem vínculo de plano recuperável pendente e sem a coluna
+  concorrente `next_due_date`;
+- `alembic check`: **sem novas operações detectadas**;
 - quatro planos semeados com preços, situação e snapshots de capabilities
   conferidos diretamente no banco;
-- conjunto focado do Owner, faturamento e projeções: **26/26**;
+- conjunto focado do Owner, faturamento e projeções: **31/31**;
+- teste dedicado confirma que o dia 12 persistido gera vencimento no dia 12;
 - teste dedicado confirma Essencial `119,00 - 59,10 = 59,90`, snapshot da
   revisão do plano, linha de desconto e fatura zerada `NO_PAYMENT_DUE`;
 

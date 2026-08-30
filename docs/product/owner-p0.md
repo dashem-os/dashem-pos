@@ -53,7 +53,8 @@ workspace, e um ADMIN já existente conta como administrador entregue.
 ## Cobrança e futuro Financeiro SaaS
 
 O OWNER-P0 administra o acordo comercial por organização: plano, mensalidade
-negociada, vencimento, estado da assinatura, estado da cobrança e próxima data.
+negociada, dia de vencimento e estados da assinatura e da cobrança. A data de
+cada fatura é derivada da competência e desse único dia contratual.
 Isso não substitui um razão financeiro.
 
 O contexto Owner Financeiro é separado do financeiro dos tenants e cobre
