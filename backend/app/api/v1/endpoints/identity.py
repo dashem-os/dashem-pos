@@ -37,10 +37,14 @@ from app.models.owner_finance import (
     SaasBillingAccount, SaasInvoice, SaasInvoiceStatusEnum,
     SaasPaymentAllocation, SaasRefund,
 )
+from app.models.commercial_catalog import CommercialActivity, CommercialActivityCapability
 from app.models.reliability import AuditEvent, OutboxEvent, OutboxStatusEnum
 from app.models.reliability import ServiceHeartbeat
 from app.services import commercial_pricing, identity_service, reliability_service, supabase_admin
 from app.services.contract_limit_service import effective_limit
+from app.services.commercial_offer_service import (
+    ActivityRule, CommercialOfferError, compose_commercial_offer,
+)
 from app.modules.capabilities.registry import CAPABILITY_REGISTRY, IMPLEMENTED_CAPABILITIES, resolve_dependencies
 from app.modules.capabilities.niches import (
     BusinessNiche, NICHE_CONTRACTS, capability_payload,
@@ -121,6 +125,7 @@ def _snapshot_plan(
         terminal_limit=plan.terminal_limit,
         storage_limit_mb=plan.storage_limit_mb,
         capability_keys=list(plan.capability_keys),
+        activity_keys=list(plan.activity_keys),
         monthly_price=plan.monthly_price,
         reason=reason.strip(),
         created_by=actor_id,
@@ -373,7 +378,7 @@ class OwnerTenantProvisionCreate(PlatformTenantCreate):
 
 
 class OwnerNicheRead(BaseModel):
-    key: BusinessNiche
+    key: str
     name: str
     description: str
     required_capabilities: List[dict[str, Any]]
@@ -591,6 +596,7 @@ class ServicePlanCreate(BaseModel):
     terminal_limit: Optional[int] = PydanticField(default=None, ge=1)
     storage_limit_mb: Optional[int] = PydanticField(default=None, ge=128)
     capability_keys: List[str] = PydanticField(default_factory=list)
+    activity_keys: List[str] = PydanticField(min_length=1)
     monthly_price: Decimal = PydanticField(default=Decimal("0.00"), ge=0)
     reason: str = PydanticField(default="Cadastro comercial inicial.", min_length=4, max_length=500)
 
@@ -621,6 +627,14 @@ class OwnerTenantContractUpdate(BaseModel):
     expected_contract_version: int = PydanticField(ge=0)
     expected_billing_account_version: int = PydanticField(ge=0)
     reason: str = PydanticField(min_length=4, max_length=500)
+
+
+class CommercialOfferProposalCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    plan_id: uuid.UUID
+    activity_keys: List[str] = PydanticField(min_length=1)
+    addon_keys: List[str] = PydanticField(default_factory=list)
 
 
 class PlatformStoreCreate(BaseModel):
@@ -1160,22 +1174,106 @@ def update_saas_billing_account(
     return account
 
 
-@router.get("/platform/niches", response_model=List[OwnerNicheRead])
-def list_owner_niches(
+def _activity_catalog(session: Session) -> list[OwnerNicheRead]:
+    activities = session.exec(
+        select(CommercialActivity)
+        .where(CommercialActivity.status == "ACTIVE")
+        .order_by(CommercialActivity.name)
+    ).all()
+    rules = session.exec(select(CommercialActivityCapability)).all()
+    by_activity: dict[str, list[CommercialActivityCapability]] = {}
+    for rule in rules:
+        by_activity.setdefault(rule.activity_key, []).append(rule)
+    return [
+        OwnerNicheRead(
+            key=activity.key,
+            name=activity.name,
+            description=activity.description,
+            required_capabilities=[
+                capability_payload(rule.capability_key)
+                for rule in by_activity.get(activity.key, [])
+                if rule.role == "REQUIRED"
+            ],
+            allowed_addons=[
+                capability_payload(rule.capability_key)
+                for rule in by_activity.get(activity.key, [])
+                if rule.role == "OPTIONAL"
+            ],
+        )
+        for activity in activities
+    ]
+
+
+@router.get("/platform/activities", response_model=List[OwnerNicheRead])
+@router.get("/platform/niches", response_model=List[OwnerNicheRead], deprecated=True)
+def list_owner_activities(
     principal: AuthPrincipal = Depends(get_current_principal),
     session: Session = Depends(get_session),
 ):
     require_platform_role(session, principal, PLATFORM_MANAGERS, require_aal2=True)
-    return [
-        OwnerNicheRead(
-            key=contract.key,
-            name=contract.name,
-            description=contract.description,
-            required_capabilities=[capability_payload(key) for key in contract.required],
-            allowed_addons=[capability_payload(key) for key in contract.addons],
+    return _activity_catalog(session)
+
+
+def _validated_activity_keys(session: Session, keys: List[str]) -> list[str]:
+    normalized = list(dict.fromkeys(key.strip().upper() for key in keys if key.strip()))
+    rows = session.exec(
+        select(CommercialActivity).where(
+            CommercialActivity.key.in_(normalized),
+            CommercialActivity.status == "ACTIVE",
         )
-        for contract in NICHE_CONTRACTS.values()
-    ]
+    ).all()
+    existing = {row.key for row in rows}
+    missing = set(normalized).difference(existing)
+    if missing:
+        raise HTTPException(
+            status_code=422,
+            detail="Atividades comerciais inexistentes ou inativas: " + ", ".join(sorted(missing)),
+        )
+    if not normalized:
+        raise HTTPException(status_code=422, detail="Selecione ao menos uma atividade comercial.")
+    return normalized
+
+
+@router.post("/platform/commercial-offers/resolve", response_model=dict[str, Any])
+def resolve_commercial_offer(
+    data: CommercialOfferProposalCreate,
+    principal: AuthPrincipal = Depends(get_current_principal),
+    session: Session = Depends(get_session),
+):
+    require_platform_role(session, principal, PLATFORM_MANAGERS, require_aal2=True)
+    plan = session.get(ServicePlan, data.plan_id)
+    if plan is None or not plan.is_active:
+        raise HTTPException(status_code=422, detail="Selecione um plano ativo.")
+    activity_keys = _validated_activity_keys(session, data.activity_keys)
+    rows = session.exec(
+        select(CommercialActivityCapability).where(
+            CommercialActivityCapability.activity_key.in_(activity_keys)
+        )
+    ).all()
+    try:
+        proposal = compose_commercial_offer(
+            plan_capability_keys=plan.capability_keys,
+            plan_activity_keys=plan.activity_keys,
+            selected_activity_keys=activity_keys,
+            requested_addon_keys=data.addon_keys,
+            rules=[
+                ActivityRule(
+                    activity_key=row.activity_key,
+                    capability_key=row.capability_key,
+                    role=row.role,
+                    default_selected=row.default_selected,
+                )
+                for row in rows
+            ],
+        )
+    except CommercialOfferError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {
+        "plan_id": str(plan.id),
+        "plan_version": plan.version,
+        "plan_name": plan.name,
+        **proposal,
+    }
 
 
 @router.get("/platform/capabilities", response_model=List[dict[str, Any]])
@@ -1719,11 +1817,13 @@ def create_service_plan(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     if session.exec(select(ServicePlan).where(ServicePlan.code == code)).first():
         raise HTTPException(status_code=409, detail="Já existe um plano com este código.")
+    activity_keys = _validated_activity_keys(session, data.activity_keys)
     plan = ServicePlan(
         code=code, name=data.name.strip(), description=data.description,
         store_limit=data.store_limit, user_limit=data.user_limit,
         terminal_limit=data.terminal_limit, storage_limit_mb=data.storage_limit_mb,
-        capability_keys=capability_keys, monthly_price=data.monthly_price, version=1,
+        capability_keys=capability_keys, activity_keys=activity_keys,
+        monthly_price=data.monthly_price, version=1,
     )
     session.add(plan)
     session.flush()
@@ -1734,7 +1834,7 @@ def create_service_plan(
         payload=json.dumps({
             "plan_id": str(plan.id), "code": plan.code,
             "version": plan.version, "revision_id": str(revision.id),
-            "capability_keys": capability_keys,
+            "capability_keys": capability_keys, "activity_keys": activity_keys,
         }),
     ))
     session.commit()
@@ -1762,12 +1862,14 @@ def update_service_plan(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     if duplicate:
         raise HTTPException(status_code=409, detail="Já existe outro plano com este código.")
+    activity_keys = _validated_activity_keys(session, data.activity_keys)
     previous = {
         "code": plan.code, "name": plan.name, "is_active": plan.is_active,
         "store_limit": plan.store_limit, "user_limit": plan.user_limit,
         "terminal_limit": plan.terminal_limit, "storage_limit_mb": plan.storage_limit_mb,
         "monthly_price": str(plan.monthly_price),
         "version": plan.version, "capability_keys": list(plan.capability_keys),
+        "activity_keys": list(plan.activity_keys),
     }
     plan.code = code
     plan.name = data.name.strip()
@@ -1777,6 +1879,7 @@ def update_service_plan(
     plan.terminal_limit = data.terminal_limit
     plan.storage_limit_mb = data.storage_limit_mb
     plan.capability_keys = capability_keys
+    plan.activity_keys = activity_keys
     plan.monthly_price = data.monthly_price
     plan.is_active = data.is_active
     plan.version += 1
@@ -1795,7 +1898,7 @@ def update_service_plan(
                 "terminal_limit": plan.terminal_limit, "storage_limit_mb": plan.storage_limit_mb,
                 "monthly_price": str(plan.monthly_price),
                 "version": plan.version, "revision_id": str(revision.id),
-                "capability_keys": capability_keys,
+                "capability_keys": capability_keys, "activity_keys": activity_keys,
             },
         }),
     ))

@@ -2,19 +2,19 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { CheckCircle2, Loader2, Pencil, Plus, Save, WalletCards, X } from 'lucide-react'
 
 import {
-  createServicePlan, fetchOwnerCapabilityCatalog, fetchServicePlans, OwnerNicheCapability,
-  ServicePlan, ServicePlanInput, updateServicePlan,
+  createServicePlan, fetchOwnerActivities, fetchOwnerCapabilityCatalog, fetchServicePlans,
+  OwnerActivity, OwnerNicheCapability, ServicePlan, ServicePlanInput, updateServicePlan,
 } from '../../services/api'
 
 type PlanForm = {
   code: string; name: string; description: string; monthlyPrice: string
   units: string; users: string; devices: string; storage: string
-  isActive: boolean; capabilityKeys: string[]; reason: string
+  isActive: boolean; capabilityKeys: string[]; activityKeys: string[]; reason: string
 }
 
 const emptyForm: PlanForm = {
   code: '', name: '', description: '', monthlyPrice: '0,00', units: '', users: '',
-  devices: '', storage: '', isActive: true, capabilityKeys: [],
+  devices: '', storage: '', isActive: true, capabilityKeys: [], activityKeys: [],
   reason: 'Definição comercial do catálogo pelo Owner.',
 }
 const inputClass = 'mt-2 h-11 w-full rounded-xl border bg-white px-3 font-semibold outline-none transition focus:ring-4'
@@ -26,6 +26,7 @@ const optionalPositive = (value: string) => value ? Number(value) : undefined
 export function ServicePlansView({ onOrganizations }: { onOrganizations?: () => void }) {
   const [plans, setPlans] = useState<ServicePlan[]>([])
   const [capabilities, setCapabilities] = useState<OwnerNicheCapability[]>([])
+  const [activities, setActivities] = useState<OwnerActivity[]>([])
   const [loading, setLoading] = useState(true)
   const [editingId, setEditingId] = useState<string | 'new' | null>(null)
   const [form, setForm] = useState<PlanForm>(emptyForm)
@@ -37,8 +38,10 @@ export function ServicePlansView({ onOrganizations }: { onOrganizations?: () => 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [planRows, capabilityRows] = await Promise.all([fetchServicePlans(), fetchOwnerCapabilityCatalog()])
-      setPlans(planRows); setCapabilities(capabilityRows); setError('')
+      const [planRows, capabilityRows, activityRows] = await Promise.all([
+        fetchServicePlans(), fetchOwnerCapabilityCatalog(), fetchOwnerActivities(),
+      ])
+      setPlans(planRows); setCapabilities(capabilityRows); setActivities(activityRows); setError('')
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Não foi possível carregar os planos comerciais.')
     } finally { setLoading(false) }
@@ -49,7 +52,7 @@ export function ServicePlansView({ onOrganizations }: { onOrganizations?: () => 
     setForm(current => ({ ...current, [key]: value }))
     setFieldErrors(current => { const next = { ...current }; delete next[key]; return next })
   }
-  const startNew = () => { setEditingId('new'); setForm({ ...emptyForm, capabilityKeys: [] }); setError(''); setNotice(''); setFieldErrors({}) }
+  const startNew = () => { setEditingId('new'); setForm({ ...emptyForm, capabilityKeys: [], activityKeys: [] }); setError(''); setNotice(''); setFieldErrors({}) }
   const startEdit = (plan: ServicePlan) => {
     setEditingId(plan.id)
     setForm({
@@ -58,12 +61,15 @@ export function ServicePlansView({ onOrganizations }: { onOrganizations?: () => 
       units: plan.store_limit?.toString() || '', users: plan.user_limit?.toString() || '',
       devices: plan.terminal_limit?.toString() || '', storage: plan.storage_limit_mb?.toString() || '',
       isActive: plan.is_active, capabilityKeys: plan.capability_keys || [],
+      activityKeys: plan.activity_keys || [],
       reason: 'Revisão comercial do plano pelo Owner.',
     })
     setError(''); setNotice(''); setFieldErrors({})
   }
   const toggleCapability = (key: string) => set('capabilityKeys', form.capabilityKeys.includes(key)
     ? form.capabilityKeys.filter(item => item !== key) : [...form.capabilityKeys, key])
+  const toggleActivity = (key: string) => set('activityKeys', form.activityKeys.includes(key)
+    ? form.activityKeys.filter(item => item !== key) : [...form.activityKeys, key])
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -73,6 +79,7 @@ export function ServicePlansView({ onOrganizations }: { onOrganizations?: () => 
     if (form.name.trim().length < 2) errors.name = 'Informe o nome do plano.'
     if (moneyNumber(form.monthlyPrice) < 0) errors.monthlyPrice = 'Informe um valor igual ou maior que zero.'
     if (form.reason.trim().length < 5) errors.reason = 'Registre o motivo desta versão.'
+    if (form.activityKeys.length === 0) errors.activityKeys = 'Selecione ao menos uma atividade compatível.'
     for (const [key, value, minimum] of [
       ['units', form.units, 1], ['users', form.users, 1], ['devices', form.devices, 1], ['storage', form.storage, 128],
     ] as Array<[string, string, number]>) if (value && Number(value) < minimum) errors[key] = `Informe no mínimo ${minimum} ou deixe sem limite.`
@@ -82,7 +89,8 @@ export function ServicePlansView({ onOrganizations }: { onOrganizations?: () => 
       description: form.description.trim() || undefined, monthly_price: moneyNumber(form.monthlyPrice),
       store_limit: optionalPositive(form.units), user_limit: optionalPositive(form.users),
       terminal_limit: optionalPositive(form.devices), storage_limit_mb: optionalPositive(form.storage),
-      capability_keys: form.capabilityKeys, reason: form.reason.trim(),
+      capability_keys: form.capabilityKeys, activity_keys: form.activityKeys,
+      reason: form.reason.trim(),
     }
     setSaving(true); setError(''); setNotice('')
     try {
@@ -115,14 +123,15 @@ export function ServicePlansView({ onOrganizations }: { onOrganizations?: () => 
         <Field label="Usuários" value={form.users} error={fieldErrors.users} inputMode="numeric" placeholder="Sem limite" onChange={value => set('users', integer(value))} />
         <Field label="Dispositivos" value={form.devices} error={fieldErrors.devices} inputMode="numeric" placeholder="Sem limite" onChange={value => set('devices', integer(value))} />
         <Field label="Storage (MB)" value={form.storage} error={fieldErrors.storage} inputMode="numeric" placeholder="Sem limite" onChange={value => set('storage', integer(value))} />
-        <div className="md:col-span-2 xl:col-span-4"><p className="text-sm font-black">Capabilities incluídas</p><div className="mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-3">{capabilities.map(capability => { const selected = form.capabilityKeys.includes(capability.key); return <button key={capability.key} type="button" onClick={() => toggleCapability(capability.key)} className={`rounded-xl border p-3 text-left ${selected ? 'border-emerald-400 bg-emerald-50' : 'border-slate-200 bg-white'}`}><span className="flex items-center justify-between text-sm font-black">{capability.name}{selected && <CheckCircle2 className="h-4 w-4 text-emerald-600" />}</span><span className="mt-1 block text-xs text-slate-500">{capability.description}</span></button> })}</div></div>
+        <div className="md:col-span-2 xl:col-span-4"><p className="text-sm font-black">Atividades compatíveis</p><p className="mt-1 text-xs text-slate-500">O plano define onde pode ser ofertado; a contratação selecionará uma ou mais atividades.</p><div className="mt-2 grid gap-2 md:grid-cols-3">{activities.map(activity => { const selected = form.activityKeys.includes(activity.key); return <button key={activity.key} type="button" onClick={() => toggleActivity(activity.key)} className={`rounded-xl border p-3 text-left ${selected ? 'border-[#E12120] bg-red-50' : 'border-slate-200 bg-white'}`}><span className="flex items-center justify-between text-sm font-black">{activity.name}{selected && <CheckCircle2 className="h-4 w-4 text-[#E12120]" />}</span><span className="mt-1 block text-xs text-slate-500">{activity.description}</span></button> })}</div>{fieldErrors.activityKeys && <span className="mt-2 block text-xs font-bold text-[#8a6100]">{fieldErrors.activityKeys}</span>}</div>
+        <div className="md:col-span-2 xl:col-span-4"><p className="text-sm font-black">Capabilities incluídas no plano</p><p className="mt-1 text-xs text-slate-500">Não são liberadas diretamente: compõem a proposta junto das atividades e só entram em vigor após contrato salvo pelo Owner.</p><div className="mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-3">{capabilities.map(capability => { const selected = form.capabilityKeys.includes(capability.key); return <button key={capability.key} type="button" onClick={() => toggleCapability(capability.key)} className={`rounded-xl border p-3 text-left ${selected ? 'border-emerald-400 bg-emerald-50' : 'border-slate-200 bg-white'}`}><span className="flex items-center justify-between text-sm font-black">{capability.name}{selected && <CheckCircle2 className="h-4 w-4 text-emerald-600" />}</span><span className="mt-1 block text-xs text-slate-500">{capability.description}</span></button> })}</div></div>
         <div className="md:col-span-2 xl:col-span-4"><Field label="Motivo da versão" value={form.reason} error={fieldErrors.reason} onChange={value => set('reason', value)} /></div>
       </div>
       <button disabled={saving} className="mt-6 flex h-11 items-center gap-2 rounded-xl bg-[#E12120] px-5 font-black text-white disabled:opacity-40">{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}{saving ? 'Salvando…' : editingId === 'new' ? 'Cadastrar plano' : 'Salvar nova versão'}</button>
     </form>}
 
     <section className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-      {loading ? <div className="col-span-full py-20"><Loader2 className="mx-auto h-8 w-8 animate-spin text-[#E12120]" /></div> : plans.map(plan => <article key={plan.id} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-start justify-between gap-3"><div className="rounded-xl bg-slate-100 p-2.5"><WalletCards className="h-5 w-5" /></div><span className={`rounded-full px-3 py-1 text-xs font-black ${plan.is_active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{plan.is_active ? 'ATIVO' : 'INATIVO'}</span></div><p className="mt-4 text-xs font-black uppercase tracking-wider text-slate-400">{plan.code} · V{plan.version}</p><h3 className="mt-1 text-xl font-black">{plan.name}</h3><p className="mt-2 min-h-10 text-sm text-slate-500">{plan.description || 'Sem descrição comercial.'}</p><p className="mt-4 text-2xl font-black">{money(plan.monthly_price)}<span className="text-xs text-slate-400"> / mês</span></p><p className="mt-2 text-xs font-bold text-slate-500">{plan.capability_keys.length} capabilities incluídas</p><div className="mt-4 grid grid-cols-2 gap-2 text-xs font-bold text-slate-500"><span>{plan.store_limit ?? '∞'} unidades</span><span>{plan.user_limit ?? '∞'} usuários</span><span>{plan.terminal_limit ?? '∞'} dispositivos</span></div><div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs font-bold text-amber-900">Storage: {plan.storage_limit_mb ? `${plan.storage_limit_mb} MB` : 'não informado'} · referência contratual sem medição</div><button onClick={() => startEdit(plan)} className="mt-5 flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-slate-300 text-sm font-black"><Pencil className="h-4 w-4" />Editar plano</button></article>)}
+      {loading ? <div className="col-span-full py-20"><Loader2 className="mx-auto h-8 w-8 animate-spin text-[#E12120]" /></div> : plans.map(plan => <article key={plan.id} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-start justify-between gap-3"><div className="rounded-xl bg-slate-100 p-2.5"><WalletCards className="h-5 w-5" /></div><span className={`rounded-full px-3 py-1 text-xs font-black ${plan.is_active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{plan.is_active ? 'ATIVO' : 'INATIVO'}</span></div><p className="mt-4 text-xs font-black uppercase tracking-wider text-slate-400">{plan.code} · V{plan.version}</p><h3 className="mt-1 text-xl font-black">{plan.name}</h3><p className="mt-2 min-h-10 text-sm text-slate-500">{plan.description || 'Sem descrição comercial.'}</p><p className="mt-4 text-2xl font-black">{money(plan.monthly_price)}<span className="text-xs text-slate-400"> / mês</span></p><p className="mt-2 text-xs font-bold text-slate-500">{plan.capability_keys.length} capabilities · {plan.activity_keys.length} atividades compatíveis</p><div className="mt-4 grid grid-cols-2 gap-2 text-xs font-bold text-slate-500"><span>{plan.store_limit ?? '∞'} unidades</span><span>{plan.user_limit ?? '∞'} usuários</span><span>{plan.terminal_limit ?? '∞'} dispositivos</span></div><div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs font-bold text-amber-900">Storage: {plan.storage_limit_mb ? `${plan.storage_limit_mb} MB` : 'não informado'} · referência contratual sem medição</div><button onClick={() => startEdit(plan)} className="mt-5 flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-slate-300 text-sm font-black"><Pencil className="h-4 w-4" />Editar plano</button></article>)}
       {!loading && plans.length === 0 && <div className="col-span-full rounded-2xl border border-[#ffbf00] bg-amber-50 p-8 text-center"><WalletCards className="mx-auto h-9 w-9 text-[#8a6100]" /><h3 className="mt-4 text-xl font-black">Nenhum plano comercial cadastrado</h3><p className="mt-2 text-sm text-slate-600">Cadastre o primeiro plano para liberar a contratação e o provisionamento de clientes.</p><button onClick={startNew} className="mt-5 inline-flex h-11 items-center gap-2 rounded-xl bg-[#E12120] px-5 font-black text-white"><Plus className="h-4 w-4" />Cadastrar primeiro plano</button></div>}
     </section>
   </div>

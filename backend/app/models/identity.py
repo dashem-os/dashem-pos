@@ -173,6 +173,9 @@ class ServicePlan(SQLModel, table=True):
     capability_keys: list[str] = Field(
         default_factory=list, sa_column=Column(JSON, nullable=False, default=list)
     )
+    activity_keys: list[str] = Field(
+        default_factory=list, sa_column=Column(JSON, nullable=False, default=list)
+    )
     monthly_price: Decimal = Field(
         default=Decimal("0.00"),
         sa_column=Column(Numeric(14, 2), nullable=False, default=0),
@@ -203,6 +206,9 @@ class ServicePlanRevision(SQLModel, table=True):
     terminal_limit: Optional[int] = None
     storage_limit_mb: Optional[int] = None
     capability_keys: list[str] = Field(
+        default_factory=list, sa_column=Column(JSON, nullable=False, default=list)
+    )
+    activity_keys: list[str] = Field(
         default_factory=list, sa_column=Column(JSON, nullable=False, default=list)
     )
     monthly_price: Decimal = Field(sa_column=Column(Numeric(14, 2), nullable=False))

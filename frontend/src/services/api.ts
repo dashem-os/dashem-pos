@@ -914,6 +914,7 @@ export interface ServicePlan {
   is_active: boolean
   version: number
   capability_keys: string[]
+  activity_keys: string[]
   store_limit?: number
   user_limit?: number
   terminal_limit?: number
@@ -935,6 +936,25 @@ export interface OwnerNiche {
   description: string
   required_capabilities: OwnerNicheCapability[]
   allowed_addons: OwnerNicheCapability[]
+}
+
+export interface OwnerActivity {
+  key: string
+  name: string
+  description: string
+  required_capabilities: OwnerNicheCapability[]
+  allowed_addons: OwnerNicheCapability[]
+}
+
+export interface CommercialOfferProposal {
+  plan_id: string
+  plan_version: number
+  plan_name: string
+  activity_keys: string[]
+  capability_keys: string[]
+  capabilities: Array<{ key: string; name: string; sources: string[]; activity_keys: string[] }>
+  gaps: Array<{ key: string; name: string; reason: string }>
+  authorizes_tenant: false
 }
 
 export interface TenantContract {
@@ -1916,6 +1936,22 @@ export async function fetchOwnerNiches(): Promise<OwnerNiche[]> {
   return res.json()
 }
 
+export async function fetchOwnerActivities(): Promise<OwnerActivity[]> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/identity/platform/activities`)
+  if (!res.ok) throw await apiError(res, 'Não foi possível carregar as atividades comerciais.')
+  return res.json()
+}
+
+export async function resolveCommercialOffer(input: {
+  plan_id: string; activity_keys: string[]; addon_keys?: string[]
+}): Promise<CommercialOfferProposal> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/identity/platform/commercial-offers/resolve`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível compor a proposta comercial.')
+  return res.json()
+}
+
 export async function fetchOwnerCapabilityCatalog(): Promise<OwnerNicheCapability[]> {
   const res = await fetch(`${API_BASE_URL}/api/v1/identity/platform/capabilities`)
   if (!res.ok) throw await apiError(res, 'Não foi possível carregar o catálogo de capabilities.')
@@ -1938,6 +1974,7 @@ export type ServicePlanInput = {
   storage_limit_mb?: number
   monthly_price: number
   capability_keys: string[]
+  activity_keys: string[]
   reason: string
 }
 

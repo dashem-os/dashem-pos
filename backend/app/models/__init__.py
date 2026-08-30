@@ -19,6 +19,7 @@ from app.models.platform import (
     OperationalHardeningRun, OperationalHardeningEvidence,
     CommercialPilot, PilotObservation, PilotIncidentGate,
 )
+from app.models.commercial_catalog import CommercialActivity, CommercialActivityCapability
 from app.models.owner_finance import (
     SaasBillingAccount, SaasInvoice, SaasInvoiceLine,
     SaasInvoiceStatusEnum, SaasInvoiceLineTypeEnum,
@@ -153,6 +154,8 @@ __all__ = [
     "CommercialPilot",
     "PilotObservation",
     "PilotIncidentGate",
+    "CommercialActivity",
+    "CommercialActivityCapability",
     "Category",
     "Product",
     "ProductPrice",

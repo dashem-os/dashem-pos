@@ -21,6 +21,7 @@ class EntitlementSource(str, Enum):
     PLAN = "PLAN"
     ACTIVITY = "ACTIVITY"
     ADDON = "ADDON"
+    DEPENDENCY = "DEPENDENCY"
     OWNER_EXCEPTION = "OWNER_EXCEPTION"
 
 

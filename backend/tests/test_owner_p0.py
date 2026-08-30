@@ -90,6 +90,7 @@ def test_owner_p0_provisions_complete_tenant_by_niche(monkeypatch, niche, addons
         plan = create_service_plan(
             ServicePlanCreate(
                 code=f"P0_{suffix.upper()}", name=f"Owner P0 {suffix}",
+                activity_keys=[niche.value],
                 store_limit=3, user_limit=10, terminal_limit=5, storage_limit_mb=4096,
             ), principal, session,
         )
@@ -152,6 +153,7 @@ def test_owner_can_combine_niches_and_version_existing_contract(monkeypatch):
         principal, _ = _owner(session)
         plan = create_service_plan(ServicePlanCreate(
             code=f"HYBRID_{suffix.upper()}", name=f"Híbrido {suffix}", monthly_price=149,
+            activity_keys=["FOOD_SERVICE", "BEAUTY_RESELLER", "RETAIL"],
             store_limit=4, user_limit=12, terminal_limit=8, storage_limit_mb=8192,
         ), principal, session)
         provisioned = provision_owner_tenant(OwnerTenantProvisionCreate(
@@ -248,6 +250,7 @@ def test_owner_can_regularize_legacy_tenant_and_recognizes_existing_admin():
         principal, _ = _owner(session)
         plan = create_service_plan(ServicePlanCreate(
             code=f"LEGACY_{suffix.upper()}", name=f"Legado {suffix}", monthly_price=99,
+            activity_keys=["RETAIL"],
             store_limit=2, user_limit=5, terminal_limit=3, storage_limit_mb=2048,
         ), principal, session)
         legacy = provision_platform_tenant(PlatformTenantCreate(

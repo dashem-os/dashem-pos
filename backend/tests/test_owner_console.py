@@ -333,6 +333,7 @@ def test_owner_customer_master_is_persisted_and_audited():
             data=ServicePlanCreate(
                 code=f"PILOT_{suffix.upper()}",
                 name=f"Piloto {suffix}",
+                activity_keys=["RETAIL"],
                 store_limit=3,
                 user_limit=12,
                 terminal_limit=4,
@@ -405,7 +406,9 @@ def test_owner_updates_the_commercial_plan_catalog_with_audit():
         owner_subject, _ = _owner(session)
         principal = _principal(owner_subject)
         plan = create_service_plan(
-            data=ServicePlanCreate(code=f"START_{suffix.upper()}", name="Inicial"),
+            data=ServicePlanCreate(
+                code=f"START_{suffix.upper()}", name="Inicial", activity_keys=["RETAIL"]
+            ),
             principal=principal,
             session=session,
         )
@@ -417,6 +420,7 @@ def test_owner_updates_the_commercial_plan_catalog_with_audit():
                 description="Plano comercial para validação assistida.",
                 store_limit=2, user_limit=8, terminal_limit=4,
                 storage_limit_mb=1024, monthly_price=Decimal("149.90"),
+                activity_keys=["RETAIL"],
                 is_active=False,
             ),
             principal=principal,
