@@ -33,7 +33,7 @@ def _owner(session: Session) -> tuple[AuthPrincipal, User]:
     return AuthPrincipal(subject=subject, email=user.email, session_id=str(uuid.uuid4()), assurance_level="aal2", claims={"sub": subject, "aal": "aal2"}, provider="email"), user
 
 
-def test_s18_control_contracts_are_versioned_audited_and_expiring():
+def test_s18_control_legacy_contract_writer_is_closed_and_support_remains_audited():
     suffix = uuid.uuid4().hex[:8]
     with Session(engine) as session:
         principal, owner = _owner(session)
@@ -45,17 +45,13 @@ def test_s18_control_contracts_are_versioned_audited_and_expiring():
         session.add(TenantCapability(tenant_id=tenant_id, key="catalog", enabled=True))
         session.commit()
 
-        contract = create_contract(
-            tenant_id, ContractCreate(capability_keys=["catalog"], limits={"stores": 1}, reason="Contrato aprovado para o piloto."),
-            principal, session,
-        )
-        assert contract.version == 1
-        with pytest.raises(HTTPException) as missing_entitlement:
+        with pytest.raises(HTTPException) as legacy_writer:
             create_contract(
-                tenant_id, ContractCreate(capability_keys=["table_service"], reason="Capability ainda não contratada."),
+                tenant_id, ContractCreate(capability_keys=["catalog"], limits={"stores": 1}, reason="Contrato aprovado para o piloto."),
                 principal, session,
             )
-        assert missing_entitlement.value.status_code == 409
+        assert legacy_writer.value.status_code == 409
+        assert "snapshot auditado" in str(legacy_writer.value.detail)
 
         checkpoint = update_onboarding(
             tenant_id, "CONTRACT", OnboardingUpdate(status="COMPLETED", evidence={"contract_version": 1}), principal, session,

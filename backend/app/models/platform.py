@@ -255,6 +255,7 @@ class TenantContract(SQLModel, table=True):
     __tablename__ = "tenant_contracts"
     __table_args__ = (
         UniqueConstraint("tenant_id", "version", name="uq_tenant_contract_version"),
+        CheckConstraint("schema_version >= 1", name="ck_tenant_contract_schema_version_positive"),
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
@@ -267,6 +268,17 @@ class TenantContract(SQLModel, table=True):
     )
     limits: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON, nullable=False, default=dict))
     capability_keys: list[str] = Field(default_factory=list, sa_column=Column(JSON, nullable=False, default=list))
+    activity_keys: list[str] = Field(default_factory=list, sa_column=Column(JSON, nullable=False, default=list))
+    capability_entitlements: list[dict[str, Any]] = Field(
+        default_factory=list, sa_column=Column(JSON, nullable=False, default=list)
+    )
+    limit_entitlements: dict[str, Any] = Field(
+        default_factory=dict, sa_column=Column(JSON, nullable=False, default=dict)
+    )
+    storage_entitlement: dict[str, Any] = Field(
+        default_factory=dict, sa_column=Column(JSON, nullable=False, default=dict)
+    )
+    schema_version: int = Field(default=2, ge=1)
     starts_at: Optional[datetime] = None
     ends_at: Optional[datetime] = None
     reason: str = Field(sa_column=Column(Text, nullable=False))

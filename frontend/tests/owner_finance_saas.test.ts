@@ -68,9 +68,11 @@ test('exposes real SaaS invoicing without tenant operating data or fake financia
   assert.doesNotMatch(workspace, /permanece em implementação/)
   assert.match(workspace, /NÃO MONITORADO/)
   assert.match(workspace, /não mede consumo de storage e não bloqueia o tenant/)
-  assert.match(workspace, /Usuários — aplicado/)
-  assert.match(workspace, /Dispositivos — aplicado/)
-  assert.match(workspace, /Unidades — aplicado/)
+  assert.match(workspace, /Quota contratual de usuários/)
+  assert.match(workspace, /Quota contratual de dispositivos/)
+  assert.match(workspace, /Quota contratual de unidades/)
+  assert.match(workspace, /Uso real ainda não apresentado neste painel/)
+  assert.doesNotMatch(workspace, /— aplicado/)
 
   for (const forbidden of ['vendas do tenant', 'caixas abertos', 'lucro do tenant']) {
     assert.doesNotMatch(finance.toLowerCase(), new RegExp(forbidden))

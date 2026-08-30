@@ -106,6 +106,17 @@ def _invoice_source(session: Session, actor: User):
         plan_revision_id=revision.id,
         limits={"users": 10, "devices": 5, "units": 2},
         capability_keys=["inventory"],
+        activity_keys=["RETAIL"],
+        capability_entitlements=[{
+            "key": "inventory", "sources": ["LEGACY_MIGRATED"], "activity_keys": ["RETAIL"],
+        }],
+        limit_entitlements={
+            "users": {"limit": 10, "sources": ["PLAN", "OWNER_DECISION"]},
+            "devices": {"limit": 5, "sources": ["PLAN", "OWNER_DECISION"]},
+            "units": {"limit": 2, "sources": ["PLAN", "OWNER_DECISION"]},
+        },
+        storage_entitlement={"measurement_status": "NOT_MEASURED"},
+        schema_version=2,
         reason="Contrato inicial usado como fonte real da fatura.",
         created_by=actor.id,
     )
@@ -381,6 +392,19 @@ def test_service_plan_revision_snapshot_is_immutable_in_database():
             session.exec(text(
                 "UPDATE service_plan_revisions SET name = 'tentativa' WHERE id = :revision_id"
             ), params={"revision_id": contract.plan_revision_id})
+            session.commit()
+        session.rollback()
+
+
+def test_tenant_contract_snapshot_is_immutable_in_database():
+    with Session(engine) as session:
+        _, actor = _platform_user(session, PlatformRoleEnum.PLATFORM_OWNER)
+        set_platform_db_context(session, actor.id)
+        _, _, _, _, contract = _invoice_source(session, actor)
+        with pytest.raises(DBAPIError):
+            session.exec(text(
+                "UPDATE tenant_contracts SET capability_keys = '[]'::json WHERE id = :contract_id"
+            ), params={"contract_id": contract.id})
             session.commit()
         session.rollback()
 

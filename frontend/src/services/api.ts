@@ -966,6 +966,11 @@ export interface TenantContract {
   plan_revision_id?: string
   limits: { users?: number; devices?: number; units?: number; storage_mb?: number; niche?: BusinessNiche; business_niches?: BusinessNiche[]; billing?: OwnerBilling }
   capability_keys: string[]
+  activity_keys: string[]
+  capability_entitlements: Array<{ key: string; sources: string[]; activity_keys: string[] }>
+  limit_entitlements: Record<string, { limit?: number; sources: string[] }>
+  storage_entitlement: { limit_mb?: number; sources?: string[]; measurement_status?: string }
+  schema_version: number
   starts_at?: string
   reason: string
   created_at: string
@@ -1889,6 +1894,7 @@ export async function provisionPlatformTenant(input: {
   niches: BusinessNiche[]
   quotas: { users: number; devices: number; units: number; storage_mb: number }
   capability_keys: string[]
+  capability_selection_mode: 'OFFER_DEFAULT' | 'EXPLICIT'
   billing: OwnerBilling
   initial_admin: { full_name: string; email: string }
 }): Promise<PlatformTenantProvisioned> {
@@ -1905,6 +1911,7 @@ export async function updateOwnerTenantContract(tenantId: string, input: {
   plan_id: string
   niches: BusinessNiche[]
   capability_keys: string[]
+  capability_selection_mode: 'OFFER_DEFAULT' | 'EXPLICIT'
   quotas: { users: number; devices: number; units: number; storage_mb: number }
   billing: OwnerBilling
   subscription_status: SubscriptionStatus

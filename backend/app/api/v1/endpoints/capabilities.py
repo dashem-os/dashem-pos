@@ -5,6 +5,7 @@ from app.core.context import TenantContext, get_tenant_context
 from app.core.database import get_session
 from app.modules.capabilities.service import effective_capabilities
 from app.models.platform import ModuleContribution, TenantProfileAssignment, CapabilityProfileRevision
+from app.services.contract_entitlement_service import resolve_contract_entitlements
 
 
 router = APIRouter()
@@ -30,11 +31,24 @@ def get_effective_capabilities(
         TenantProfileAssignment.status == "ACTIVE",
     )).first()
     revision = session.get(CapabilityProfileRevision, assignment.revision_id) if assignment else None
+    contract_snapshot = resolve_contract_entitlements(session, context.tenant_id)
     return {
         "capabilities": capabilities,
         "permissions": list(context.permissions),
         "contributions": visible,
-        "profile": ({"key": revision.profile_key, "version": revision.version} if revision else None),
+        "activities": list(contract_snapshot.activity_keys) if contract_snapshot else [],
+        "contract": (
+            {
+                "id": str(contract_snapshot.contract_id),
+                "version": contract_snapshot.contract_version,
+                "schema_version": contract_snapshot.schema_version,
+            }
+            if contract_snapshot else None
+        ),
+        "profile": (
+            {"key": revision.profile_key, "version": revision.version}
+            if revision and contract_snapshot is None else None
+        ),
         "context": {
             "tenant_id": str(context.tenant_id),
             "store_id": str(context.store_id) if context.store_id else None,

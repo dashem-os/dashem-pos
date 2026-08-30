@@ -19,7 +19,7 @@ from app.models.identity import (
     AuthIdentity, Membership, MembershipStatusEnum, RoleEnum,
     SubscriptionStatusEnum, TenantPhaseEnum, TenantTypeEnum, User,
 )
-from app.models.platform import PlatformMembership, PlatformRoleEnum, TenantContract, TenantProfileAssignment
+from app.models.platform import PlatformMembership, PlatformRoleEnum, TenantContract
 from app.modules.capabilities.niches import BusinessNiche, NICHE_CONTRACTS
 
 
@@ -91,6 +91,7 @@ def test_owner_p0_provisions_complete_tenant_by_niche(monkeypatch, niche, addons
             ServicePlanCreate(
                 code=f"P0_{suffix.upper()}", name=f"Owner P0 {suffix}",
                 activity_keys=[niche.value],
+                capability_keys=sorted(NICHE_CONTRACTS[niche].allowed),
                 store_limit=3, user_limit=10, terminal_limit=5, storage_limit_mb=4096,
             ), principal, session,
         )
@@ -105,6 +106,7 @@ def test_owner_p0_provisions_complete_tenant_by_niche(monkeypatch, niche, addons
                 street="Avenida Paulista", street_number="1000", district="Bela Vista", city="São Paulo", state="SP",
                 niches=[niche], plan_id=plan.id,
                 capability_keys=list(NICHE_CONTRACTS[niche].required) + addons,
+                capability_selection_mode="EXPLICIT",
                 quotas=OwnerQuotaCreate(users=8, devices=4, units=2, storage_mb=2048),
                 billing=OwnerBillingCreate(contact_name="Financeiro", email=f"financeiro-{suffix}@example.test", billing_day=10),
                 initial_admin=OwnerInitialAdminCreate(full_name="Administrador Inicial", email=f"admin-{suffix}@example.test"),
@@ -117,11 +119,12 @@ def test_owner_p0_provisions_complete_tenant_by_niche(monkeypatch, niche, addons
         assert provisioned.contract.limits["users"] == 8
         assert provisioned.contract.limits["storage_mb"] == 2048
         assert provisioned.contract.limits["billing"]["email"] == f"financeiro-{suffix}@example.test"
+        assert provisioned.contract.schema_version == 2
+        assert provisioned.contract.activity_keys == [niche.value]
+        assert {item["key"] for item in provisioned.contract.capability_entitlements} == set(provisioned.contract.capability_keys)
         assert must_have <= set(provisioned.contract.capability_keys)
         assert set(provisioned.contract.capability_keys).isdisjoint(must_not_have)
 
-        assignments = session.exec(select(TenantProfileAssignment).where(TenantProfileAssignment.tenant_id == provisioned.tenant.id)).all()
-        assert len(assignments) == 1 and assignments[0].status == "ACTIVE"
         contract_rows = session.exec(select(TenantContract).where(TenantContract.tenant_id == provisioned.tenant.id)).all()
         assert len(contract_rows) == 1
         memberships = session.exec(select(Membership).where(Membership.tenant_id == provisioned.tenant.id)).all()
@@ -140,7 +143,7 @@ def test_owner_p0_provisions_complete_tenant_by_niche(monkeypatch, niche, addons
 
         catalog = tenant_capability_catalog(provisioned.tenant.id, principal, session)
         assert {item.key for item in catalog} >= NICHE_CONTRACTS[niche].allowed
-        assert {item.key for item in catalog if item.required} == set(NICHE_CONTRACTS[niche].required)
+        assert {item.key for item in catalog if item.required} <= {item.key for item in catalog if item.enabled}
         detail = platform_tenant_detail(provisioned.tenant.id, principal, session)
         assert detail.niche == niche and len(detail.accesses) == 1
         assert detail.accesses[0].role == RoleEnum.TENANT_OWNER
@@ -154,6 +157,7 @@ def test_owner_can_combine_niches_and_version_existing_contract(monkeypatch):
         plan = create_service_plan(ServicePlanCreate(
             code=f"HYBRID_{suffix.upper()}", name=f"Híbrido {suffix}", monthly_price=149,
             activity_keys=["FOOD_SERVICE", "BEAUTY_RESELLER", "RETAIL"],
+            capability_keys=sorted(set().union(*(contract.allowed for contract in NICHE_CONTRACTS.values()))),
             store_limit=4, user_limit=12, terminal_limit=8, storage_limit_mb=8192,
         ), principal, session)
         provisioned = provision_owner_tenant(OwnerTenantProvisionCreate(
@@ -167,16 +171,18 @@ def test_owner_can_combine_niches_and_version_existing_contract(monkeypatch):
             street_number="1000", district="Bela Vista", city="São Paulo", state="SP",
             plan_id=plan.id, niches=[BusinessNiche.FOOD_SERVICE, BusinessNiche.BEAUTY_RESELLER],
             capability_keys=[],
+            capability_selection_mode="OFFER_DEFAULT",
             quotas=OwnerQuotaCreate(users=5, devices=3, units=1, storage_mb=2048),
             billing=OwnerBillingCreate(contact_name="Financeiro", email=f"financeiro-{suffix}@example.test", monthly_amount=149, billing_day=1),
             initial_admin=OwnerInitialAdminCreate(full_name="Admin", email=f"admin-{suffix}@example.test"),
         ), principal, session)
         assert provisioned.niches == [BusinessNiche.FOOD_SERVICE, BusinessNiche.BEAUTY_RESELLER]
-        assert provisioned.contract.capability_keys == []
+        assert set(provisioned.contract.capability_keys) >= {"catalog", "customer", "cash_management", "payments", "counter_order"}
 
         detail = update_owner_tenant_contract(provisioned.tenant.id, OwnerTenantContractUpdate(
             plan_id=plan.id, niches=[BusinessNiche.RETAIL, BusinessNiche.BEAUTY_RESELLER],
-            capability_keys=["catalog", "inventory", "payments", "receivables"],
+            capability_keys=sorted(NICHE_CONTRACTS[BusinessNiche.RETAIL].required | NICHE_CONTRACTS[BusinessNiche.BEAUTY_RESELLER].required | {"receivables"}),
+            capability_selection_mode="EXPLICIT",
             quotas=OwnerQuotaCreate(users=8, devices=4, units=2, storage_mb=4096),
             billing=OwnerBillingCreate(contact_name="Novo Financeiro", email=f"cobranca-{suffix}@example.test", monthly_amount=229, billing_day=12),
             subscription_status=SubscriptionStatusEnum.ACTIVE,
@@ -196,7 +202,7 @@ def test_owner_can_combine_niches_and_version_existing_contract(monkeypatch):
         with pytest.raises(HTTPException) as stale:
             update_owner_tenant_contract(provisioned.tenant.id, OwnerTenantContractUpdate(
                 plan_id=plan.id, niches=[BusinessNiche.RETAIL],
-                capability_keys=["catalog", "inventory", "payments"],
+                capability_keys=[], capability_selection_mode="OFFER_DEFAULT",
                 quotas=OwnerQuotaCreate(users=8, devices=4, units=2, storage_mb=4096),
                 billing=OwnerBillingCreate(
                     contact_name="Concorrente", email=f"concorrente-{suffix}@example.test",
@@ -226,7 +232,7 @@ def test_owner_can_combine_niches_and_version_existing_contract(monkeypatch):
         with pytest.raises(HTTPException) as stale_billing:
             update_owner_tenant_contract(provisioned.tenant.id, OwnerTenantContractUpdate(
                 plan_id=plan.id, niches=[BusinessNiche.RETAIL],
-                capability_keys=["catalog", "inventory", "payments"],
+                capability_keys=[], capability_selection_mode="OFFER_DEFAULT",
                 quotas=OwnerQuotaCreate(users=8, devices=4, units=2, storage_mb=4096),
                 billing=OwnerBillingCreate(
                     contact_name="Sobrescrita", email=f"sobrescrita-{suffix}@example.test",
@@ -251,6 +257,7 @@ def test_owner_can_regularize_legacy_tenant_and_recognizes_existing_admin():
         plan = create_service_plan(ServicePlanCreate(
             code=f"LEGACY_{suffix.upper()}", name=f"Legado {suffix}", monthly_price=99,
             activity_keys=["RETAIL"],
+            capability_keys=sorted(NICHE_CONTRACTS[BusinessNiche.RETAIL].allowed),
             store_limit=2, user_limit=5, terminal_limit=3, storage_limit_mb=2048,
         ), principal, session)
         legacy = provision_platform_tenant(PlatformTenantCreate(
@@ -267,7 +274,7 @@ def test_owner_can_regularize_legacy_tenant_and_recognizes_existing_admin():
 
         detail = update_owner_tenant_contract(legacy.tenant.id, OwnerTenantContractUpdate(
             plan_id=plan.id, niches=[BusinessNiche.RETAIL],
-            capability_keys=["catalog", "inventory", "payments"],
+            capability_keys=[], capability_selection_mode="OFFER_DEFAULT",
             quotas=OwnerQuotaCreate(users=4, devices=2, units=1, storage_mb=1024),
             billing=OwnerBillingCreate(contact_name="Financeiro", email=f"financeiro-{suffix}@example.test", monthly_amount=119, billing_day=1),
             subscription_status=SubscriptionStatusEnum.ACTIVE,

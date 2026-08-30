@@ -51,6 +51,12 @@ def test_tenant_admin_creates_pin_operator_and_enforces_contract_limit(monkeypat
             plan_id=plan.id,
             limits={"users": 2},
             capability_keys=[],
+            activity_keys=["RETAIL"],
+            limit_entitlements={
+                "users": {"limit": 2, "sources": ["PLAN", "OWNER_DECISION"]},
+            },
+            storage_entitlement={"measurement_status": "NOT_MEASURED"},
+            schema_version=2,
             reason="Contrato de teste com quota inferior ao teto do plano.",
             created_by=admin.id,
         ))

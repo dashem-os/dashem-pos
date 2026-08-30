@@ -45,6 +45,9 @@ from app.services.contract_limit_service import effective_limit
 from app.services.commercial_offer_service import (
     ActivityRule, CommercialOfferError, compose_commercial_offer,
 )
+from app.services.contract_entitlement_service import (
+    build_entitlement_snapshot, latest_contract, resolve_contract_entitlements,
+)
 from app.modules.capabilities.registry import CAPABILITY_REGISTRY, IMPLEMENTED_CAPABILITIES, resolve_dependencies
 from app.modules.capabilities.niches import (
     BusinessNiche, NICHE_CONTRACTS, capability_payload,
@@ -324,6 +327,11 @@ class ContractDiscountReason(str, Enum):
     SERVICE_COMPENSATION = "SERVICE_COMPENSATION"
 
 
+class CapabilitySelectionMode(str, Enum):
+    OFFER_DEFAULT = "OFFER_DEFAULT"
+    EXPLICIT = "EXPLICIT"
+
+
 class OwnerContractDiscount(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -370,9 +378,10 @@ class OwnerTenantProvisionCreate(PlatformTenantCreate):
     plan_id: uuid.UUID
     tenant_type: TenantTypeEnum = TenantTypeEnum.CUSTOMER
     lifecycle_phase: TenantPhaseEnum = TenantPhaseEnum.PILOT
-    niches: List[BusinessNiche] = PydanticField(default_factory=list)
+    niches: List[BusinessNiche] = PydanticField(min_length=1)
     quotas: OwnerQuotaCreate
     capability_keys: List[str] = PydanticField(default_factory=list)
+    capability_selection_mode: CapabilitySelectionMode
     billing: OwnerBillingCreate
     initial_admin: OwnerInitialAdminCreate
 
@@ -619,8 +628,9 @@ class OwnerTenantContractUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     plan_id: uuid.UUID
-    niches: List[BusinessNiche] = PydanticField(default_factory=list)
+    niches: List[BusinessNiche] = PydanticField(min_length=1)
     capability_keys: List[str] = PydanticField(default_factory=list)
+    capability_selection_mode: CapabilitySelectionMode
     quotas: OwnerQuotaCreate
     billing: OwnerBillingCreate
     subscription_status: SubscriptionStatusEnum
@@ -1078,7 +1088,6 @@ def update_saas_billing_account(
     assert actor is not None
     if session.get(Tenant, tenant_id) is None:
         raise HTTPException(status_code=404, detail="Tenant não encontrado.")
-
     normalized_tax_id = _normalize_tax_id(data.tax_id)
     email = data.contact_email.strip().lower()
     if "@" not in email or email.startswith("@") or email.endswith("@"):
@@ -1276,6 +1285,80 @@ def resolve_commercial_offer(
     }
 
 
+def _contract_offer(
+    session: Session,
+    *,
+    plan: ServicePlan,
+    activity_keys: list[str],
+    capability_keys: list[str],
+    selection_mode: CapabilitySelectionMode,
+) -> dict[str, Any]:
+    normalized_activities = _validated_activity_keys(session, activity_keys)
+    rows = session.exec(
+        select(CommercialActivityCapability).where(
+            CommercialActivityCapability.activity_key.in_(normalized_activities)
+        )
+    ).all()
+    rules = [
+        ActivityRule(
+            activity_key=row.activity_key,
+            capability_key=row.capability_key,
+            role=row.role,
+            default_selected=row.default_selected,
+        )
+        for row in rows
+    ]
+    try:
+        base = compose_commercial_offer(
+            plan_capability_keys=plan.capability_keys,
+            plan_activity_keys=plan.activity_keys,
+            selected_activity_keys=normalized_activities,
+            rules=rules,
+        )
+        if base["gaps"]:
+            missing = ", ".join(item["key"] for item in base["gaps"])
+            raise CommercialOfferError(
+                "O plano não cobre capabilities obrigatórias das atividades: " + missing
+            )
+        if selection_mode == CapabilitySelectionMode.OFFER_DEFAULT:
+            if capability_keys:
+                raise CommercialOfferError(
+                    "O modo OFFER_DEFAULT não aceita uma seleção manual de capabilities."
+                )
+            return base
+
+        explicit = set(selected_entitlement_keys(capability_keys))
+        required = set(base["capability_keys"])
+        missing_required = required.difference(explicit)
+        if missing_required:
+            raise CommercialOfferError(
+                "Capabilities obrigatórias ausentes: " + ", ".join(sorted(missing_required))
+            )
+        optional = {
+            row.capability_key for row in rows if row.role == "OPTIONAL"
+        }
+        addon_keys = explicit.difference(required)
+        invalid = addon_keys.difference(optional)
+        if invalid:
+            raise CommercialOfferError(
+                "Capabilities fora da matriz contratual: " + ", ".join(sorted(invalid))
+            )
+        proposal = compose_commercial_offer(
+            plan_capability_keys=plan.capability_keys,
+            plan_activity_keys=plan.activity_keys,
+            selected_activity_keys=normalized_activities,
+            requested_addon_keys=sorted(addon_keys),
+            rules=rules,
+        )
+        if set(proposal["capability_keys"]) != explicit:
+            raise CommercialOfferError(
+                "A seleção explícita não corresponde à proposta resolvida com suas dependências."
+            )
+        return proposal
+    except (CommercialOfferError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @router.get("/platform/capabilities", response_model=List[dict[str, Any]])
 def list_owner_capabilities(
     principal: AuthPrincipal = Depends(get_current_principal),
@@ -1381,10 +1464,14 @@ def provision_owner_tenant(
     _validate_quota("unidades", data.quotas.units, plan.store_limit)
     _validate_quota("storage", data.quotas.storage_mb, plan.storage_limit_mb)
     selected_niches = list(dict.fromkeys(data.niches))
-    try:
-        selected_keys = selected_entitlement_keys(data.capability_keys or plan.capability_keys)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    proposal = _contract_offer(
+        session,
+        plan=plan,
+        activity_keys=[niche.value for niche in selected_niches],
+        capability_keys=data.capability_keys,
+        selection_mode=data.capability_selection_mode,
+    )
+    selected_keys = tuple(proposal["capability_keys"])
 
     tax_id = _normalize_tax_id(data.tax_id)
     if session.exec(select(Tenant).where(Tenant.slug == data.slug)).first():
@@ -1458,19 +1545,6 @@ def provision_owner_tenant(
             status=EntitlementStatusEnum.ACTIVE,
         ))
 
-    if selected_niches:
-        revision = session.exec(
-            select(CapabilityProfileRevision).where(
-                CapabilityProfileRevision.profile_key == selected_niches[0].value,
-                CapabilityProfileRevision.status == "ACTIVE",
-            ).order_by(CapabilityProfileRevision.created_at.desc())
-        ).first()
-        if revision is None:
-            raise HTTPException(status_code=409, detail=f"Perfil {selected_niches[0].value} não foi publicado.")
-        session.add(TenantProfileAssignment(
-            tenant_id=tenant.id, revision_id=revision.id, status="ACTIVE",
-            reason="Atividade principal selecionada na contratação Owner.", assigned_by=actor.id,
-        ))
     limits = {
         "users": data.quotas.users,
         "devices": data.quotas.devices,
@@ -1481,11 +1555,19 @@ def provision_owner_tenant(
         "billing": _billing_contract_snapshot(data.billing, subscription),
     }
     plan_revision = _current_plan_revision(session, plan)
+    entitlement_snapshot = build_entitlement_snapshot(
+        proposal=proposal,
+        users=data.quotas.users,
+        devices=data.quotas.devices,
+        units=data.quotas.units,
+        storage_mb=data.quotas.storage_mb,
+    )
     contract = TenantContract(
         tenant_id=tenant.id, version=1, status="ACTIVE", plan_id=plan.id,
         plan_revision_id=plan_revision.id,
-        limits=limits, capability_keys=list(selected_keys), starts_at=datetime.utcnow(),
+        limits=limits, starts_at=datetime.utcnow(),
         reason="Provisionamento comercial completo pelo Owner.", created_by=actor.id,
+        **entitlement_snapshot,
     )
     session.add(contract)
     _upsert_saas_billing_account(
@@ -1509,7 +1591,9 @@ def provision_owner_tenant(
     payload = {
         "tenant_id": str(tenant.id), "niches": [niche.value for niche in selected_niches],
         "plan_id": str(plan.id), "limits": limits,
-        "capability_keys": list(selected_keys), "initial_admin_id": str(admin_user.id),
+        "capability_keys": list(selected_keys),
+        "capability_entitlements": entitlement_snapshot["capability_entitlements"],
+        "initial_admin_id": str(admin_user.id),
     }
     reliability_service.write_audit_and_outbox(
         session, tenant_id=tenant.id, store_id=None, actor_id=actor.id,
@@ -1990,10 +2074,14 @@ def update_owner_tenant_contract(
     _validate_quota("unidades", data.quotas.units, plan.store_limit)
     _validate_quota("storage", data.quotas.storage_mb, plan.storage_limit_mb)
     selected_niches = list(dict.fromkeys(data.niches))
-    try:
-        selected_keys = selected_entitlement_keys(data.capability_keys or plan.capability_keys)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    proposal = _contract_offer(
+        session,
+        plan=plan,
+        activity_keys=[niche.value for niche in selected_niches],
+        capability_keys=data.capability_keys,
+        selection_mode=data.capability_selection_mode,
+    )
+    selected_keys = tuple(proposal["capability_keys"])
 
     current = {
         item.key: item for item in session.exec(
@@ -2015,24 +2103,6 @@ def update_owner_tenant_contract(
         entitlement.status = EntitlementStatusEnum.ACTIVE
         entitlement.updated_at = datetime.utcnow()
         session.add(entitlement)
-
-    for assignment in session.exec(select(TenantProfileAssignment).where(
-        TenantProfileAssignment.tenant_id == tenant_id,
-        TenantProfileAssignment.status == "ACTIVE",
-    )).all():
-        assignment.status = "SUPERSEDED"
-        session.add(assignment)
-    if selected_niches:
-        revision = session.exec(select(CapabilityProfileRevision).where(
-            CapabilityProfileRevision.profile_key == selected_niches[0].value,
-            CapabilityProfileRevision.status == "ACTIVE",
-        ).order_by(CapabilityProfileRevision.created_at.desc())).first()
-        if revision is None:
-            raise HTTPException(status_code=409, detail=f"Perfil {selected_niches[0].value} não foi publicado.")
-        session.add(TenantProfileAssignment(
-            tenant_id=tenant_id, revision_id=revision.id, status="ACTIVE",
-            reason=data.reason.strip(), assigned_by=actor.id,
-        ))
 
     profile = session.get(TenantProfile, tenant_id)
     if profile:
@@ -2061,12 +2131,20 @@ def update_owner_tenant_contract(
         "billing": _billing_contract_snapshot(data.billing, subscription),
     }
     plan_revision = _current_plan_revision(session, plan)
+    entitlement_snapshot = build_entitlement_snapshot(
+        proposal=proposal,
+        users=data.quotas.users,
+        devices=data.quotas.devices,
+        units=data.quotas.units,
+        storage_mb=data.quotas.storage_mb,
+    )
     contract = TenantContract(
         tenant_id=tenant_id,
         version=(previous_contract.version + 1) if previous_contract else 1,
         status="ACTIVE", plan_id=plan.id, plan_revision_id=plan_revision.id, limits=limits,
-        capability_keys=list(selected_keys), starts_at=datetime.utcnow(),
+        starts_at=datetime.utcnow(),
         reason=data.reason.strip(), created_by=actor.id,
+        **entitlement_snapshot,
     )
     session.add(contract)
     _upsert_saas_billing_account(
@@ -2076,7 +2154,9 @@ def update_owner_tenant_contract(
     payload = {
         "tenant_id": str(tenant_id), "plan_id": str(plan.id),
         "niches": [niche.value for niche in selected_niches],
-        "capability_keys": list(selected_keys), "limits": limits,
+        "capability_keys": list(selected_keys),
+        "capability_entitlements": entitlement_snapshot["capability_entitlements"],
+        "limits": limits,
         "contract_version": contract.version, "actor_id": str(actor.id),
     }
     reliability_service.write_audit_and_outbox(
@@ -2119,7 +2199,7 @@ def _tenant_niches(session: Session, tenant_id: uuid.UUID) -> list[BusinessNiche
         select(TenantContract).where(TenantContract.tenant_id == tenant_id).order_by(TenantContract.version.desc())
     ).first()
     if contract:
-        values = contract.limits.get("business_niches", [])
+        values = contract.activity_keys or contract.limits.get("business_niches", [])
         niches = [BusinessNiche(value) for value in values if value in {item.value for item in BusinessNiche}]
         if niches:
             return niches
@@ -2155,9 +2235,24 @@ def tenant_capability_catalog(
             select(TenantCapability).where(TenantCapability.tenant_id == tenant_id)
         ).all()
     }
+    snapshot = resolve_contract_entitlements(session, tenant_id)
+    enabled_keys = (
+        set(snapshot.capability_keys)
+        if snapshot is not None
+        else {key for key, item in entitlements.items() if item.enabled}
+    )
     niches = _tenant_niches(session, tenant_id)
-    recommended_keys = {key for niche in niches for key in NICHE_CONTRACTS[niche].required}
-    suggested_addons = {key for niche in niches for key in NICHE_CONTRACTS[niche].addons}
+    activity_rules = session.exec(
+        select(CommercialActivityCapability).where(
+            CommercialActivityCapability.activity_key.in_([niche.value for niche in niches])
+        )
+    ).all() if niches else []
+    recommended_keys = {
+        item.capability_key for item in activity_rules if item.role == "REQUIRED"
+    }
+    suggested_addons = {
+        item.capability_key for item in activity_rules if item.role == "OPTIONAL"
+    }
     return [
         CapabilityCatalogItem(
             key=contract.key,
@@ -2166,10 +2261,11 @@ def tenant_capability_catalog(
             scope=contract.scope.value,
             description=contract.description,
             requires=list(contract.requires),
-            enabled=bool(entitlements.get(key) and entitlements[key].enabled),
+            enabled=key in enabled_keys,
             status=(
-                getattr(entitlements[key].status, "value", str(entitlements[key].status))
-                if key in entitlements else EntitlementStatusEnum.SUSPENDED.value
+                EntitlementStatusEnum.ACTIVE.value
+                if key in enabled_keys
+                else EntitlementStatusEnum.SUSPENDED.value
             ),
             contract_limits=dict(entitlements[key].contract_limits) if key in entitlements else {},
             required=key in recommended_keys,
@@ -2195,6 +2291,14 @@ def update_tenant_capability(
     assert actor is not None
     if session.get(Tenant, tenant_id) is None:
         raise HTTPException(status_code=404, detail="Tenant não encontrado.")
+    if latest_contract(session, tenant_id) is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Este tenant possui contrato versionado. Altere capabilities pelo editor do contrato "
+                "para criar uma nova versão auditada."
+            ),
+        )
     if capability_key not in CAPABILITY_REGISTRY:
         raise HTTPException(status_code=404, detail="Capacidade não encontrada no catálogo.")
     if data.enabled and capability_key not in IMPLEMENTED_CAPABILITIES:

@@ -22,7 +22,9 @@ class EntitlementSource(str, Enum):
     ACTIVITY = "ACTIVITY"
     ADDON = "ADDON"
     DEPENDENCY = "DEPENDENCY"
+    OWNER_DECISION = "OWNER_DECISION"
     OWNER_EXCEPTION = "OWNER_EXCEPTION"
+    LEGACY_MIGRATED = "LEGACY_MIGRATED"
 
 
 class MeasurementStatus(str, Enum):

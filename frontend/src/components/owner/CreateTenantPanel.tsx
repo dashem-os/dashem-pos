@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, ArrowRight, Building2, Check, Loader2, Plus, ShieldCheck, X } from 'lucide-react'
 import {
   BusinessNiche, fetchOwnerCapabilityCatalog, fetchOwnerNiches, fetchServicePlans,
-  OwnerNiche, OwnerNicheCapability, provisionPlatformTenant, ServicePlan,
+  OwnerNiche, OwnerNicheCapability, provisionPlatformTenant, resolveCommercialOffer, ServicePlan,
   TenantPhase, TenantType,
 } from '../../services/api'
 import { formatBrazilianPhone, formatBrazilianPostalCode, lookupBrazilianPostalCode, onlyDigits } from '../../utils/brazil'
@@ -60,6 +60,7 @@ export function CreateTenantPanel({ onClose, onCreated, onManagePlans }: { onClo
   const [error, setError] = useState('')
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [slugTouched, setSlugTouched] = useState(false)
+  const [proposalKeys, setProposalKeys] = useState<string[]>([])
 
   useEffect(() => {
     Promise.all([fetchOwnerNiches(), fetchServicePlans(), fetchOwnerCapabilityCatalog()])
@@ -67,6 +68,20 @@ export function CreateTenantPanel({ onClose, onCreated, onManagePlans }: { onClo
       .catch(reason => setError(reason instanceof Error ? reason.message : 'Não foi possível carregar o contrato.'))
       .finally(() => setLoadingCatalog(false))
   }, [])
+
+  useEffect(() => {
+    if (!form.planId || form.niches.length === 0) { setProposalKeys([]); return }
+    let active = true
+    resolveCommercialOffer({ plan_id: form.planId, activity_keys: form.niches })
+      .then(proposal => {
+        if (!active) return
+        setProposalKeys(proposal.capability_keys)
+        setForm(current => ({ ...current, capabilityKeys: proposal.capability_keys }))
+        setError(proposal.gaps.length ? `O plano não cobre: ${proposal.gaps.map(item => item.name).join(', ')}.` : '')
+      })
+      .catch(reason => { if (active) { setProposalKeys([]); setError(reason instanceof Error ? reason.message : 'Não foi possível compor a proposta.') } })
+    return () => { active = false }
+  }, [form.planId, form.niches])
 
   const selectedPlan = plans.find(item => item.id === form.planId)
   const suggestedKeys = useMemo(() => new Set(niches.filter(niche => form.niches.includes(niche.key)).flatMap(niche => [...niche.required_capabilities, ...niche.allowed_addons].map(item => item.key))), [form.niches, niches])
@@ -103,6 +118,7 @@ export function CreateTenantPanel({ onClose, onCreated, onManagePlans }: { onClo
       if (form.city.trim().length < 2) required.city = 'Informe a cidade.'
       if (form.state.length !== 2) required.state = 'Informe a UF.'
     }
+    if (step === 1 && form.niches.length === 0) required.niches = 'Selecione ao menos uma atividade comercial.'
     if (step === 2 && !form.planId) required.planId = 'Selecione um plano.'
     if (step === 4) {
       if (!form.users || Number(form.users) < 1 || (selectedPlan?.user_limit && Number(form.users) > selectedPlan.user_limit)) required.users = 'Revise o limite de usuários.'
@@ -126,7 +142,7 @@ export function CreateTenantPanel({ onClose, onCreated, onManagePlans }: { onClo
       : [...current.niches, key],
   }))
   const toggleCapability = (key: string) => set('capabilityKeys', form.capabilityKeys.includes(key) ? form.capabilityKeys.filter(item => item !== key) : [...form.capabilityKeys, key])
-  const selectPlan = (plan: ServicePlan) => setForm(current => ({ ...current, planId: plan.id, capabilityKeys: plan.capability_keys || [], monthlyAmount: Number(plan.monthly_price || 0).toFixed(2).replace('.', ','), users: plan.user_limit == null ? current.users : String(plan.user_limit), devices: plan.terminal_limit == null ? current.devices : String(plan.terminal_limit), units: plan.store_limit == null ? current.units : String(plan.store_limit), storageMb: plan.storage_limit_mb == null ? current.storageMb : String(plan.storage_limit_mb) }))
+  const selectPlan = (plan: ServicePlan) => setForm(current => ({ ...current, planId: plan.id, capabilityKeys: [], monthlyAmount: Number(plan.monthly_price || 0).toFixed(2).replace('.', ','), users: plan.user_limit == null ? current.users : String(plan.user_limit), devices: plan.terminal_limit == null ? current.devices : String(plan.terminal_limit), units: plan.store_limit == null ? current.units : String(plan.store_limit), storageMb: plan.storage_limit_mb == null ? current.storageMb : String(plan.storage_limit_mb) }))
   const submit = async () => {
     const errors = errorsForStep(); if (Object.keys(errors).length) { setFieldErrors(errors); setError('Revise os campos destacados para provisionar.'); return }
     setSaving(true); setError('')
@@ -139,6 +155,7 @@ export function CreateTenantPanel({ onClose, onCreated, onManagePlans }: { onClo
         street: form.street.trim(), street_number: form.streetNumber.trim(), address_complement: form.complement.trim() || undefined,
         district: form.district.trim(), city: form.city.trim(), state: form.state, plan_id: form.planId, niches: form.niches,
         quotas: { users: Number(form.users), devices: Number(form.devices), units: Number(form.units), storage_mb: Number(form.storageMb) }, capability_keys: form.capabilityKeys,
+        capability_selection_mode: 'EXPLICIT',
         billing: { contact_name: form.billingName.trim(), email: form.billingEmail.trim(), phone: form.billingPhone.trim() || undefined, monthly_amount: moneyNumber(form.monthlyAmount), billing_day: Number(form.billingDay) },
         initial_admin: { full_name: form.adminName.trim(), email: form.adminEmail.trim() },
       })
@@ -170,9 +187,9 @@ export function CreateTenantPanel({ onClose, onCreated, onManagePlans }: { onClo
           <Field id="storeName" label="Nome da unidade" value={form.storeName} error={fieldErrors.storeName} onChange={value => set('storeName', value)} /><Field id="storeCode" label="Código" value={form.storeCode} onChange={value => set('storeCode', value.toUpperCase().replace(/[^A-Z0-9_-]/g, ''))} /><Field id="postalCode" label="CEP" value={formatBrazilianPostalCode(form.postalCode)} error={fieldErrors.postalCode} inputMode="numeric" onChange={setPostalCode} /><Field id="street" label="Logradouro" value={form.street} error={fieldErrors.street} onChange={value => set('street', value)} />
           <Field id="streetNumber" label="Número" value={form.streetNumber} error={fieldErrors.streetNumber} onChange={value => set('streetNumber', value)} /><Field id="complement" label="Complemento" value={form.complement} onChange={value => set('complement', value)} /><Field id="district" label="Bairro" value={form.district} error={fieldErrors.district} onChange={value => set('district', value)} /><Field id="city" label="Cidade" value={form.city} error={fieldErrors.city} onChange={value => set('city', value)} /><Field id="state" label="UF" value={form.state} error={fieldErrors.state} onChange={value => set('state', value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 2))} />
         </div></Section></div>}
-        {step === 1 && <div><h3 className="text-xl font-black">Definir segmentos do negócio</h3><p className="mt-2 max-w-3xl text-sm text-slate-500">Selecione nenhum, um ou vários modelos contratuais. Combinações híbridas são permitidas e podem ser alteradas depois.</p><ChoiceGrid>{niches.map(niche => <ChoiceCard key={niche.key} selected={form.niches.includes(niche.key)} title={niche.name} description={niche.description} onClick={() => toggleNiche(niche.key)} footer={`${niche.required_capabilities.length} capabilities compatíveis`} />)}</ChoiceGrid></div>}
-        {step === 2 && <div><h3 className="text-xl font-black">Plano comercial</h3><ChoiceGrid>{plans.map(plan => <ChoiceCard key={plan.id} selected={form.planId === plan.id} invalid={Boolean(fieldErrors.planId)} title={plan.name} description={plan.description || 'Plano comercial ativo'} onClick={() => { selectPlan(plan); setFieldErrors({}) }} footer={`R$ ${Number(plan.monthly_price || 0).toFixed(2).replace('.', ',')} · ${plan.user_limit ?? '∞'} usuários · ${plan.terminal_limit ?? '∞'} dispositivos`} />)}</ChoiceGrid></div>}
-        {step === 3 && <div><h3 className="text-xl font-black">Prévia de capabilities</h3><p className="mt-2 text-sm text-slate-500">As capabilities compatíveis aparecem destacadas, mas todo o catálogo continua disponível para contratação.</p><div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-3">{capabilities.map(capability => <button key={capability.key} type="button" onClick={() => toggleCapability(capability.key)} className={`rounded-xl border-2 p-4 text-left transition ${form.capabilityKeys.includes(capability.key) ? 'border-emerald-400 bg-emerald-50' : suggestedKeys.has(capability.key) ? 'border-[#ffbf00] bg-amber-50' : 'border-slate-200 bg-white'}`}><div className="flex items-start justify-between gap-3"><p className="font-black">{capability.name}</p>{form.capabilityKeys.includes(capability.key) && <span className="rounded-full bg-emerald-600 p-1 text-white"><Check className="h-3.5 w-3.5" /></span>}</div><p className="mt-2 text-sm text-slate-600">{capability.description}</p><p className="mt-3 text-xs font-black uppercase text-slate-400">{suggestedKeys.has(capability.key) ? 'Compatível com os modelos' : 'Catálogo geral'}</p></button>)}</div></div>}
+        {step === 1 && <div><h3 className="text-xl font-black">Definir atividades comerciais</h3><p className="mt-2 max-w-3xl text-sm text-slate-500">Selecione uma ou várias atividades contratadas. Combinações híbridas são permitidas e versionadas no contrato.</p>{fieldErrors.niches && <p className="mt-3 text-sm font-bold text-[#8a6100]">{fieldErrors.niches}</p>}<ChoiceGrid>{niches.map(niche => <ChoiceCard key={niche.key} selected={form.niches.includes(niche.key)} title={niche.name} description={niche.description} onClick={() => toggleNiche(niche.key)} footer={`${niche.required_capabilities.length} capabilities obrigatórias`} />)}</ChoiceGrid></div>}
+        {step === 2 && <div><h3 className="text-xl font-black">Plano comercial</h3><ChoiceGrid>{plans.filter(plan => form.niches.every(activity => plan.activity_keys.includes(activity))).map(plan => <ChoiceCard key={plan.id} selected={form.planId === plan.id} invalid={Boolean(fieldErrors.planId)} title={plan.name} description={plan.description || 'Plano comercial ativo'} onClick={() => { selectPlan(plan); setFieldErrors({}) }} footer={`R$ ${Number(plan.monthly_price || 0).toFixed(2).replace('.', ',')} · ${plan.user_limit ?? '∞'} usuários · ${plan.terminal_limit ?? '∞'} dispositivos`} />)}</ChoiceGrid></div>}
+        {step === 3 && <div><h3 className="text-xl font-black">Proposta de capabilities</h3><p className="mt-2 text-sm text-slate-500">Verde é obrigatório na composição plano + atividades; opcionais podem ser acrescentadas pelo Owner. Nada é liberado antes de salvar o contrato.</p><div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-3">{capabilities.filter(capability => suggestedKeys.has(capability.key) && selectedPlan?.capability_keys.includes(capability.key)).map(capability => { const required = proposalKeys.includes(capability.key); return <button key={capability.key} type="button" disabled={required} onClick={() => toggleCapability(capability.key)} className={`rounded-xl border-2 p-4 text-left transition disabled:cursor-not-allowed ${form.capabilityKeys.includes(capability.key) ? 'border-emerald-400 bg-emerald-50' : 'border-[#ffbf00] bg-amber-50'}`}><div className="flex items-start justify-between gap-3"><p className="font-black">{capability.name}</p>{form.capabilityKeys.includes(capability.key) && <span className="rounded-full bg-emerald-600 p-1 text-white"><Check className="h-3.5 w-3.5" /></span>}</div><p className="mt-2 text-sm text-slate-600">{capability.description}</p><p className="mt-3 text-xs font-black uppercase text-slate-400">{required ? 'Obrigatória na proposta' : 'Opcional da atividade'}</p></button> })}</div></div>}
         {step === 4 && <div><h3 className="text-xl font-black">Limites contratados</h3><p className="mt-2 text-sm text-slate-500">Ajuste dentro do teto do plano. Estes valores poderão ser editados depois.</p><div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><NumberField id="users" label="Usuários" value={form.users} error={fieldErrors.users} max={selectedPlan?.user_limit} onChange={value => set('users', value)} /><NumberField id="devices" label="Dispositivos" value={form.devices} error={fieldErrors.devices} max={selectedPlan?.terminal_limit} onChange={value => set('devices', value)} /><NumberField id="units" label="Unidades" value={form.units} error={fieldErrors.units} max={selectedPlan?.store_limit} onChange={value => set('units', value)} /><NumberField id="storageMb" label="Storage (MB)" value={form.storageMb} error={fieldErrors.storageMb} max={selectedPlan?.storage_limit_mb} min={128} onChange={value => set('storageMb', value)} /></div></div>}
         {step === 5 && <div className="grid gap-6 lg:grid-cols-[1fr_1.1fr]"><Section title="Primeiro administrador"><div className="grid gap-4"><Field id="adminName" label="Nome completo" value={form.adminName} error={fieldErrors.adminName} onChange={value => set('adminName', value)} /><Field id="adminEmail" label="E-mail de acesso" value={form.adminEmail} error={fieldErrors.adminEmail} type="email" onChange={value => set('adminEmail', value)} /><p className="rounded-xl bg-blue-50 p-4 text-sm font-semibold text-blue-900">O Owner entrega somente o acesso administrativo. A equipe operacional será gerida pelo cliente.</p></div></Section><section className="rounded-2xl bg-[#022444] p-6 text-white"><div className="flex items-center gap-3"><ShieldCheck className="h-6 w-6 text-emerald-400" /><h3 className="text-xl font-black">Prévia do contrato</h3></div><dl className="mt-6 space-y-3 text-sm"><Summary label="Cliente" value={form.name} /><Summary label="Tipo e fase" value={`${form.tenantType === 'CUSTOMER' ? 'Cliente' : 'Interno'} · ${form.phase}`} /><Summary label="Modelos de negócio" value={form.niches.length ? form.niches.map(item => nicheLabel[item]).join(' + ') : 'Sem filtro de nicho'} /><Summary label="Plano" value={selectedPlan?.name || ''} /><Summary label="Capabilities" value={`${form.capabilityKeys.length} selecionadas`} /><Summary label="Mensalidade" value={`R$ ${form.monthlyAmount} · vencimento no dia ${form.billingDay}`} /></dl></section></div>}
       </>}</div>

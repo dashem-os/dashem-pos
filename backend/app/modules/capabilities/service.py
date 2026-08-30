@@ -4,6 +4,7 @@ from sqlmodel import Session, select
 
 from app.models.platform import EntitlementStatusEnum, StoreCapabilityOverride, TenantCapability
 from app.modules.capabilities.registry import CAPABILITY_REGISTRY, resolve_dependencies
+from app.services.contract_entitlement_service import resolve_contract_entitlements
 
 
 def effective_capabilities(session: Session, tenant_id, store_id: Optional[object] = None) -> dict[str, dict[str, Any]]:
@@ -14,7 +15,18 @@ def effective_capabilities(session: Session, tenant_id, store_id: Optional[objec
             TenantCapability.status.in_({EntitlementStatusEnum.CONFIGURED, EntitlementStatusEnum.ACTIVE}),
         )
     ).all()
-    enabled = {item.key: dict(item.configuration) for item in entitlements if item.key in CAPABILITY_REGISTRY}
+    persisted = {item.key: dict(item.configuration) for item in entitlements if item.key in CAPABILITY_REGISTRY}
+    snapshot = resolve_contract_entitlements(session, tenant_id)
+    if snapshot is not None:
+        enabled = {
+            key: persisted.get(key, {})
+            for key in snapshot.capability_keys
+            if key in CAPABILITY_REGISTRY
+        }
+    else:
+        # Pre-contract tenants remain readable from their persisted grants. This
+        # is explicit legacy state, never an inference from the current plan.
+        enabled = persisted
     if store_id:
         overrides = session.exec(
             select(StoreCapabilityOverride).where(
@@ -31,7 +43,7 @@ def effective_capabilities(session: Session, tenant_id, store_id: Optional[objec
                 enabled[override.key] = {**enabled.get(override.key, {}), **override.configuration}
             else:
                 enabled.pop(override.key, None)
-    resolved = resolve_dependencies(enabled)
+    resolved = tuple(enabled) if snapshot is not None else resolve_dependencies(enabled)
     return {
         key: {
             "key": key,

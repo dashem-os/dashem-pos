@@ -11,7 +11,7 @@ from sqlmodel import Session, select
 from app.core.access import require_platform_role
 from app.core.database import get_session
 from app.core.security import AuthPrincipal, get_current_principal
-from app.models.identity import ServicePlan, Store, Tenant, User
+from app.models.identity import Store, Tenant, User
 from app.models.platform import (
     AssistedSupportGrant, ControlStatusEnum, IdentityDeliveryEvent, Lead,
     LeadStatusEnum, PlatformIncident, PlatformRoleEnum, SupportGrantStatusEnum,
@@ -310,18 +310,14 @@ def control_workspace(tenant_id: uuid.UUID, principal: AuthPrincipal = Depends(g
 
 @router.post("/tenants/{tenant_id}/contracts", response_model=TenantContract, status_code=201)
 def create_contract(tenant_id: uuid.UUID, data: ContractCreate, principal: AuthPrincipal = Depends(get_current_principal), session: Session = Depends(get_session)):
-    actor = _actor(session, principal); _tenant(session, tenant_id)
-    if data.plan_id and session.get(ServicePlan, data.plan_id) is None:
-        raise HTTPException(status_code=422, detail="Plano não encontrado.")
-    contracted = {row.key for row in session.exec(select(TenantCapability).where(TenantCapability.tenant_id == tenant_id, TenantCapability.enabled.is_(True))).all()}
-    if not set(data.capability_keys).issubset(contracted):
-        raise HTTPException(status_code=409, detail="Contrato não pode incluir capability sem entitlement ativo.")
-    latest = session.exec(select(func.max(TenantContract.version)).where(TenantContract.tenant_id == tenant_id)).one() or 0
-    contract = TenantContract(tenant_id=tenant_id, version=int(latest) + 1, created_by=actor.id, **data.model_dump())
-    session.add(contract); session.flush()
-    _audit(session, actor, tenant_id, "control.contract.versioned", f"contract:{contract.id}", {"version": contract.version, "reason": contract.reason})
-    session.commit(); session.refresh(contract)
-    return contract
+    _actor(session, principal); _tenant(session, tenant_id)
+    raise HTTPException(
+        status_code=409,
+        detail=(
+            "A criação contratual genérica foi encerrada. Use Organizações → cliente → Contrato "
+            "para compor plano, atividades, capabilities e quotas em um único snapshot auditado."
+        ),
+    )
 
 
 @router.put("/tenants/{tenant_id}/onboarding/{key}", response_model=TenantOnboardingCheckpoint)
