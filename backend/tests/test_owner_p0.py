@@ -181,7 +181,7 @@ def test_owner_can_combine_niches_and_version_existing_contract(monkeypatch):
 
         detail = update_owner_tenant_contract(provisioned.tenant.id, OwnerTenantContractUpdate(
             plan_id=plan.id, niches=[BusinessNiche.RETAIL, BusinessNiche.BEAUTY_RESELLER],
-            capability_keys=sorted(NICHE_CONTRACTS[BusinessNiche.RETAIL].required | NICHE_CONTRACTS[BusinessNiche.BEAUTY_RESELLER].required | {"receivables"}),
+            capability_keys=sorted(set(NICHE_CONTRACTS[BusinessNiche.RETAIL].required) | set(NICHE_CONTRACTS[BusinessNiche.BEAUTY_RESELLER].required) | {"receivables"}),
             capability_selection_mode="EXPLICIT",
             quotas=OwnerQuotaCreate(users=8, devices=4, units=2, storage_mb=4096),
             billing=OwnerBillingCreate(contact_name="Novo Financeiro", email=f"cobranca-{suffix}@example.test", monthly_amount=229, billing_day=12),

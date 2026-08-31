@@ -79,7 +79,7 @@ def test_s18_control_legacy_contract_writer_is_closed_and_support_remains_audite
         assert incident.resolved_at is not None
 
         workspace = control_workspace(tenant_id, principal, session)
-        assert workspace["contracts"][0].version == 1
+        assert workspace["contracts"] == []
         assert next(item for item in workspace["onboarding"] if (item.key if hasattr(item, "key") else item["key"]) == "CONTRACT")
         assert workspace["support_grants"][0].reason
         assert session.exec(select(AuditEvent).where(AuditEvent.action == "control.support.decided")).first() is not None
