@@ -300,6 +300,10 @@ class CommercialChangeRequestRecord(SQLModel, table=True):
             "status IN ('PENDING', 'APPROVED', 'DECLINED', 'CANCELED')",
             name="ck_commercial_change_request_status",
         ),
+        CheckConstraint(
+            "source_contract_version >= 1",
+            name="ck_commercial_change_request_contract_version",
+        ),
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
