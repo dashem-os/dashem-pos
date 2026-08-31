@@ -15,6 +15,7 @@ const statusLabel: Record<api.CommercialRequestStatus, string> = {
 export function CommercialRequestsPanel() {
   const { tenant, store, permissions, showToast } = usePos()
   const [catalog, setCatalog] = useState<api.CommercialRequestCatalog | null>(null)
+  const [storage, setStorage] = useState<api.StorageQuotaUsage | null>(null)
   const [requests, setRequests] = useState<api.CommercialChangeRequest[]>([])
   const [reason, setReason] = useState('')
   const [quota, setQuota] = useState<{ kind: api.CommercialChangeKind; value: string } | null>(null)
@@ -27,10 +28,11 @@ export function CommercialRequestsPanel() {
     if (!headers) return
     setError('')
     try {
-      const [nextCatalog, nextRequests] = await Promise.all([
+      const [nextCatalog, nextRequests, nextStorage] = await Promise.all([
         api.fetchCommercialRequestCatalog(headers), api.fetchCommercialRequests(headers),
+        api.fetchTenantStorageQuota(headers),
       ])
-      setCatalog(nextCatalog); setRequests(nextRequests)
+      setCatalog(nextCatalog); setRequests(nextRequests); setStorage(nextStorage)
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Falha ao carregar solicitações.') }
   }, [tenant?.id, store?.id])
   useEffect(() => { void load() }, [load])
@@ -53,6 +55,7 @@ export function CommercialRequestsPanel() {
   ]
   return <section className="rounded-3xl border border-dashem-border bg-dashem-surface p-6">
     <div><p className="text-[10px] font-black uppercase tracking-[.16em] text-dashem-red">Governança comercial</p><h3 className="mt-1 text-xl font-black text-white">Solicitar expansão contratual</h3><p className="mt-2 text-sm text-dashem-muted">O pedido não libera acesso. O Owner analisa e, se aprovar, cria uma nova versão auditada do contrato.</p></div>
+    {storage && <div className={`mt-5 rounded-xl border p-4 ${storage.enforcement_active ? 'border-emerald-800 bg-emerald-950/30' : 'border-amber-800 bg-amber-950/30'}`}><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-black text-white">Storage do tenant</p><span className={`rounded-full px-2 py-1 text-[10px] font-black ${storage.enforcement_active ? 'bg-emerald-900 text-emerald-200' : 'bg-amber-900 text-amber-200'}`}>{storage.enforcement_active ? 'ENFORCEMENT ATIVO' : 'SEM MEDIÇÃO RECONCILIADA'}</span></div><p className="mt-2 text-xs text-slate-300">{storage.reason}</p>{storage.enforcement_active && <p className="mt-2 text-xs font-bold text-emerald-200">Uso: {formatBytes(storage.used_bytes)} · reservado: {formatBytes(storage.reserved_bytes)} · disponível: {formatBytes(storage.available_bytes)}</p>}</div>}
     {error && <p className="mt-4 rounded-xl border border-red-900 bg-red-950/30 p-3 text-xs font-bold text-red-300">{error}</p>}
     {canRequest ? <><label className="mt-5 block text-xs font-black text-slate-300">Motivo e contexto<input value={reason} onChange={event => setReason(event.target.value)} placeholder="Explique a necessidade operacional" className="mt-2 h-11 w-full rounded-xl border border-dashem-border bg-dashem-bg px-3 text-sm text-white outline-none focus:border-dashem-red" /></label>
       {(catalog.activities.length > 0 || catalog.capabilities.length > 0) && <div className="mt-5 grid gap-4 lg:grid-cols-2"><RequestChoices title="Atividades disponíveis" items={catalog.activities} busy={busy} onRequest={item => void send('ACTIVITY', { activity_key: item.key })} /><RequestChoices title="Add-ons disponíveis" items={catalog.capabilities} busy={busy} onRequest={item => void send('CAPABILITY', { capability_key: item.key })} /></div>}
@@ -60,6 +63,13 @@ export function CommercialRequestsPanel() {
     </> : <p className="mt-5 rounded-xl border border-amber-900/50 bg-amber-950/30 p-3 text-xs font-bold text-amber-300">Seu acesso permite acompanhar solicitações, mas não criar uma nova.</p>}
     <div className="mt-6 border-t border-dashem-border pt-5"><h4 className="text-sm font-black text-white">Histórico</h4><div className="mt-3 space-y-2">{requests.map(item => <article key={item.id} className="rounded-xl bg-dashem-bg p-3"><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-black text-white">{kindLabel[item.kind]}</p><span className={`rounded-full px-2 py-1 text-[10px] font-black ${item.status === 'APPROVED' ? 'bg-emerald-950 text-emerald-300' : item.status === 'DECLINED' ? 'bg-red-950 text-red-300' : 'bg-amber-950 text-amber-300'}`}>{statusLabel[item.status]}</span></div><p className="mt-2 text-xs text-dashem-muted">{item.reason}</p>{item.decision && <p className="mt-2 flex items-center gap-1 text-xs text-slate-300"><CheckCircle2 className="h-3.5 w-3.5" />Decisão do Owner: {item.decision.reason}</p>}</article>)}{requests.length === 0 && <p className="text-xs text-dashem-muted">Nenhuma solicitação enviada.</p>}</div></div>
   </section>
+}
+
+function formatBytes(value?: number) {
+  if (value == null) return '—'
+  return value >= 1024 ** 3
+    ? `${(value / 1024 ** 3).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} GB`
+    : `${(value / 1024 ** 2).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} MB`
 }
 
 function RequestChoices({ title, items, busy, onRequest }: { title: string; items: Array<{ key: string; name: string; description: string }>; busy: boolean; onRequest: (item: { key: string; name: string; description: string }) => void }) {

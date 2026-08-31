@@ -18,7 +18,7 @@ test('gives the Owner a real commercial plan catalog before tenant contracting',
   assert.match(plans, /Cadastrar primeiro plano/)
   assert.match(plans, /Vincular a uma organização/)
   assert.match(plans, /Salvando…/)
-  assert.match(plans, /referência contratual sem medição/)
+  assert.match(plans, /quota da oferta; enforcement exige inventário reconciliado no tenant/)
   assert.match(workspace, /Atividades comerciais contratadas/)
   assert.match(workspace, /Capabilities da nova versão contratual/)
   assert.match(workspace, /Quotas da nova versão contratual/)

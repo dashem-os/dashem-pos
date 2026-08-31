@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     # can be overridden per environment without changing application code.
     DB_POOL_SIZE: int = 5
     DB_MAX_OVERFLOW: int = 5
+
+    # Storage quota enforcement is fail-closed unless a complete provider
+    # inventory is newer than this configurable policy window.
+    STORAGE_MEASUREMENT_MAX_AGE_HOURS: int = 24
+    STORAGE_RESERVATION_TTL_MINUTES: int = 15
     
     CORS_ORIGINS: list[str] = [
         "http://localhost:5173",

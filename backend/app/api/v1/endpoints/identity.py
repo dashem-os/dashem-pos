@@ -52,6 +52,7 @@ from app.services.quota_policy_service import (
     require_count_capacity,
     tenant_count_quota_read_model,
 )
+from app.services.storage_quota_service import storage_quota_read_model
 from app.modules.governance.contracts import CountResource
 from app.modules.capabilities.registry import CAPABILITY_REGISTRY, IMPLEMENTED_CAPABILITIES, resolve_dependencies
 from app.modules.capabilities.niches import (
@@ -455,6 +456,24 @@ class PlatformTenantResourceUsage(BaseModel):
     measured_at: datetime
 
 
+class PlatformTenantStorageUsage(BaseModel):
+    resource: str
+    contracted_bytes: Optional[int] = None
+    used_bytes: Optional[int] = None
+    reserved_bytes: int
+    occupied_bytes: Optional[int] = None
+    available_bytes: Optional[int] = None
+    object_count: Optional[int] = None
+    measurement_status: str
+    decision: str
+    reason: str
+    measured_at: Optional[datetime] = None
+    watermark: Optional[str] = None
+    measurement_id: Optional[uuid.UUID] = None
+    source_keys: List[str] = PydanticField(default_factory=list)
+    enforcement_active: bool
+
+
 class PlatformTenantDetail(BaseModel):
     tenant: PlatformTenantRead
     profile: Optional[TenantProfile] = None
@@ -469,6 +488,7 @@ class PlatformTenantDetail(BaseModel):
     contract: Optional[TenantContract] = None
     billing_account: Optional[SaasBillingAccount] = None
     resource_usage: dict[str, PlatformTenantResourceUsage] = PydanticField(default_factory=dict)
+    storage_usage: PlatformTenantStorageUsage
 
 
 class HealthComponent(BaseModel):
@@ -1762,6 +1782,7 @@ def platform_tenant_detail(
         contract=contract,
         billing_account=billing_account,
         resource_usage=tenant_count_quota_read_model(session, tenant_id),
+        storage_usage=storage_quota_read_model(session, tenant_id),
     )
 
 

@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.api.v1.endpoints import identity, catalog, inventory, sales, cash, payments, fiscal, capabilities, team, management, orders, tables, negotiations, providers, channels, production, transfers, channel_catalog, devices, receivables, reconciliations, operational_access, control, owner_finance, commercial_requests
+from app.api.v1.endpoints import identity, catalog, inventory, sales, cash, payments, fiscal, capabilities, team, management, orders, tables, negotiations, providers, channels, production, transfers, channel_catalog, devices, receivables, reconciliations, operational_access, control, owner_finance, commercial_requests, storage
 
 api_router = APIRouter()
 api_router.include_router(identity.router, prefix="/identity", tags=["Identity & Tenancy"])
@@ -17,6 +17,7 @@ api_router.include_router(team.router, prefix="/team", tags=["Tenant Team & Perm
 api_router.include_router(operational_access.router, prefix="/operational-access", tags=["Operational PIN Access"])
 api_router.include_router(management.router, prefix="/management", tags=["Tenant Management"])
 api_router.include_router(commercial_requests.router, prefix="/commercial-requests", tags=["Commercial Change Requests"])
+api_router.include_router(storage.router, prefix="/storage", tags=["Storage Metering & Quotas"])
 api_router.include_router(orders.router, prefix="/orders", tags=["Order Aggregate"])
 api_router.include_router(tables.router, prefix="/tables", tags=["Tables & Tabs"])
 api_router.include_router(negotiations.router, prefix="/negotiations", tags=["Checkout Negotiation"])

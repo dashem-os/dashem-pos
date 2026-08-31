@@ -1375,6 +1375,24 @@ export interface TenantResourceUsage {
   measured_at: string
 }
 
+export interface StorageQuotaUsage {
+  resource: 'STORAGE'
+  contracted_bytes?: number
+  used_bytes?: number
+  reserved_bytes: number
+  occupied_bytes?: number
+  available_bytes?: number
+  object_count?: number
+  measurement_status: 'NOT_MEASURED' | 'PARTIAL' | 'RECONCILED' | 'DIVERGENT' | 'UNAVAILABLE'
+  decision: 'ALLOWED' | 'WARNING' | 'DENIED' | 'UNKNOWN'
+  reason: string
+  measured_at?: string
+  watermark?: string
+  measurement_id?: string
+  source_keys: string[]
+  enforcement_active: boolean
+}
+
 export interface PlatformTenantDetail {
   tenant: PlatformTenantSummary
   profile?: TenantProfile
@@ -1389,6 +1407,7 @@ export interface PlatformTenantDetail {
   contract?: TenantContract
   billing_account?: SaasBillingAccount
   resource_usage: Partial<Record<TenantResourceUsage['resource'], TenantResourceUsage>>
+  storage_usage: StorageQuotaUsage
 }
 
 export interface PaymentConfirmResponse {
@@ -1984,6 +2003,12 @@ export async function fetchCommercialRequests(headers: Record<string, string>): 
 export async function fetchCommercialRequestCatalog(headers: Record<string, string>): Promise<CommercialRequestCatalog> {
   const res = await fetch(`${API_BASE_URL}/api/v1/commercial-requests/catalog`, { headers })
   if (!res.ok) throw await apiError(res, 'Não foi possível carregar o catálogo de expansões.')
+  return res.json()
+}
+
+export async function fetchTenantStorageQuota(headers: Record<string, string>): Promise<StorageQuotaUsage> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/storage/quota`, { headers })
+  if (!res.ok) throw await apiError(res, 'Não foi possível carregar a medição de storage.')
   return res.json()
 }
 
