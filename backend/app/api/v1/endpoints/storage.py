@@ -26,7 +26,7 @@ from app.services.storage_quota_service import (
     StorageCapacityUnavailableError, finalize_storage_reservation, reserve_storage_capacity,
 )
 from app.services.storage_reconciliation_service import (
-    StorageInventoryUnavailable, configure_supabase_sources, reconcile_supabase_storage,
+    StorageInventoryUnavailable, reconcile_supabase_storage,
 )
 from app.services.supabase_storage import (
     SupabaseStorageClient, SupabaseStorageRejected, SupabaseStorageUnavailable, managed_bucket,
@@ -458,7 +458,6 @@ def bootstrap_supabase_storage(
         raise HTTPException(status_code=404, detail="Tenant não encontrado.")
     try:
         buckets = SupabaseStorageClient().ensure_private_buckets()
-        configure_supabase_sources(session, tenant_id, actor.id)
         tenant_measurement, provider_measurement = reconcile_supabase_storage(session, tenant_id, actor.id)
     except (SupabaseStorageUnavailable, StorageInventoryUnavailable, httpx.RequestError) as exc:
         session.rollback()

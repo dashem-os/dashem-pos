@@ -17,9 +17,15 @@ class StorageInventoryUnavailable(RuntimeError):
     pass
 
 
-def configure_supabase_sources(session: Session, tenant_id: uuid.UUID, actor_id: uuid.UUID) -> list[StorageMeterSource]:
+def configure_supabase_sources(
+    session: Session,
+    tenant_id: uuid.UUID,
+    actor_id: uuid.UUID,
+    *,
+    now: datetime | None = None,
+) -> list[StorageMeterSource]:
     sources: list[StorageMeterSource] = []
-    now = datetime.utcnow()
+    now = now or datetime.utcnow()
     for bucket in settings.supabase_storage_buckets:
         key = f"supabase:{bucket}"
         source = session.exec(select(StorageMeterSource).where(
@@ -31,13 +37,21 @@ def configure_supabase_sources(session: Session, tenant_id: uuid.UUID, actor_id:
             source = StorageMeterSource(
                 tenant_id=tenant_id, source_key=key, provider="SUPABASE",
                 locator_reference=locator, status="ACTIVE", created_by=actor_id,
+                created_at=now, updated_at=now,
             )
+            session.add(source)
         else:
-            source.provider = "SUPABASE"
-            source.locator_reference = locator
-            source.status = "ACTIVE"
-            source.updated_at = now
-        session.add(source)
+            changed = (
+                source.provider != "SUPABASE"
+                or source.locator_reference != locator
+                or source.status != "ACTIVE"
+            )
+            if changed:
+                source.provider = "SUPABASE"
+                source.locator_reference = locator
+                source.status = "ACTIVE"
+                source.updated_at = now
+                session.add(source)
         sources.append(source)
     session.flush()
     return sources
@@ -58,7 +72,7 @@ def reconcile_supabase_storage(
         raise StorageInventoryUnavailable("Supabase Storage e sua capacidade física não estão configurados.")
     now = now or datetime.utcnow()
     storage = client or SupabaseStorageClient()
-    sources = configure_supabase_sources(session, tenant_id, actor_id)
+    sources = configure_supabase_sources(session, tenant_id, actor_id, now=now)
     source_rows: list[dict[str, object]] = []
     for source in sources:
         bucket = source.locator_reference.split("/", 1)[0]
