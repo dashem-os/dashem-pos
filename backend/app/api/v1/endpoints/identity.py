@@ -2073,7 +2073,21 @@ def update_owner_tenant_contract(
         session, principal, FINANCE_MANAGE_BILLING, require_aal2=True
     )
     assert actor is not None
-    tenant = session.get(Tenant, tenant_id)
+    _apply_owner_tenant_contract(session, tenant_id, data, actor)
+    session.commit()
+    return platform_tenant_detail(tenant_id, principal, session)
+
+
+def _apply_owner_tenant_contract(
+    session: Session,
+    tenant_id: uuid.UUID,
+    data: OwnerTenantContractUpdate,
+    actor: User,
+) -> TenantContract:
+    """Apply a contract version without committing the surrounding transaction."""
+    tenant = session.exec(
+        select(Tenant).where(Tenant.id == tenant_id).with_for_update()
+    ).first()
     if tenant is None:
         raise HTTPException(status_code=404, detail="Tenant não encontrado.")
     plan = session.get(ServicePlan, data.plan_id)
@@ -2184,8 +2198,7 @@ def update_owner_tenant_contract(
         audit_payload=payload, aggregate_type="tenant_contract", aggregate_id=str(contract.id),
         event_type="platform.tenant.contract_updated", outbox_payload=payload,
     )
-    session.commit()
-    return platform_tenant_detail(tenant_id, principal, session)
+    return contract
 
 
 def _ensure_capability_definition(session: Session, key: str) -> CapabilityDefinition:

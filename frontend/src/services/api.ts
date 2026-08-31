@@ -958,6 +958,39 @@ export interface CommercialOfferProposal {
   authorizes_tenant: false
 }
 
+export type CommercialChangeKind = 'ACTIVITY' | 'CAPABILITY' | 'USER_LIMIT' | 'DEVICE_LIMIT' | 'UNIT_LIMIT' | 'STORAGE_LIMIT' | 'INTEGRATION'
+export type CommercialRequestStatus = 'PENDING' | 'APPROVED' | 'DECLINED' | 'CANCELED'
+export interface CommercialChangeDecision {
+  id: string
+  decision: 'APPROVE' | 'DECLINE'
+  reason: string
+  decided_by: string
+  resulting_contract_id?: string
+  decided_at: string
+}
+export interface CommercialChangeRequest {
+  id: string
+  tenant_id: string
+  tenant_name?: string
+  kind: CommercialChangeKind
+  payload: Record<string, unknown>
+  reason: string
+  requested_by: string
+  source_contract_id: string
+  source_contract_version: number
+  status: CommercialRequestStatus
+  requested_at: string
+  decided_at?: string
+  decision?: CommercialChangeDecision
+}
+export interface CommercialRequestCatalog {
+  contract_version: number
+  activities: Array<{ key: BusinessNiche; name: string; description: string }>
+  capabilities: Array<{ key: string; name: string; description: string }>
+  contracted_limits: Record<'users' | 'devices' | 'units' | 'storage_mb', number | undefined>
+  plan_limits: Record<'users' | 'devices' | 'units' | 'storage_mb', number | undefined>
+}
+
 export interface TenantContract {
   id: string
   tenant_id: string
@@ -1016,6 +1049,19 @@ export interface OwnerBilling {
     ends_on?: string
     review_on?: string
   }
+}
+
+export interface OwnerContractUpdateInput {
+  plan_id: string
+  niches: BusinessNiche[]
+  capability_keys: string[]
+  capability_selection_mode: 'OFFER_DEFAULT' | 'EXPLICIT'
+  quotas: { users: number; devices: number; units: number; storage_mb: number }
+  billing: OwnerBilling
+  subscription_status: SubscriptionStatus
+  expected_contract_version: number
+  expected_billing_account_version: number
+  reason: string
 }
 
 export interface TenantCapability {
@@ -1921,22 +1967,52 @@ export async function provisionPlatformTenant(input: {
   return res.json()
 }
 
-export async function updateOwnerTenantContract(tenantId: string, input: {
-  plan_id: string
-  niches: BusinessNiche[]
-  capability_keys: string[]
-  capability_selection_mode: 'OFFER_DEFAULT' | 'EXPLICIT'
-  quotas: { users: number; devices: number; units: number; storage_mb: number }
-  billing: OwnerBilling
-  subscription_status: SubscriptionStatus
-  expected_contract_version: number
-  expected_billing_account_version: number
-  reason: string
-}): Promise<PlatformTenantDetail> {
+export async function updateOwnerTenantContract(tenantId: string, input: OwnerContractUpdateInput): Promise<PlatformTenantDetail> {
   const res = await fetch(`${API_BASE_URL}/api/v1/identity/platform/tenants/${tenantId}/contract`, {
     method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
   })
   if (!res.ok) throw await apiError(res, 'Não foi possível atualizar o contrato do cliente.')
+  return res.json()
+}
+
+export async function fetchCommercialRequests(headers: Record<string, string>): Promise<CommercialChangeRequest[]> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/commercial-requests`, { headers })
+  if (!res.ok) throw await apiError(res, 'Não foi possível carregar as solicitações comerciais.')
+  return res.json()
+}
+
+export async function fetchCommercialRequestCatalog(headers: Record<string, string>): Promise<CommercialRequestCatalog> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/commercial-requests/catalog`, { headers })
+  if (!res.ok) throw await apiError(res, 'Não foi possível carregar o catálogo de expansões.')
+  return res.json()
+}
+
+export async function createCommercialRequest(
+  headers: Record<string, string>,
+  input: { kind: CommercialChangeKind; payload: Record<string, unknown>; reason: string },
+): Promise<CommercialChangeRequest> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/commercial-requests`, {
+    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível enviar a solicitação comercial.')
+  return res.json()
+}
+
+export async function fetchPlatformCommercialRequests(tenantId?: string): Promise<CommercialChangeRequest[]> {
+  const query = tenantId ? `?tenant_id=${encodeURIComponent(tenantId)}` : ''
+  const res = await fetch(`${API_BASE_URL}/api/v1/commercial-requests/platform${query}`)
+  if (!res.ok) throw await apiError(res, 'Não foi possível carregar as solicitações dos clientes.')
+  return res.json()
+}
+
+export async function decidePlatformCommercialRequest(
+  requestId: string,
+  input: { decision: 'APPROVE' | 'DECLINE'; reason: string },
+): Promise<CommercialChangeRequest> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/commercial-requests/platform/${requestId}/decision`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível registrar a decisão do Owner.')
   return res.json()
 }
 

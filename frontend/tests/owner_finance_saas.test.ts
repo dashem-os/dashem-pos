@@ -8,6 +8,7 @@ test('exposes real SaaS invoicing without tenant operating data or fake financia
   const shell = await source('../src/components/owner/OwnerConsoleShell.tsx')
   const finance = await source('../src/components/owner/FinanceSaasView.tsx')
   const workspace = await source('../src/components/owner/TenantWorkspace.tsx')
+  const tenantRequests = await source('../src/components/management/CommercialRequestsPanel.tsx')
   const api = await source('../src/services/api.ts')
 
   assert.match(shell, /label="Financeiro SaaS"/)
@@ -72,6 +73,11 @@ test('exposes real SaaS invoicing without tenant operating data or fake financia
   assert.match(workspace, /Reservados/)
   assert.match(workspace, /Disponíveis/)
   assert.doesNotMatch(workspace, /— aplicado/)
+  assert.match(workspace, /Solicitações comerciais do cliente/)
+  assert.match(workspace, /Aplicar e aprovar/)
+
+  assert.match(tenantRequests, /O pedido não libera acesso/)
+  assert.match(tenantRequests, /Solicitação enviada ao Owner/)
 
   for (const forbidden of ['vendas do tenant', 'caixas abertos', 'lucro do tenant']) {
     assert.doesNotMatch(finance.toLowerCase(), new RegExp(forbidden))

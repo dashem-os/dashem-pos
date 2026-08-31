@@ -286,6 +286,61 @@ class TenantContract(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
 
 
+class CommercialChangeRequestRecord(SQLModel, table=True):
+    """Tenant-authored request; only the Owner can decide its outcome."""
+
+    __tablename__ = "commercial_change_requests"
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('ACTIVITY', 'CAPABILITY', 'USER_LIMIT', 'DEVICE_LIMIT', "
+            "'UNIT_LIMIT', 'STORAGE_LIMIT', 'INTEGRATION')",
+            name="ck_commercial_change_request_kind",
+        ),
+        CheckConstraint(
+            "status IN ('PENDING', 'APPROVED', 'DECLINED', 'CANCELED')",
+            name="ck_commercial_change_request_status",
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(foreign_key="tenants.id", index=True)
+    kind: str = Field(sa_column=Column(String(32), nullable=False, index=True))
+    payload: dict[str, Any] = Field(
+        default_factory=dict, sa_column=Column(JSON, nullable=False, default=dict)
+    )
+    reason: str = Field(sa_column=Column(Text, nullable=False))
+    requested_by: uuid.UUID = Field(foreign_key="users.id", index=True)
+    source_contract_id: uuid.UUID = Field(foreign_key="tenant_contracts.id", index=True)
+    source_contract_version: int = Field(ge=1)
+    status: str = Field(default="PENDING", sa_column=Column(String(24), nullable=False, index=True))
+    requested_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    decided_at: Optional[datetime] = Field(default=None, index=True)
+
+
+class CommercialChangeDecisionRecord(SQLModel, table=True):
+    """Append-only Owner decision linked to the resulting contract snapshot."""
+
+    __tablename__ = "commercial_change_decisions"
+    __table_args__ = (
+        UniqueConstraint("request_id", name="uq_commercial_change_decision_request"),
+        CheckConstraint(
+            "decision IN ('APPROVE', 'DECLINE')",
+            name="ck_commercial_change_decision_kind",
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    request_id: uuid.UUID = Field(foreign_key="commercial_change_requests.id", index=True)
+    tenant_id: uuid.UUID = Field(foreign_key="tenants.id", index=True)
+    decision: str = Field(sa_column=Column(String(16), nullable=False, index=True))
+    reason: str = Field(sa_column=Column(Text, nullable=False))
+    decided_by: uuid.UUID = Field(foreign_key="users.id", index=True)
+    resulting_contract_id: Optional[uuid.UUID] = Field(
+        default=None, foreign_key="tenant_contracts.id", index=True
+    )
+    decided_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+
+
 class TenantOnboardingCheckpoint(SQLModel, table=True):
     __tablename__ = "tenant_onboarding_checkpoints"
     __table_args__ = (

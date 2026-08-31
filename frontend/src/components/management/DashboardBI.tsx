@@ -3,6 +3,7 @@ import { AlertTriangle, ArrowRight, Banknote, Boxes, ChefHat, CircleDollarSign, 
 import { usePos } from '../../context/PosContext'
 import { BiDrilldown, fetchBiDrilldown, fetchManagementOverview, fetchOperationalProductivity, ManagementOverview, OperationalProductivity, rebuildOperationalProductivity, refreshBiProjection } from '../../services/api'
 import { formatCurrency } from '../../utils/format'
+import { CommercialRequestsPanel } from './CommercialRequestsPanel'
 
 export const DashboardBI: React.FC<{ onOpenModule?: (module: 'products' | 'tables' | 'devices' | 'team') => void }> = ({ onOpenModule }) => {
   const { tenant, store, operatorId, permissions, showToast } = usePos()
@@ -86,6 +87,8 @@ export const DashboardBI: React.FC<{ onOpenModule?: (module: 'products' | 'table
     </section>
 
     <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{primaryCards.map(({ label, value, meta, icon: Icon, color }) => <article key={label} className="rounded-2xl border border-dashem-border bg-dashem-surface p-5"><div className="flex justify-between"><div><p className="text-xs font-black uppercase tracking-wide text-dashem-muted">{label}</p><p className="mt-3 text-2xl font-black text-white">{value}</p><p className="mt-1 text-xs text-dashem-muted">{meta}</p></div><Icon className={`h-6 w-6 ${color}`} /></div></article>)}</section>
+
+    <CommercialRequestsPanel />
 
     <section className="grid gap-5 xl:grid-cols-[1.45fr_1fr]">
       <article className="rounded-3xl border border-dashem-border bg-dashem-surface p-6"><div className="flex justify-between"><div><h3 className="font-black text-white">Faturamento diário</h3><p className="text-xs text-dashem-muted">Clique na competência para rastrear as vendas de origem.</p></div><TrendingUp className="h-5 w-5 text-dashem-red" /></div><div className="mt-8 flex h-48 items-end gap-2">{chart.map((item) => <button type="button" onClick={() => openDay(item.date)} key={item.date} className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-2" title={`${item.date}: ${formatCurrency(item.revenue)} · ${item.sales} vendas`}><span className="w-full rounded-t-lg bg-gradient-to-t from-dashem-red to-rose-400 hover:opacity-80" style={{ height: `${Math.max(item.revenue > 0 ? 8 : 2, (item.revenue / maxRevenue) * 100)}%` }} /><span className="hidden text-[9px] text-dashem-muted 2xl:block">{item.date.slice(8)}</span></button>)}</div></article>

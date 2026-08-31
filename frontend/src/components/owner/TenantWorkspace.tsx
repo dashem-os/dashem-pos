@@ -5,7 +5,8 @@ import {
   fetchTenantCapabilityCatalog, OwnerNiche, PlatformTenantDetail, replacePlatformTenantAdministrator,
   PlatformTenantSummary, resolveCommercialOffer, ServicePlan, SubscriptionStatus, TenantPhase, TenantType,
   updateOwnerTenantContract, updatePlatformTenantLifecycle, updatePlatformTenantProfile,
-  updateSaasBillingAccount,
+  updateSaasBillingAccount, CommercialChangeRequest, decidePlatformCommercialRequest,
+  fetchPlatformCommercialRequests,
 } from '../../services/api'
 import { formatBrazilianPhone, formatBrazilianPostalCode, isValidCpfCnpj, lookupBrazilianPostalCode, onlyDigits } from '../../utils/brazil'
 
@@ -68,6 +69,7 @@ export function TenantWorkspace({ tenant, onBack, onManagePlans, onFinance, onCh
           {detail.contract && <p className="mt-3 text-xs font-semibold text-slate-500">Snapshot contratual v{detail.contract.version} · schema {detail.contract.schema_version}. Nenhuma alteração posterior no plano modifica esta contratação.</p>}
         </section>
       </div>}
+      {tab === 'summary' && <OwnerCommercialRequests tenantId={tenant.id} onChanged={changed} />}
       {tab === 'registration' && <RegistrationEditor detail={detail} onSaved={changed} />}
       {tab === 'billing' && <BillingAccountPanel detail={detail} onSaved={changed} />}
       {tab === 'contract' && <ContractEditor key={`${detail.tenant.id}:${detail.contract?.version ?? 0}:${contractInitialSection}`} initialSection={contractInitialSection} detail={detail} catalog={catalog} niches={niches} plans={plans} onManagePlans={onManagePlans} onFinance={onFinance} onSaved={changed} />}
@@ -75,6 +77,41 @@ export function TenantWorkspace({ tenant, onBack, onManagePlans, onFinance, onCh
     </div>
     {lifecycle && <LifecycleModal status={lifecycle} onClose={() => setLifecycle(null)} onConfirm={async reason => { await updatePlatformTenantLifecycle(tenant.id, lifecycle, reason); setLifecycle(null); onBack(); onChanged() }} />}
   </div>
+}
+
+const commercialKindLabel: Record<CommercialChangeRequest['kind'], string> = {
+  ACTIVITY: 'Nova atividade comercial', CAPABILITY: 'Nova capability', INTEGRATION: 'Nova integração',
+  USER_LIMIT: 'Aumento de usuários', DEVICE_LIMIT: 'Aumento de dispositivos',
+  UNIT_LIMIT: 'Aumento de unidades', STORAGE_LIMIT: 'Aumento de storage',
+}
+
+function OwnerCommercialRequests({ tenantId, onChanged }: { tenantId: string; onChanged: () => Promise<void> }) {
+  const [requests, setRequests] = useState<CommercialChangeRequest[]>([])
+  const [selected, setSelected] = useState<CommercialChangeRequest | null>(null)
+  const [reason, setReason] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const load = useCallback(async () => {
+    try { setRequests(await fetchPlatformCommercialRequests(tenantId)); setError('') }
+    catch (cause) { setError(cause instanceof Error ? cause.message : 'Falha ao carregar solicitações.') }
+  }, [tenantId])
+  useEffect(() => { void load() }, [load])
+  const decide = async (decision: 'APPROVE' | 'DECLINE') => {
+    if (!selected || reason.trim().length < 4) { setError('Informe uma justificativa auditável.'); return }
+    setBusy(true); setError('')
+    try {
+      await decidePlatformCommercialRequest(selected.id, { decision, reason: reason.trim() })
+      setSelected(null); setReason(''); await Promise.all([load(), onChanged()])
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Falha ao registrar a decisão.') }
+    finally { setBusy(false) }
+  }
+  const pending = requests.filter(item => item.status === 'PENDING')
+  return <section className="mt-5 rounded-2xl border border-slate-200 bg-white p-6">
+    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"><div><h3 className="text-lg font-black">Solicitações comerciais do cliente</h3><p className="mt-1 text-sm text-slate-500">Aprovar cria uma nova versão contratual na mesma transação. Recusar preserva o pedido e o motivo.</p></div><span className="w-fit rounded-full bg-amber-50 px-3 py-1 text-xs font-black text-amber-800">{pending.length} PENDENTE(S)</span></div>
+    {error && <p className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">{error}</p>}
+    <div className="mt-5 space-y-3">{requests.map(item => <article key={item.id} className={`rounded-xl border p-4 ${item.status === 'PENDING' ? 'border-amber-300 bg-amber-50' : 'border-slate-200 bg-slate-50'}`}><div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><p className="font-black">{commercialKindLabel[item.kind]}</p><p className="mt-1 text-sm text-slate-600">{item.reason}</p><p className="mt-2 font-mono text-xs text-slate-400">Solicitado sobre contrato v{item.source_contract_version} · {new Date(item.requested_at).toLocaleString('pt-BR')}</p></div><span className="w-fit rounded-full bg-white px-2 py-1 text-[10px] font-black">{item.status}</span></div>{item.status === 'PENDING' && <button onClick={() => { setSelected(item); setReason('') }} className="mt-3 rounded-lg bg-[#022444] px-3 py-2 text-xs font-black text-white">Analisar solicitação</button>}{item.decision && <p className="mt-3 text-xs font-semibold text-slate-500">Decisão: {item.decision.reason}{item.decision.resulting_contract_id ? ' · nova versão contratual criada' : ''}</p>}</article>)}{requests.length === 0 && <p className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">Nenhuma solicitação comercial registrada por este cliente.</p>}</div>
+    {selected && <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#022444]/60 p-4"><button className="absolute inset-0" onClick={() => setSelected(null)} /><div className="relative w-full max-w-xl rounded-2xl bg-white p-6 shadow-2xl"><div className="flex items-start justify-between"><div><p className="text-xs font-black uppercase text-[#E12120]">Decisão do Owner</p><h3 className="mt-2 text-xl font-black">{commercialKindLabel[selected.kind]}</h3></div><button onClick={() => setSelected(null)} className="rounded-xl border border-slate-200 p-2"><X className="h-5 w-5" /></button></div><p className="mt-4 rounded-xl bg-slate-50 p-3 text-sm">{selected.reason}</p><TextField label="Justificativa auditável" value={reason} onChange={setReason} /><p className="mt-3 text-xs text-slate-500">Ao aprovar, o servidor preserva as condições comerciais atuais, aplica somente o pedido e cria o próximo snapshot do contrato. Se o contrato mudou desde o pedido, a aprovação será bloqueada.</p><div className="mt-6 flex flex-col gap-2 sm:flex-row"><button disabled={busy || reason.trim().length < 4} onClick={() => void decide('DECLINE')} className="h-11 flex-1 rounded-xl border border-red-300 font-black text-red-700 disabled:opacity-40">Recusar</button><button disabled={busy || reason.trim().length < 4} onClick={() => void decide('APPROVE')} className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-[#E12120] font-black text-white disabled:opacity-40">{busy && <Loader2 className="h-4 w-4 animate-spin" />}Aplicar e aprovar</button></div></div></div>}
+  </section>
 }
 
 function BillingAccountPanel({ detail, onSaved }: { detail: PlatformTenantDetail; onSaved: () => Promise<void> }) {
