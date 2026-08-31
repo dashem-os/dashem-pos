@@ -5,6 +5,7 @@ import httpx
 from fastapi import HTTPException, status
 
 from app.core.config import settings
+from app.services.supabase_credentials import SupabaseCredentialError, supabase_server_headers
 
 
 def invite_user(*, email: str, full_name: str, tenant_id: str) -> dict[str, Any]:
@@ -22,19 +23,21 @@ def invite_user(*, email: str, full_name: str, tenant_id: str) -> dict[str, Any]
     redirect_to = f"{settings.APP_URL.rstrip('/')}/login?mode=invite"
     query = urlencode({"redirect_to": redirect_to})
     try:
+        headers = supabase_server_headers(content_type="application/json")
         response = httpx.post(
             f"{settings.SUPABASE_URL.rstrip('/')}/auth/v1/invite?{query}",
-            headers={
-                "apikey": settings.SUPABASE_SECRET_KEY,
-                "Authorization": f"Bearer {settings.SUPABASE_SECRET_KEY}",
-                "Content-Type": "application/json",
-            },
+            headers=headers,
             json={
                 "email": email,
                 "data": {"full_name": full_name, "tenant_id": tenant_id},
             },
             timeout=15.0,
         )
+    except SupabaseCredentialError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
     except httpx.RequestError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

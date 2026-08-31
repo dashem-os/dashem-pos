@@ -11,6 +11,7 @@ from urllib.parse import quote
 import httpx
 
 from app.core.config import settings
+from app.services.supabase_credentials import SupabaseCredentialError, supabase_server_headers
 
 
 class SupabaseStorageUnavailable(RuntimeError):
@@ -102,10 +103,10 @@ class SupabaseStorageClient:
             raise SupabaseStorageUnavailable("Supabase Storage não está configurado no backend.")
         self._client = client or httpx.Client(timeout=30.0)
         self._base = f"{settings.SUPABASE_URL.rstrip('/')}/storage/v1"
-        self._headers = {
-            "apikey": settings.SUPABASE_SECRET_KEY,
-            "Authorization": f"Bearer {settings.SUPABASE_SECRET_KEY}",
-        }
+        try:
+            self._headers = supabase_server_headers()
+        except SupabaseCredentialError as exc:
+            raise SupabaseStorageUnavailable(str(exc)) from exc
 
     def _json(self, response: httpx.Response, message: str) -> Any:
         if response.is_error:

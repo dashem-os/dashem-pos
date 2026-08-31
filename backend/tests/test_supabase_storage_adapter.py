@@ -6,6 +6,7 @@ import pytest
 from pathlib import Path
 
 from app.core.config import settings
+from app.services.supabase_credentials import SupabaseCredentialError, supabase_server_headers
 from app.services.supabase_storage import (
     SupabaseStorageClient, SupabaseStorageUnavailable, managed_bucket, tenant_object_path,
     validate_content_signature, validate_filename_content_type,
@@ -53,6 +54,29 @@ def test_private_bucket_bootstrap_and_upload_never_expose_service_key(configured
     assert stored.size_bytes == 3
     assert all("private-test-service-key" not in str(request.url) for request in requests)
     assert all(request.headers["authorization"] == "Bearer private-test-service-key" for request in requests)
+
+
+def test_modern_secret_key_is_sent_only_as_apikey(configured_storage, monkeypatch):
+    monkeypatch.setattr(settings, "SUPABASE_SECRET_KEY", "sb_secret_backend_test")
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json=[
+            {"id": "tenant-assets", "public": False},
+            {"id": "tenant-documents", "public": False},
+        ])
+
+    SupabaseStorageClient(httpx.Client(transport=httpx.MockTransport(handler))).ensure_private_buckets()
+    assert requests[0].headers["apikey"] == "sb_secret_backend_test"
+    assert "authorization" not in requests[0].headers
+
+
+def test_publishable_key_is_rejected_for_backend_use(monkeypatch):
+    monkeypatch.setattr(settings, "SUPABASE_SECRET_KEY", "sb_publishable_browser_test")
+
+    with pytest.raises(SupabaseCredentialError, match="chave pública"):
+        supabase_server_headers()
 
 
 def test_public_managed_bucket_is_refused(configured_storage):
