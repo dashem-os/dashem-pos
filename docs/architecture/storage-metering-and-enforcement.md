@@ -7,6 +7,13 @@ bucket de objetos administrado pela aplicação. `Product.image_url` referencia
 uma URL externa e não constitui consumo medido pelo DASHEM. Por isso, ausência
 de objetos conhecidos nunca é convertida em `0 bytes utilizados`.
 
+O provedor escolhido para a primeira integração é o Supabase Storage. A
+presença do Supabase Auth e do SDK no projeto não configura automaticamente o
+produto Storage: ainda faltam buckets privados, caminhos por tenant, policies
+RLS, autoridade de upload e o adaptador de inventário. Esse trabalho está
+congelado no checkpoint do
+[`Sprint 5.1`](../product/owner-governance-sprint-5-1-checkpoint.md).
+
 ## Fronteiras canônicas
 
 - `storage_meter_sources`: namespaces físicos que precisam ser inventariados;
@@ -39,3 +46,11 @@ ocupando capacidade até uma medição reconciliada posterior incorporá-la.
 
 Nenhuma tela ou módulo pode declarar enforcement ativo lendo apenas o valor do
 plano ou do contrato.
+
+## Retomada
+
+O Sprint 5 encerrou a fundação independente de provedor. O Sprint 5.1 deve
+conectar o Supabase Storage e provar isolamento, medição, reserva, aviso e
+bloqueio com objetos reais. Até seu gate ficar verde, `NOT_MEASURED` permanece
+o estado correto e storage não pode ser vendido como limite efetivamente
+monitorado.

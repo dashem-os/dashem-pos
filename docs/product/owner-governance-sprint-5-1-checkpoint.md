@@ -1,0 +1,162 @@
+# Checkpoint técnico — governança Owner e Sprint 5.1
+
+Status: **pausa técnica após o Sprint 5**  
+Data do checkpoint: 31 de agosto de 2026  
+Próxima execução autorizada: **Sprint 5.1 — Supabase Storage por tenant**
+
+## 1. Decisão de pausa
+
+Os Sprints 0 a 5 da trilha corretiva de governança do Owner foram concluídos.
+Nenhum Sprint 6, 7 ou 8 foi criado para essa trilha. A numeração S0–S21 do
+Roadmap Canônico do Commerce OS é independente e não deve ser misturada com
+este ciclo corretivo.
+
+A retomada deve começar pelo Sprint 5.1. Não iniciar configuração de clientes
+reais, oferta comercial de storage nem homologação de integrações externas
+antes de seu gate de aceite.
+
+## 2. Estado entregue
+
+| Etapa | Resultado persistido | Estado |
+|---|---|---|
+| Sprint 0 | vocabulário, autoridades, invariantes e plano de migração | concluído |
+| Sprint 1 | catálogo persistido de uma ou várias atividades comerciais | concluído |
+| Sprint 2 | versão contratual como fonte canônica de activities, capabilities e quotas | concluído |
+| Sprint 3 | contagem operacional de usuários, dispositivos e unidades, policy única, avisos e bloqueios | concluído |
+| Sprint 4 | solicitação do tenant e decisão auditada do Owner; aprovação cria nova versão contratual | concluído |
+| Sprint 5 | modelos, reconciliação, reservas e policy fail-closed de storage independentes de provedor | concluído |
+
+O Sprint 5 não declara que existe consumo medido. Sem fonte física conectada,
+o estado correto continua sendo `NOT_MEASURED`, com decisão `UNKNOWN`. Ausência
+de inventário nunca equivale a zero bytes utilizados.
+
+## 3. Decisão de infraestrutura
+
+O provedor físico previsto para a primeira implementação é o **Supabase
+Storage**. O Supabase já utilizado pelo projeto prova identidade, mas o código
+do DASHEM ainda não possui bucket, upload/download de objeto nem inventário de
+`storage.objects` conectado ao tenant.
+
+No plano gratuito, em 31/08/2026, a referência operacional publicada pelo
+Supabase é:
+
+- 1 GB de Storage incluído na infraestrutura compartilhada;
+- arquivo individual de até 50 MB;
+- 5 GB de egress não armazenado em cache e 5 GB de cached egress;
+- Image Transformations indisponível.
+
+Esses limites pertencem à infraestrutura Supabase e não concedem 1 GB a cada
+tenant do DASHEM. A quota de cada cliente continua sendo uma decisão contratual
+do DASHEM, limitada também pela capacidade física global disponível.
+
+Referências sujeitas a revisão antes da retomada:
+
+- <https://supabase.com/pricing>
+- <https://supabase.com/docs/guides/storage/security/access-control>
+- <https://supabase.com/docs/guides/storage/schema/design>
+- <https://supabase.com/docs/guides/storage/serving/bandwidth>
+
+## 4. Escopo obrigatório do Sprint 5.1
+
+### 4.1 Namespace e isolamento
+
+- criar buckets privados por finalidade, não um bucket por tenant sem evidência;
+- usar `tenant_id` como primeiro segmento obrigatório do caminho do objeto;
+- aplicar RLS em `storage.objects` para `SELECT`, `INSERT`, `UPDATE` e `DELETE`;
+- provar que um tenant não lista, lê, sobrescreve, move ou exclui objeto de outro;
+- manter credencial de serviço exclusivamente no backend.
+
+Estrutura inicial esperada:
+
+```text
+tenant-assets/<tenant_id>/...
+tenant-documents/<tenant_id>/...
+tenant-exports/<tenant_id>/...
+tenant-integrations/<tenant_id>/...
+```
+
+### 4.2 Autoridade de upload
+
+- nenhum upload operacional pode contornar o backend e a policy de quota;
+- validar MIME type, extensão, tamanho individual e contexto do tenant;
+- reservar bytes com `reserve_storage_capacity` antes de autorizar o envio;
+- concluir ou liberar a reserva após a resposta do Supabase;
+- usar idempotência, auditoria e evidência do objeto criado;
+- não aceitar tamanho declarado pelo navegador como medição final.
+
+### 4.3 Medição e reconciliação
+
+- cadastrar o Supabase Storage como `storage_meter_source`;
+- agregar `storage.objects.metadata.size` por bucket e prefixo do tenant;
+- persistir quantidade de objetos, bytes, fontes, watermark e evidência;
+- reconciliar exatamente todas as fontes ativas;
+- detectar medição parcial, divergência, fonte alterada e inventário expirado;
+- identificar objetos órfãos sem apagar ou reatribuir silenciosamente;
+- manter `storage` como schema somente leitura para inventário; mutações passam
+  pela API oficial do Storage.
+
+### 4.4 Quota individual e capacidade global
+
+- aplicar a quota da última versão contratual, nunca apenas o teto do plano;
+- considerar uso reconciliado mais reservas concorrentes;
+- emitir avisos padronizados em 70% e 85%;
+- bloquear novas gravações que projetem uso acima de 100%;
+- manter margem operacional global no plano Free;
+- impedir que a soma das quotas comercialmente concedidas seja apresentada
+  como capacidade física garantida sem política explícita de overbooking;
+- apresentar separadamente quota do tenant e saúde global da infraestrutura.
+
+### 4.5 Interfaces
+
+O Owner e o administrador do tenant devem ver somente fatos:
+
+- quota contratada;
+- uso medido;
+- bytes reservados;
+- capacidade disponível;
+- quantidade de objetos;
+- data e watermark do inventário;
+- fontes cobertas;
+- estado `RECONCILED`, `PARTIAL`, `DIVERGENT`, `UNAVAILABLE` ou `NOT_MEASURED`;
+- motivo explícito de aviso ou bloqueio.
+
+Não exibir zero provisório, medição digitada manualmente ou badge que confunda
+quota contratual com consumo observado.
+
+## 5. Gate de aceite do Sprint 5.1
+
+O Sprint somente termina quando todos os itens abaixo forem comprovados com
+objetos reais de teste no Supabase:
+
+1. dois tenants persistidos recebem namespaces isolados;
+2. testes negativos impedem toda forma de acesso cruzado;
+3. upload aceito altera o inventário reconciliado do tenant correto;
+4. upload concorrente não ultrapassa a quota por corrida;
+5. alertas aparecem nos thresholds definidos;
+6. upload acima da quota é recusado antes de ocupar storage;
+7. exclusão e substituição reconciliam bytes sem inventar resultado;
+8. falha, timeout e retry não duplicam reserva ou objeto;
+9. fonte ausente, parcial ou expirada desativa o enforcement e bloqueia de
+   forma segura operações sujeitas à quota;
+10. o limite físico global e a margem operacional aparecem no Control;
+11. migrations, rollback, RLS, backend, frontend e E2E ficam verdes no CI;
+12. a validação é repetida no deploy publicado.
+
+## 6. Condição para clientes reais
+
+O plano Supabase Free serve para desenvolvimento e validação do Sprint 5.1.
+Antes do primeiro cliente real, reavaliar preços e limites vigentes do Supabase,
+capacidade, egress, backups, continuidade, pausas por inatividade e política de
+custos. A decisão esperada é utilizar um projeto de produção em plano pago,
+separado do ambiente de testes.
+
+Storage não pode ser anunciado como limite efetivo de um plano comercial até o
+gate do Sprint 5.1 estar verde e a capacidade física de produção estar aprovada.
+
+## 7. Integrações posteriores
+
+Omnichannel, TEF/SmartPOS e delivery não fazem parte do Sprint 5.1. Permanecem
+na trilha macro de integrações: Checkout/Orchestrator (S8), TEF e SmartPOS (S9),
+Channel Hub (S10) e catálogo/reconciliação de canais (S13). Essas integrações só
+podem ser anunciadas depois dos respectivos adapters e gates externos reais.
+

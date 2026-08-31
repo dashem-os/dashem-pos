@@ -3,6 +3,17 @@
 Este plano é deliberadamente não destrutivo. O Sprint 0 apenas o registra; as
 migrations serão implementadas após aprovação dos gates correspondentes.
 
+## Checkpoint de execução
+
+Em 31/08/2026, os Sprints corretivos 0 a 5 foram concluídos e a trilha entrou
+em pausa técnica. A próxima execução autorizada é o **Sprint 5.1 — Supabase
+Storage por tenant**, especificado em
+[`owner-governance-sprint-5-1-checkpoint.md`](../product/owner-governance-sprint-5-1-checkpoint.md).
+
+Não existem Sprints 6, 7 ou 8 aprovados nesta trilha. A numeração S0–S21 do
+Roadmap Canônico do Commerce OS representa outra sequência e não altera este
+checkpoint.
+
 ## 1. Classificar limites legados
 
 Cada tenant será classificado sem alterar seu contrato vigente:
