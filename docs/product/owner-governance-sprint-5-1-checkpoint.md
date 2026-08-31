@@ -1,10 +1,39 @@
 # Checkpoint técnico — governança Owner e Sprint 5.1
 
-Status: **implementação local do Sprint 5.1 concluída; gate real do Supabase pendente**
+Status: **Supabase conectado e inventário real reconciliado; gate com objetos reais ainda pendente**
 
 Data do checkpoint: 31 de agosto de 2026
 
-Próxima execução necessária: **configurar o projeto Supabase de teste e executar o gate com objetos reais**
+Próxima execução necessária: **executar o gate isolado com objetos reais em dois tenants**
+
+## Homologação publicada — 31/08/2026
+
+O primeiro checkpoint contra os ambientes publicados foi concluído sem
+representar ausência de objetos como uma estimativa:
+
+- a migration restritiva foi aplicada ao schema `storage` do projeto Supabase;
+- a chave secreta moderna ficou somente no backend do Render;
+- os quatro buckets privados canônicos foram criados ou confirmados;
+- o tenant interno de teste recebeu quatro fontes físicas, uma por bucket;
+- o inventário administrativo real retornou zero objetos e zero bytes;
+- a medição persistida ficou `RECONCILED`, com quatro fontes cobertas e
+  watermark explícito para cada namespace vazio;
+- o Control separou a quota contratual de 128 MB da capacidade física
+  compartilhada de 1 GB, da margem de 100 MB e dos 900 MB globais disponíveis;
+- egress permaneceu visível como `NOT_INSTRUMENTED`;
+- uma falha de ordenação temporal encontrada na primeira reconciliação foi
+  corrigida de forma idempotente, sem apagar a medição anterior;
+- as unidades da franquia do provedor passaram a ser exibidas em base decimal,
+  sem alterar a contabilidade contratual interna em bytes.
+
+Evidência de integração: commits `271afad`, `ea270e3`, `f7e4163` e `8f4959a`;
+CI público 77–80 concluído com sucesso; backend e frontend publicados; medição
+reconciliada às 23:42:29 de 31/08/2026.
+
+Este checkpoint aprova a conexão, o inventário vazio e a apresentação da
+capacidade global. Ele **não** aprova ainda upload, exclusão, concorrência,
+thresholds nem isolamento cruzado com objetos reais. Portanto, o Sprint 5.1
+continua aberto e storage ainda não está liberado como promessa comercial.
 
 ## 0. Atualização da retomada — 31/08/2026
 
@@ -35,10 +64,11 @@ Validação local concluída: migration com upgrade/downgrade/upgrade e
 do adapter usam um provedor HTTP controlado e não são apresentados como prova
 do ambiente real.
 
-O workspace não contém `SUPABASE_URL`, `SUPABASE_SECRET_KEY` nem capacidade
-física configurados. Portanto, os 12 itens do gate com objetos reais abaixo
-**ainda não foram declarados aprovados**, a migration Supabase ainda não foi
-aplicada no projeto remoto e o Sprint 5.1 ainda não autoriza storage comercial.
+O workspace não contém segredos. `SUPABASE_URL`, `SUPABASE_SECRET_KEY` e a
+capacidade física foram configurados somente no gerenciador de ambiente do
+Render. Os 12 itens do gate com objetos reais abaixo **ainda não foram
+declarados aprovados** em conjunto, e o Sprint 5.1 ainda não autoriza storage
+comercial.
 
 Para executar o gate, o ambiente técnico deve receber, pelo gerenciador de
 segredos e nunca pelo Git:
@@ -82,10 +112,10 @@ de inventário nunca equivale a zero bytes utilizados.
 
 ## 3. Decisão de infraestrutura
 
-O provedor físico previsto para a primeira implementação é o **Supabase
-Storage**. O Supabase já utilizado pelo projeto prova identidade. O código do
-DASHEM agora possui adapter de objeto e inventário, porém as credenciais e a
-capacidade do projeto de teste ainda não estão configuradas neste ambiente.
+O provedor físico da primeira implementação é o **Supabase Storage**. O
+Supabase já utilizado pelo projeto prova identidade. O adapter de objeto e
+inventário está conectado no ambiente publicado, com credenciais exclusivas do
+backend e capacidade declarada explicitamente no Render.
 
 No plano gratuito, em 31/08/2026, a referência operacional publicada pelo
 Supabase é:
