@@ -1,7 +1,11 @@
 from typing import Literal, Optional
 
-from pydantic import ConfigDict, model_validator
+from pydantic import ConfigDict, field_validator, model_validator
 from pydantic_settings import BaseSettings
+
+MANAGED_STORAGE_BUCKETS = (
+    "tenant-assets", "tenant-documents", "tenant-exports", "tenant-integrations",
+)
 
 class Settings(BaseSettings):
     model_config = ConfigDict(env_file=".env", extra="ignore")
@@ -38,6 +42,34 @@ class Settings(BaseSettings):
     # inventory is newer than this configurable policy window.
     STORAGE_MEASUREMENT_MAX_AGE_HOURS: int = 24
     STORAGE_RESERVATION_TTL_MINUTES: int = 15
+    STORAGE_TENANT_WARNING_PERCENT: int = 70
+    STORAGE_TENANT_CRITICAL_PERCENT: int = 85
+    STORAGE_MAX_UPLOAD_BYTES: int = 5 * 1024 * 1024
+    SUPABASE_STORAGE_BUCKETS: str = ",".join(MANAGED_STORAGE_BUCKETS)
+    # Declared from the actual provider plan. None means unavailable; the app
+    # never assumes that a Supabase project owns the current Free allowance.
+    SUPABASE_STORAGE_CAPACITY_BYTES: Optional[int] = None
+    SUPABASE_STORAGE_RESERVED_MARGIN_BYTES: int = 0
+
+    @field_validator("SUPABASE_STORAGE_CAPACITY_BYTES", mode="before")
+    @classmethod
+    def empty_capacity_is_not_configured(cls, value):
+        return None if value == "" else value
+
+    @property
+    def supabase_storage_buckets(self) -> tuple[str, ...]:
+        return tuple(dict.fromkeys(
+            item.strip() for item in self.SUPABASE_STORAGE_BUCKETS.split(",") if item.strip()
+        ))
+
+    @property
+    def supabase_storage_configured(self) -> bool:
+        return bool(
+            self.SUPABASE_URL
+            and self.SUPABASE_SECRET_KEY
+            and self.SUPABASE_STORAGE_CAPACITY_BYTES
+            and self.supabase_storage_buckets
+        )
     
     CORS_ORIGINS: list[str] = [
         "http://localhost:5173",
@@ -62,6 +94,21 @@ class Settings(BaseSettings):
             raise ValueError("SUPABASE_URL is required in production")
         if self.AUTH_MODE == "test" and not self.AUTH_TEST_SECRET:
             raise ValueError("AUTH_TEST_SECRET is required in test auth mode")
+        if not 1 <= self.STORAGE_TENANT_WARNING_PERCENT < self.STORAGE_TENANT_CRITICAL_PERCENT < 100:
+            raise ValueError("Storage warning and critical percentages must satisfy 1 <= warning < critical < 100")
+        if self.STORAGE_MAX_UPLOAD_BYTES <= 0:
+            raise ValueError("STORAGE_MAX_UPLOAD_BYTES must be greater than zero")
+        if self.SUPABASE_STORAGE_RESERVED_MARGIN_BYTES < 0:
+            raise ValueError("SUPABASE_STORAGE_RESERVED_MARGIN_BYTES cannot be negative")
+        if self.SUPABASE_STORAGE_CAPACITY_BYTES is not None:
+            if self.SUPABASE_STORAGE_CAPACITY_BYTES <= 0:
+                raise ValueError("SUPABASE_STORAGE_CAPACITY_BYTES must be greater than zero when configured")
+            if self.SUPABASE_STORAGE_RESERVED_MARGIN_BYTES >= self.SUPABASE_STORAGE_CAPACITY_BYTES:
+                raise ValueError("The Supabase Storage reserved margin must be smaller than its capacity")
+        if set(self.supabase_storage_buckets) != set(MANAGED_STORAGE_BUCKETS):
+            raise ValueError(
+                "SUPABASE_STORAGE_BUCKETS must match the versioned restrictive policies in supabase/migrations"
+            )
         return self
 
 settings = Settings()

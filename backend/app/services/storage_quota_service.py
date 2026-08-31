@@ -8,12 +8,13 @@ a fresh, append-only RECONCILED inventory measurement.
 import uuid
 from datetime import datetime, timedelta
 
+from sqlalchemy import text
 from sqlmodel import Session, select
 
 from app.core.config import settings
 from app.models.identity import Tenant
 from app.models.platform import TenantContract
-from app.models.storage import StorageMeasurement, StorageMeterSource, StorageReservation
+from app.models.storage import StorageMeasurement, StorageMeterSource, StorageProviderMeasurement, StorageReservation
 from app.modules.governance.contracts import MeasurementStatus, QuotaDecision, QuotaEvaluation
 from app.services.contract_entitlement_service import latest_contract, resolve_contract_entitlements
 
@@ -117,9 +118,12 @@ def evaluate_storage_quota(
             f"Quota de storage excedida: {occupied} byte(s) ocupados, "
             f"{requested_bytes} solicitado(s), teto {contracted_bytes}."
         )
-    elif contracted_bytes and projected / contracted_bytes >= 0.8:
+    elif contracted_bytes and projected / contracted_bytes >= settings.STORAGE_TENANT_CRITICAL_PERCENT / 100:
         decision = QuotaDecision.WARNING
-        reason = "Uso projetado atingiu ao menos 80% da quota contratual de storage."
+        reason = f"Uso projetado atingiu ao menos {settings.STORAGE_TENANT_CRITICAL_PERCENT}% da quota contratual de storage."
+    elif contracted_bytes and projected / contracted_bytes >= settings.STORAGE_TENANT_WARNING_PERCENT / 100:
+        decision = QuotaDecision.WARNING
+        reason = f"Uso projetado atingiu ao menos {settings.STORAGE_TENANT_WARNING_PERCENT}% da quota contratual de storage."
     else:
         decision = QuotaDecision.ALLOWED
         reason = "Capacidade de storage reconciliada e disponível."
@@ -127,6 +131,112 @@ def evaluate_storage_quota(
         resource="STORAGE", contracted=contracted_bytes, occupied=occupied,
         requested=requested_bytes, remaining=remaining, decision=decision, reason=reason,
     )
+
+
+def latest_provider_measurement(session: Session, *, lock: bool = False) -> StorageProviderMeasurement | None:
+    query = (
+        select(StorageProviderMeasurement)
+        .where(StorageProviderMeasurement.provider == "SUPABASE")
+        .order_by(StorageProviderMeasurement.measured_at.desc())
+    )
+    if lock:
+        query = query.with_for_update()
+    return session.exec(query).first()
+
+
+def evaluate_provider_capacity(
+    *, configured: bool, capacity_bytes: int | None, reserved_margin_bytes: int,
+    measurement_status: str, used_bytes: int | None, reserved_bytes: int,
+    requested_bytes: int = 0, unavailable_reason: str,
+) -> QuotaEvaluation:
+    """Evaluate the shared physical ceiling independently from tenant contracts."""
+
+    usable = (
+        max(capacity_bytes - reserved_margin_bytes, 0)
+        if capacity_bytes is not None else None
+    )
+    occupied = used_bytes + reserved_bytes if used_bytes is not None else None
+    if not configured or usable is None:
+        return QuotaEvaluation(
+            resource="STORAGE_PROVIDER", contracted=usable, occupied=occupied,
+            requested=requested_bytes, remaining=None, decision=QuotaDecision.UNKNOWN,
+            reason=unavailable_reason,
+        )
+    if measurement_status != "RECONCILED" or occupied is None:
+        return QuotaEvaluation(
+            resource="STORAGE_PROVIDER", contracted=usable, occupied=occupied,
+            requested=requested_bytes, remaining=None, decision=QuotaDecision.UNKNOWN,
+            reason=unavailable_reason,
+        )
+    remaining = max(usable - occupied, 0)
+    projected = occupied + requested_bytes
+    if projected > usable:
+        decision = QuotaDecision.DENIED
+        reason = "Capacidade física global do Storage seria excedida."
+    elif usable and projected / usable >= settings.STORAGE_TENANT_CRITICAL_PERCENT / 100:
+        decision = QuotaDecision.WARNING
+        reason = "Capacidade física global atingiu o patamar crítico."
+    elif usable and projected / usable >= settings.STORAGE_TENANT_WARNING_PERCENT / 100:
+        decision = QuotaDecision.WARNING
+        reason = "Capacidade física global atingiu o patamar preventivo."
+    else:
+        decision = QuotaDecision.ALLOWED
+        reason = "Capacidade física compartilhada reconciliada."
+    return QuotaEvaluation(
+        resource="STORAGE_PROVIDER", contracted=usable, occupied=occupied,
+        requested=requested_bytes, remaining=remaining, decision=decision, reason=reason,
+    )
+
+
+def provider_capacity_read_model(
+    session: Session, *, requested_bytes: int = 0, now: datetime | None = None,
+    lock: bool = False,
+) -> dict[str, object]:
+    now = now or datetime.utcnow()
+    capacity = settings.SUPABASE_STORAGE_CAPACITY_BYTES
+    margin = settings.SUPABASE_STORAGE_RESERVED_MARGIN_BYTES
+    measurement = latest_provider_measurement(session, lock=lock)
+    configured = settings.supabase_storage_configured
+    status = "NOT_CONFIGURED" if not configured else "NOT_MEASURED"
+    reason = "Supabase Storage ou sua capacidade física não foram configurados."
+    used: int | None = None
+    reserved = 0
+    measured_at: datetime | None = None
+    object_count: int | None = None
+    if measurement is not None:
+        used = measurement.used_bytes
+        measured_at = measurement.measured_at
+        object_count = measurement.object_count
+        if configured:
+            fresh = now - measurement.measured_at <= timedelta(hours=settings.STORAGE_MEASUREMENT_MAX_AGE_HOURS)
+            if measurement.status == "RECONCILED" and fresh:
+                status = "RECONCILED"
+                reason = "Capacidade física compartilhada reconciliada."
+                reserved = int(session.connection().execute(text(
+                    "SELECT dashem_storage_reserved_after(:measured_at)"
+                ), {"measured_at": measurement.measured_at}).scalar_one())
+            elif not fresh:
+                status = "UNAVAILABLE"
+                reason = "O inventário global expirou; novos uploads permanecem bloqueados."
+            else:
+                status = measurement.status
+                reason = "O inventário global não está reconciliado."
+    evaluation = evaluate_provider_capacity(
+        configured=configured, capacity_bytes=capacity, reserved_margin_bytes=margin,
+        measurement_status=status, used_bytes=used, reserved_bytes=reserved,
+        requested_bytes=requested_bytes, unavailable_reason=reason,
+    )
+    return {
+        "provider": "SUPABASE", "configured": configured, "capacity_bytes": capacity,
+        "reserved_margin_bytes": margin, "used_bytes": used, "reserved_bytes": reserved,
+        "occupied_bytes": evaluation.occupied, "available_bytes": evaluation.remaining,
+        "object_count": object_count,
+        "measurement_status": status, "decision": evaluation.decision.value,
+        "reason": evaluation.reason,
+        "measured_at": measured_at, "managed_buckets": list(settings.supabase_storage_buckets),
+        "egress_measurement_status": "NOT_INSTRUMENTED",
+        "egress_reason": "O DASHEM ainda não mede egress; essa franquia pertence ao projeto Supabase.",
+    }
 
 
 def storage_quota_read_model(
@@ -211,6 +321,7 @@ def storage_quota_read_model(
         "measurement_id": measurement_id,
         "source_keys": sorted(expected_source_keys),
         "enforcement_active": status == MeasurementStatus.RECONCILED,
+        "provider_capacity": provider_capacity_read_model(session, now=now),
     }
 
 
@@ -221,6 +332,8 @@ def reserve_storage_capacity(
     operation_key: str,
     requested_bytes: int,
     actor_id: uuid.UUID,
+    bucket_id: str | None = None,
+    object_path: str | None = None,
     now: datetime | None = None,
 ) -> StorageReservation:
     """Idempotently reserve bytes; UNKNOWN is denied, never treated as zero usage."""
@@ -244,6 +357,8 @@ def reserve_storage_capacity(
             raise ValueError("operation_key belongs to an expired reservation; use a new operation key")
         if existing.status not in {"ACTIVE", "COMMITTED"}:
             raise ValueError("operation_key belongs to a finalized reservation")
+        if existing.bucket_id != bucket_id or existing.object_path != object_path:
+            raise ValueError("operation_key already exists for a different storage object")
         return existing
 
     state = storage_quota_read_model(
@@ -260,6 +375,14 @@ def reserve_storage_capacity(
     )
     if evaluation.decision not in {QuotaDecision.ALLOWED, QuotaDecision.WARNING}:
         raise StorageCapacityUnavailableError(evaluation)
+    provider = provider_capacity_read_model(session, requested_bytes=requested_bytes, now=now, lock=True)
+    if provider["decision"] not in {"ALLOWED", "WARNING"}:
+        raise StorageCapacityUnavailableError(QuotaEvaluation(
+            resource="STORAGE", contracted=provider["capacity_bytes"],
+            occupied=provider["occupied_bytes"], requested=requested_bytes,
+            remaining=provider["available_bytes"], decision=QuotaDecision(str(provider["decision"])),
+            reason=str(provider["reason"]),
+        ))
     contract: TenantContract | None = latest_contract(session, tenant_id)
     measurement_id = state["measurement_id"]
     if contract is None or not isinstance(measurement_id, uuid.UUID):
@@ -271,6 +394,8 @@ def reserve_storage_capacity(
         contract_id=contract.id,
         contract_version=contract.version,
         measurement_id=measurement_id,
+        bucket_id=bucket_id,
+        object_path=object_path,
         created_by=actor_id,
         expires_at=now + timedelta(minutes=settings.STORAGE_RESERVATION_TTL_MINUTES),
     )
@@ -285,6 +410,7 @@ def finalize_storage_reservation(
     *,
     committed: bool,
     reason: str,
+    provider_reference: str | None = None,
     now: datetime | None = None,
 ) -> StorageReservation:
     """Commit or release a reservation; committed bytes remain occupied until metered."""
@@ -306,6 +432,7 @@ def finalize_storage_reservation(
     reservation.status = target_status
     reservation.finalized_at = now or datetime.utcnow()
     reservation.final_reason = reason.strip()
+    reservation.provider_reference = provider_reference if committed else None
     session.add(reservation)
     session.flush()
     return reservation

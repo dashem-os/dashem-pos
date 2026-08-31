@@ -7,6 +7,7 @@ import {
   updateOwnerTenantContract, updatePlatformTenantLifecycle, updatePlatformTenantProfile,
   updateSaasBillingAccount, CommercialChangeRequest, decidePlatformCommercialRequest,
   fetchPlatformCommercialRequests,
+  bootstrapPlatformTenantStorage, reconcilePlatformTenantStorage,
 } from '../../services/api'
 import { formatBrazilianPhone, formatBrazilianPostalCode, isValidCpfCnpj, lookupBrazilianPostalCode, onlyDigits } from '../../utils/brazil'
 
@@ -33,6 +34,7 @@ export function TenantWorkspace({ tenant, onBack, onManagePlans, onFinance, onCh
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [lifecycle, setLifecycle] = useState<'PAUSED' | 'ARCHIVED' | null>(null)
+  const [storageWorking, setStorageWorking] = useState(false)
   const load = useCallback(async () => {
     setLoading(true); setError('')
     try { const [tenantDetail, capabilityRows, nicheRows, planRows] = await Promise.all([fetchPlatformTenantDetail(tenant.id), fetchTenantCapabilityCatalog(tenant.id), fetchOwnerNiches(), fetchServicePlans()]); setDetail(tenantDetail); setCatalog(capabilityRows); setNiches(nicheRows); setPlans(planRows.filter(item => item.is_active || item.id === tenantDetail.plan?.id)) }
@@ -50,6 +52,15 @@ export function TenantWorkspace({ tenant, onBack, onManagePlans, onFinance, onCh
   const admin = detail.accesses[0]
   const enabledCapabilities = catalog.filter(item => item.enabled).length
   const openContract = (section: ContractSection) => { setContractInitialSection(section); setTab('contract'); setNotice('') }
+  const runStorage = async (bootstrap: boolean) => {
+    setStorageWorking(true); setError(''); setNotice('')
+    try {
+      await (bootstrap ? bootstrapPlatformTenantStorage(tenant.id) : reconcilePlatformTenantStorage(tenant.id))
+      setNotice(bootstrap ? 'Supabase Storage conectado e inventário reconciliado.' : 'Inventário do Supabase Storage reconciliado.')
+      await load()
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Falha ao operar o Supabase Storage.') }
+    finally { setStorageWorking(false) }
+  }
   return <div className="mx-auto max-w-[1500px] p-5 text-[#022444] sm:p-8">
     <button onClick={onBack} className="flex items-center gap-2 text-sm font-black text-slate-500"><ArrowLeft className="h-4 w-4" />Voltar para organizações</button>
     {error && <p className="mt-4 rounded-xl border border-[#ffbf00] bg-amber-50 p-4 text-sm font-bold text-[#6b4b00]">{error}</p>}
@@ -66,7 +77,7 @@ export function TenantWorkspace({ tenant, onBack, onManagePlans, onFinance, onCh
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><h3 className="text-lg font-black">Quotas contratuais e capabilities</h3><p className="mt-1 text-sm text-slate-500">A versão contratual é a fonte canônica do acesso deste tenant. O plano registra somente os tetos da oferta.</p></div><button type="button" onClick={() => openContract('capabilities')} className="h-10 shrink-0 rounded-xl border border-slate-300 bg-white px-4 text-sm font-black hover:border-[#E12120]">Gerenciar capabilities ({enabledCapabilities})</button></div>
           {detail.plan && <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900"><p className="font-black">Tetos do plano {detail.plan.name}</p><p className="mt-1">{detail.plan.capability_keys.length} capabilities · {detail.plan.user_limit ?? 'sem teto'} usuários · {detail.plan.terminal_limit ?? 'sem teto'} dispositivos · {detail.plan.store_limit ?? 'sem teto'} unidades</p></div>}
           <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-3"><Limit label="Usuários" usage={detail.resource_usage.USERS} /><Limit label="Dispositivos" usage={detail.resource_usage.DEVICES} /><Limit label="Unidades" usage={detail.resource_usage.UNITS} /></div>
-          <StorageQuotaPanel usage={detail.storage_usage} contractLimitMb={limits.storage_mb} planLimitMb={detail.plan?.storage_limit_mb} />
+          <StorageQuotaPanel usage={detail.storage_usage} contractLimitMb={limits.storage_mb} planLimitMb={detail.plan?.storage_limit_mb} working={storageWorking} onBootstrap={() => void runStorage(true)} onReconcile={() => void runStorage(false)} />
           {detail.contract && <p className="mt-3 text-xs font-semibold text-slate-500">Snapshot contratual v{detail.contract.version} · schema {detail.contract.schema_version}. Nenhuma alteração posterior no plano modifica esta contratação.</p>}
         </section>
       </div>}
@@ -393,13 +404,14 @@ function StorageStatus({ usage }: { usage: PlatformTenantDetail['storage_usage']
   const label = usage.measurement_status === 'RECONCILED' ? 'MEDIÇÃO RECONCILIADA' : usage.measurement_status === 'PARTIAL' ? 'COBERTURA PARCIAL' : usage.measurement_status === 'DIVERGENT' ? 'INVENTÁRIO DIVERGENTE' : usage.measurement_status === 'UNAVAILABLE' ? 'MEDIÇÃO INDISPONÍVEL' : 'NÃO MEDIDO'
   return <span className={`w-fit rounded-full px-3 py-1 text-xs font-black ${usage.enforcement_active ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-900'}`}>{label}</span>
 }
-function StorageQuotaPanel({ usage, contractLimitMb, planLimitMb }: { usage: PlatformTenantDetail['storage_usage']; contractLimitMb?: number; planLimitMb?: number }) {
+function StorageQuotaPanel({ usage, contractLimitMb, planLimitMb, working, onBootstrap, onReconcile }: { usage: PlatformTenantDetail['storage_usage']; contractLimitMb?: number; planLimitMb?: number; working: boolean; onBootstrap: () => void; onReconcile: () => void }) {
   return <div className={`mt-4 rounded-xl border p-4 ${usage.enforcement_active ? 'border-emerald-300 bg-emerald-50' : 'border-amber-300 bg-amber-50'}`}>
     <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-xs font-black uppercase">Storage — quota e inventário</p><p className="mt-2 text-2xl font-black">{contractLimitMb ? `${contractLimitMb} MB contratados` : 'Não informado no contrato'}</p></div><StorageStatus usage={usage} /></div>
     <p className="mt-2 text-sm font-semibold">{usage.reason}</p>
     {usage.enforcement_active ? <dl className="mt-4 grid gap-3 text-xs sm:grid-cols-5"><div><dt className="font-bold text-slate-500">Uso medido</dt><dd className="mt-1 font-black">{storageSize(usage.used_bytes)}</dd></div><div><dt className="font-bold text-slate-500">Reservado</dt><dd className="mt-1 font-black">{storageSize(usage.reserved_bytes)}</dd></div><div><dt className="font-bold text-slate-500">Disponível</dt><dd className="mt-1 font-black">{storageSize(usage.available_bytes)}</dd></div><div><dt className="font-bold text-slate-500">Objetos</dt><dd className="mt-1 font-black">{usage.object_count ?? '—'}</dd></div><div><dt className="font-bold text-slate-500">Fontes cobertas</dt><dd className="mt-1 font-black">{usage.source_keys.length}</dd></div></dl> : <p className="mt-3 text-xs font-bold">Uso real não será exibido como zero e novas gravações sujeitas à quota permanecem bloqueadas até a reconciliação.</p>}
     {usage.measured_at && <p className="mt-3 text-xs">Último inventário: {new Date(usage.measured_at).toLocaleString('pt-BR')}{usage.watermark ? ` · watermark ${usage.watermark}` : ''}.</p>}
     {planLimitMb != null && <p className="mt-1 text-xs">Teto da oferta no plano: {planLimitMb} MB.</p>}
+    <div className="mt-4 rounded-lg border border-slate-200 bg-white/70 p-3"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-black uppercase">Capacidade física compartilhada · Supabase</p><p className="mt-1 text-xs font-semibold">{usage.provider_capacity.reason}</p></div><button disabled={working} onClick={usage.provider_capacity.configured ? onReconcile : onBootstrap} className="h-9 rounded-lg bg-[#022444] px-3 text-xs font-black text-white disabled:opacity-40">{working ? 'Processando…' : usage.provider_capacity.configured ? 'Reconciliar agora' : 'Conectar Supabase Storage'}</button></div>{usage.provider_capacity.configured && <dl className="mt-3 grid gap-2 text-xs sm:grid-cols-4"><div><dt className="text-slate-500">Capacidade declarada</dt><dd className="font-black">{storageSize(usage.provider_capacity.capacity_bytes)}</dd></div><div><dt className="text-slate-500">Uso físico</dt><dd className="font-black">{storageSize(usage.provider_capacity.used_bytes)}</dd></div><div><dt className="text-slate-500">Margem reservada</dt><dd className="font-black">{storageSize(usage.provider_capacity.reserved_margin_bytes)}</dd></div><div><dt className="text-slate-500">Disponível global</dt><dd className="font-black">{storageSize(usage.provider_capacity.available_bytes)}</dd></div></dl>}<p className="mt-3 border-t border-slate-200 pt-2 text-xs font-semibold text-amber-800">Egress: não instrumentado. {usage.provider_capacity.egress_reason}</p></div>
   </div>
 }
 function InfoSection({ title, children }: { title: string; children: React.ReactNode }) { return <section className="rounded-2xl border border-slate-200 bg-white p-6"><h3 className="border-b border-slate-100 pb-4 text-lg font-black">{title}</h3><div className="mt-5 grid gap-5 sm:grid-cols-2">{children}</div></section> }

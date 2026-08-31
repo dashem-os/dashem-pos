@@ -88,7 +88,7 @@ from app.models.receivable import (
 )
 from app.models.reconciliation import FinancialReconciliation, ReconciliationEvent, ReconciliationStatusEnum, PaymentRefund
 from app.models.bi import BiDailyFact, BiProjectionState, BiFactScopeEnum
-from app.models.storage import StorageMeterSource, StorageMeasurement, StorageReservation
+from app.models.storage import StorageMeterSource, StorageMeasurement, StorageProviderMeasurement, StorageReservation
 
 __all__ = [
     "Tenant",
@@ -265,5 +265,5 @@ __all__ = [
     "SaasPaymentStatusEnum", "SaasCollectionEventTypeEnum",
     "SaasFinanceDailyMetric", "SaasFinanceSubscriptionSnapshot",
     "SaasMrrMovementTypeEnum",
-    "StorageMeterSource", "StorageMeasurement", "StorageReservation",
+    "StorageMeterSource", "StorageMeasurement", "StorageProviderMeasurement", "StorageReservation",
 ]

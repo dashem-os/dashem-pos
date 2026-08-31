@@ -6,19 +6,32 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+import httpx
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field as PydanticField
 from sqlmodel import Session, select
 
 from app.api.v1.endpoints.identity import PLATFORM_MANAGERS
 from app.core.access import require_platform_role
 from app.core.context import TenantContext, get_tenant_context
+from app.core.context import resolve_actor
+from app.core.config import settings
 from app.core.database import get_session
 from app.core.security import AuthPrincipal, get_current_principal
 from app.models.identity import Tenant
 from app.models.storage import StorageMeasurement, StorageMeterSource
 from app.services import reliability_service
 from app.services.storage_quota_service import active_storage_sources, storage_quota_read_model
+from app.services.storage_quota_service import (
+    StorageCapacityUnavailableError, finalize_storage_reservation, reserve_storage_capacity,
+)
+from app.services.storage_reconciliation_service import (
+    StorageInventoryUnavailable, configure_supabase_sources, reconcile_supabase_storage,
+)
+from app.services.supabase_storage import (
+    SupabaseStorageClient, SupabaseStorageRejected, SupabaseStorageUnavailable, managed_bucket,
+    tenant_object_path, validate_content_signature, validate_filename_content_type,
+)
 
 
 router = APIRouter()
@@ -95,12 +108,156 @@ class StorageMeasurementRead(BaseModel):
     recorded_at: datetime
 
 
+class StorageObjectRead(BaseModel):
+    bucket_id: str
+    object_path: str
+    size_bytes: int
+    provider_reference: str
+    idempotent_replay: bool = False
+
+
+class SignedStorageUrl(BaseModel):
+    url: str
+    expires_in: int
+
+
+def _provider_error(exc: Exception) -> HTTPException:
+    return HTTPException(status_code=503, detail=str(exc))
+
+
+def _resolve_storage_target(tenant_id: uuid.UUID, bucket_id: str, relative_path: str) -> tuple[str, str]:
+    try:
+        return managed_bucket(bucket_id), tenant_object_path(tenant_id, relative_path)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @router.get("/quota")
 def tenant_storage_quota(
     context: TenantContext = Depends(get_tenant_context),
     session: Session = Depends(get_session),
 ):
     return storage_quota_read_model(session, context.tenant_id)
+
+
+@router.put("/objects/{bucket_id}/{relative_path:path}", response_model=StorageObjectRead)
+async def upload_tenant_object(
+    bucket_id: str,
+    relative_path: str,
+    request: Request,
+    idempotency_key: str = Header(alias="Idempotency-Key", min_length=8, max_length=160),
+    context: TenantContext = Depends(get_tenant_context),
+    session: Session = Depends(get_session),
+):
+    bucket, object_path = _resolve_storage_target(context.tenant_id, bucket_id, relative_path)
+    content_type = request.headers.get("content-type", "application/octet-stream").split(";", 1)[0].lower()
+    allowed = {
+        "tenant-assets": {"image/jpeg", "image/png", "image/webp"},
+        "tenant-documents": {"application/pdf", "image/jpeg", "image/png"},
+        "tenant-exports": {"text/csv", "application/pdf", "application/json"},
+        "tenant-integrations": {"text/csv", "application/json"},
+    }
+    if content_type not in allowed.get(bucket, set()):
+        raise HTTPException(status_code=415, detail="Tipo de arquivo não permitido para este bucket.")
+    try:
+        validate_filename_content_type(relative_path, content_type)
+    except ValueError as exc:
+        raise HTTPException(status_code=415, detail=str(exc)) from exc
+    declared = request.headers.get("content-length")
+    if declared:
+        try:
+            declared_size = int(declared)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Content-Length inválido.") from exc
+        if declared_size > settings.STORAGE_MAX_UPLOAD_BYTES:
+            raise HTTPException(status_code=413, detail="Arquivo excede o limite individual do DASHEM.")
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > settings.STORAGE_MAX_UPLOAD_BYTES:
+            raise HTTPException(status_code=413, detail="Arquivo excede o limite individual do DASHEM.")
+        chunks.append(chunk)
+    if total < 1:
+        raise HTTPException(status_code=422, detail="Arquivo vazio não é aceito.")
+    content = b"".join(chunks)
+    try:
+        validate_content_signature(content, content_type)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    actor_id = resolve_actor(context)
+    try:
+        reservation = reserve_storage_capacity(
+            session, context.tenant_id, operation_key=idempotency_key,
+            requested_bytes=total, actor_id=actor_id, bucket_id=bucket, object_path=object_path,
+        )
+    except StorageCapacityUnavailableError as exc:
+        raise HTTPException(status_code=409, detail=exc.evaluation.reason) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if reservation.status == "COMMITTED" and reservation.provider_reference:
+        return StorageObjectRead(
+            bucket_id=bucket, object_path=object_path, size_bytes=reservation.requested_bytes,
+            provider_reference=reservation.provider_reference, idempotent_replay=True,
+        )
+    session.commit()
+    try:
+        stored = SupabaseStorageClient().upload(bucket, object_path, content, content_type)
+    except SupabaseStorageRejected as exc:
+        finalize_storage_reservation(session, reservation.id, committed=False, reason="Falha confirmada pelo adaptador Supabase")
+        session.commit()
+        raise _provider_error(exc) from exc
+    except (SupabaseStorageUnavailable, httpx.RequestError) as exc:
+        # A timeout or 5xx is ambiguous: the provider may have persisted the
+        # object. Keep the reservation active so retries cannot reclaim those
+        # bytes before the next inventory or TTL expiration.
+        raise _provider_error(exc) from exc
+    finalize_storage_reservation(
+        session, reservation.id, committed=True, reason="Objeto confirmado pelo adaptador Supabase",
+        provider_reference=stored.provider_reference,
+    )
+    reliability_service.write_audit_and_outbox(
+        session=session, tenant_id=context.tenant_id, store_id=context.store_id, actor_id=actor_id,
+        action="storage.object.uploaded", target=f"{bucket}:{object_path}",
+        audit_payload={"bucket": bucket, "object_path": object_path, "size_bytes": total},
+        aggregate_type="storage_object", aggregate_id=stored.provider_reference,
+        event_type="storage.object.uploaded", outbox_payload={"bucket": bucket, "object_path": object_path},
+    )
+    session.commit()
+    return StorageObjectRead(**stored.__dict__)
+
+
+@router.delete("/objects/{bucket_id}/{relative_path:path}", status_code=204)
+def delete_tenant_object(
+    bucket_id: str, relative_path: str,
+    context: TenantContext = Depends(get_tenant_context), session: Session = Depends(get_session),
+):
+    bucket, object_path = _resolve_storage_target(context.tenant_id, bucket_id, relative_path)
+    actor_id = resolve_actor(context)
+    try:
+        SupabaseStorageClient().delete(bucket, object_path)
+    except (SupabaseStorageUnavailable, httpx.RequestError) as exc:
+        raise _provider_error(exc) from exc
+    reliability_service.write_audit_and_outbox(
+        session=session, tenant_id=context.tenant_id, store_id=context.store_id, actor_id=actor_id,
+        action="storage.object.deleted", target=f"{bucket}:{object_path}",
+        audit_payload={"bucket": bucket, "object_path": object_path}, aggregate_type="storage_object",
+        aggregate_id=object_path, event_type="storage.object.deleted",
+        outbox_payload={"bucket": bucket, "object_path": object_path},
+    )
+    session.commit()
+
+
+@router.get("/objects/{bucket_id}/{relative_path:path}/signed-url", response_model=SignedStorageUrl)
+def sign_tenant_download(
+    bucket_id: str, relative_path: str,
+    context: TenantContext = Depends(get_tenant_context),
+):
+    bucket, object_path = _resolve_storage_target(context.tenant_id, bucket_id, relative_path)
+    try:
+        return SignedStorageUrl(url=SupabaseStorageClient().signed_download_url(bucket, object_path), expires_in=60)
+    except (SupabaseStorageUnavailable, httpx.RequestError) as exc:
+        raise _provider_error(exc) from exc
 
 
 @router.get("/platform/tenants/{tenant_id}/sources", response_model=list[StorageSourceRead])
@@ -199,11 +356,6 @@ def _measurement_fingerprint(tenant_id: uuid.UUID, data: StorageMeasurementCreat
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-@router.post(
-    "/platform/tenants/{tenant_id}/measurements",
-    response_model=StorageMeasurementRead,
-    status_code=201,
-)
 def record_storage_measurement(
     tenant_id: uuid.UUID,
     data: StorageMeasurementCreate,
@@ -292,6 +444,52 @@ def record_storage_measurement(
     session.commit()
     session.refresh(measurement)
     return measurement
+
+
+@router.post("/platform/tenants/{tenant_id}/bootstrap")
+def bootstrap_supabase_storage(
+    tenant_id: uuid.UUID,
+    principal: AuthPrincipal = Depends(get_current_principal),
+    session: Session = Depends(get_session),
+):
+    actor = require_platform_role(session, principal, PLATFORM_MANAGERS, require_aal2=True)
+    assert actor is not None
+    if session.get(Tenant, tenant_id) is None:
+        raise HTTPException(status_code=404, detail="Tenant não encontrado.")
+    try:
+        buckets = SupabaseStorageClient().ensure_private_buckets()
+        configure_supabase_sources(session, tenant_id, actor.id)
+        tenant_measurement, provider_measurement = reconcile_supabase_storage(session, tenant_id, actor.id)
+    except (SupabaseStorageUnavailable, StorageInventoryUnavailable, httpx.RequestError) as exc:
+        session.rollback()
+        raise _provider_error(exc) from exc
+    reliability_service.write_audit_and_outbox(
+        session=session, tenant_id=tenant_id, store_id=None, actor_id=actor.id,
+        action="platform.storage.bootstrap.completed", target=f"tenant:{tenant_id}",
+        audit_payload={"buckets": buckets, "measurement_id": str(tenant_measurement.id)},
+        aggregate_type="storage_measurement", aggregate_id=str(tenant_measurement.id),
+        event_type="platform.storage.reconciled",
+        outbox_payload={"tenant_id": str(tenant_id), "provider_measurement_id": str(provider_measurement.id)},
+    )
+    session.commit()
+    return storage_quota_read_model(session, tenant_id)
+
+
+@router.post("/platform/tenants/{tenant_id}/reconcile")
+def reconcile_tenant_storage(
+    tenant_id: uuid.UUID,
+    principal: AuthPrincipal = Depends(get_current_principal),
+    session: Session = Depends(get_session),
+):
+    actor = require_platform_role(session, principal, PLATFORM_MANAGERS, require_aal2=True)
+    assert actor is not None
+    try:
+        reconcile_supabase_storage(session, tenant_id, actor.id)
+    except StorageInventoryUnavailable as exc:
+        session.rollback()
+        raise _provider_error(exc) from exc
+    session.commit()
+    return storage_quota_read_model(session, tenant_id)
 
 
 @router.get(

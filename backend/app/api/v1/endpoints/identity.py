@@ -456,6 +456,25 @@ class PlatformTenantResourceUsage(BaseModel):
     measured_at: datetime
 
 
+class PlatformStorageProviderCapacity(BaseModel):
+    provider: str
+    configured: bool
+    capacity_bytes: Optional[int] = None
+    reserved_margin_bytes: int
+    used_bytes: Optional[int] = None
+    reserved_bytes: int
+    occupied_bytes: Optional[int] = None
+    available_bytes: Optional[int] = None
+    object_count: Optional[int] = None
+    measurement_status: str
+    decision: str
+    reason: str
+    measured_at: Optional[datetime] = None
+    managed_buckets: List[str] = PydanticField(default_factory=list)
+    egress_measurement_status: str
+    egress_reason: str
+
+
 class PlatformTenantStorageUsage(BaseModel):
     resource: str
     contracted_bytes: Optional[int] = None
@@ -472,6 +491,7 @@ class PlatformTenantStorageUsage(BaseModel):
     measurement_id: Optional[uuid.UUID] = None
     source_keys: List[str] = PydanticField(default_factory=list)
     enforcement_active: bool
+    provider_capacity: PlatformStorageProviderCapacity
 
 
 class PlatformTenantDetail(BaseModel):

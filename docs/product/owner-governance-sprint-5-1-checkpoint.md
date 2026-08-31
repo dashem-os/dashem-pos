@@ -1,8 +1,58 @@
 # Checkpoint técnico — governança Owner e Sprint 5.1
 
-Status: **pausa técnica após o Sprint 5**  
-Data do checkpoint: 31 de agosto de 2026  
-Próxima execução autorizada: **Sprint 5.1 — Supabase Storage por tenant**
+Status: **implementação local do Sprint 5.1 concluída; gate real do Supabase pendente**
+
+Data do checkpoint: 31 de agosto de 2026
+
+Próxima execução necessária: **configurar o projeto Supabase de teste e executar o gate com objetos reais**
+
+## 0. Atualização da retomada — 31/08/2026
+
+A camada de aplicação do Sprint 5.1 foi implementada sem presumir que o plano
+Free está ativo e sem registrar consumo digitado manualmente:
+
+- adapter backend para buckets privados, upload, exclusão e URL assinada;
+- prefixo de objeto derivado no servidor a partir do `tenant_id` autenticado;
+- validação de bucket, caminho, extensão, MIME, assinatura do conteúdo e tamanho;
+- reserva idempotente antes do upload, com quota do tenant e capacidade física
+  global avaliadas sob lock;
+- timeout e erro 5xx mantêm a reserva conservadora; somente rejeição 4xx
+  confirmada libera bytes imediatamente;
+- inventário paginado pela API administrativa do Supabase Storage, por tenant
+  e para todos os buckets do projeto, com watermark, fingerprint e evidência;
+- detecção de objetos órfãos por hashes de caminho, sem exclusão automática;
+- migration Alembic `065_supabase_storage` para fatos, reservas e capacidade no
+  banco da aplicação;
+- migration separada em
+  `supabase/migrations/20260831190000_lock_managed_storage_to_backend.sql` para
+  bloquear `SELECT`, `INSERT`, `UPDATE` e `DELETE` diretos nos buckets
+  gerenciados. O backend com service role permanece a única autoridade;
+- painel do Owner separando quota contratual, uso medido, reservas e capacidade
+  global. Egress aparece explicitamente como `NOT_INSTRUMENTED`.
+
+Validação local concluída: migration com upgrade/downgrade/upgrade e
+`alembic check`; backend 174/174; frontend 66/66 e build de produção. Os testes
+do adapter usam um provedor HTTP controlado e não são apresentados como prova
+do ambiente real.
+
+O workspace não contém `SUPABASE_URL`, `SUPABASE_SECRET_KEY` nem capacidade
+física configurados. Portanto, os 12 itens do gate com objetos reais abaixo
+**ainda não foram declarados aprovados**, a migration Supabase ainda não foi
+aplicada no projeto remoto e o Sprint 5.1 ainda não autoriza storage comercial.
+
+Para executar o gate, o ambiente técnico deve receber, pelo gerenciador de
+segredos e nunca pelo Git:
+
+```text
+SUPABASE_URL=<URL real do projeto de teste>
+SUPABASE_SECRET_KEY=<service role do backend>
+SUPABASE_STORAGE_CAPACITY_BYTES=<capacidade confirmada no plano vigente>
+SUPABASE_STORAGE_RESERVED_MARGIN_BYTES=<margem operacional aprovada>
+```
+
+Os quatro buckets gerenciados são canônicos e precisam coincidir com a
+migration restritiva. O backend falha na inicialização se essa lista divergir,
+evitando que um bucket novo seja criado sem política versionada.
 
 ## 1. Decisão de pausa
 
@@ -33,9 +83,9 @@ de inventário nunca equivale a zero bytes utilizados.
 ## 3. Decisão de infraestrutura
 
 O provedor físico previsto para a primeira implementação é o **Supabase
-Storage**. O Supabase já utilizado pelo projeto prova identidade, mas o código
-do DASHEM ainda não possui bucket, upload/download de objeto nem inventário de
-`storage.objects` conectado ao tenant.
+Storage**. O Supabase já utilizado pelo projeto prova identidade. O código do
+DASHEM agora possui adapter de objeto e inventário, porém as credenciais e a
+capacidade do projeto de teste ainda não estão configuradas neste ambiente.
 
 No plano gratuito, em 31/08/2026, a referência operacional publicada pelo
 Supabase é:
@@ -87,7 +137,8 @@ tenant-integrations/<tenant_id>/...
 ### 4.3 Medição e reconciliação
 
 - cadastrar o Supabase Storage como `storage_meter_source`;
-- agregar `storage.objects.metadata.size` por bucket e prefixo do tenant;
+- agregar o metadata de tamanho retornado pela API administrativa do Storage
+  por bucket e prefixo do tenant;
 - persistir quantidade de objetos, bytes, fontes, watermark e evidência;
 - reconciliar exatamente todas as fontes ativas;
 - detectar medição parcial, divergência, fonte alterada e inventário expirado;
@@ -159,4 +210,3 @@ Omnichannel, TEF/SmartPOS e delivery não fazem parte do Sprint 5.1. Permanecem
 na trilha macro de integrações: Checkout/Orchestrator (S8), TEF e SmartPOS (S9),
 Channel Hub (S10) e catálogo/reconciliação de canais (S13). Essas integrações só
 podem ser anunciadas depois dos respectivos adapters e gates externos reais.
-

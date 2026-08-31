@@ -57,6 +57,9 @@ Plataforma Dashem
 - o Resend ainda precisa ser configurado e validado com domínio próprio;
 - o backend de produção ainda precisa receber `SUPABASE_SECRET_KEY` e
   `APP_URL`; o segredo administrativo nunca pertence ao frontend;
+- o Sprint 5.1 de storage está implementado localmente, mas ainda exige aplicar
+  a migration `supabase/`, configurar capacidade/margem e executar o gate com
+  objetos reais antes de oferecer storage como limite efetivo;
 - o primeiro acesso do Owner precisa ser retestado de ponta a ponta após o Resend;
 - Google e Microsoft devem ficar ocultos até seus provedores OAuth estarem
   configurados e testados;

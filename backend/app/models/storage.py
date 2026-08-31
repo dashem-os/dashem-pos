@@ -64,6 +64,31 @@ class StorageMeasurement(SQLModel, table=True):
     recorded_at: datetime = Field(default_factory=datetime.utcnow, index=True)
 
 
+class StorageProviderMeasurement(SQLModel, table=True):
+    """Append-only project-wide inventory used to protect shared capacity."""
+
+    __tablename__ = "storage_provider_measurements"
+    __table_args__ = (
+        UniqueConstraint("provider", "source_fingerprint", name="uq_storage_provider_measurement_fingerprint"),
+        CheckConstraint("status IN ('RECONCILED', 'DIVERGENT', 'UNAVAILABLE')", name="ck_storage_provider_measurement_status"),
+        CheckConstraint("used_bytes IS NULL OR used_bytes >= 0", name="ck_storage_provider_used_bytes"),
+        CheckConstraint("object_count IS NULL OR object_count >= 0", name="ck_storage_provider_object_count"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    provider: str = Field(sa_column=Column(String(60), nullable=False, index=True))
+    status: str = Field(sa_column=Column(String(20), nullable=False, index=True))
+    used_bytes: Optional[int] = Field(default=None, sa_column=Column(BigInteger, nullable=True))
+    object_count: Optional[int] = Field(default=None)
+    source_keys: list[str] = Field(default_factory=list, sa_column=Column(JSON, nullable=False, default=list))
+    watermark: str = Field(sa_column=Column(String(240), nullable=False))
+    source_fingerprint: str = Field(sa_column=Column(String(128), nullable=False, index=True))
+    evidence: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON, nullable=False, default=dict))
+    measured_at: datetime = Field(index=True)
+    recorded_by: uuid.UUID = Field(foreign_key="users.id", index=True)
+    recorded_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+
+
 class StorageReservation(SQLModel, table=True):
     """Capacity held before a storage-producing operation commits its object."""
 
@@ -86,6 +111,9 @@ class StorageReservation(SQLModel, table=True):
     contract_id: uuid.UUID = Field(foreign_key="tenant_contracts.id", index=True)
     contract_version: int = Field(ge=1)
     measurement_id: uuid.UUID = Field(foreign_key="storage_measurements.id", index=True)
+    bucket_id: Optional[str] = Field(default=None, sa_column=Column(String(80), nullable=True))
+    object_path: Optional[str] = Field(default=None, sa_column=Column(String(500), nullable=True))
+    provider_reference: Optional[str] = Field(default=None, sa_column=Column(String(500), nullable=True))
     created_by: uuid.UUID = Field(foreign_key="users.id", index=True)
     expires_at: datetime = Field(index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)

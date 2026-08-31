@@ -1391,6 +1391,24 @@ export interface StorageQuotaUsage {
   measurement_id?: string
   source_keys: string[]
   enforcement_active: boolean
+  provider_capacity: {
+    provider: 'SUPABASE'
+    configured: boolean
+    capacity_bytes?: number
+    reserved_margin_bytes: number
+    used_bytes?: number
+    reserved_bytes: number
+    occupied_bytes?: number
+    available_bytes?: number
+    object_count?: number
+    measurement_status: string
+    decision: 'ALLOWED' | 'WARNING' | 'DENIED' | 'UNKNOWN'
+    reason: string
+    measured_at?: string
+    managed_buckets: string[]
+    egress_measurement_status: 'NOT_INSTRUMENTED'
+    egress_reason: string
+  }
 }
 
 export interface PlatformTenantDetail {
@@ -2009,6 +2027,57 @@ export async function fetchCommercialRequestCatalog(headers: Record<string, stri
 export async function fetchTenantStorageQuota(headers: Record<string, string>): Promise<StorageQuotaUsage> {
   const res = await fetch(`${API_BASE_URL}/api/v1/storage/quota`, { headers })
   if (!res.ok) throw await apiError(res, 'Não foi possível carregar a medição de storage.')
+  return res.json()
+}
+
+export async function bootstrapPlatformTenantStorage(tenantId: string): Promise<StorageQuotaUsage> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/storage/platform/tenants/${tenantId}/bootstrap`, {
+    method: 'POST',
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível conectar o Supabase Storage ao tenant.')
+  return res.json()
+}
+
+export async function reconcilePlatformTenantStorage(tenantId: string): Promise<StorageQuotaUsage> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/storage/platform/tenants/${tenantId}/reconcile`, {
+    method: 'POST',
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível reconciliar o Supabase Storage.')
+  return res.json()
+}
+
+export interface StoredTenantObject {
+  bucket_id: string
+  object_path: string
+  size_bytes: number
+  provider_reference: string
+  idempotent_replay: boolean
+}
+
+const storageObjectPath = (bucket: string, relativePath: string) =>
+  `${encodeURIComponent(bucket)}/${relativePath.split('/').map(encodeURIComponent).join('/')}`
+
+export async function uploadTenantStorageObject(
+  bucket: string, relativePath: string, file: Blob, idempotencyKey: string,
+): Promise<StoredTenantObject> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/storage/objects/${storageObjectPath(bucket, relativePath)}`, {
+    method: 'PUT', body: file,
+    headers: { 'Content-Type': file.type, 'Idempotency-Key': idempotencyKey },
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível armazenar o arquivo.')
+  return res.json()
+}
+
+export async function deleteTenantStorageObject(bucket: string, relativePath: string): Promise<void> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/storage/objects/${storageObjectPath(bucket, relativePath)}`, {
+    method: 'DELETE',
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível excluir o arquivo.')
+}
+
+export async function signTenantStorageDownload(bucket: string, relativePath: string): Promise<{ url: string; expires_in: number }> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/storage/objects/${storageObjectPath(bucket, relativePath)}/signed-url`)
+  if (!res.ok) throw await apiError(res, 'Não foi possível autorizar o download.')
   return res.json()
 }
 
