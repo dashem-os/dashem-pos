@@ -41,13 +41,18 @@ from app.models.commercial_catalog import CommercialActivity, CommercialActivity
 from app.models.reliability import AuditEvent, OutboxEvent, OutboxStatusEnum
 from app.models.reliability import ServiceHeartbeat
 from app.services import commercial_pricing, identity_service, reliability_service, supabase_admin
-from app.services.contract_limit_service import effective_limit
 from app.services.commercial_offer_service import (
     ActivityRule, CommercialOfferError, compose_commercial_offer,
 )
 from app.services.contract_entitlement_service import (
     build_entitlement_snapshot, latest_contract, resolve_contract_entitlements,
 )
+from app.services.quota_policy_service import (
+    QuotaCapacityExceededError,
+    require_count_capacity,
+    tenant_count_quota_read_model,
+)
+from app.modules.governance.contracts import CountResource
 from app.modules.capabilities.registry import CAPABILITY_REGISTRY, IMPLEMENTED_CAPABILITIES, resolve_dependencies
 from app.modules.capabilities.niches import (
     BusinessNiche, NICHE_CONTRACTS, capability_payload,
@@ -438,6 +443,18 @@ class PlatformTenantAccessRead(BaseModel):
     created_at: datetime
 
 
+class PlatformTenantResourceUsage(BaseModel):
+    resource: str
+    contracted: Optional[int] = None
+    configured: int
+    reserved: int
+    occupied: int
+    available: Optional[int] = None
+    decision: str
+    reason: str
+    measured_at: datetime
+
+
 class PlatformTenantDetail(BaseModel):
     tenant: PlatformTenantRead
     profile: Optional[TenantProfile] = None
@@ -451,6 +468,7 @@ class PlatformTenantDetail(BaseModel):
     niches: List[BusinessNiche] = PydanticField(default_factory=list)
     contract: Optional[TenantContract] = None
     billing_account: Optional[SaasBillingAccount] = None
+    resource_usage: dict[str, PlatformTenantResourceUsage] = PydanticField(default_factory=dict)
 
 
 class HealthComponent(BaseModel):
@@ -1743,6 +1761,7 @@ def platform_tenant_detail(
         niches=niches,
         contract=contract,
         billing_account=billing_account,
+        resource_usage=tenant_count_quota_read_model(session, tenant_id),
     )
 
 
@@ -2622,10 +2641,10 @@ def create_platform_store(
     assert actor is not None
     if session.get(Tenant, tenant_id) is None:
         raise HTTPException(status_code=404, detail="Tenant não encontrado.")
-    store_limit = effective_limit(session, tenant_id, "units")
-    active_stores = _count(session, Store, Store.tenant_id == tenant_id, Store.is_active == True)  # noqa: E712
-    if store_limit is not None and active_stores >= store_limit:
-        raise HTTPException(status_code=409, detail="Limite contratual de unidades atingido.")
+    try:
+        require_count_capacity(session, tenant_id, CountResource.UNITS)
+    except QuotaCapacityExceededError as exc:
+        raise HTTPException(status_code=409, detail=exc.evaluation.reason) from exc
     if session.exec(select(Store).where(Store.tenant_id == tenant_id, Store.code == data.code)).first():
         raise HTTPException(status_code=409, detail="Já existe uma unidade com este código.")
     store = Store(tenant_id=tenant_id, name=data.name.strip(), code=data.code.strip().upper(), is_headquarters=False)
@@ -2714,10 +2733,10 @@ def create_store_endpoint(
     session: Session = Depends(get_session),
 ):
     _platform_or_tenant_admin(session, principal, data.tenant_id)
-    store_limit = effective_limit(session, data.tenant_id, "units")
-    active_stores = _count(session, Store, Store.tenant_id == data.tenant_id, Store.is_active == True)  # noqa: E712
-    if store_limit is not None and active_stores >= store_limit:
-        raise HTTPException(status_code=409, detail="Limite contratual de unidades atingido.")
+    try:
+        require_count_capacity(session, data.tenant_id, CountResource.UNITS)
+    except QuotaCapacityExceededError as exc:
+        raise HTTPException(status_code=409, detail=exc.evaluation.reason) from exc
     return identity_service.create_store(session, data.tenant_id, data.name, data.code)
 
 

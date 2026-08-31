@@ -9,6 +9,7 @@ from sqlmodel import Session
 from app.core.context import TenantContext, get_tenant_context, resolve_actor
 from app.core.database import get_session
 from app.services import bi_service, payment_audit_service
+from app.services.quota_policy_service import tenant_count_quota_read_model
 
 
 router = APIRouter()
@@ -49,6 +50,7 @@ class ManagementOverview(BaseModel):
     daily_revenue: list[DailyRevenue]
     alerts: list[str]
     formulas: dict[str, str]
+    resource_usage: dict[str, dict[str, object]]
 
 
 class ProjectionRefreshDTO(BaseModel):
@@ -78,12 +80,18 @@ def management_overview(
     context: TenantContext = Depends(get_tenant_context),
     session: Session = Depends(get_session),
 ):
-    return ManagementOverview.model_validate(
-        bi_service.summary(
-            session, context, store_id=_store(context, store_id), days=days,
-            register_id=register_id, operator_id=operator_id, channel=channel,
-        )
+    summary = bi_service.summary(
+        session, context, store_id=_store(context, store_id), days=days,
+        register_id=register_id, operator_id=operator_id, channel=channel,
     )
+    resource_usage = tenant_count_quota_read_model(session, context.tenant_id)
+    summary["resource_usage"] = resource_usage
+    summary["alerts"] = list(summary.get("alerts", [])) + [
+        str(item["reason"])
+        for item in resource_usage.values()
+        if item["decision"] in {"WARNING", "DENIED"}
+    ]
+    return ManagementOverview.model_validate(summary)
 
 
 @router.get("/productivity")

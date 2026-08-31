@@ -13,8 +13,9 @@ from app.models.identity import (
     Employee, EmployeeStatusEnum, Membership, MembershipStatusEnum,
     OperationalCredential, RoleEnum, Store, Tenant, User,
 )
-from app.services.contract_limit_service import effective_limit
 from app.services import identity_service, operational_access_service, reliability_service, supabase_admin
+from app.services.quota_policy_service import QuotaCapacityExceededError, require_count_capacity
+from app.modules.governance.contracts import CountResource
 
 
 router = APIRouter()
@@ -189,15 +190,10 @@ def _validate_employee_store(session: Session, context: TenantContext, store_id:
 
 
 def _enforce_user_limit(session: Session, tenant_id: uuid.UUID) -> None:
-    maximum = effective_limit(session, tenant_id, "users")
-    if maximum is None:
-        return
-    current = len(session.exec(select(Membership).where(
-        Membership.tenant_id == tenant_id,
-        Membership.status.in_({MembershipStatusEnum.ACTIVE, MembershipStatusEnum.INVITED}),
-    )).all())
-    if current >= maximum:
-        raise HTTPException(status_code=409, detail="Limite contratual de usuários atingido.")
+    try:
+        require_count_capacity(session, tenant_id, CountResource.USERS)
+    except QuotaCapacityExceededError as exc:
+        raise HTTPException(status_code=409, detail=exc.evaluation.reason) from exc
 
 
 def _audit(session: Session, context: TenantContext, membership: Membership, action: str, payload: dict) -> None:

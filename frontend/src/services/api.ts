@@ -800,6 +800,7 @@ export interface ManagementOverview {
   daily_revenue: Array<{ date: string; revenue: number; sales: number }>
   alerts: string[]
   formulas: Record<string, string>
+  resource_usage: Partial<Record<TenantResourceUsage['resource'], TenantResourceUsage>>
 }
 
 export interface BiDrilldown {
@@ -1316,6 +1317,18 @@ export interface PlatformTenantAccess {
   created_at: string
 }
 
+export interface TenantResourceUsage {
+  resource: 'USERS' | 'DEVICES' | 'UNITS'
+  contracted?: number
+  configured: number
+  reserved: number
+  occupied: number
+  available?: number
+  decision: 'ALLOWED' | 'WARNING' | 'DENIED' | 'UNKNOWN'
+  reason: string
+  measured_at: string
+}
+
 export interface PlatformTenantDetail {
   tenant: PlatformTenantSummary
   profile?: TenantProfile
@@ -1329,6 +1342,7 @@ export interface PlatformTenantDetail {
   niches: BusinessNiche[]
   contract?: TenantContract
   billing_account?: SaasBillingAccount
+  resource_usage: Partial<Record<TenantResourceUsage['resource'], TenantResourceUsage>>
 }
 
 export interface PaymentConfirmResponse {
