@@ -53,6 +53,30 @@ plano ou do contrato. O banco da aplicação e o banco interno do Supabase são
 fronteiras distintas: a aplicação inventaria pela API administrativa oficial;
 a política em `storage.objects` é versionada separadamente em `supabase/`.
 
+## Unidades de capacidade
+
+A capacidade física declarada pelo provedor é apresentada em unidades decimais:
+
+- `1 GB = 1.000.000.000 bytes`;
+- `1 MB = 1.000.000 bytes`.
+
+As quotas contratuais atuais do DASHEM são convertidas para bytes por base
+binária:
+
+- `1 GiB = 1.073.741.824 bytes`;
+- `1 MiB = 1.048.576 bytes`.
+
+Consequentemente, a tela do Control está correta ao apresentar capacidade
+Supabase como `1 GB`, margem como `100 MB` e uma quota contratual de 128 unidades
+como `128 MiB`. Nesse exemplo, 128 MiB correspondem a 134.217.728 bytes e
+comprometem 14,91% dos 900.000.000 bytes utilizáveis.
+
+Os nomes persistidos `storage_mb` e `storage_limit_mb` são legado semântico:
+seus valores são interpretados como MiB pelo `storage_quota_service`. Novas
+interfaces devem exibir `MiB`, e uma futura evolução de schema deve preferir
+bytes canônicos ou campos explicitamente nomeados `*_mib`. Não alterar a base
+silenciosamente, pois isso modificaria contratos existentes.
+
 ## Retomada
 
 O Sprint 5 encerrou a fundação independente de provedor. A implementação local

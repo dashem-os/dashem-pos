@@ -304,7 +304,17 @@ worker ainda não foi provisionado.
 
 O heartbeat do processo publicado e a drenagem da fila continuam pendentes. O
 Render não oferece instância gratuita para Background Worker; a decisão de
-compute pago pertence ao gate de ambiente e exige ação explícita do Owner.
+compute pago foi conscientemente postergada para o gate de pré-piloto e exige
+ação explícita do Owner. Isso não bloqueia a correção do Control, a construção
+da camada do tenant nem o gate funcional de storage. O registro de investimento,
+configuração, validação e rollback está no
+[`runbook do Background Worker`](../operations/background-worker-investment-gate.md).
+
+A sequência aprovada para a fase atual é: tornar o Owner consistente, construir
+a camada mínima do tenant, concluir testes internos, receber avaliação técnica
+de automação/operação e tratar os achados. O worker hospedado entra depois,
+quando uma jornada assíncrona real ou o pré-piloto tornar compute contínuo uma
+necessidade demonstrável.
 
 A sonda de Supabase Auth deve enviar a chave server-side somente no header
 `apikey`. Uma resposta `401` sem esse header é falha da sonda, não evidência de

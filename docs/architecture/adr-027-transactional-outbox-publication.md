@@ -26,3 +26,5 @@ Cada adaptador externo terá seu próprio registro de entrega, idempotência, te
 - O worker precisa de processo continuamente executável. No Render isso requer um Background Worker pago; a instância web gratuita não deve fingir esse papel.
 - A saúde do worker continua `UNKNOWN` até que o processo seja provisionado e publique heartbeat real.
 - A fila pode permanecer `DEGRADED` durante a homologação sem representar perda: os eventos continuam persistidos e recuperáveis.
+- O compute pago fica postergado até o gate de pré-piloto. Ele não bloqueia a construção do Owner, do tenant nem o gate funcional do Sprint 5.1; bloqueia o GO de qualquer piloto hospedado que dependa de execução assíncrona.
+- Critérios, configuração, validação e rollback estão no [gate de investimento do Background Worker](../operations/background-worker-investment-gate.md).
