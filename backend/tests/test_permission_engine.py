@@ -178,3 +178,36 @@ def test_only_tenant_administrator_profile_can_manage_the_team():
             )
         assert manager.value.status_code == 403
         assert "team.manage" in manager.value.detail
+
+
+def test_contract_requests_have_a_dedicated_tenant_permission():
+    suffix = uuid.uuid4().hex[:8]
+    with Session(engine) as session:
+        set_platform_db_context(session)
+        tenant = Tenant(
+            name=f"Contract {suffix}",
+            slug=f"contract-{suffix}",
+            status=TenantStatusEnum.ACTIVE,
+        )
+        session.add(tenant)
+        session.flush()
+        admin_subject, _ = _identity(session, tenant, RoleEnum.ADMIN, f"admin-{suffix}")
+        manager_subject, _ = _identity(session, tenant, RoleEnum.MANAGER, f"manager-{suffix}")
+        tenant_id = tenant.id
+        session.commit()
+
+    with Session(engine) as session:
+        admin = authorize_tenant_context(
+            session, _principal(admin_subject), tenant_id, None,
+            "POST", "/api/v1/commercial-requests",
+        )
+        assert "contract.request" in admin.permissions
+
+    with Session(engine) as session:
+        with pytest.raises(HTTPException) as manager:
+            authorize_tenant_context(
+                session, _principal(manager_subject), tenant_id, None,
+                "POST", "/api/v1/commercial-requests",
+            )
+        assert manager.value.status_code == 403
+        assert "contract.request" in manager.value.detail

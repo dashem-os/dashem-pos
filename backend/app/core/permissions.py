@@ -49,7 +49,7 @@ def route_requirement(method: str, path: str) -> RouteRequirement:
             return RouteRequirement("bi.read" if method == "GET" else "bi.refresh")
         return RouteRequirement("management.read")
     if path.startswith("/api/v1/commercial-requests"):
-        return RouteRequirement("management.read" if method == "GET" else "team.manage")
+        return RouteRequirement("management.read" if method == "GET" else "contract.request")
     if path.startswith("/api/v1/storage"):
         return RouteRequirement("management.read" if method == "GET" else "team.manage")
     if path.startswith("/api/v1/catalog"):

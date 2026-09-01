@@ -430,7 +430,7 @@ def test_owner_updates_the_commercial_plan_catalog_with_audit():
                 code=f"PILOT_{suffix.upper()}", name="Plano Piloto",
                 description="Plano comercial para validação assistida.",
                 store_limit=2, user_limit=8, terminal_limit=4,
-                storage_limit_mb=1024, monthly_price=Decimal("149.90"),
+                storage_limit_mib=1024, monthly_price=Decimal("149.90"),
                 activity_keys=["RETAIL"],
                 is_active=False,
             ),

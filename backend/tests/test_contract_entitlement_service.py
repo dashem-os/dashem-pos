@@ -1,4 +1,9 @@
-from app.services.contract_entitlement_service import build_entitlement_snapshot
+from app.models.platform import TenantContract
+from app.services.contract_entitlement_service import (
+    build_entitlement_snapshot,
+    normalized_contract_limits,
+    normalized_storage_entitlement,
+)
 
 
 def test_contract_snapshot_copies_offer_and_records_provenance():
@@ -20,14 +25,14 @@ def test_contract_snapshot_copies_offer_and_records_provenance():
 
     snapshot = build_entitlement_snapshot(
         proposal=proposal,
-        plan_limits={"users": 40, "devices": 10, "units": 3, "storage_mb": 16384},
+        plan_limits={"users": 40, "devices": 10, "units": 3, "storage_mib": 16384},
         users=20,
         devices=5,
         units=2,
-        storage_mb=4096,
+        storage_mib=4096,
     )
 
-    assert snapshot["schema_version"] == 3
+    assert snapshot["schema_version"] == 4
     assert snapshot["activity_keys"] == ["RETAIL", "BEAUTY_RESELLER"]
     assert snapshot["capability_keys"] == ["catalog", "receivables"]
     assert snapshot["capability_entitlements"][1]["sources"] == ["ADDON", "OWNER_DECISION", "PLAN"]
@@ -39,7 +44,7 @@ def test_contract_snapshot_copies_offer_and_records_provenance():
     }
     assert snapshot["storage_entitlement"] == {
         "limit": 4096,
-        "limit_mb": 4096,
+        "limit_mib": 4096,
         "plan_included": 16384,
         "basis": "OWNER_OVERRIDE",
         "sources": ["PLAN", "OWNER_DECISION"],
@@ -60,11 +65,11 @@ def test_contract_snapshot_is_detached_from_mutable_offer_collections():
     }
     snapshot = build_entitlement_snapshot(
         proposal=proposal,
-        plan_limits={"users": 5, "devices": 1, "units": 1, "storage_mb": 1024},
+        plan_limits={"users": 5, "devices": 1, "units": 1, "storage_mib": 1024},
         users=5,
         devices=1,
         units=1,
-        storage_mb=1024,
+        storage_mib=1024,
     )
 
     proposal["activity_keys"].append("FOOD_SERVICE")
@@ -74,3 +79,20 @@ def test_contract_snapshot_is_detached_from_mutable_offer_collections():
     assert snapshot["capability_entitlements"][0]["sources"] == ["ACTIVITY", "OWNER_DECISION", "PLAN"]
     assert snapshot["limit_entitlements"]["users"]["basis"] == "PLAN_INCLUDED"
     assert snapshot["limit_entitlements"]["users"]["sources"] == ["PLAN"]
+
+
+def test_legacy_storage_names_are_normalized_only_at_the_read_boundary():
+    contract = TenantContract(
+        tenant_id="00000000-0000-0000-0000-000000000001",
+        limits={"users": 5, "storage_mb": 1024},
+        storage_entitlement={"limit_mb": 1024, "measurement_status": "NOT_MEASURED"},
+        schema_version=3,
+    )
+
+    assert normalized_contract_limits(contract) == {"users": 5, "storage_mib": 1024}
+    assert normalized_storage_entitlement(contract) == {
+        "limit_mib": 1024,
+        "measurement_status": "NOT_MEASURED",
+    }
+    assert contract.limits["storage_mb"] == 1024
+    assert contract.storage_entitlement["limit_mb"] == 1024

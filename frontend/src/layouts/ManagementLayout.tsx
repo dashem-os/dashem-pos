@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react'
 import {
-  BadgeDollarSign, Banknote, Boxes, ChefHat, FileText, Home, LogOut, Menu, Monitor,
+  BadgeDollarSign, Banknote, Boxes, ChefHat, FileCheck2, FileText, Home, LogOut, Menu, Monitor,
   Package, Plug, ShoppingCart, Store as StoreIcon, Tags, Users, X,
 } from 'lucide-react'
 import { usePos } from '../context/PosContext'
@@ -17,9 +17,10 @@ import { CategoryManager } from '../components/management/CategoryManager'
 import { InventoryManager } from '../components/management/InventoryManager'
 import { ReceivablesManager } from '../components/management/ReceivablesManager'
 import { CustomerManager } from '../components/management/CustomerManager'
+import { TenantPlanWorkspace } from '../components/management/TenantPlanWorkspace'
 import { navigateTo } from '../utils/navigation'
 
-type ModuleId = 'overview' | 'sales' | 'tables' | 'channels' | 'cash' | 'receivables' | 'products' | 'categories' | 'inventory' | 'customers' | 'team' | 'devices'
+type ModuleId = 'overview' | 'sales' | 'tables' | 'channels' | 'cash' | 'receivables' | 'products' | 'categories' | 'inventory' | 'customers' | 'team' | 'devices' | 'subscription'
 
 interface NavigationItem {
   id: ModuleId
@@ -31,13 +32,15 @@ const MODULE_ICONS: Record<ModuleId, React.ComponentType<{ className?: string }>
   overview: Home, sales: FileText, cash: Banknote, channels: Plug,
   receivables: BadgeDollarSign, products: Package, categories: Tags,
   inventory: Boxes, customers: Users, tables: ChefHat, devices: Monitor, team: Users,
+  subscription: FileCheck2,
 }
 const MODULE_IDS = new Set<ModuleId>(Object.keys(MODULE_ICONS) as ModuleId[])
 
 export const ManagementLayout: React.FC = () => {
-  const [module, setModule] = useState<ModuleId>(() =>
-    new URLSearchParams(window.location.search).get('module') === 'devices' ? 'devices' : 'overview'
-  )
+  const [module, setModule] = useState<ModuleId>(() => {
+    const requested = new URLSearchParams(window.location.search).get('module')
+    return requested && MODULE_IDS.has(requested as ModuleId) ? requested as ModuleId : 'overview'
+  })
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false)
   const { signOut } = useAuth()
   const { tenant, store, contributions } = usePos()
@@ -53,10 +56,17 @@ export const ManagementLayout: React.FC = () => {
   }, [contributions])
   const selected = visibleGroups.flatMap((group) => group.items).find((item) => item.id === module)
 
-  const choose = (id: ModuleId) => { setModule(id); setMobileNavigationOpen(false) }
+  const choose = (id: ModuleId) => {
+    setModule(id)
+    setMobileNavigationOpen(false)
+    const url = new URL(window.location.href)
+    url.searchParams.set('module', id)
+    window.history.replaceState({}, '', url)
+  }
   const navigation = <nav className="space-y-5">{visibleGroups.map((group) => <section key={group.label}><p className="mb-2 px-3 text-[10px] font-black uppercase tracking-[.16em] text-slate-600">{group.label}</p><div className="space-y-1">{group.items.map((item) => { const Icon = item.icon; const current = module === item.id; return <button key={item.id} onClick={() => choose(item.id)} className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-xs font-extrabold transition ${current ? 'bg-white text-slate-950 shadow-sm' : 'text-dashem-muted hover:bg-dashem-surface-elevated hover:text-white'}`}><Icon className={`h-4 w-4 ${current ? 'text-dashem-red' : ''}`} /><span className="flex-1">{item.label}</span></button> })}</div></section>)}</nav>
 
   const content = () => {
+    if (!selected) return null
     switch (module) {
       case 'overview': return <DashboardBI onOpenModule={(target) => choose(target)} />
       case 'sales': return <SalesHistory />
@@ -70,6 +80,7 @@ export const ManagementLayout: React.FC = () => {
       case 'devices': return <DeviceManager />
       case 'channels': return <ChannelHubWorkspace />
       case 'team': return <TeamManager />
+      case 'subscription': return <TenantPlanWorkspace />
       default: return <ModuleBoundary item={selected} />
     }
   }

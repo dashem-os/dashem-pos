@@ -71,11 +71,16 @@ Supabase como `1 GB`, margem como `100 MB` e uma quota contratual de 128 unidade
 como `128 MiB`. Nesse exemplo, 128 MiB correspondem a 134.217.728 bytes e
 comprometem 14,91% dos 900.000.000 bytes utilizáveis.
 
-Os nomes persistidos `storage_mb` e `storage_limit_mb` são legado semântico:
-seus valores são interpretados como MiB pelo `storage_quota_service`. Novas
-interfaces devem exibir `MiB`, e uma futura evolução de schema deve preferir
-bytes canônicos ou campos explicitamente nomeados `*_mib`. Não alterar a base
-silenciosamente, pois isso modificaria contratos existentes.
+O schema comercial tornou a unidade explícita na migration
+`067_storage_mib_semantics`: o catálogo persiste `storage_limit_mib` e novos
+contratos v4 escrevem `storage_mib`/`limit_mib`. A migration renomeia as colunas
+sem converter os números, pois esses valores já eram contabilizados em base
+binária.
+
+Snapshots contratuais v1–v3 são históricos imutáveis. Um único adaptador de
+leitura em `contract_entitlement_service` reconhece os nomes antigos,
+normaliza-os para `*_mib` na fronteira da API e nunca reescreve a versão
+assinada. Nenhuma gravação ou interface nova publica os nomes legados.
 
 ## Retomada
 

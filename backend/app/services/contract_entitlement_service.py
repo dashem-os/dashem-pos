@@ -30,7 +30,7 @@ def build_entitlement_snapshot(
     users: int,
     devices: int,
     units: int,
-    storage_mb: int,
+    storage_mib: int,
 ) -> dict[str, Any]:
     """Build columns copied into a contract; no mutable catalog lookup is needed later."""
 
@@ -60,15 +60,15 @@ def build_entitlement_snapshot(
         "limit_entitlements": limit_entitlements,
         "storage_entitlement": {
             **_limit_entitlement(
-                value=storage_mb,
-                plan_included=plan_limits.get("storage_mb"),
+                value=storage_mib,
+                plan_included=plan_limits.get("storage_mib"),
             ),
-            "limit_mb": storage_mb,
+            "limit_mib": storage_mib,
             "measurement_status": "NOT_MEASURED",
         },
-        # v3 records the immutable plan values and the Owner decision basis for
-        # every contractual limit. Older snapshots remain readable as legacy.
-        "schema_version": 3,
+        # v4 makes the binary commercial unit explicit. Older immutable
+        # snapshots remain readable through the bounded legacy adapter below.
+        "schema_version": 4,
     }
 
 
@@ -116,7 +116,7 @@ def resolve_contract_entitlements(
         capability_keys=capability_keys,
         capability_entitlements=tuple(contract.capability_entitlements),
         limit_entitlements=dict(contract.limit_entitlements),
-        storage_entitlement=dict(contract.storage_entitlement),
+        storage_entitlement=normalized_storage_entitlement(contract),
     )
 
 
@@ -133,3 +133,36 @@ def contracted_limit(
         return None
     value = entitlement.get("limit")
     return int(value) if value is not None else None
+
+
+def contracted_storage_mib(contract: TenantContract) -> int | None:
+    """Resolve the canonical MiB quota without mutating immutable history."""
+
+    value = contract.storage_entitlement.get("limit_mib")
+    if value is not None:
+        return int(value)
+    # Snapshots written before schema v4 used an inaccurate key name while
+    # already interpreting the value as MiB. This is the only compatibility
+    # boundary; new snapshots never write either legacy key.
+    legacy = contract.storage_entitlement.get("limit_mb")
+    if legacy is None:
+        legacy = contract.limits.get("storage_mb")
+    return int(legacy) if legacy is not None else None
+
+
+def normalized_storage_entitlement(contract: TenantContract) -> dict[str, Any]:
+    entitlement = dict(contract.storage_entitlement)
+    entitlement.pop("limit_mb", None)
+    storage_mib = contracted_storage_mib(contract)
+    if storage_mib is not None:
+        entitlement["limit_mib"] = storage_mib
+    return entitlement
+
+
+def normalized_contract_limits(contract: TenantContract) -> dict[str, Any]:
+    limits = dict(contract.limits)
+    storage_mib = contracted_storage_mib(contract)
+    limits.pop("storage_mb", None)
+    if storage_mib is not None:
+        limits["storage_mib"] = storage_mib
+    return limits

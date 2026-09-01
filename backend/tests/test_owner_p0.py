@@ -93,7 +93,7 @@ def test_owner_p0_provisions_complete_tenant_by_niche(monkeypatch, niche, addons
                 code=f"P0_{suffix.upper()}", name=f"Owner P0 {suffix}",
                 activity_keys=[niche.value],
                 capability_keys=sorted(NICHE_CONTRACTS[niche].allowed),
-                store_limit=3, user_limit=10, terminal_limit=5, storage_limit_mb=4096,
+                store_limit=3, user_limit=10, terminal_limit=5, storage_limit_mib=4096,
             ), principal, session,
         )
         provisioned = provision_owner_tenant(
@@ -108,7 +108,7 @@ def test_owner_p0_provisions_complete_tenant_by_niche(monkeypatch, niche, addons
                 niches=[niche], plan_id=plan.id,
                 capability_keys=list(NICHE_CONTRACTS[niche].required) + addons,
                 capability_selection_mode="EXPLICIT",
-                quotas=OwnerQuotaCreate(users=8, devices=4, units=2, storage_mb=2048),
+                quotas=OwnerQuotaCreate(users=8, devices=4, units=2, storage_mib=2048),
                 billing=OwnerBillingCreate(contact_name="Financeiro", email=f"financeiro-{suffix}@example.test", billing_day=10),
                 initial_admin=OwnerInitialAdminCreate(full_name="Administrador Inicial", email=f"admin-{suffix}@example.test"),
             ), principal, session,
@@ -118,9 +118,9 @@ def test_owner_p0_provisions_complete_tenant_by_niche(monkeypatch, niche, addons
         assert provisioned.delivery_status == "ENVIADO"
         assert provisioned.contract is not None and provisioned.contract.status == "ACTIVE"
         assert provisioned.contract.limits["users"] == 8
-        assert provisioned.contract.limits["storage_mb"] == 2048
+        assert provisioned.contract.limits["storage_mib"] == 2048
         assert provisioned.contract.limits["billing"]["email"] == f"financeiro-{suffix}@example.test"
-        assert provisioned.contract.schema_version == 3
+        assert provisioned.contract.schema_version == 4
         assert provisioned.contract.activity_keys == [niche.value]
         assert provisioned.contract.limit_entitlements["users"] == {
             "limit": 8,
@@ -189,7 +189,7 @@ def test_owner_can_combine_niches_and_version_existing_contract(monkeypatch):
             code=f"HYBRID_{suffix.upper()}", name=f"Híbrido {suffix}", monthly_price=149,
             activity_keys=["FOOD_SERVICE", "BEAUTY_RESELLER", "RETAIL"],
             capability_keys=sorted(set().union(*(contract.allowed for contract in NICHE_CONTRACTS.values()))),
-            store_limit=4, user_limit=12, terminal_limit=8, storage_limit_mb=8192,
+            store_limit=4, user_limit=12, terminal_limit=8, storage_limit_mib=8192,
         ), principal, session)
         provisioned = provision_owner_tenant(OwnerTenantProvisionCreate(
             name=f"Confeitaria e Beleza {suffix}", legal_name="Empreendedora Híbrida",
@@ -203,7 +203,7 @@ def test_owner_can_combine_niches_and_version_existing_contract(monkeypatch):
             plan_id=plan.id, niches=[BusinessNiche.FOOD_SERVICE, BusinessNiche.BEAUTY_RESELLER],
             capability_keys=[],
             capability_selection_mode="OFFER_DEFAULT",
-            quotas=OwnerQuotaCreate(users=5, devices=3, units=1, storage_mb=2048),
+            quotas=OwnerQuotaCreate(users=5, devices=3, units=1, storage_mib=2048),
             billing=OwnerBillingCreate(contact_name="Financeiro", email=f"financeiro-{suffix}@example.test", monthly_amount=149, billing_day=1),
             initial_admin=OwnerInitialAdminCreate(full_name="Admin", email=f"admin-{suffix}@example.test"),
         ), principal, session)
@@ -214,7 +214,7 @@ def test_owner_can_combine_niches_and_version_existing_contract(monkeypatch):
             plan_id=plan.id, niches=[BusinessNiche.RETAIL, BusinessNiche.BEAUTY_RESELLER],
             capability_keys=sorted(set(NICHE_CONTRACTS[BusinessNiche.RETAIL].required) | set(NICHE_CONTRACTS[BusinessNiche.BEAUTY_RESELLER].required) | {"receivables"}),
             capability_selection_mode="EXPLICIT",
-            quotas=OwnerQuotaCreate(users=8, devices=4, units=2, storage_mb=4096),
+            quotas=OwnerQuotaCreate(users=8, devices=4, units=2, storage_mib=4096),
             billing=OwnerBillingCreate(contact_name="Novo Financeiro", email=f"cobranca-{suffix}@example.test", monthly_amount=229, billing_day=12),
             subscription_status=SubscriptionStatusEnum.ACTIVE,
             expected_contract_version=1,
@@ -234,7 +234,7 @@ def test_owner_can_combine_niches_and_version_existing_contract(monkeypatch):
             update_owner_tenant_contract(provisioned.tenant.id, OwnerTenantContractUpdate(
                 plan_id=plan.id, niches=[BusinessNiche.RETAIL],
                 capability_keys=[], capability_selection_mode="OFFER_DEFAULT",
-                quotas=OwnerQuotaCreate(users=8, devices=4, units=2, storage_mb=4096),
+                quotas=OwnerQuotaCreate(users=8, devices=4, units=2, storage_mib=4096),
                 billing=OwnerBillingCreate(
                     contact_name="Concorrente", email=f"concorrente-{suffix}@example.test",
                     monthly_amount=229, billing_day=1,
@@ -264,7 +264,7 @@ def test_owner_can_combine_niches_and_version_existing_contract(monkeypatch):
             update_owner_tenant_contract(provisioned.tenant.id, OwnerTenantContractUpdate(
                 plan_id=plan.id, niches=[BusinessNiche.RETAIL],
                 capability_keys=[], capability_selection_mode="OFFER_DEFAULT",
-                quotas=OwnerQuotaCreate(users=8, devices=4, units=2, storage_mb=4096),
+                quotas=OwnerQuotaCreate(users=8, devices=4, units=2, storage_mib=4096),
                 billing=OwnerBillingCreate(
                     contact_name="Sobrescrita", email=f"sobrescrita-{suffix}@example.test",
                     monthly_amount=229, billing_day=1,
@@ -289,7 +289,7 @@ def test_owner_can_regularize_legacy_tenant_and_recognizes_existing_admin():
             code=f"LEGACY_{suffix.upper()}", name=f"Legado {suffix}", monthly_price=99,
             activity_keys=["RETAIL"],
             capability_keys=sorted(NICHE_CONTRACTS[BusinessNiche.RETAIL].allowed),
-            store_limit=2, user_limit=5, terminal_limit=3, storage_limit_mb=2048,
+            store_limit=2, user_limit=5, terminal_limit=3, storage_limit_mib=2048,
         ), principal, session)
         legacy = provision_platform_tenant(PlatformTenantCreate(
             name=f"Legado {suffix}", slug=f"legacy-{suffix}", first_store_name="Matriz",
@@ -306,7 +306,7 @@ def test_owner_can_regularize_legacy_tenant_and_recognizes_existing_admin():
         detail = update_owner_tenant_contract(legacy.tenant.id, OwnerTenantContractUpdate(
             plan_id=plan.id, niches=[BusinessNiche.RETAIL],
             capability_keys=[], capability_selection_mode="OFFER_DEFAULT",
-            quotas=OwnerQuotaCreate(users=4, devices=2, units=1, storage_mb=1024),
+            quotas=OwnerQuotaCreate(users=4, devices=2, units=1, storage_mib=1024),
             billing=OwnerBillingCreate(contact_name="Financeiro", email=f"financeiro-{suffix}@example.test", monthly_amount=119, billing_day=1),
             subscription_status=SubscriptionStatusEnum.ACTIVE,
             expected_contract_version=0,

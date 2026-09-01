@@ -278,7 +278,7 @@ class TenantContract(SQLModel, table=True):
     storage_entitlement: dict[str, Any] = Field(
         default_factory=dict, sa_column=Column(JSON, nullable=False, default=dict)
     )
-    schema_version: int = Field(default=2, ge=1)
+    schema_version: int = Field(default=4, ge=1)
     starts_at: Optional[datetime] = None
     ends_at: Optional[datetime] = None
     reason: str = Field(sa_column=Column(Text, nullable=False))

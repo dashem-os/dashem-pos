@@ -34,7 +34,10 @@ from app.models.platform import (
 from app.modules.capabilities.registry import CAPABILITY_REGISTRY, IMPLEMENTED_CAPABILITIES
 from app.modules.governance.contracts import CommercialChangeKind, OwnerDecisionKind
 from app.services import reliability_service
-from app.services.contract_entitlement_service import latest_contract
+from app.services.contract_entitlement_service import (
+    latest_contract,
+    normalized_contract_limits,
+)
 
 
 router = APIRouter()
@@ -127,13 +130,13 @@ def _validated_payload(
         CommercialChangeKind.USER_LIMIT: "users",
         CommercialChangeKind.DEVICE_LIMIT: "devices",
         CommercialChangeKind.UNIT_LIMIT: "units",
-        CommercialChangeKind.STORAGE_LIMIT: "storage_mb",
+        CommercialChangeKind.STORAGE_LIMIT: "storage_mib",
     }
     field = field_by_kind[kind]
     requested = payload.get("requested_limit")
     if not isinstance(requested, int) or isinstance(requested, bool) or requested < 1:
         raise HTTPException(status_code=422, detail="Informe requested_limit como inteiro positivo.")
-    current = int(contract.limits.get(field) or 0)
+    current = int(normalized_contract_limits(contract).get(field) or 0)
     if requested <= current:
         raise HTTPException(
             status_code=422,
@@ -144,7 +147,7 @@ def _validated_payload(
         "users": plan.user_limit if plan else None,
         "devices": plan.terminal_limit if plan else None,
         "units": plan.store_limit if plan else None,
-        "storage_mb": plan.storage_limit_mb if plan else None,
+        "storage_mib": plan.storage_limit_mib if plan else None,
     }
     ceiling = ceiling_by_field[field]
     if ceiling is not None and requested > int(ceiling):
@@ -300,14 +303,14 @@ def tenant_commercial_request_catalog(
             if key in CAPABILITY_REGISTRY and key in IMPLEMENTED_CAPABILITIES
         ],
         "contracted_limits": {
-            key: contract.limits.get(key)
-            for key in ("users", "devices", "units", "storage_mb")
+            key: normalized_contract_limits(contract).get(key)
+            for key in ("users", "devices", "units", "storage_mib")
         },
         "plan_limits": {
             "users": plan.user_limit if plan else None,
             "devices": plan.terminal_limit if plan else None,
             "units": plan.store_limit if plan else None,
-            "storage_mb": plan.storage_limit_mb if plan else None,
+            "storage_mib": plan.storage_limit_mib if plan else None,
         },
     }
 
@@ -342,7 +345,8 @@ def _assert_request_applied(
     elif kind in {CommercialChangeKind.CAPABILITY, CommercialChangeKind.INTEGRATION}:
         applied = payload["capability_key"] in contract.capability_keys
     else:
-        applied = int(contract.limits.get(payload["resource"]) or 0) >= int(payload["requested_limit"])
+        resource = "storage_mib" if payload["resource"] == "storage_mb" else payload["resource"]
+        applied = int(normalized_contract_limits(contract).get(resource) or 0) >= int(payload["requested_limit"])
     if not applied:
         raise HTTPException(
             status_code=422,
@@ -381,11 +385,12 @@ def _approval_contract_update(
 
     activities = list(current.activity_keys)
     requested_keys = set(current.capability_keys)
+    current_limits = normalized_contract_limits(current)
     quotas = {
-        "users": int(current.limits["users"]),
-        "devices": int(current.limits["devices"]),
-        "units": int(current.limits["units"]),
-        "storage_mb": int(current.limits["storage_mb"]),
+        "users": int(current_limits["users"]),
+        "devices": int(current_limits["devices"]),
+        "units": int(current_limits["units"]),
+        "storage_mib": int(current_limits["storage_mib"]),
     }
     kind = CommercialChangeKind(request.kind)
     if kind == CommercialChangeKind.ACTIVITY:
@@ -393,7 +398,8 @@ def _approval_contract_update(
     elif kind in {CommercialChangeKind.CAPABILITY, CommercialChangeKind.INTEGRATION}:
         requested_keys.add(str(request.payload["capability_key"]))
     else:
-        quotas[str(request.payload["resource"])] = int(request.payload["requested_limit"])
+        resource = "storage_mib" if request.payload["resource"] == "storage_mb" else str(request.payload["resource"])
+        quotas[resource] = int(request.payload["requested_limit"])
 
     base = _contract_offer(
         session,

@@ -16,7 +16,7 @@ def _contract(**changes) -> TenantContract:
         "tenant_id": uuid4(),
         "version": 2,
         "status": "ACTIVE",
-        "limits": {"users": 10, "devices": 2, "units": 1, "storage_mb": 1024},
+        "limits": {"users": 10, "devices": 2, "units": 1, "storage_mib": 1024},
         "capability_keys": ["catalog"],
         "activity_keys": ["RETAIL"],
         "reason": "Owner approval",

@@ -919,7 +919,7 @@ export interface ServicePlan {
   store_limit?: number
   user_limit?: number
   terminal_limit?: number
-  storage_limit_mb?: number
+  storage_limit_mib?: number
   monthly_price: number
 }
 
@@ -994,8 +994,8 @@ export interface CommercialRequestCatalog {
   contract_version: number
   activities: Array<{ key: BusinessNiche; name: string; description: string }>
   capabilities: Array<{ key: string; name: string; description: string }>
-  contracted_limits: Record<'users' | 'devices' | 'units' | 'storage_mb', number | undefined>
-  plan_limits: Record<'users' | 'devices' | 'units' | 'storage_mb', number | undefined>
+  contracted_limits: Record<'users' | 'devices' | 'units' | 'storage_mib', number | undefined>
+  plan_limits: Record<'users' | 'devices' | 'units' | 'storage_mib', number | undefined>
 }
 
 export interface TenantContract {
@@ -1005,12 +1005,12 @@ export interface TenantContract {
   status: string
   plan_id?: string
   plan_revision_id?: string
-  limits: { users?: number; devices?: number; units?: number; storage_mb?: number; niche?: BusinessNiche; business_niches?: BusinessNiche[]; billing?: OwnerBilling }
+  limits: { users?: number; devices?: number; units?: number; storage_mib?: number; niche?: BusinessNiche; business_niches?: BusinessNiche[]; billing?: OwnerBilling }
   capability_keys: string[]
   activity_keys: string[]
   capability_entitlements: Array<{ key: string; sources: string[]; activity_keys: string[] }>
   limit_entitlements: Record<string, { limit?: number; sources: string[] }>
-  storage_entitlement: { limit_mb?: number; sources?: string[]; measurement_status?: string }
+  storage_entitlement: { limit_mib?: number; sources?: string[]; measurement_status?: string }
   schema_version: number
   starts_at?: string
   reason: string
@@ -1063,7 +1063,7 @@ export interface OwnerContractUpdateInput {
   niches: BusinessNiche[]
   capability_keys: string[]
   capability_selection_mode: 'OFFER_DEFAULT' | 'EXPLICIT'
-  quotas: { users: number; devices: number; units: number; storage_mb: number }
+  quotas: { users: number; devices: number; units: number; storage_mib: number }
   billing: OwnerBilling
   subscription_status: SubscriptionStatus
   expected_contract_version: number
@@ -2037,7 +2037,7 @@ export async function provisionPlatformTenant(input: {
   state?: string
   plan_id: string
   niches: BusinessNiche[]
-  quotas: { users: number; devices: number; units: number; storage_mb: number }
+  quotas: { users: number; devices: number; units: number; storage_mib: number }
   capability_keys: string[]
   capability_selection_mode: 'OFFER_DEFAULT' | 'EXPLICIT'
   billing: OwnerBilling
@@ -2210,7 +2210,7 @@ export type ServicePlanInput = {
   store_limit?: number
   user_limit?: number
   terminal_limit?: number
-  storage_limit_mb?: number
+  storage_limit_mib?: number
   monthly_price: number
   capability_keys: string[]
   activity_keys: string[]

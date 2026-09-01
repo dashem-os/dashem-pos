@@ -174,10 +174,17 @@ test('loads effective capabilities and permissions from the backend', async () =
 
 test('renders only backend-authorized module contributions in Gestão', async () => {
   const management = await source('../src/layouts/ManagementLayout.tsx')
+  const overview = await source('../src/components/management/DashboardBI.tsx')
+  const subscription = await source('../src/components/management/TenantPlanWorkspace.tsx')
   const context = await source('../src/context/PosContext.tsx')
   assert.match(context, /setContributions\(access\.contributions\)/)
   assert.match(management, /contributions\.filter\(item => item\.surface === 'MANAGEMENT_NAV'/)
   assert.match(management, /MODULE_IDS\.has\(item\.implementation_key/)
+  assert.match(management, /case 'subscription': return <TenantPlanWorkspace/)
+  assert.match(management, /if \(!selected\) return null/)
+  assert.match(subscription, /Plano e solicitações/)
+  assert.match(subscription, /CommercialRequestsPanel/)
+  assert.doesNotMatch(overview, /CommercialRequestsPanel/)
   assert.doesNotMatch(management, /capability: 'delivery_orders'/)
 })
 

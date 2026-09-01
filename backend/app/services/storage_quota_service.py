@@ -16,7 +16,11 @@ from app.models.identity import Tenant
 from app.models.platform import TenantContract
 from app.models.storage import StorageMeasurement, StorageMeterSource, StorageProviderMeasurement, StorageReservation
 from app.modules.governance.contracts import MeasurementStatus, QuotaDecision, QuotaEvaluation
-from app.services.contract_entitlement_service import latest_contract, resolve_contract_entitlements
+from app.services.contract_entitlement_service import (
+    contracted_storage_mib,
+    latest_contract,
+    resolve_contract_entitlements,
+)
 
 
 class StorageCapacityUnavailableError(ValueError):
@@ -82,8 +86,8 @@ def _contracted_storage_bytes(session: Session, tenant_id: uuid.UUID) -> int | N
     snapshot = resolve_contract_entitlements(session, tenant_id)
     if snapshot is None:
         return None
-    limit_mb = snapshot.storage_entitlement.get("limit_mb")
-    return int(limit_mb) * 1024 * 1024 if limit_mb is not None else None
+    limit_mib = snapshot.storage_entitlement.get("limit_mib")
+    return int(limit_mib) * 1024 * 1024 if limit_mib is not None else None
 
 
 def evaluate_storage_quota(
@@ -459,11 +463,9 @@ def platform_storage_capacity_read_model(
     ]
     committed_bytes = 0
     for contract in active_contracts:
-        limit_mb = contract.storage_entitlement.get("limit_mb")
-        if limit_mb is None:
-            limit_mb = contract.limits.get("storage_mb")
-        if limit_mb is not None:
-            committed_bytes += int(limit_mb) * 1024 * 1024
+        limit_mib = contracted_storage_mib(contract)
+        if limit_mib is not None:
+            committed_bytes += limit_mib * 1024 * 1024
 
     tenants = list(session.exec(select(Tenant).order_by(Tenant.name)).all())
     page = tenants[offset : offset + limit]

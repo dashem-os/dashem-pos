@@ -46,7 +46,11 @@ from app.services.commercial_offer_service import (
     ActivityRule, CommercialOfferError, compose_commercial_offer,
 )
 from app.services.contract_entitlement_service import (
-    build_entitlement_snapshot, latest_contract, resolve_contract_entitlements,
+    build_entitlement_snapshot,
+    latest_contract,
+    normalized_contract_limits,
+    normalized_storage_entitlement,
+    resolve_contract_entitlements,
 )
 from app.services.quota_policy_service import (
     QuotaCapacityExceededError,
@@ -136,7 +140,7 @@ def _snapshot_plan(
         store_limit=plan.store_limit,
         user_limit=plan.user_limit,
         terminal_limit=plan.terminal_limit,
-        storage_limit_mb=plan.storage_limit_mb,
+        storage_limit_mib=plan.storage_limit_mib,
         capability_keys=list(plan.capability_keys),
         activity_keys=list(plan.activity_keys),
         monthly_price=plan.monthly_price,
@@ -312,7 +316,7 @@ class OwnerQuotaCreate(BaseModel):
     users: int = PydanticField(ge=1)
     devices: int = PydanticField(ge=1)
     units: int = PydanticField(ge=1)
-    storage_mb: int = PydanticField(ge=128)
+    storage_mib: int = PydanticField(ge=128)
 
 
 class OwnerInitialAdminCreate(BaseModel):
@@ -694,7 +698,7 @@ class ServicePlanCreate(BaseModel):
     store_limit: Optional[int] = PydanticField(default=None, ge=1)
     user_limit: Optional[int] = PydanticField(default=None, ge=1)
     terminal_limit: Optional[int] = PydanticField(default=None, ge=1)
-    storage_limit_mb: Optional[int] = PydanticField(default=None, ge=128)
+    storage_limit_mib: Optional[int] = PydanticField(default=None, ge=128)
     capability_keys: List[str] = PydanticField(default_factory=list)
     activity_keys: List[str] = PydanticField(min_length=1)
     monthly_price: Decimal = PydanticField(default=Decimal("0.00"), ge=0)
@@ -1576,7 +1580,7 @@ def provision_owner_tenant(
     _validate_quota("usuários", data.quotas.users, plan.user_limit)
     _validate_quota("dispositivos", data.quotas.devices, plan.terminal_limit)
     _validate_quota("unidades", data.quotas.units, plan.store_limit)
-    _validate_quota("storage", data.quotas.storage_mb, plan.storage_limit_mb)
+    _validate_quota("storage", data.quotas.storage_mib, plan.storage_limit_mib)
     selected_niches = list(dict.fromkeys(data.niches))
     proposal = _contract_offer(
         session,
@@ -1663,7 +1667,7 @@ def provision_owner_tenant(
         "users": data.quotas.users,
         "devices": data.quotas.devices,
         "units": data.quotas.units,
-        "storage_mb": data.quotas.storage_mb,
+        "storage_mib": data.quotas.storage_mib,
         "niche": selected_niches[0].value if selected_niches else None,
         "business_niches": [niche.value for niche in selected_niches],
         "billing": _billing_contract_snapshot(data.billing, subscription),
@@ -1675,12 +1679,12 @@ def provision_owner_tenant(
             "users": plan.user_limit,
             "devices": plan.terminal_limit,
             "units": plan.store_limit,
-            "storage_mb": plan.storage_limit_mb,
+            "storage_mib": plan.storage_limit_mib,
         },
         users=data.quotas.users,
         devices=data.quotas.devices,
         units=data.quotas.units,
-        storage_mb=data.quotas.storage_mb,
+        storage_mib=data.quotas.storage_mib,
     )
     contract = TenantContract(
         tenant_id=tenant.id, version=1, status="ACTIVE", plan_id=plan.id,
@@ -1853,6 +1857,13 @@ def platform_tenant_detail(
             Membership.role.in_([RoleEnum.TENANT_OWNER, RoleEnum.OWNER, RoleEnum.ADMIN]),
         )
     ).all()
+    contract_view = (
+        contract.model_copy(update={
+            "limits": normalized_contract_limits(contract),
+            "storage_entitlement": normalized_storage_entitlement(contract),
+        })
+        if contract else None
+    )
     return PlatformTenantDetail(
         tenant=_tenant_read(
             tenant, profile=profile, contacts=list(contacts), stores=list(stores),
@@ -1867,7 +1878,7 @@ def platform_tenant_detail(
         capabilities=list(capabilities),
         niche=niche,
         niches=niches,
-        contract=contract,
+        contract=contract_view,
         billing_account=billing_account,
         resource_usage=tenant_count_quota_read_model(session, tenant_id),
         storage_usage=storage_quota_read_model(session, tenant_id),
@@ -2033,7 +2044,7 @@ def create_service_plan(
     plan = ServicePlan(
         code=code, name=data.name.strip(), description=data.description,
         store_limit=data.store_limit, user_limit=data.user_limit,
-        terminal_limit=data.terminal_limit, storage_limit_mb=data.storage_limit_mb,
+        terminal_limit=data.terminal_limit, storage_limit_mib=data.storage_limit_mib,
         capability_keys=capability_keys, activity_keys=activity_keys,
         monthly_price=data.monthly_price, version=1,
     )
@@ -2078,7 +2089,7 @@ def update_service_plan(
     previous = {
         "code": plan.code, "name": plan.name, "is_active": plan.is_active,
         "store_limit": plan.store_limit, "user_limit": plan.user_limit,
-        "terminal_limit": plan.terminal_limit, "storage_limit_mb": plan.storage_limit_mb,
+        "terminal_limit": plan.terminal_limit, "storage_limit_mib": plan.storage_limit_mib,
         "monthly_price": str(plan.monthly_price),
         "version": plan.version, "capability_keys": list(plan.capability_keys),
         "activity_keys": list(plan.activity_keys),
@@ -2089,7 +2100,7 @@ def update_service_plan(
     plan.store_limit = data.store_limit
     plan.user_limit = data.user_limit
     plan.terminal_limit = data.terminal_limit
-    plan.storage_limit_mb = data.storage_limit_mb
+    plan.storage_limit_mib = data.storage_limit_mib
     plan.capability_keys = capability_keys
     plan.activity_keys = activity_keys
     plan.monthly_price = data.monthly_price
@@ -2107,7 +2118,7 @@ def update_service_plan(
             "current": {
                 "code": plan.code, "name": plan.name, "is_active": plan.is_active,
                 "store_limit": plan.store_limit, "user_limit": plan.user_limit,
-                "terminal_limit": plan.terminal_limit, "storage_limit_mb": plan.storage_limit_mb,
+                "terminal_limit": plan.terminal_limit, "storage_limit_mib": plan.storage_limit_mib,
                 "monthly_price": str(plan.monthly_price),
                 "version": plan.version, "revision_id": str(revision.id),
                 "capability_keys": capability_keys, "activity_keys": activity_keys,
@@ -2214,7 +2225,7 @@ def _apply_owner_tenant_contract(
     _validate_quota("usuários", data.quotas.users, plan.user_limit)
     _validate_quota("dispositivos", data.quotas.devices, plan.terminal_limit)
     _validate_quota("unidades", data.quotas.units, plan.store_limit)
-    _validate_quota("storage", data.quotas.storage_mb, plan.storage_limit_mb)
+    _validate_quota("storage", data.quotas.storage_mib, plan.storage_limit_mib)
     selected_niches = list(dict.fromkeys(data.niches))
     proposal = _contract_offer(
         session,
@@ -2267,7 +2278,7 @@ def _apply_owner_tenant_contract(
         "users": data.quotas.users,
         "devices": data.quotas.devices,
         "units": data.quotas.units,
-        "storage_mb": data.quotas.storage_mb,
+        "storage_mib": data.quotas.storage_mib,
         "niche": selected_niches[0].value if selected_niches else None,
         "business_niches": [niche.value for niche in selected_niches],
         "billing": _billing_contract_snapshot(data.billing, subscription),
@@ -2279,12 +2290,12 @@ def _apply_owner_tenant_contract(
             "users": plan.user_limit,
             "devices": plan.terminal_limit,
             "units": plan.store_limit,
-            "storage_mb": plan.storage_limit_mb,
+            "storage_mib": plan.storage_limit_mib,
         },
         users=data.quotas.users,
         devices=data.quotas.devices,
         units=data.quotas.units,
-        storage_mb=data.quotas.storage_mb,
+        storage_mib=data.quotas.storage_mib,
     )
     contract = TenantContract(
         tenant_id=tenant_id,

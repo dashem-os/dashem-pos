@@ -6,6 +6,14 @@ Revisão: **Gate B reaberto — Integration Hardening / Operational Acceptance;
 pré-piloto bloqueado em 25/08/2026**
 Substitui como referência de execução qualquer sequência anterior que conflite com este documento.
 
+Atualização corretiva de 1º de setembro de 2026: o Dashem Control está
+funcionalmente suficiente para avançar à arquitetura de informação da Gestão,
+mas não está declarado completo para produção. A execução imediata está
+detalhada nos Sprints corretivos 5.2–5.4 de
+[`tenant-management-correction-sprints.md`](tenant-management-correction-sprints.md).
+Essa trilha não renumera nem substitui os Sprints canônicos abaixo; o pré-piloto,
+storage comercial e homologações externas preservam seus próprios gates.
+
 ## 1. Por que este roadmap existe
 
 O Dashem não será desenvolvido como uma sucessão de telas. Cada sprint deve

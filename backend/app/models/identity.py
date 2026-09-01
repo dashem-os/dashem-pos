@@ -169,7 +169,7 @@ class ServicePlan(SQLModel, table=True):
     store_limit: Optional[int] = None
     user_limit: Optional[int] = None
     terminal_limit: Optional[int] = None
-    storage_limit_mb: Optional[int] = None
+    storage_limit_mib: Optional[int] = None
     capability_keys: list[str] = Field(
         default_factory=list, sa_column=Column(JSON, nullable=False, default=list)
     )
@@ -204,7 +204,7 @@ class ServicePlanRevision(SQLModel, table=True):
     store_limit: Optional[int] = None
     user_limit: Optional[int] = None
     terminal_limit: Optional[int] = None
-    storage_limit_mb: Optional[int] = None
+    storage_limit_mib: Optional[int] = None
     capability_keys: list[str] = Field(
         default_factory=list, sa_column=Column(JSON, nullable=False, default=list)
     )

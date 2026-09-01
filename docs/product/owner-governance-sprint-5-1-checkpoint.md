@@ -1,10 +1,32 @@
 # Checkpoint técnico — governança Owner e Sprint 5.1
 
-Status: **NO GO — integração técnica conectada; correção arquitetural e gate com objetos reais pendentes**
+Status: **GO para evoluir a Gestão do tenant; NO GO para storage comercial e piloto**
 
 Data do checkpoint: 31 de agosto de 2026
 
 Próxima execução necessária: **validar a correção arquitetural e executar o gate isolado com objetos reais em dois tenants**
+
+## Decisão de avanço para a Gestão — 01/09/2026
+
+O Dashem Control está funcionalmente suficiente para deixar de ser o caminho
+crítico da próxima correção de experiência. Isso significa que já existem
+autoridades canônicas para plano, atividades, capabilities, contrato,
+solicitação, decisão do Owner, quotas e capacidade física global. Não significa
+que o Owner ou o produto estejam completos para produção.
+
+O avanço autorizado é para a Gestão do tenant, em uma trilha corretiva
+explicitamente numerada como 5.2–5.4 para não colidir com o roadmap macro:
+
+- 5.2: semântica canônica de MiB, permissão contratual própria e separação entre
+  visão operacional e “Plano e solicitações”;
+- 5.3: arquitetura de informação do administrador do tenant;
+- 5.4: usabilidade, estados de erro/vazio e avaliação técnica externa.
+
+Permanecem gates reais, e não tarefas cosméticas do Owner: objetos reais em
+dois tenants para fechar o 5.1, capacidade paga antes de vender storage e
+Background Worker antes do pré-piloto ou da primeira jornada assíncrona que o
+exija. A especificação executável desta continuação está em
+[`tenant-management-correction-sprints.md`](tenant-management-correction-sprints.md).
 
 ## Correção de direção — 01/09/2026
 
@@ -27,7 +49,8 @@ que backend, frontend, testes, CI e ambiente publicado comprovem:
 
 1. read models exclusivamente factuais;
 2. preflight de command somente para operações concretas;
-3. snapshot contratual v3 com procedência `PLAN_INCLUDED` ou `OWNER_OVERRIDE`;
+3. snapshot contratual v4 com procedência `PLAN_INCLUDED` ou `OWNER_OVERRIDE` e
+   unidade binária explicitamente nomeada em MiB;
 4. revisão contratada separada do catálogo atual;
 5. capacidade global em Saúde da plataforma, sem duplicação no tenant;
 6. ausência de bloqueio rígido para ativação de planos;
@@ -54,7 +77,7 @@ representar ausência de objetos como uma estimativa:
 - o inventário administrativo real retornou zero objetos e zero bytes;
 - a medição persistida ficou `RECONCILED`, com quatro fontes cobertas e
   watermark explícito para cada namespace vazio;
-- o Control separou a quota contratual de 128 MB da capacidade física
+- o Control separou a quota contratual de 128 MiB da capacidade física
   compartilhada de 1 GB, da margem de 100 MB e dos 900 MB globais disponíveis;
 - egress permaneceu visível como `NOT_INSTRUMENTED`;
 - uma falha de ordenação temporal encontrada na primeira reconciliação foi
