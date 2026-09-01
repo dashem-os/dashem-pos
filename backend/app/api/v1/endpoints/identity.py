@@ -41,6 +41,7 @@ from app.models.commercial_catalog import CommercialActivity, CommercialActivity
 from app.models.reliability import AuditEvent, OutboxEvent, OutboxStatusEnum
 from app.models.reliability import ServiceHeartbeat
 from app.services import commercial_pricing, identity_service, reliability_service, supabase_admin
+from app.services.supabase_credentials import SupabaseCredentialError, supabase_server_headers
 from app.services.commercial_offer_service import (
     ActivityRule, CommercialOfferError, compose_commercial_offer,
 )
@@ -1035,19 +1036,27 @@ def platform_system_health(
         },
     ))
 
-    if not settings.SUPABASE_URL:
+    if not settings.SUPABASE_URL or not settings.SUPABASE_SECRET_KEY:
         components.append(HealthComponent(
             key="auth", label="Supabase Auth", status="NOT_CONFIGURED", details={},
         ))
     else:
         auth_started = time.perf_counter()
         try:
-            response = httpx.get(f"{settings.SUPABASE_URL.rstrip('/')}/auth/v1/health", timeout=2.5)
+            response = httpx.get(
+                f"{settings.SUPABASE_URL.rstrip('/')}/auth/v1/health",
+                headers=supabase_server_headers(),
+                timeout=2.5,
+            )
             auth_latency = round((time.perf_counter() - auth_started) * 1000, 2)
             components.append(HealthComponent(
                 key="auth", label="Supabase Auth",
                 status="HEALTHY" if response.status_code < 400 else "DEGRADED",
                 latency_ms=auth_latency, details={"http_status": response.status_code},
+            ))
+        except SupabaseCredentialError:
+            components.append(HealthComponent(
+                key="auth", label="Supabase Auth", status="NOT_CONFIGURED", details={},
             ))
         except Exception as exc:
             components.append(HealthComponent(

@@ -276,6 +276,19 @@ provar simultaneamente:
 Esses sinais são fatos de runtime. CI verde, texto da interface ou inventário
 vazio não substituem nenhuma dessas evidências.
 
+Diagnóstico de 01/09/2026: o processo `app.workers.outbox_worker` presente no
+repositório ainda não constitui um dispatcher de produção. Ele apenas registra
+o envelope em log e altera seu status. Portanto, iniciá-lo para zerar o backlog
+produziria um verde falso e não é aceitação. Antes de provisionar o Background
+Worker, devem existir rota de entrega explícita, recibo persistido, retry com
+backoff, recuperação de `PROCESSING` abandonado e teste de idempotência do
+consumidor. O Render não oferece instância gratuita para Background Worker; a
+decisão de compute pago pertence ao gate de ambiente, depois dessa correção.
+
+A sonda de Supabase Auth deve enviar a chave server-side somente no header
+`apikey`. Uma resposta `401` sem esse header é falha da sonda, não evidência de
+indisponibilidade do Auth.
+
 ## 6. Condição para clientes reais
 
 O plano Supabase Free serve para desenvolvimento e validação do Sprint 5.1.

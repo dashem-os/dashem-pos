@@ -29,6 +29,7 @@ from app.api.v1.endpoints.identity import (
     update_tenant_capability,
 )
 from app.core.database import engine
+from app.core.config import settings
 from app.core.security import AuthPrincipal
 from app.models.identity import (
     AuthIdentity, MembershipStatusEnum, RoleEnum, TenantCustomerTypeEnum,
@@ -213,11 +214,18 @@ def test_owner_manages_capabilities_with_real_dependencies_and_audit():
 
 def test_owner_health_contains_only_contractual_and_technical_totals(monkeypatch):
     suffix = uuid.uuid4().hex[:8]
+    observed_headers = {}
 
     class HealthyAuth:
         status_code = 200
 
-    monkeypatch.setattr("app.api.v1.endpoints.identity.httpx.get", lambda *_, **__: HealthyAuth())
+    def healthy_auth(*_, **kwargs):
+        observed_headers.update(kwargs["headers"])
+        return HealthyAuth()
+
+    monkeypatch.setattr(settings, "SUPABASE_URL", "https://project.supabase.co")
+    monkeypatch.setattr(settings, "SUPABASE_SECRET_KEY", "sb_secret_owner_health")
+    monkeypatch.setattr("app.api.v1.endpoints.identity.httpx.get", healthy_auth)
     with Session(engine) as session:
         subject, _ = _owner(session)
         principal = _principal(subject)
@@ -231,6 +239,8 @@ def test_owner_health_contains_only_contractual_and_technical_totals(monkeypatch
         components = {component.key: component for component in health.components}
         assert components["api"].status == "HEALTHY"
         assert components["database"].status == "HEALTHY"
+        assert components["auth"].status == "HEALTHY"
+        assert observed_headers == {"apikey": "sb_secret_owner_health"}
         assert components["outbox"].details["failed"] >= 0
         totals = health.totals.model_dump()
         assert set(totals) == {"tenants", "pending_outbox", "failed_outbox"}
