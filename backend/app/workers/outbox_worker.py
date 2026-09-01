@@ -1,11 +1,16 @@
 import time
 import logging
-import json
 from datetime import datetime
-from sqlmodel import Session, select, text
+from sqlmodel import Session
 from app.core.database import engine
-from app.models.reliability import OutboxEvent, OutboxStatusEnum, ServiceHeartbeat
+from app.models.reliability import ServiceHeartbeat
 from app.core.tenancy import set_platform_db_context
+from app.services.outbox_dispatch_service import (
+    InvalidOutboxEnvelope,
+    claim_next_event,
+    publish_claimed_event,
+    release_claim,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("dashem_pos.outbox_worker")
@@ -23,73 +28,58 @@ def _heartbeat(session: Session, *, status: str = "HEALTHY", error: str | None =
     session.add(heartbeat)
     session.commit()
 
+def _record_heartbeat(*, status: str = "HEALTHY", error: str | None = None) -> None:
+    with Session(engine) as session:
+        set_platform_db_context(session)
+        _heartbeat(session, status=status, error=error)
+
+
+def process_one_event() -> bool:
+    """Publish one leased outbox event and persist an immutable receipt."""
+
+    with Session(engine) as claim_session:
+        set_platform_db_context(claim_session)
+        event_id = claim_next_event(claim_session)
+    if event_id is None:
+        return False
+
+    try:
+        with Session(engine) as publish_session:
+            set_platform_db_context(publish_session)
+            published = publish_claimed_event(publish_session, event_id)
+        logger.info(
+            "Published outbox event id=%s receipt=%s hash=%s",
+            event_id,
+            published.id,
+            published.content_hash,
+        )
+    except InvalidOutboxEnvelope as exc:
+        logger.error("Quarantining invalid outbox event id=%s: %s", event_id, exc)
+        with Session(engine) as release_session:
+            set_platform_db_context(release_session)
+            release_claim(release_session, event_id, exc, permanent=True)
+    except Exception as exc:
+        logger.exception("Publication failed for outbox event id=%s", event_id)
+        with Session(engine) as release_session:
+            set_platform_db_context(release_session)
+            release_claim(release_session, event_id, exc)
+    return True
+
+
 def process_outbox_events():
     logger.info("Starting Dashem POS Outbox Worker...")
     last_heartbeat_at = 0.0
     while True:
         try:
-            with Session(engine) as session:
-                # This is an internal platform worker, not a tenant request.
-                set_platform_db_context(session)
-                if time.monotonic() - last_heartbeat_at >= 10:
-                    _heartbeat(session)
-                    last_heartbeat_at = time.monotonic()
-                # Concurrency-safe claim using FOR UPDATE SKIP LOCKED
-                query = text("""
-                    SELECT id FROM outbox_events
-                    WHERE status = :pending_status
-                      AND available_at <= :now
-                    ORDER BY created_at ASC
-                    LIMIT 10
-                    FOR UPDATE SKIP LOCKED
-                """)
-                
-                result = session.exec(query, params={
-                    "pending_status": OutboxStatusEnum.PENDING.value,
-                    "now": datetime.utcnow()
-                }).all()
-                
-                if not result:
-                    time.sleep(1.0)
-                    continue
-                
-                event_ids = [row[0] for row in result]
-                
-                for event_id in event_ids:
-                    event = session.get(OutboxEvent, event_id)
-                    if not event:
-                        continue
-                    
-                    event.status = OutboxStatusEnum.PROCESSING
-                    event.attempts += 1
-                    session.add(event)
-                    session.commit()
-                    
-                    logger.info(
-                        f"[Outbox Worker] Processing event: id={event.id}, type={event.event_type}, aggregate={event.aggregate_type}/{event.aggregate_id}, correlation_id={event.correlation_id}"
-                    )
-                    
-                    try:
-                        # Process / dispatch event to Read Models or Harness Event Bus
-                        # In POS-0, we log and mark as PUBLISHED
-                        event.status = OutboxStatusEnum.PROCESSED
-                        event.processed_at = datetime.utcnow()
-                        session.add(event)
-                        session.commit()
-                        logger.info(f"[Outbox Worker] Event {event.id} successfully PROCESSED.")
-                    except Exception as ex:
-                        logger.error(f"[Outbox Worker] Failed to process event {event.id}: {ex}")
-                        event.status = OutboxStatusEnum.FAILED
-                        event.last_error = str(ex)
-                        session.add(event)
-                        session.commit()
-                        
+            if time.monotonic() - last_heartbeat_at >= 10:
+                _record_heartbeat()
+                last_heartbeat_at = time.monotonic()
+            if not process_one_event():
+                time.sleep(1.0)
         except Exception as e:
-            logger.error(f"[Outbox Worker Loop Error] {e}")
+            logger.exception("Outbox worker loop failed")
             try:
-                with Session(engine) as heartbeat_session:
-                    set_platform_db_context(heartbeat_session)
-                    _heartbeat(heartbeat_session, status="DEGRADED", error=str(e)[:500])
+                _record_heartbeat(status="DEGRADED", error=str(e)[:500])
             except Exception:
                 logger.exception("Could not persist worker heartbeat failure")
             time.sleep(2.0)

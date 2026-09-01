@@ -242,6 +242,7 @@ def test_owner_health_contains_only_contractual_and_technical_totals(monkeypatch
         assert components["auth"].status == "HEALTHY"
         assert observed_headers == {"apikey": "sb_secret_owner_health"}
         assert components["outbox"].details["failed"] >= 0
+        assert components["outbox"].details["published_receipts"] >= 0
         totals = health.totals.model_dump()
         assert set(totals) == {"tenants", "pending_outbox", "failed_outbox"}
         assert totals["tenants"] >= 1

@@ -38,7 +38,7 @@ from app.models.owner_finance import (
     SaasPaymentAllocation, SaasRefund,
 )
 from app.models.commercial_catalog import CommercialActivity, CommercialActivityCapability
-from app.models.reliability import AuditEvent, OutboxEvent, OutboxStatusEnum
+from app.models.reliability import AuditEvent, OutboxEvent, OutboxStatusEnum, PublishedEvent
 from app.models.reliability import ServiceHeartbeat
 from app.services import commercial_pricing, identity_service, reliability_service, supabase_admin
 from app.services.supabase_credentials import SupabaseCredentialError, supabase_server_headers
@@ -1003,6 +1003,7 @@ def platform_system_health(
     pending_states = {OutboxStatusEnum.PENDING, OutboxStatusEnum.PROCESSING}
     pending = _count(session, OutboxEvent, OutboxEvent.status.in_(pending_states))
     failed = _count(session, OutboxEvent, OutboxEvent.status == OutboxStatusEnum.FAILED)
+    published_receipts = _count(session, PublishedEvent)
     oldest_pending_at = session.exec(
         select(func.min(OutboxEvent.created_at)).where(OutboxEvent.status.in_(pending_states))
     ).one()
@@ -1013,6 +1014,7 @@ def platform_system_health(
         details={
             "pending": pending,
             "failed": failed,
+            "published_receipts": published_receipts,
             "oldest_pending_at": oldest_pending_at.isoformat() if oldest_pending_at else None,
             "oldest_pending_age_seconds": round(pending_age, 1) if pending_age is not None else None,
             "degraded_after_seconds": 60,

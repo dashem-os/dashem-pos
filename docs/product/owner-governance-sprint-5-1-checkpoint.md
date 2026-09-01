@@ -276,14 +276,27 @@ provar simultaneamente:
 Esses sinais são fatos de runtime. CI verde, texto da interface ou inventário
 vazio não substituem nenhuma dessas evidências.
 
-Diagnóstico de 01/09/2026: o processo `app.workers.outbox_worker` presente no
-repositório ainda não constitui um dispatcher de produção. Ele apenas registra
-o envelope em log e altera seu status. Portanto, iniciá-lo para zerar o backlog
-produziria um verde falso e não é aceitação. Antes de provisionar o Background
-Worker, devem existir rota de entrega explícita, recibo persistido, retry com
-backoff, recuperação de `PROCESSING` abandonado e teste de idempotência do
-consumidor. O Render não oferece instância gratuita para Background Worker; a
-decisão de compute pago pertence ao gate de ambiente, depois dessa correção.
+Diagnóstico de 01/09/2026: o processo anterior `app.workers.outbox_worker`
+apenas registrava o envelope em log e alterava seu status. Iniciá-lo para zerar
+o backlog produziria um verde falso e não seria aceitação.
+
+Correção arquitetural preparada em 01/09/2026, formalizada no ADR-027:
+
+- `outbox_events` permanece como fila transacional;
+- o worker adquire lease recuperável com `FOR UPDATE SKIP LOCKED`;
+- a publicação cria um recibo canônico e imutável em `published_events`;
+- recibo e estado `PUBLISHED` são confirmados na mesma transação;
+- falhas transitórias usam backoff limitado e envelopes inválidos são
+  colocados em `FAILED` sem inventar publicação;
+- `PUBLISHED` significa entrega ao fluxo interno do DASHEM, nunca confirmação
+  de adquirente, TEF, marketplace ou delivery.
+
+O gate local específico comprovou cinco cenários: publicação e recibo,
+imutabilidade, idempotência, recuperação de lease e falha com retry/quarentena;
+migration 066 com downgrade/upgrade e schema sem drift. A suíte completa em
+banco novo, CI, deploy e heartbeat do processo publicado continuam sendo gates
+separados. O Render não oferece instância gratuita para Background Worker; a
+decisão de compute pago pertence ao gate de ambiente, depois do CI verde.
 
 A sonda de Supabase Auth deve enviar a chave server-side somente no header
 `apikey`. Uma resposta `401` sem esse header é falha da sonda, não evidência de

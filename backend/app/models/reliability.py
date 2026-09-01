@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from enum import Enum
 from typing import Optional
-from sqlalchemy import JSON
+from sqlalchemy import JSON, CheckConstraint
 from sqlmodel import SQLModel, Field, UniqueConstraint, Column
 from app.core.db_types import EnumString
 
@@ -36,6 +36,32 @@ class OutboxEvent(SQLModel, table=True):
     processed_at: Optional[datetime] = None
     last_error: Optional[str] = None
     correlation_id: Optional[str] = Field(default=None, index=True)
+
+
+class PublishedEvent(SQLModel, table=True):
+    """Immutable internal event stream entry produced from the transactional outbox."""
+
+    __tablename__ = "published_events"
+    __table_args__ = (
+        UniqueConstraint("outbox_event_id", name="uq_published_events_outbox_event_id"),
+        CheckConstraint("schema_version > 0", name="ck_published_events_schema_version"),
+        CheckConstraint("length(content_hash) = 64", name="ck_published_events_content_hash"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    outbox_event_id: uuid.UUID = Field(index=True)
+    tenant_id: uuid.UUID = Field(index=True)
+    store_id: Optional[uuid.UUID] = Field(default=None, index=True)
+    actor_id: Optional[uuid.UUID] = Field(default=None, index=True)
+    aggregate_type: str = Field(index=True)
+    aggregate_id: str = Field(index=True)
+    event_type: str = Field(index=True)
+    schema_version: int
+    payload: str
+    content_hash: str = Field(index=True, max_length=64)
+    correlation_id: Optional[str] = Field(default=None, index=True)
+    occurred_at: datetime = Field(index=True)
+    published_at: datetime = Field(default_factory=datetime.utcnow, index=True)
 
 class AuditEvent(SQLModel, table=True):
     __tablename__ = "audit_events"
