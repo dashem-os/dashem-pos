@@ -10,6 +10,7 @@ from app.modules.governance.contracts import (
 )
 from app.services.quota_policy_service import (
     QuotaCapacityExceededError,
+    count_quota_facts,
     evaluate_count_quota,
 )
 
@@ -78,3 +79,32 @@ def test_capacity_error_retains_the_canonical_evaluation():
     error = QuotaCapacityExceededError(evaluation)
     assert error.evaluation is evaluation
     assert str(error) == evaluation.reason
+
+
+def test_quota_read_facts_report_observed_overage_without_a_command_decision():
+    facts = count_quota_facts(
+        resource=CountResource.USERS,
+        contracted=1,
+        usage=_usage(configured=2),
+    )
+
+    assert facts["configured"] == 2
+    assert facts["occupied"] == 2
+    assert facts["available"] == 0
+    assert facts["overage"] == 1
+    assert facts["compliance_status"] == "OVER_LIMIT"
+    assert "decision" not in facts
+    assert "reason" not in facts
+    assert "requested" not in facts
+
+
+def test_quota_read_facts_do_not_describe_a_projected_operation_at_the_limit():
+    facts = count_quota_facts(
+        resource=CountResource.DEVICES,
+        contracted=1,
+        usage=_usage(configured=1),
+    )
+
+    assert facts["compliance_status"] == "AT_LIMIT"
+    assert facts["available"] == 0
+    assert facts["overage"] == 0

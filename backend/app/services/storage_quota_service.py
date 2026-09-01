@@ -188,9 +188,8 @@ def evaluate_provider_capacity(
     )
 
 
-def provider_capacity_read_model(
-    session: Session, *, requested_bytes: int = 0, now: datetime | None = None,
-    lock: bool = False,
+def _provider_capacity_state(
+    session: Session, *, now: datetime, lock: bool
 ) -> dict[str, object]:
     now = now or datetime.utcnow()
     capacity = settings.SUPABASE_STORAGE_CAPACITY_BYTES
@@ -198,7 +197,6 @@ def provider_capacity_read_model(
     measurement = latest_provider_measurement(session, lock=lock)
     configured = settings.supabase_storage_configured
     status = "NOT_CONFIGURED" if not configured else "NOT_MEASURED"
-    reason = "Supabase Storage ou sua capacidade física não foram configurados."
     used: int | None = None
     reserved = 0
     measured_at: datetime | None = None
@@ -211,41 +209,88 @@ def provider_capacity_read_model(
             fresh = now - measurement.measured_at <= timedelta(hours=settings.STORAGE_MEASUREMENT_MAX_AGE_HOURS)
             if measurement.status == "RECONCILED" and fresh:
                 status = "RECONCILED"
-                reason = "Capacidade física compartilhada reconciliada."
                 reserved = int(session.connection().execute(text(
                     "SELECT dashem_storage_reserved_after(:measured_at)"
                 ), {"measured_at": measurement.measured_at}).scalar_one())
             elif not fresh:
                 status = "UNAVAILABLE"
-                reason = "O inventário global expirou; novos uploads permanecem bloqueados."
             else:
                 status = measurement.status
-                reason = "O inventário global não está reconciliado."
-    evaluation = evaluate_provider_capacity(
-        configured=configured, capacity_bytes=capacity, reserved_margin_bytes=margin,
-        measurement_status=status, used_bytes=used, reserved_bytes=reserved,
-        requested_bytes=requested_bytes, unavailable_reason=reason,
-    )
+    usable = max(capacity - margin, 0) if capacity is not None else None
+    occupied = used + reserved if used is not None else None
+    observable = configured and status == "RECONCILED" and occupied is not None
     return {
         "provider": "SUPABASE", "configured": configured, "capacity_bytes": capacity,
         "reserved_margin_bytes": margin, "used_bytes": used, "reserved_bytes": reserved,
-        "occupied_bytes": evaluation.occupied, "available_bytes": evaluation.remaining,
+        "occupied_bytes": occupied,
+        "available_bytes": max(usable - occupied, 0) if observable and usable is not None else None,
         "object_count": object_count,
-        "measurement_status": status, "decision": evaluation.decision.value,
-        "reason": evaluation.reason,
+        "measurement_status": status,
         "measured_at": measured_at, "managed_buckets": list(settings.supabase_storage_buckets),
         "egress_measurement_status": "NOT_INSTRUMENTED",
-        "egress_reason": "O DASHEM ainda não mede egress; essa franquia pertence ao projeto Supabase.",
     }
+
+
+def provider_capacity_read_model(
+    session: Session, *, now: datetime | None = None
+) -> dict[str, object]:
+    """Return observed provider facts without evaluating a future upload."""
+
+    return _provider_capacity_state(
+        session, now=now or datetime.utcnow(), lock=False
+    )
+
+
+def evaluate_platform_storage_capacity(
+    session: Session,
+    *,
+    requested_bytes: int,
+    now: datetime | None = None,
+) -> tuple[dict[str, object], QuotaEvaluation]:
+    """Evaluate one concrete upload against locked physical-capacity facts."""
+
+    state = _provider_capacity_state(
+        session, now=now or datetime.utcnow(), lock=True
+    )
+    status = str(state["measurement_status"])
+    unavailable_reason = {
+        "NOT_CONFIGURED": "Supabase Storage ou sua capacidade física não foram configurados.",
+        "NOT_MEASURED": "A capacidade física ainda não possui inventário persistido.",
+        "UNAVAILABLE": "O inventário físico global expirou.",
+    }.get(status, "O inventário físico global não está reconciliado.")
+    evaluation = evaluate_provider_capacity(
+        configured=bool(state["configured"]),
+        capacity_bytes=state["capacity_bytes"],
+        reserved_margin_bytes=int(state["reserved_margin_bytes"]),
+        measurement_status=status,
+        used_bytes=state["used_bytes"],
+        reserved_bytes=int(state["reserved_bytes"]),
+        requested_bytes=requested_bytes,
+        unavailable_reason=unavailable_reason,
+    )
+    return state, evaluation
+
+
+def _storage_unavailable_reason(code: str) -> str:
+    return {
+        "NO_CONTRACT_QUOTA": "Limite contratual de storage não informado.",
+        "NO_SOURCES": "Nenhuma fonte física de storage foi configurada para este tenant.",
+        "NO_MEASUREMENT": "As fontes estão configuradas, mas ainda não existe inventário persistido.",
+        "SOURCE_COVERAGE_MISMATCH": "O inventário não cobre exatamente todas as fontes ativas do tenant.",
+        "ADAPTER_NOT_RECONCILED": "O adaptador não produziu um inventário reconciliado.",
+        "SOURCES_CHANGED": "A configuração física mudou depois do inventário.",
+        "MEASUREMENT_STALE": "A última medição reconciliada expirou.",
+    }.get(code, "A medição de storage não está disponível para enforcement.")
 
 
 def storage_quota_read_model(
     session: Session,
     tenant_id: uuid.UUID,
     *,
-    requested_bytes: int = 0,
     now: datetime | None = None,
 ) -> dict[str, object]:
+    """Return tenant storage facts without simulating a future write."""
+
     now = now or datetime.utcnow()
     sources = active_storage_sources(session, tenant_id)
     expected_source_keys = {item.source_key for item in sources}
@@ -259,9 +304,10 @@ def storage_quota_read_model(
     object_count: int | None = None
     watermark: str | None = None
     measurement_id: uuid.UUID | None = None
-    reason = "Nenhuma fonte física de storage foi configurada para este tenant."
+    measured_source_keys: set[str] = set()
+    status_code = "NO_SOURCES"
     if sources and measurement is None:
-        reason = "As fontes estão configuradas, mas ainda não existe inventário persistido."
+        status_code = "NO_MEASUREMENT"
     elif sources and measurement is not None:
         measured_at = measurement.measured_at
         used_bytes = measurement.used_bytes
@@ -269,24 +315,25 @@ def storage_quota_read_model(
         watermark = measurement.watermark
         measurement_id = measurement.id
         measured_sources = set(measurement.source_keys)
+        measured_source_keys = measured_sources
         is_fresh = now - measurement.measured_at <= timedelta(
             hours=settings.STORAGE_MEASUREMENT_MAX_AGE_HOURS
         )
         if measured_sources != expected_source_keys:
             status = MeasurementStatus.PARTIAL
-            reason = "O inventário não cobre exatamente todas as fontes ativas do tenant."
+            status_code = "SOURCE_COVERAGE_MISMATCH"
         elif measurement.status != MeasurementStatus.RECONCILED.value:
             status = MeasurementStatus(measurement.status)
-            reason = "O adaptador registrou o inventário sem reconciliação conclusiva."
+            status_code = "ADAPTER_NOT_RECONCILED"
         elif source_changed_at is not None and measurement.measured_at < source_changed_at:
             status = MeasurementStatus.UNAVAILABLE
-            reason = "A configuração física mudou depois do inventário; uma nova reconciliação é obrigatória."
+            status_code = "SOURCES_CHANGED"
         elif not is_fresh:
             status = MeasurementStatus.UNAVAILABLE
-            reason = "A última medição reconciliada expirou; novas gravações permanecem bloqueadas."
+            status_code = "MEASUREMENT_STALE"
         else:
             status = MeasurementStatus.RECONCILED
-            reason = "Inventário completo e recente; a quota pode ser aplicada."
+            status_code = "READY"
 
     reserved_bytes = _active_reserved_bytes(
         session,
@@ -295,33 +342,178 @@ def storage_quota_read_model(
         reconciled_through=measured_at if status == MeasurementStatus.RECONCILED else None,
     )
 
-    evaluation = evaluate_storage_quota(
+    if contracted_bytes is None:
+        status_code = "NO_CONTRACT_QUOTA"
+
+    return storage_quota_facts(
         contracted_bytes=contracted_bytes,
         measurement_status=status,
         used_bytes=used_bytes,
         reserved_bytes=reserved_bytes,
-        requested_bytes=requested_bytes,
-        unavailable_reason=reason,
-    )
-    occupied = evaluation.occupied
-
-    return {
+    ) | {
         "resource": "STORAGE",
+        "object_count": object_count,
+        "status_code": status_code,
+        "measured_at": measured_at,
+        "measurement_age_seconds": (
+            max((now - measured_at).total_seconds(), 0) if measured_at else None
+        ),
+        "watermark": watermark,
+        "measurement_id": measurement_id,
+        "expected_source_keys": sorted(expected_source_keys),
+        "measured_source_keys": sorted(measured_source_keys),
+    }
+
+
+def storage_quota_facts(
+    *,
+    contracted_bytes: int | None,
+    measurement_status: MeasurementStatus,
+    used_bytes: int | None,
+    reserved_bytes: int,
+) -> dict[str, object]:
+    """Project observed storage facts without evaluating a future write."""
+
+    occupied = used_bytes + reserved_bytes if used_bytes is not None else None
+    quota_observable = (
+        measurement_status == MeasurementStatus.RECONCILED and occupied is not None
+    )
+    available = (
+        max(contracted_bytes - occupied, 0)
+        if quota_observable and contracted_bytes is not None
+        else None
+    )
+    overage = (
+        max(occupied - contracted_bytes, 0)
+        if quota_observable and contracted_bytes is not None
+        else None
+    )
+    quota_status = (
+        "UNKNOWN"
+        if not quota_observable or contracted_bytes is None
+        else "OVER_LIMIT"
+        if occupied > contracted_bytes
+        else "AT_LIMIT"
+        if occupied == contracted_bytes
+        else "WITHIN_LIMIT"
+    )
+    return {
         "contracted_bytes": contracted_bytes,
         "used_bytes": used_bytes,
         "reserved_bytes": reserved_bytes,
         "occupied_bytes": occupied,
-        "available_bytes": evaluation.remaining,
-        "object_count": object_count,
-        "measurement_status": status.value,
-        "decision": evaluation.decision.value,
-        "reason": evaluation.reason,
-        "measured_at": measured_at,
-        "watermark": watermark,
-        "measurement_id": measurement_id,
-        "source_keys": sorted(expected_source_keys),
-        "enforcement_active": status == MeasurementStatus.RECONCILED,
-        "provider_capacity": provider_capacity_read_model(session, now=now),
+        "available_bytes": available,
+        "overage_bytes": overage,
+        "quota_status": quota_status,
+        "measurement_status": measurement_status.value,
+        "enforcement_active": quota_observable and contracted_bytes is not None,
+    }
+
+
+def evaluate_tenant_storage_quota(
+    session: Session,
+    tenant_id: uuid.UUID,
+    *,
+    requested_bytes: int,
+    now: datetime | None = None,
+) -> tuple[dict[str, object], QuotaEvaluation]:
+    """Evaluate a concrete write against the latest observed facts."""
+
+    state = storage_quota_read_model(session, tenant_id, now=now)
+    status = MeasurementStatus(str(state["measurement_status"]))
+    evaluation = evaluate_storage_quota(
+        contracted_bytes=state["contracted_bytes"],
+        measurement_status=status,
+        used_bytes=state["used_bytes"],
+        reserved_bytes=int(state["reserved_bytes"]),
+        requested_bytes=requested_bytes,
+        unavailable_reason=_storage_unavailable_reason(str(state["status_code"])),
+    )
+    return state, evaluation
+
+
+def platform_storage_capacity_read_model(
+    session: Session,
+    *,
+    offset: int = 0,
+    limit: int = 50,
+    now: datetime | None = None,
+) -> dict[str, object]:
+    """Return physical capacity and paginated tenant observations as separate facts."""
+
+    now = now or datetime.utcnow()
+    provider = provider_capacity_read_model(session, now=now)
+    contracts = list(
+        session.exec(
+            select(TenantContract).order_by(
+                TenantContract.tenant_id, TenantContract.version.desc()
+            )
+        ).all()
+    )
+    latest_by_tenant: dict[uuid.UUID, TenantContract] = {}
+    for contract in contracts:
+        latest_by_tenant.setdefault(contract.tenant_id, contract)
+
+    active_contracts = [
+        contract for contract in latest_by_tenant.values() if contract.status == "ACTIVE"
+    ]
+    committed_bytes = 0
+    for contract in active_contracts:
+        limit_mb = contract.storage_entitlement.get("limit_mb")
+        if limit_mb is None:
+            limit_mb = contract.limits.get("storage_mb")
+        if limit_mb is not None:
+            committed_bytes += int(limit_mb) * 1024 * 1024
+
+    tenants = list(session.exec(select(Tenant).order_by(Tenant.name)).all())
+    page = tenants[offset : offset + limit]
+    allocations: list[dict[str, object]] = []
+    for tenant in page:
+        contract = latest_by_tenant.get(tenant.id)
+        state = storage_quota_read_model(session, tenant.id, now=now)
+        allocations.append({
+            "tenant_id": tenant.id,
+            "tenant_name": tenant.name,
+            "contract_id": contract.id if contract else None,
+            "contract_version": contract.version if contract else None,
+            "contracted_bytes": state["contracted_bytes"],
+            "used_bytes": state["used_bytes"],
+            "reserved_bytes": state["reserved_bytes"],
+            "available_bytes": state["available_bytes"],
+            "overage_bytes": state["overage_bytes"],
+            "quota_status": state["quota_status"],
+            "measurement_status": state["measurement_status"],
+            "status_code": state["status_code"],
+            "measured_at": state["measured_at"],
+        })
+
+    capacity = provider["capacity_bytes"]
+    margin = int(provider["reserved_margin_bytes"])
+    usable = max(int(capacity) - margin, 0) if capacity is not None else None
+    return {
+        "observed_at": now,
+        "provider": provider["provider"],
+        "configured": provider["configured"],
+        "measurement_status": provider["measurement_status"],
+        "measured_at": provider["measured_at"],
+        "capacity_bytes": capacity,
+        "reserved_margin_bytes": margin,
+        "usable_capacity_bytes": usable,
+        "used_bytes": provider["used_bytes"],
+        "pending_reservation_bytes": provider["reserved_bytes"],
+        "remaining_physical_bytes": provider["available_bytes"],
+        "object_count": provider["object_count"],
+        "managed_source_keys": provider["managed_buckets"],
+        "egress_measurement_status": provider["egress_measurement_status"],
+        "commercial_committed_bytes": committed_bytes,
+        "active_contract_count": len(active_contracts),
+        "commercial_commitment_ratio": (
+            committed_bytes / usable if usable not in {None, 0} else None
+        ),
+        "total": len(tenants),
+        "offset": offset,
+        "limit": limit,
+        "items": allocations,
     }
 
 
@@ -361,28 +553,19 @@ def reserve_storage_capacity(
             raise ValueError("operation_key already exists for a different storage object")
         return existing
 
-    state = storage_quota_read_model(
+    state, evaluation = evaluate_tenant_storage_quota(
         session, tenant_id, requested_bytes=requested_bytes, now=now
-    )
-    evaluation = QuotaEvaluation(
-        resource="STORAGE",
-        contracted=state["contracted_bytes"],
-        occupied=state["occupied_bytes"],
-        requested=requested_bytes,
-        remaining=state["available_bytes"],
-        decision=QuotaDecision(str(state["decision"])),
-        reason=str(state["reason"]),
     )
     if evaluation.decision not in {QuotaDecision.ALLOWED, QuotaDecision.WARNING}:
         raise StorageCapacityUnavailableError(evaluation)
-    provider = provider_capacity_read_model(session, requested_bytes=requested_bytes, now=now, lock=True)
-    if provider["decision"] not in {"ALLOWED", "WARNING"}:
-        raise StorageCapacityUnavailableError(QuotaEvaluation(
-            resource="STORAGE", contracted=provider["capacity_bytes"],
-            occupied=provider["occupied_bytes"], requested=requested_bytes,
-            remaining=provider["available_bytes"], decision=QuotaDecision(str(provider["decision"])),
-            reason=str(provider["reason"]),
-        ))
+    _, provider_evaluation = evaluate_platform_storage_capacity(
+        session, requested_bytes=requested_bytes, now=now
+    )
+    if provider_evaluation.decision not in {
+        QuotaDecision.ALLOWED,
+        QuotaDecision.WARNING,
+    }:
+        raise StorageCapacityUnavailableError(provider_evaluation)
     contract: TenantContract | None = latest_contract(session, tenant_id)
     measurement_id = state["measurement_id"]
     if contract is None or not isinstance(measurement_id, uuid.UUID):

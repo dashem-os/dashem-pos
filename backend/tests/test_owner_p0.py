@@ -9,7 +9,8 @@ from app.api.v1.endpoints.identity import (
     OwnerTenantContractUpdate, OwnerTenantProvisionCreate, PlatformTenantCreate,
     PlatformTenantAdministratorReplace, SaasBillingAccountUpdate,
     ServicePlanCreate, create_service_plan,
-    platform_tenant_detail, provision_owner_tenant, tenant_capability_catalog,
+    platform_storage_capacity, platform_tenant_detail, provision_owner_tenant,
+    tenant_capability_catalog,
     update_owner_tenant_contract, update_saas_billing_account, provision_platform_tenant,
     replace_platform_tenant_administrator, _normalize_tax_id,
 )
@@ -119,8 +120,14 @@ def test_owner_p0_provisions_complete_tenant_by_niche(monkeypatch, niche, addons
         assert provisioned.contract.limits["users"] == 8
         assert provisioned.contract.limits["storage_mb"] == 2048
         assert provisioned.contract.limits["billing"]["email"] == f"financeiro-{suffix}@example.test"
-        assert provisioned.contract.schema_version == 2
+        assert provisioned.contract.schema_version == 3
         assert provisioned.contract.activity_keys == [niche.value]
+        assert provisioned.contract.limit_entitlements["users"] == {
+            "limit": 8,
+            "plan_included": 10,
+            "basis": "OWNER_OVERRIDE",
+            "sources": ["PLAN", "OWNER_DECISION"],
+        }
         assert {item["key"] for item in provisioned.contract.capability_entitlements} == set(provisioned.contract.capability_keys)
         assert must_have <= set(provisioned.contract.capability_keys)
         assert set(provisioned.contract.capability_keys).isdisjoint(must_not_have)
@@ -147,6 +154,30 @@ def test_owner_p0_provisions_complete_tenant_by_niche(monkeypatch, niche, addons
         detail = platform_tenant_detail(provisioned.tenant.id, principal, session)
         assert detail.niche == niche and len(detail.accesses) == 1
         assert detail.accesses[0].role == RoleEnum.TENANT_OWNER
+        assert detail.contracted_plan_revision is not None
+        assert detail.contracted_plan_revision.id == provisioned.contract.plan_revision_id
+        user_facts = detail.resource_usage["USERS"].model_dump()
+        assert user_facts["configured"] == 1
+        assert user_facts["reserved"] == 1
+        assert user_facts["occupied"] == 2
+        assert user_facts["contracted"] == 8
+        assert user_facts["compliance_status"] == "WITHIN_LIMIT"
+        assert "decision" not in user_facts
+        assert "reason" not in user_facts
+        storage_facts = detail.storage_usage.model_dump()
+        assert "provider_capacity" not in storage_facts
+        assert "decision" not in storage_facts
+        assert "reason" not in storage_facts
+
+        capacity = platform_storage_capacity(0, 50, principal, session)
+        allocation = next(
+            item for item in capacity["items"]
+            if item["tenant_id"] == provisioned.tenant.id
+        )
+        assert allocation["contracted_bytes"] == 2048 * 1024 * 1024
+        assert "commercial_committed_bytes" in capacity
+        assert "decision" not in capacity
+        assert "reason" not in capacity
 
 
 def test_owner_can_combine_niches_and_version_existing_contract(monkeypatch):

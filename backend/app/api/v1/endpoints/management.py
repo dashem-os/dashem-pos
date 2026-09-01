@@ -87,9 +87,12 @@ def management_overview(
     resource_usage = tenant_count_quota_read_model(session, context.tenant_id)
     summary["resource_usage"] = resource_usage
     summary["alerts"] = list(summary.get("alerts", [])) + [
-        str(item["reason"])
+        (
+            f"{item['resource']}: {item['occupied']} em uso, "
+            f"quota contratual {item['contracted']}, excedente {item['overage']}."
+        )
         for item in resource_usage.values()
-        if item["decision"] in {"WARNING", "DENIED"}
+        if item["compliance_status"] == "OVER_LIMIT"
     ]
     return ManagementOverview.model_validate(summary)
 

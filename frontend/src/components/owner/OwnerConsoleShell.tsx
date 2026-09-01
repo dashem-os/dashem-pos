@@ -8,8 +8,8 @@ import {
 import { useAuth } from '../../context/AuthContext'
 import {
   AuthMe, ControlHealthComponent, ControlLead, fetchControlHealth, fetchControlLeads,
-  fetchPlatformHealth, fetchPlatformOverview, fetchServicePlans, HealthComponent,
-  PlatformOverview, PlatformSystemHealth, PlatformTenantSummary,
+  fetchPlatformHealth, fetchPlatformOverview, fetchPlatformStorageCapacity, fetchServicePlans, HealthComponent,
+  PlatformOverview, PlatformStorageCapacity, PlatformSystemHealth, PlatformTenantSummary,
 } from '../../services/api'
 import { CreateTenantPanel } from './CreateTenantPanel'
 import { ServicePlansView } from './ServicePlansView'
@@ -31,6 +31,7 @@ export function OwnerConsoleShell({ me }: { me: AuthMe }) {
   const [filter, setFilter] = useState<OrganizationFilter>('ALL')
   const [overview, setOverview] = useState<PlatformOverview | null>(null)
   const [health, setHealth] = useState<PlatformSystemHealth | null>(null)
+  const [storageCapacity, setStorageCapacity] = useState<PlatformStorageCapacity | null>(null)
   const [selected, setSelected] = useState<PlatformTenantSummary | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [checkingPlans, setCheckingPlans] = useState(false)
@@ -39,10 +40,11 @@ export function OwnerConsoleShell({ me }: { me: AuthMe }) {
 
   const load = useCallback(async () => {
     setError(null)
-    const results = await Promise.allSettled([fetchPlatformOverview(), fetchPlatformHealth()])
+    const results = await Promise.allSettled([fetchPlatformOverview(), fetchPlatformHealth(), fetchPlatformStorageCapacity()])
     if (results[0].status === 'fulfilled') setOverview(results[0].value)
     else setError(results[0].reason instanceof Error ? results[0].reason.message : 'Não foi possível carregar os clientes.')
     if (results[1].status === 'fulfilled') setHealth(results[1].value)
+    if (results[2].status === 'fulfilled') setStorageCapacity(results[2].value)
   }, [])
   useEffect(() => { load() }, [load])
 
@@ -91,8 +93,8 @@ export function OwnerConsoleShell({ me }: { me: AuthMe }) {
       {view === 'plans' && <ServicePlansView onOrganizations={() => navigate('organizations')} />}
       {view === 'finance' && <FinanceSaasView onTenant={openTenantById} onOrganizations={() => navigate('organizations')} onPlans={() => navigate('plans')} />}
       {view === 'operations' && <ControlOperationsView />}
-      {view === 'health' && <SystemHealthView health={health} onRefresh={load} onOrganizations={() => navigate('organizations')} />}
-      {view === 'tenant' && selected && <TenantWorkspace tenant={selected} onBack={() => navigate('organizations')} onManagePlans={() => navigate('plans')} onFinance={() => navigate('finance')} onChanged={load} />}
+      {view === 'health' && <SystemHealthView health={health} storageCapacity={storageCapacity} onRefresh={load} onOrganizations={() => navigate('organizations')} />}
+      {view === 'tenant' && selected && <TenantWorkspace tenant={selected} onBack={() => navigate('organizations')} onManagePlans={() => navigate('plans')} onFinance={() => navigate('finance')} onCapacity={() => navigate('health')} onChanged={load} />}
     </main>
     {createOpen && <CreateTenantPanel onClose={() => setCreateOpen(false)} onManagePlans={() => { setCreateOpen(false); navigate('plans') }} onCreated={async () => { setCreateOpen(false); await load(); navigate('organizations') }} />}
   </div>
@@ -147,14 +149,34 @@ function ControlOperationsView() {
   return <div className="mx-auto max-w-[1500px] p-5 sm:p-8"><div className="flex items-start justify-between gap-4"><div><p className="text-xs font-black uppercase tracking-wider text-[#E12120]">Control plane</p><h2 className="mt-2 text-3xl font-black">Comercial, onboarding e instrumentação</h2><p className="mt-2 text-slate-500">Estado real do funil e das integrações. Ausência de telemetria nunca aparece como saudável.</p></div><button onClick={load} className="flex h-11 items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 text-sm font-black"><RefreshCw className="h-4 w-4" />Atualizar</button></div>{error && <p className="mt-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">{error}</p>}<section className="mt-6 grid gap-4 xl:grid-cols-[1.15fr_.85fr]"><article className="overflow-hidden rounded-2xl border border-slate-200 bg-white"><div className="border-b border-slate-100 p-5"><h3 className="font-black">Funil comercial</h3><p className="text-sm text-slate-500">Leads persistidos e conversões vinculadas ao tenant.</p></div><div className="divide-y divide-slate-100">{leads.map(lead => <div key={lead.id} className="flex items-center justify-between gap-4 p-4"><div><p className="font-black">{lead.company_name}</p><p className="text-sm text-slate-500">{lead.contact_name}{lead.email ? ` · ${lead.email}` : ''}</p></div><span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black">{lead.status}</span></div>)}{leads.length === 0 && <p className="p-10 text-center text-sm text-slate-500">Nenhum lead cadastrado.</p>}</div></article><article className="rounded-2xl border border-slate-200 bg-white p-5"><h3 className="font-black">Instrumentação obrigatória</h3><p className="text-sm text-slate-500">Heartbeat e última evidência por componente.</p><div className="mt-4 space-y-3">{components.map(component => <div key={component.key} className="flex items-center justify-between rounded-xl border border-slate-200 p-3"><div><p className="font-bold">{component.label}</p><p className="text-xs text-slate-500">{component.last_seen_at ? `Último sinal ${new Date(component.last_seen_at).toLocaleString('pt-BR')}` : 'Sem heartbeat registrado'}</p></div><span className={`rounded-full px-2.5 py-1 text-xs font-black ${component.status === 'HEALTHY' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{component.status}</span></div>)}</div></article></section></div>
 }
 
-function SystemHealthView({ health, onRefresh, onOrganizations }: { health: PlatformSystemHealth | null; onRefresh: () => Promise<void>; onOrganizations: () => void }) {
+function SystemHealthView({ health, storageCapacity, onRefresh, onOrganizations }: { health: PlatformSystemHealth | null; storageCapacity: PlatformStorageCapacity | null; onRefresh: () => Promise<void>; onOrganizations: () => void }) {
   const openTotal = (key: string) => {
     if (key === 'tenants') { onOrganizations(); return }
     document.getElementById('health-component-outbox')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
     document.getElementById('health-component-outbox')?.focus({ preventScroll: true })
   }
-  return <div className="mx-auto max-w-[1500px] p-5 sm:p-8"><div className="flex items-start justify-between"><div><p className="text-xs font-black uppercase tracking-wider text-[#E12120]">Observabilidade</p><h2 className="mt-2 text-3xl font-black">Saúde da plataforma</h2><p className="mt-2 text-slate-500">Sondagens executadas agora; cada status expõe a evidência usada pelo servidor.</p></div><button onClick={onRefresh} className="flex h-11 items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 text-sm font-black"><RefreshCw className="h-4 w-4" />Atualizar</button></div>{!health ? <Loader2 className="mx-auto my-24 h-8 w-8 animate-spin text-[#E12120]" /> : <><section className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{Object.entries(health.totals).map(([key, value]) => <button key={key} onClick={() => openTotal(key)} className="rounded-2xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-[#E12120]/40 hover:shadow-md"><p className="text-xs font-black uppercase text-slate-400">{totalLabel(key)}</p><p className="mt-3 text-3xl font-black">{value}</p><p className="mt-4 flex items-center justify-between text-xs font-bold text-slate-500">{key === 'tenants' ? 'Abrir organizações' : 'Investigar fila transacional'}<ArrowRight className="h-4 w-4" /></p></button>)}</section><section className="mt-6 grid gap-4 lg:grid-cols-2">{health.components.map(component => <ComponentHealth key={component.key} component={component} />)}</section><p className="mt-5 text-xs font-semibold text-slate-500">Verificado em {new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'medium' }).format(new Date(health.checked_at))}</p></>}</div>
+  return <div className="mx-auto max-w-[1500px] p-5 sm:p-8"><div className="flex items-start justify-between"><div><p className="text-xs font-black uppercase tracking-wider text-[#E12120]">Observabilidade</p><h2 className="mt-2 text-3xl font-black">Saúde da plataforma</h2><p className="mt-2 text-slate-500">Sondagens e inventários com origem e horário informados pelo servidor.</p></div><button onClick={onRefresh} className="flex h-11 items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 text-sm font-black"><RefreshCw className="h-4 w-4" />Atualizar</button></div>{!health ? <Loader2 className="mx-auto my-24 h-8 w-8 animate-spin text-[#E12120]" /> : <><section className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{Object.entries(health.totals).map(([key, value]) => <button key={key} onClick={() => openTotal(key)} className="rounded-2xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-[#E12120]/40 hover:shadow-md"><p className="text-xs font-black uppercase text-slate-400">{totalLabel(key)}</p><p className="mt-3 text-3xl font-black">{value}</p><p className="mt-4 flex items-center justify-between text-xs font-bold text-slate-500">{key === 'tenants' ? 'Abrir organizações' : 'Investigar fila transacional'}<ArrowRight className="h-4 w-4" /></p></button>)}</section>{storageCapacity && <StorageCapacitySection capacity={storageCapacity} />}<section className="mt-6 grid gap-4 lg:grid-cols-2">{health.components.map(component => <ComponentHealth key={component.key} component={component} />)}</section><p className="mt-5 text-xs font-semibold text-slate-500">Verificado em {new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'medium' }).format(new Date(health.checked_at))}</p></>}</div>
 }
+
+function StorageCapacitySection({ capacity }: { capacity: PlatformStorageCapacity }) {
+  const metrics = [
+    ['Capacidade declarada', decimalStorage(capacity.capacity_bytes)],
+    ['Capacidade utilizável', decimalStorage(capacity.usable_capacity_bytes)],
+    ['Uso físico observado', decimalStorage(capacity.used_bytes)],
+    ['Reservas em andamento', decimalStorage(capacity.pending_reservation_bytes)],
+    ['Restante físico', decimalStorage(capacity.remaining_physical_bytes)],
+    ['Quotas contratadas', binaryStorage(capacity.commercial_committed_bytes)],
+  ]
+  return <section className="mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+    <div className="flex flex-col gap-3 border-b border-slate-100 p-5 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-xs font-black uppercase tracking-wider text-slate-400">Storage · {capacity.provider}</p><h3 className="mt-1 text-xl font-black">Capacidade física e compromissos comerciais</h3></div><div className="text-right"><span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black">{capacity.measurement_status}</span><p className="mt-2 text-xs text-slate-500">{capacity.measured_at ? new Date(capacity.measured_at).toLocaleString('pt-BR') : 'Sem horário de medição'}</p></div></div>
+    <dl className="grid gap-px bg-slate-200 sm:grid-cols-2 xl:grid-cols-6">{metrics.map(([label, value]) => <div key={label} className="bg-white p-4"><dt className="text-xs font-bold text-slate-500">{label}</dt><dd className="mt-2 text-lg font-black">{value}</dd></div>)}</dl>
+    <div className="grid gap-3 border-t border-slate-100 p-5 text-xs text-slate-500 sm:grid-cols-4"><p><strong className="text-slate-700">Margem:</strong> {decimalStorage(capacity.reserved_margin_bytes)}</p><p><strong className="text-slate-700">Objetos:</strong> {capacity.object_count ?? '—'}</p><p><strong className="text-slate-700">Fontes:</strong> {capacity.managed_source_keys.length}</p><p><strong className="text-slate-700">Comprometimento:</strong> {capacity.commercial_commitment_ratio == null ? '—' : `${(capacity.commercial_commitment_ratio * 100).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`}</p></div>
+    <div className="overflow-x-auto border-t border-slate-100"><table className="w-full min-w-[900px] text-left text-sm"><thead className="bg-slate-50 text-xs font-black uppercase text-slate-400"><tr><th className="p-4">Tenant</th><th className="p-4">Contrato</th><th className="p-4">Quota</th><th className="p-4">Uso observado</th><th className="p-4">Reservado</th><th className="p-4">Disponível</th><th className="p-4">Quota</th><th className="p-4">Medição</th></tr></thead><tbody className="divide-y divide-slate-100">{capacity.items.map(item => <tr key={item.tenant_id}><td className="p-4 font-black">{item.tenant_name}</td><td className="p-4">{item.contract_version ? `v${item.contract_version}` : '—'}</td><td className="p-4">{binaryStorage(item.contracted_bytes)}</td><td className="p-4">{binaryStorage(item.used_bytes)}</td><td className="p-4">{binaryStorage(item.reserved_bytes)}</td><td className="p-4">{binaryStorage(item.available_bytes)}</td><td className="p-4 font-mono text-xs">{item.quota_status}</td><td className="p-4 font-mono text-xs">{item.measurement_status}</td></tr>)}</tbody></table></div>
+  </section>
+}
+
+function decimalStorage(value?: number) { return value == null ? '—' : value >= 1_000_000_000 ? `${(value / 1_000_000_000).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} GB` : `${(value / 1_000_000).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} MB` }
+function binaryStorage(value?: number) { return value == null ? '—' : value >= 1024 ** 3 ? `${(value / 1024 ** 3).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} GiB` : `${(value / 1024 ** 2).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} MiB` }
 
 function ComponentHealth({ component }: { component: HealthComponent }) { const healthy = component.status === 'HEALTHY'; const attention = ['DEGRADED', 'UNKNOWN', 'NOT_CONFIGURED'].includes(component.status); return <article id={`health-component-${component.key}`} tabIndex={-1} className="rounded-2xl border border-slate-200 bg-white p-5 outline-none transition focus:border-[#E12120] focus:ring-4 focus:ring-red-100"><div className="flex items-start justify-between"><div><p className="text-xs font-black uppercase text-slate-400">{component.key}</p><h3 className="mt-2 text-lg font-black">{component.label}</h3></div>{healthy ? <CheckCircle2 className="h-6 w-6 text-emerald-500" /> : <AlertTriangle className={`h-6 w-6 ${attention ? 'text-amber-500' : 'text-red-500'}`} />}</div><div className="mt-4 flex items-center gap-3"><span className={`rounded-full px-2.5 py-1 text-xs font-black ${healthy ? 'bg-emerald-50 text-emerald-700' : attention ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700'}`}>{component.status}</span>{component.latency_ms !== undefined && <span className="text-sm font-bold text-slate-500">{component.latency_ms} ms</span>}</div><dl className="mt-4 grid gap-2 text-xs text-slate-500">{Object.entries(component.details).filter(([, value]) => value !== null).map(([key, value]) => <div key={key} className="flex justify-between gap-4"><dt>{key}</dt><dd className="font-mono font-bold text-slate-700">{String(value)}</dd></div>)}</dl></article> }
 

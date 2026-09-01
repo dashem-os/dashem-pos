@@ -8,7 +8,7 @@ from enum import Enum
 from typing import Any, List, Optional
 
 import httpx
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field as PydanticField
 from sqlalchemy import func, or_, text, update as sa_update
 from sqlalchemy.exc import IntegrityError
@@ -52,7 +52,10 @@ from app.services.quota_policy_service import (
     require_count_capacity,
     tenant_count_quota_read_model,
 )
-from app.services.storage_quota_service import storage_quota_read_model
+from app.services.storage_quota_service import (
+    platform_storage_capacity_read_model,
+    storage_quota_read_model,
+)
 from app.modules.governance.contracts import CountResource
 from app.modules.capabilities.registry import CAPABILITY_REGISTRY, IMPLEMENTED_CAPABILITIES, resolve_dependencies
 from app.modules.capabilities.niches import (
@@ -451,28 +454,14 @@ class PlatformTenantResourceUsage(BaseModel):
     reserved: int
     occupied: int
     available: Optional[int] = None
-    decision: str
-    reason: str
-    measured_at: datetime
-
-
-class PlatformStorageProviderCapacity(BaseModel):
-    provider: str
-    configured: bool
-    capacity_bytes: Optional[int] = None
-    reserved_margin_bytes: int
-    used_bytes: Optional[int] = None
-    reserved_bytes: int
-    occupied_bytes: Optional[int] = None
-    available_bytes: Optional[int] = None
-    object_count: Optional[int] = None
-    measurement_status: str
-    decision: str
-    reason: str
-    measured_at: Optional[datetime] = None
-    managed_buckets: List[str] = PydanticField(default_factory=list)
-    egress_measurement_status: str
-    egress_reason: str
+    overage: int
+    utilization_ratio: Optional[float] = None
+    compliance_status: str
+    reservation_supported: bool
+    observed_at: datetime
+    contract_id: Optional[uuid.UUID] = None
+    contract_version: Optional[int] = None
+    plan_revision_id: Optional[uuid.UUID] = None
 
 
 class PlatformTenantStorageUsage(BaseModel):
@@ -482,16 +471,58 @@ class PlatformTenantStorageUsage(BaseModel):
     reserved_bytes: int
     occupied_bytes: Optional[int] = None
     available_bytes: Optional[int] = None
+    overage_bytes: Optional[int] = None
+    quota_status: str
     object_count: Optional[int] = None
     measurement_status: str
-    decision: str
-    reason: str
+    status_code: str
     measured_at: Optional[datetime] = None
+    measurement_age_seconds: Optional[float] = None
     watermark: Optional[str] = None
     measurement_id: Optional[uuid.UUID] = None
-    source_keys: List[str] = PydanticField(default_factory=list)
+    expected_source_keys: List[str] = PydanticField(default_factory=list)
+    measured_source_keys: List[str] = PydanticField(default_factory=list)
     enforcement_active: bool
-    provider_capacity: PlatformStorageProviderCapacity
+
+
+class PlatformStorageTenantAllocation(BaseModel):
+    tenant_id: uuid.UUID
+    tenant_name: str
+    contract_id: Optional[uuid.UUID] = None
+    contract_version: Optional[int] = None
+    contracted_bytes: Optional[int] = None
+    used_bytes: Optional[int] = None
+    reserved_bytes: int
+    available_bytes: Optional[int] = None
+    overage_bytes: Optional[int] = None
+    quota_status: str
+    measurement_status: str
+    status_code: str
+    measured_at: Optional[datetime] = None
+
+
+class PlatformStorageCapacityRead(BaseModel):
+    observed_at: datetime
+    provider: str
+    configured: bool
+    measurement_status: str
+    measured_at: Optional[datetime] = None
+    capacity_bytes: Optional[int] = None
+    reserved_margin_bytes: int
+    usable_capacity_bytes: Optional[int] = None
+    used_bytes: Optional[int] = None
+    pending_reservation_bytes: int
+    remaining_physical_bytes: Optional[int] = None
+    object_count: Optional[int] = None
+    managed_source_keys: List[str] = PydanticField(default_factory=list)
+    egress_measurement_status: str
+    commercial_committed_bytes: int
+    active_contract_count: int
+    commercial_commitment_ratio: Optional[float] = None
+    total: int
+    offset: int
+    limit: int
+    items: List[PlatformStorageTenantAllocation] = PydanticField(default_factory=list)
 
 
 class PlatformTenantDetail(BaseModel):
@@ -500,6 +531,7 @@ class PlatformTenantDetail(BaseModel):
     contacts: List[TenantContact]
     subscription: Optional[TenantSubscription] = None
     plan: Optional[ServicePlan] = None
+    contracted_plan_revision: Optional[ServicePlanRevision] = None
     stores: List[Store]
     accesses: List[PlatformTenantAccessRead]
     capabilities: List[TenantCapability]
@@ -922,6 +954,19 @@ def _count(session: Session, model, *conditions) -> int:
     if conditions:
         statement = statement.where(*conditions)
     return int(session.exec(statement).one() or 0)
+
+
+@router.get("/platform/capacity/storage", response_model=PlatformStorageCapacityRead)
+def platform_storage_capacity(
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=100),
+    principal: AuthPrincipal = Depends(get_current_principal),
+    session: Session = Depends(get_session),
+):
+    require_platform_role(session, principal, PLATFORM_MANAGERS, require_aal2=True)
+    return platform_storage_capacity_read_model(
+        session, offset=offset, limit=limit
+    )
 
 
 @router.get("/platform/health", response_model=PlatformSystemHealth)
@@ -1615,6 +1660,12 @@ def provision_owner_tenant(
     plan_revision = _current_plan_revision(session, plan)
     entitlement_snapshot = build_entitlement_snapshot(
         proposal=proposal,
+        plan_limits={
+            "users": plan.user_limit,
+            "devices": plan.terminal_limit,
+            "units": plan.store_limit,
+            "storage_mb": plan.storage_limit_mb,
+        },
         users=data.quotas.users,
         devices=data.quotas.devices,
         units=data.quotas.units,
@@ -1753,6 +1804,11 @@ def platform_tenant_detail(
         else None
     )
     plan = session.get(ServicePlan, effective_plan_id) if effective_plan_id else None
+    contracted_plan_revision = (
+        session.get(ServicePlanRevision, contract.plan_revision_id)
+        if contract and contract.plan_revision_id
+        else None
+    )
     billing_account = session.exec(
         select(SaasBillingAccount).where(SaasBillingAccount.tenant_id == tenant_id)
     ).first()
@@ -1794,6 +1850,7 @@ def platform_tenant_detail(
         contacts=list(contacts),
         subscription=subscription,
         plan=plan,
+        contracted_plan_revision=contracted_plan_revision,
         stores=stores,
         accesses=[_tenant_access_read(membership, user, store_map.get(membership.store_id)) for membership, user in rows],
         capabilities=list(capabilities),
@@ -2207,6 +2264,12 @@ def _apply_owner_tenant_contract(
     plan_revision = _current_plan_revision(session, plan)
     entitlement_snapshot = build_entitlement_snapshot(
         proposal=proposal,
+        plan_limits={
+            "users": plan.user_limit,
+            "devices": plan.terminal_limit,
+            "units": plan.store_limit,
+            "storage_mb": plan.storage_limit_mb,
+        },
         users=data.quotas.users,
         devices=data.quotas.devices,
         units=data.quotas.units,

@@ -11,7 +11,11 @@ from app.api.v1.endpoints.storage import (
 )
 from app.core.config import Settings
 from app.modules.governance.contracts import MeasurementStatus, QuotaDecision
-from app.services.storage_quota_service import evaluate_provider_capacity, evaluate_storage_quota
+from app.services.storage_quota_service import (
+    evaluate_provider_capacity,
+    evaluate_storage_quota,
+    storage_quota_facts,
+)
 
 
 def test_storage_without_reconciled_inventory_is_unknown_and_fail_closed():
@@ -51,6 +55,38 @@ def test_storage_quota_counts_usage_and_concurrent_reservations():
         requested_bytes=51,
     )
     assert denied.decision == QuotaDecision.DENIED
+
+
+def test_storage_read_facts_report_current_overage_without_a_write_decision():
+    facts = storage_quota_facts(
+        contracted_bytes=100,
+        measurement_status=MeasurementStatus.RECONCILED,
+        used_bytes=110,
+        reserved_bytes=5,
+    )
+
+    assert facts["occupied_bytes"] == 115
+    assert facts["available_bytes"] == 0
+    assert facts["overage_bytes"] == 15
+    assert facts["quota_status"] == "OVER_LIMIT"
+    assert "decision" not in facts
+    assert "reason" not in facts
+    assert "requested_bytes" not in facts
+
+
+def test_storage_read_facts_do_not_invent_zero_when_measurement_is_unavailable():
+    facts = storage_quota_facts(
+        contracted_bytes=128 * 1024 * 1024,
+        measurement_status=MeasurementStatus.NOT_MEASURED,
+        used_bytes=None,
+        reserved_bytes=0,
+    )
+
+    assert facts["used_bytes"] is None
+    assert facts["occupied_bytes"] is None
+    assert facts["available_bytes"] is None
+    assert facts["quota_status"] == "UNKNOWN"
+    assert facts["enforcement_active"] is False
 
 
 def test_storage_warning_thresholds_are_configuration_not_provider_assumptions(monkeypatch):

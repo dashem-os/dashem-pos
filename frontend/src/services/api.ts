@@ -923,6 +923,13 @@ export interface ServicePlan {
   monthly_price: number
 }
 
+export interface ServicePlanRevision extends ServicePlan {
+  plan_id: string
+  reason: string
+  created_by?: string
+  created_at: string
+}
+
 export interface OwnerNicheCapability {
   key: string
   name: string
@@ -1370,9 +1377,14 @@ export interface TenantResourceUsage {
   reserved: number
   occupied: number
   available?: number
-  decision: 'ALLOWED' | 'WARNING' | 'DENIED' | 'UNKNOWN'
-  reason: string
-  measured_at: string
+  overage: number
+  utilization_ratio?: number
+  compliance_status: 'UNBOUNDED' | 'WITHIN_LIMIT' | 'AT_LIMIT' | 'OVER_LIMIT'
+  reservation_supported: boolean
+  observed_at: string
+  contract_id?: string
+  contract_version?: number
+  plan_revision_id?: string
 }
 
 export interface StorageQuotaUsage {
@@ -1382,33 +1394,58 @@ export interface StorageQuotaUsage {
   reserved_bytes: number
   occupied_bytes?: number
   available_bytes?: number
+  overage_bytes?: number
+  quota_status: 'UNKNOWN' | 'WITHIN_LIMIT' | 'AT_LIMIT' | 'OVER_LIMIT'
   object_count?: number
   measurement_status: 'NOT_MEASURED' | 'PARTIAL' | 'RECONCILED' | 'DIVERGENT' | 'UNAVAILABLE'
-  decision: 'ALLOWED' | 'WARNING' | 'DENIED' | 'UNKNOWN'
-  reason: string
+  status_code: string
   measured_at?: string
+  measurement_age_seconds?: number
   watermark?: string
   measurement_id?: string
-  source_keys: string[]
+  expected_source_keys: string[]
+  measured_source_keys: string[]
   enforcement_active: boolean
-  provider_capacity: {
-    provider: 'SUPABASE'
-    configured: boolean
-    capacity_bytes?: number
-    reserved_margin_bytes: number
-    used_bytes?: number
-    reserved_bytes: number
-    occupied_bytes?: number
-    available_bytes?: number
-    object_count?: number
-    measurement_status: string
-    decision: 'ALLOWED' | 'WARNING' | 'DENIED' | 'UNKNOWN'
-    reason: string
-    measured_at?: string
-    managed_buckets: string[]
-    egress_measurement_status: 'NOT_INSTRUMENTED'
-    egress_reason: string
-  }
+}
+
+export interface PlatformStorageTenantAllocation {
+  tenant_id: string
+  tenant_name: string
+  contract_id?: string
+  contract_version?: number
+  contracted_bytes?: number
+  used_bytes?: number
+  reserved_bytes: number
+  available_bytes?: number
+  overage_bytes?: number
+  quota_status: StorageQuotaUsage['quota_status']
+  measurement_status: StorageQuotaUsage['measurement_status']
+  status_code: string
+  measured_at?: string
+}
+
+export interface PlatformStorageCapacity {
+  observed_at: string
+  provider: string
+  configured: boolean
+  measurement_status: string
+  measured_at?: string
+  capacity_bytes?: number
+  reserved_margin_bytes: number
+  usable_capacity_bytes?: number
+  used_bytes?: number
+  pending_reservation_bytes: number
+  remaining_physical_bytes?: number
+  object_count?: number
+  managed_source_keys: string[]
+  egress_measurement_status: string
+  commercial_committed_bytes: number
+  active_contract_count: number
+  commercial_commitment_ratio?: number
+  total: number
+  offset: number
+  limit: number
+  items: PlatformStorageTenantAllocation[]
 }
 
 export interface PlatformTenantDetail {
@@ -1417,6 +1454,7 @@ export interface PlatformTenantDetail {
   contacts: TenantContact[]
   subscription?: TenantSubscription
   plan?: ServicePlan
+  contracted_plan_revision?: ServicePlanRevision
   stores: Store[]
   accesses: PlatformTenantAccess[]
   capabilities: TenantCapability[]
@@ -1822,6 +1860,16 @@ export async function fetchPlatformOverview(): Promise<PlatformOverview> {
 export async function fetchPlatformHealth(): Promise<PlatformSystemHealth> {
   const res = await fetch(`${API_BASE_URL}/api/v1/identity/platform/health`)
   if (!res.ok) throw await apiError(res, 'Não foi possível verificar a saúde da plataforma.')
+  return res.json()
+}
+
+export async function fetchPlatformStorageCapacity(
+  offset = 0,
+  limit = 50,
+): Promise<PlatformStorageCapacity> {
+  const query = new URLSearchParams({ offset: String(offset), limit: String(limit) })
+  const res = await fetch(`${API_BASE_URL}/api/v1/identity/platform/capacity/storage?${query}`)
+  if (!res.ok) throw await apiError(res, 'Não foi possível carregar a capacidade de storage.')
   return res.json()
 }
 

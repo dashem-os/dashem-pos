@@ -26,6 +26,7 @@ class ResolvedContractEntitlements:
 def build_entitlement_snapshot(
     *,
     proposal: Mapping[str, Any],
+    plan_limits: Mapping[str, int | None],
     users: int,
     devices: int,
     units: int,
@@ -42,10 +43,10 @@ def build_entitlement_snapshot(
         for item in proposal["capabilities"]
     ]
     limit_entitlements = {
-        resource: {
-            "limit": value,
-            "sources": ["PLAN", "OWNER_DECISION"],
-        }
+        resource: _limit_entitlement(
+            value=value,
+            plan_included=plan_limits.get(resource),
+        )
         for resource, value in (
             ("users", users),
             ("devices", devices),
@@ -58,11 +59,26 @@ def build_entitlement_snapshot(
         "capability_entitlements": capabilities,
         "limit_entitlements": limit_entitlements,
         "storage_entitlement": {
+            **_limit_entitlement(
+                value=storage_mb,
+                plan_included=plan_limits.get("storage_mb"),
+            ),
             "limit_mb": storage_mb,
-            "sources": ["PLAN", "OWNER_DECISION"],
             "measurement_status": "NOT_MEASURED",
         },
-        "schema_version": 2,
+        # v3 records the immutable plan values and the Owner decision basis for
+        # every contractual limit. Older snapshots remain readable as legacy.
+        "schema_version": 3,
+    }
+
+
+def _limit_entitlement(*, value: int, plan_included: int | None) -> dict[str, Any]:
+    basis = "PLAN_INCLUDED" if plan_included == value else "OWNER_OVERRIDE"
+    return {
+        "limit": value,
+        "plan_included": plan_included,
+        "basis": basis,
+        "sources": ["PLAN"] if basis == "PLAN_INCLUDED" else ["PLAN", "OWNER_DECISION"],
     }
 
 

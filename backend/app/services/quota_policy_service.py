@@ -18,7 +18,7 @@ from app.modules.governance.contracts import (
     QuotaDecision,
     QuotaEvaluation,
 )
-from app.services.contract_entitlement_service import contracted_limit
+from app.services.contract_entitlement_service import contracted_limit, resolve_contract_entitlements
 
 
 _CONTRACT_RESOURCE = {
@@ -186,20 +186,70 @@ def require_count_capacity(
 def tenant_count_quota_read_model(
     session: Session, tenant_id: uuid.UUID
 ) -> dict[str, dict[str, object]]:
+    """Return observed quota facts only.
+
+    This read model deliberately does not reuse the command preflight result.
+    A page load has no requested mutation, so it must not expose a decision or
+    wording about a projected operation.
+    """
+
     result: dict[str, dict[str, object]] = {}
+    contract = resolve_contract_entitlements(session, tenant_id)
     for resource in CountResource:
-        usage, evaluation = evaluate_tenant_count_quota(
-            session, tenant_id, resource, requested=0
+        usage = count_usage_snapshot(session, tenant_id, resource)
+        entitlement = (
+            contract.limit_entitlements.get(_CONTRACT_RESOURCE[resource])
+            if contract is not None
+            else None
         )
-        result[resource.value] = {
-            "resource": resource.value,
-            "contracted": evaluation.contracted,
-            "configured": usage.configured,
-            "reserved": usage.reserved,
-            "occupied": usage.occupied,
-            "available": evaluation.remaining,
-            "decision": evaluation.decision.value,
-            "reason": evaluation.reason,
-            "measured_at": usage.measured_at,
+        contracted = (
+            int(entitlement["limit"])
+            if isinstance(entitlement, dict) and entitlement.get("limit") is not None
+            else None
+        )
+        result[resource.value] = count_quota_facts(
+            resource=resource,
+            contracted=contracted,
+            usage=usage,
+        ) | {
+            "contract_id": contract.contract_id if contract is not None else None,
+            "contract_version": contract.contract_version if contract is not None else None,
+            "plan_revision_id": contract.plan_revision_id if contract is not None else None,
         }
     return result
+
+
+def count_quota_facts(
+    *,
+    resource: CountResource,
+    contracted: int | None,
+    usage: CountUsageSnapshot,
+) -> dict[str, object]:
+    """Project current facts without simulating or authorizing a mutation."""
+
+    available = None if contracted is None else max(contracted - usage.occupied, 0)
+    overage = 0 if contracted is None else max(usage.occupied - contracted, 0)
+    compliance_status = (
+        "UNBOUNDED"
+        if contracted is None
+        else "OVER_LIMIT"
+        if usage.occupied > contracted
+        else "AT_LIMIT"
+        if usage.occupied == contracted
+        else "WITHIN_LIMIT"
+    )
+    return {
+        "resource": resource.value,
+        "contracted": contracted,
+        "configured": usage.configured,
+        "reserved": usage.reserved,
+        "occupied": usage.occupied,
+        "available": available,
+        "overage": overage,
+        "utilization_ratio": (
+            None if contracted in {None, 0} else usage.occupied / contracted
+        ),
+        "compliance_status": compliance_status,
+        "reservation_supported": resource == CountResource.USERS,
+        "observed_at": usage.measured_at,
+    }

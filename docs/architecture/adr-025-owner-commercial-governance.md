@@ -4,6 +4,10 @@
 
 Aceito em 30/08/2026.
 
+Complementado pelo ADR-026 em 01/09/2026, que define as fronteiras entre query
+e command, revisão contratada e catálogo atual, além da localização canônica da
+capacidade física global.
+
 Substitui as partes do ADR-016 e da especificação OWNER-P0 que permitiam tratar
 um profile como autoridade suficiente para conceder ou retirar entitlements.
 Preserva a separação entre capability e permission definida pelo ADR-002.

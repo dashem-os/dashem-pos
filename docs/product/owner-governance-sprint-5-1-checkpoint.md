@@ -1,12 +1,48 @@
 # Checkpoint técnico — governança Owner e Sprint 5.1
 
-Status: **Supabase conectado e inventário real reconciliado; gate com objetos reais ainda pendente**
+Status: **NO GO — integração técnica conectada; correção arquitetural e gate com objetos reais pendentes**
 
 Data do checkpoint: 31 de agosto de 2026
 
-Próxima execução necessária: **executar o gate isolado com objetos reais em dois tenants**
+Próxima execução necessária: **validar a correção arquitetural e executar o gate isolado com objetos reais em dois tenants**
 
-## Homologação publicada — 31/08/2026
+## Correção de direção — 01/09/2026
+
+A revisão de homologação identificou contradições que impedem aprovar o Sprint
+5.1 como produto:
+
+- a tela individual misturava quota contratual do tenant e capacidade física
+  global do Supabase;
+- o plano atual podia aparecer ao lado de um contrato histórico sem distinguir
+  a revisão efetivamente contratada;
+- páginas de leitura exibiam mensagens produzidas por uma simulação de comando
+  com quantidade zero;
+- estados como “reconciliado” eram apresentados em frases conclusivas, em vez
+  de expor código, origem e horário fornecidos pela medição;
+- a relação entre valor incluído no plano e decisão diferente do Owner não
+  ficava persistida no snapshot contratual.
+
+A direção corretiva está formalizada no ADR-026. O Sprint permanece aberto até
+que backend, frontend, testes, CI e ambiente publicado comprovem:
+
+1. read models exclusivamente factuais;
+2. preflight de command somente para operações concretas;
+3. snapshot contratual v3 com procedência `PLAN_INCLUDED` ou `OWNER_OVERRIDE`;
+4. revisão contratada separada do catálogo atual;
+5. capacidade global em Saúde da plataforma, sem duplicação no tenant;
+6. ausência de bloqueio rígido para ativação de planos;
+7. inventário real com objetos, isolamento e concorrência validados.
+
+O checkpoint de 31/08 abaixo é evidência de conexão e inventário vazio. Ele não
+é homologação comercial nem prova completa do enforcement.
+
+Validação local da correção em 01/09/2026: backend completo 186/186 em API e
+PostgreSQL isolados; após a última separação do read model de capacidade física,
+21/21 testes diretamente afetados; frontend 66/66 e build de produção. A CI e o
+ambiente publicado continuam sendo gates separados e ainda não são declarados
+aprovados por este registro.
+
+## Evidência técnica publicada — 31/08/2026
 
 O primeiro checkpoint contra os ambientes publicados foi concluído sem
 representar ausência de objetos como uma estimativa:
@@ -30,8 +66,8 @@ Evidência de integração: commits `271afad`, `ea270e3`, `f7e4163` e `8f4959a`;
 CI público 77–80 concluído com sucesso; backend e frontend publicados; medição
 reconciliada às 23:42:29 de 31/08/2026.
 
-Este checkpoint aprova a conexão, o inventário vazio e a apresentação da
-capacidade global. Ele **não** aprova ainda upload, exclusão, concorrência,
+Este checkpoint comprova a conexão e o inventário vazio. Ele **não** aprova a
+arquitetura de apresentação nem upload, exclusão, concorrência,
 thresholds nem isolamento cruzado com objetos reais. Portanto, o Sprint 5.1
 continua aberto e storage ainda não está liberado como promessa comercial.
 

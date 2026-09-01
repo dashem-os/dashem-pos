@@ -14,6 +14,7 @@ CONTRACTS = [
     ("GET", "/api/v1/identity/stores", "/api/v1/identity/stores`"),
     ("GET", "/api/v1/identity/platform/overview", "/api/v1/identity/platform/overview`"),
     ("GET", "/api/v1/identity/platform/health", "/api/v1/identity/platform/health`"),
+    ("GET", "/api/v1/identity/platform/capacity/storage", "/api/v1/identity/platform/capacity/storage?"),
     ("POST", "/api/v1/identity/platform/tenants", "/api/v1/identity/platform/tenants`"),
     ("GET", "/api/v1/identity/platform/plans", "/api/v1/identity/platform/plans`"),
     ("POST", "/api/v1/identity/platform/plans", "/api/v1/identity/platform/plans`"),
