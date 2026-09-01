@@ -293,10 +293,18 @@ Correção arquitetural preparada em 01/09/2026, formalizada no ADR-027:
 
 O gate local específico comprovou cinco cenários: publicação e recibo,
 imutabilidade, idempotência, recuperação de lease e falha com retry/quarentena;
-migration 066 com downgrade/upgrade e schema sem drift. A suíte completa em
-banco novo, CI, deploy e heartbeat do processo publicado continuam sendo gates
-separados. O Render não oferece instância gratuita para Background Worker; a
-decisão de compute pago pertence ao gate de ambiente, depois do CI verde.
+migration 066 com downgrade/upgrade e schema sem drift.
+
+Gate remoto concluído para o commit `7d0a789` em 01/09/2026: CI pública
+`33536178413` com frontend, backend PostgreSQL/RLS, schema Alembic e E2E
+operacional aprovados; deploy automático do backend confirmado pelo read model
+publicado contendo `published_receipts: 0`, Auth HTTP 200 e horários rotulados
+`UTC−03:00`. O zero é factual: a tabela de recibos acabou de ser criada e o
+worker ainda não foi provisionado.
+
+O heartbeat do processo publicado e a drenagem da fila continuam pendentes. O
+Render não oferece instância gratuita para Background Worker; a decisão de
+compute pago pertence ao gate de ambiente e exige ação explícita do Owner.
 
 A sonda de Supabase Auth deve enviar a chave server-side somente no header
 `apikey`. Uma resposta `401` sem esse header é falha da sonda, não evidência de
