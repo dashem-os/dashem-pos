@@ -259,6 +259,23 @@ objetos reais de teste no Supabase:
 11. migrations, rollback, RLS, backend, frontend e E2E ficam verdes no CI;
 12. a validação é repetida no deploy publicado.
 
+### Gate operacional do ambiente publicado
+
+Concluir o gate funcional de storage não torna um ambiente automaticamente
+apto para clientes reais. No momento da decisão de GO, o deploy publicado deve
+provar simultaneamente:
+
+- saúde global `HEALTHY`, sem componente `DEGRADED`, `UNKNOWN` ou
+  `NOT_CONFIGURED`;
+- worker com heartbeat recente e fila transacional drenando dentro do SLO;
+- probe de autenticação com resposta de sucesso;
+- nenhum excesso contratual sem decisão explícita do Owner;
+- todo tenant no escopo do piloto com contrato, fontes e medição identificados;
+- commit publicado identificável e smoke test executado nesse mesmo deploy.
+
+Esses sinais são fatos de runtime. CI verde, texto da interface ou inventário
+vazio não substituem nenhuma dessas evidências.
+
 ## 6. Condição para clientes reais
 
 O plano Supabase Free serve para desenvolvimento e validação do Sprint 5.1.

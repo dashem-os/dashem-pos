@@ -116,6 +116,17 @@ A interface apresenta códigos canônicos recebidos da API e números derivados
 dos fatos persistidos. Traduções futuras devem mapear códigos de domínio, sem
 inventar sucesso quando o dado estiver ausente.
 
+### 7. Instantes são UTC; a apresentação do produto é UTC−03:00
+
+- Eventos, medições, auditoria e heartbeats representam instantes em UTC.
+- Enquanto existirem colunas legadas sem timezone, a fronteira do frontend
+  interpreta esses valores como UTC; nunca como o timezone do navegador.
+- O produto apresenta data e hora no offset fixo `UTC−03:00` e informa esse
+  offset junto ao valor.
+- Alterar a apresentação não altera o instante persistido nem o watermark.
+- Datas civis sem hora, como competência e vencimento, não passam por conversão
+  de timezone.
+
 ## Consequências
 
 - O contrato da API de quotas de contagem não reutiliza mais o resultado de
