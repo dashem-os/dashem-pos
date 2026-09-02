@@ -11,6 +11,7 @@ from app.core.tenancy import set_platform_db_context
 from app.models.payment import Payment
 from app.models.receivable import Receivable, ReceivableAllocation, ReceivableLedgerEntry
 from app.models.sale import Sale
+from app.models.platform import TenantCapability, EntitlementStatusEnum
 
 
 BASE_URL = os.getenv("TEST_BASE_URL", "http://localhost:8002")
@@ -21,6 +22,10 @@ async def _context(client: httpx.AsyncClient, prefix: str):
     actor = str(uuid.uuid4())
     tenant = (await client.post("/api/v1/identity/tenants", json={"name": f"{prefix} {suffix}", "slug": f"{prefix.lower()}-{suffix}"})).json()
     store = (await client.post("/api/v1/identity/stores", json={"tenant_id": tenant["id"], "name": "Matriz", "code": f"{prefix[:3].upper()}-{suffix}"})).json()
+    with Session(engine) as db:
+        set_platform_db_context(db)
+        db.add(TenantCapability(tenant_id=uuid.UUID(tenant["id"]), key="counter_order", enabled=True, status=EntitlementStatusEnum.ACTIVE))
+        db.commit()
     headers = {"X-Tenant-ID": tenant["id"], "X-Store-ID": store["id"]}
     customer = (await client.post("/api/v1/sales/customers", headers=headers, json={
         "name": f"Cliente {prefix}", "cpf_cnpj": f"{uuid.uuid4().int % 10**11:011d}",

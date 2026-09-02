@@ -3,6 +3,11 @@ import uuid
 
 import httpx
 import pytest
+from sqlmodel import Session
+
+from app.core.database import engine
+from app.core.tenancy import set_platform_db_context
+from app.models.platform import TenantCapability, EntitlementStatusEnum
 
 
 BASE_URL = os.getenv("TEST_BASE_URL", "http://localhost:8002")
@@ -14,6 +19,10 @@ async def test_s4_catalog_projection_pagination_stock_policy_and_composition():
     async with httpx.AsyncClient(base_url=BASE_URL) as client:
         tenant = (await client.post("/api/v1/identity/tenants", json={"name": f"S4 {suffix}", "slug": f"s4-{suffix}"})).json()
         store = (await client.post("/api/v1/identity/stores", json={"tenant_id": tenant["id"], "name": "Matriz", "code": f"S4-{suffix}"})).json()
+        with Session(engine) as db:
+            set_platform_db_context(db)
+            db.add(TenantCapability(tenant_id=uuid.UUID(tenant["id"]), key="counter_order", enabled=True, status=EntitlementStatusEnum.ACTIVE))
+            db.commit()
         headers = {"X-Tenant-ID": tenant["id"], "X-Store-ID": store["id"]}
 
         parent = (await client.post("/api/v1/catalog/categories", headers=headers, json={"name": "Alimentação", "slug": f"alimentacao-{suffix}"})).json()
@@ -110,6 +119,10 @@ async def test_s4_rejects_cross_store_stock_and_price_writes():
         tenant = (await client.post("/api/v1/identity/tenants", json={"name": f"Scope {suffix}", "slug": f"scope-{suffix}"})).json()
         store_a = (await client.post("/api/v1/identity/stores", json={"tenant_id": tenant["id"], "name": "A", "code": f"A-{suffix}"})).json()
         store_b = (await client.post("/api/v1/identity/stores", json={"tenant_id": tenant["id"], "name": "B", "code": f"B-{suffix}"})).json()
+        with Session(engine) as db:
+            set_platform_db_context(db)
+            db.add(TenantCapability(tenant_id=uuid.UUID(tenant["id"]), key="counter_order", enabled=True, status=EntitlementStatusEnum.ACTIVE))
+            db.commit()
         headers_a = {"X-Tenant-ID": tenant["id"], "X-Store-ID": store_a["id"]}
         product = (await client.post("/api/v1/catalog/products", headers=headers_a, json={"name": "Scoped", "sku": f"SCOPED-{suffix}"})).json()
         price = await client.post("/api/v1/catalog/prices", headers=headers_a, json={"product_id": product["id"], "store_id": store_b["id"], "cost_price": 1, "sale_price": 2})

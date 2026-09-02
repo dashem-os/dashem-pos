@@ -302,6 +302,10 @@ async def test_channel_id_scope_preservation():
     async with httpx.AsyncClient(base_url=BASE_URL) as client:
         tenant = (await client.post("/api/v1/identity/tenants", json={"name": f"Chan {suffix}", "slug": f"chan-{suffix}"})).json()
         store = (await client.post("/api/v1/identity/stores", json={"tenant_id": tenant["id"], "name": "Matriz", "code": f"CH-{suffix}"})).json()
+        with Session(engine) as db:
+            set_platform_db_context(db)
+            db.add(TenantCapability(tenant_id=uuid.UUID(tenant["id"]), key="counter_order", enabled=True, status=EntitlementStatusEnum.ACTIVE))
+            db.commit()
         headers = {"X-Tenant-ID": tenant["id"], "X-Store-ID": store["id"]}
 
         # Create a channel directly in DB

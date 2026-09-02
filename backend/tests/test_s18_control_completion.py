@@ -100,5 +100,14 @@ def test_s18_lead_conversion_and_unknown_health_are_explicit():
         assert converted.converted_tenant_id == tenant.id
 
         health = control_health_components(principal, session)
-        assert {item["status"] for item in health["components"]} == {"UNINSTRUMENTED"}
-        assert all(item["details"]["reason"] for item in health["components"])
+        statuses = {item["status"] for item in health["components"]}
+        # A worker may legitimately have published a current heartbeat before
+        # this assertion. Unknown components must remain explicit, but an
+        # observed HEALTHY component is factual and must not be relabelled.
+        assert statuses <= {"UNINSTRUMENTED", "HEALTHY", "DEGRADED"}
+        assert "UNHEALTHY" not in statuses
+        assert any(item["status"] == "UNINSTRUMENTED" for item in health["components"])
+        assert all(
+            item["status"] != "UNINSTRUMENTED" or item["details"].get("reason")
+            for item in health["components"]
+        )

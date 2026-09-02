@@ -7,6 +7,7 @@ from sqlmodel import Session, select
 
 from app.core.database import engine
 from app.core.tenancy import set_platform_db_context
+from app.models.platform import TenantCapability, EntitlementStatusEnum
 from app.models.reliability import OutboxEvent
 
 
@@ -20,6 +21,10 @@ async def test_s6_order_stays_open_accepts_idempotent_launches_and_snapshots_mod
     async with httpx.AsyncClient(base_url=BASE_URL) as client:
         tenant = (await client.post("/api/v1/identity/tenants", json={"name": f"Order {suffix}", "slug": f"order-{suffix}"})).json()
         store = (await client.post("/api/v1/identity/stores", json={"tenant_id": tenant["id"], "name": "Matriz", "code": f"O-{suffix}"})).json()
+        with Session(engine) as db:
+            set_platform_db_context(db)
+            db.add(TenantCapability(tenant_id=uuid.UUID(tenant["id"]), key="counter_order", enabled=True, status=EntitlementStatusEnum.ACTIVE))
+            db.commit()
         headers = {"X-Tenant-ID": tenant["id"], "X-Store-ID": store["id"]}
         product = (await client.post("/api/v1/catalog/products", headers=headers, json={
             "name": "Pizza S6", "sku": f"PIZZA-{suffix}", "unit": "UN",
@@ -125,6 +130,10 @@ async def test_s6_preserves_tenant_and_store_isolation():
         store_a = (await client.post("/api/v1/identity/stores", json={"tenant_id": tenant_a["id"], "name": "A", "code": f"OA-{suffix}"})).json()
         tenant_b = (await client.post("/api/v1/identity/tenants", json={"name": "OB", "slug": f"ob-{suffix}"})).json()
         store_b = (await client.post("/api/v1/identity/stores", json={"tenant_id": tenant_b["id"], "name": "B", "code": f"OB-{suffix}"})).json()
+        with Session(engine) as db:
+            set_platform_db_context(db)
+            db.add(TenantCapability(tenant_id=uuid.UUID(tenant_a["id"]), key="counter_order", enabled=True, status=EntitlementStatusEnum.ACTIVE))
+            db.commit()
         headers_a = {"X-Tenant-ID": tenant_a["id"], "X-Store-ID": store_a["id"], "Idempotency-Key": f"isolation-{suffix}"}
         order = (await client.post("/api/v1/orders", headers=headers_a, json={"store_id": store_a["id"], "actor_id": actor_id})).json()
         headers_b = {"X-Tenant-ID": tenant_b["id"], "X-Store-ID": store_b["id"]}

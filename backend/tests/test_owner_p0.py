@@ -15,6 +15,7 @@ from app.api.v1.endpoints.identity import (
     replace_platform_tenant_administrator, _normalize_tax_id,
 )
 from app.core.database import engine
+from app.core.tenancy import set_platform_db_context
 from app.core.security import AuthPrincipal
 from app.models.identity import (
     AuthIdentity, Membership, MembershipStatusEnum, RoleEnum,
@@ -31,6 +32,9 @@ def _owner(session: Session) -> tuple[AuthPrincipal, User]:
     session.add(AuthIdentity(user_id=user.id, provider="supabase", provider_subject=subject, provider_email=user.email, email_verified=True))
     session.add(PlatformMembership(user_id=user.id, role=PlatformRoleEnum.PLATFORM_OWNER))
     session.commit(); session.refresh(user)
+    # Direct service assertions run under the same explicit platform context
+    # that the HTTP guard establishes before querying cross-tenant projections.
+    set_platform_db_context(session, user.id)
     return AuthPrincipal(subject=subject, email=user.email, session_id=str(uuid.uuid4()), assurance_level="aal2", claims={"sub": subject, "aal": "aal2"}, provider="email"), user
 
 
@@ -169,7 +173,11 @@ def test_owner_p0_provisions_complete_tenant_by_niche(monkeypatch, niche, addons
         assert "decision" not in storage_facts
         assert "reason" not in storage_facts
 
-        capacity = platform_storage_capacity(0, 50, principal, session)
+        # The read model is paginated. Resolve the total first and request a
+        # complete direct-service projection so this invariant remains valid
+        # when the local database contains many historical test tenants.
+        summary = platform_storage_capacity(0, 1, principal, session)
+        capacity = platform_storage_capacity(0, summary["total"], principal, session)
         allocation = next(
             item for item in capacity["items"]
             if item["tenant_id"] == provisioned.tenant.id
