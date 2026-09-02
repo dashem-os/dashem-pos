@@ -1,6 +1,6 @@
 # Plano de hardening — Acesso Operacional do Colaborador
 
-Status: **APROVADO PARA EXECUÇÃO — PRÉ-PILOTO BLOQUEADO**
+Status: **OA-1–OA-3 implementados; OA-4 com CI verde — pré-piloto bloqueado até evidência no deploy**
 Data: 26 de agosto de 2026
 Autoridade arquitetural: [ADR-024](../architecture/adr-024-operational-employee-access.md)
 
@@ -45,7 +45,7 @@ no CI e no deploy.
 | OA-1 | contexto exclusivo de terminal + `OperationalSession`; `/login`, `/operate`, `/pos` e `/manage` separados | backend, contrato API, testes de fronteira e build | concluída no código |
 | OA-2 | ativação temporária; PIN criado pelo colaborador; reativação revoga sessões | migration 045, testes de domínio e contrato | concluída no código |
 | OA-3 | portão operacional clean, toque, teclado físico, contexto validado sem exposição visual, contraste corrigido e estado offline preservando autoridade | testes estáticos, typecheck e build | corrigida no código; E2E e deploy pendentes |
-| OA-4 | matriz, fixture isolado, suíte Playwright e job de CI | cenário clean atualizado para rejeitar contexto visual e autofill administrativo | nova execução, CI e deploy pendentes |
+| OA-4 | matriz, fixture isolado, suíte Playwright e job de CI | CI verde no commit `1f9bb93`; execução assistida no deploy ainda não anexada | repetir no deploy e submeter ao Gate B |
 
 Validação automatizada desta revisão:
 
@@ -57,11 +57,9 @@ Validação automatizada desta revisão:
 - a execução OA-4 anterior (`14/14`) cobria o contrato visual substituído e não
   promove esta revisão; a matriz atualizada precisa ser executada novamente.
 
-Esses verdes comprovam a implementação e a jornada local. O deploy público
-inspecionado em 26/08/2026 ainda não contém uma revisão capaz de comprovar o
-novo fluxo; a execução do novo job no CI e a repetição assistida no deploy
-continuam obrigatórias. O Gate B permanece `REOPENED` e o piloto permanece
-`NO-GO`.
+Esses verdes comprovam a implementação e a jornada no CI. A repetição assistida
+no deploy público, com evidências sanitizadas, continua obrigatória. O Gate B
+permanece `REOPENED` e o piloto permanece `NO-GO` até essa decisão.
 
 ## Sprint OA-1 — Autoridade e contexto únicos
 

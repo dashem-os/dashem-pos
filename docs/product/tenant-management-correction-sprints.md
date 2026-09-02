@@ -1,6 +1,6 @@
 # Trilha corretiva — Gestão do tenant
 
-Status: **5.3 publicado, homologação em curso; 5.4 condicionado ao Gate 5.4.0**
+Status: **5.4.3 publicado, CI verde; aceitação OA-4/Gate B ainda pendente de evidência no deploy**
 
 Data de referência: 1º de setembro de 2026
 
@@ -249,3 +249,9 @@ validação, o produto retorna aos gates macro já registrados. Omnichannel,
 Integração TEF/SmartPOS e delivery/e-commerce continuam condicionados aos
 adapters e homologações reais; não serão apresentados como disponíveis por
 texto, fixture ou capability sem execução comprovada.
+
+Com o CI verde do commit `1f9bb93`, o próximo ciclo autorizado é o OA-4 do
+plano de hardening operacional: repetir a jornada em navegador e no deploy
+publicado, anexar evidências sanitizadas e então submeter a decisão do Gate B.
+Isso não autoriza ainda piloto comercial nem uma nova funcionalidade de
+integração.
