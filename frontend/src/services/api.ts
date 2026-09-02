@@ -753,6 +753,8 @@ export interface ApiHealth {
 export interface EffectiveAccess {
   capabilities: Record<string, { key: string; version: string; scope: string; configuration: Record<string, unknown>; inherited: boolean }>
   permissions: string[]
+  /** Contracted business activities, not inferred from capabilities. */
+  activities: Array<'FOOD_SERVICE' | 'RETAIL' | 'BEAUTY_RESELLER' | string>
   contributions: Array<{
     id: string
     capability_key?: string

@@ -117,6 +117,11 @@ def authorize_tenant_context(
         set_tenant_db_context(session, tenant_id, store_id, principal.legacy_user_id)
         effective = effective_capabilities(session, tenant_id, store_id)
         caps = tuple(effective.keys())
+        if path.startswith("/api/v1/tables") and "table_service" not in caps:
+            raise HTTPException(
+                status_code=403,
+                detail="A jornada de mesas exige a atividade FOOD_SERVICE contratada e ativa nesta unidade.",
+            )
         return TenantContext(
             tenant_id=tenant_id,
             store_id=store_id,

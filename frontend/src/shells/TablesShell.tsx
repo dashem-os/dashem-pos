@@ -19,10 +19,10 @@ function SelectedTablesShell({ selection }: { selection: OperationalSelection })
 
 function TablesSurface() {
   const { signOut } = useAuth()
-  const { loading, toast, tenant, store, permissions, capabilities } = usePos()
+  const { loading, toast, tenant, store, permissions, activities, capabilities } = usePos()
   if (loading) return <div className="flex min-h-screen items-center justify-center bg-slate-100 font-bold text-slate-500">Carregando mesas e comandas...</div>
-  if (!permissions.includes('table.read') || !('table_service' in capabilities)) {
-    return <main className="flex min-h-screen items-center justify-center bg-slate-100 p-6"><section className="max-w-lg rounded-3xl bg-white p-8 text-center shadow-xl"><p className="text-xs font-black uppercase tracking-[.16em] text-rose-600">Acesso não contratado</p><h1 className="mt-2 text-2xl font-black text-slate-950">Mesas e comandas indisponíveis</h1><p className="mt-3 text-sm leading-6 text-slate-500">A permission e a capability da unidade são verificadas separadamente pelo servidor.</p><button onClick={() => navigateTo('/pos')} className="mt-6 rounded-xl bg-rose-600 px-5 py-3 text-sm font-black text-white">Voltar ao PDV</button></section></main>
+  if (!activities.includes('FOOD_SERVICE') || !permissions.includes('table.read') || !('table_service' in capabilities)) {
+    return <main className="flex min-h-screen items-center justify-center bg-slate-100 p-6"><section className="max-w-lg rounded-3xl bg-white p-8 text-center shadow-xl"><p className="text-xs font-black uppercase tracking-[.16em] text-rose-600">Jornada indisponível</p><h1 className="mt-2 text-2xl font-black text-slate-950">Mesas e comandas não fazem parte desta operação</h1><p className="mt-3 text-sm leading-6 text-slate-500">Esta tela só é publicada para unidades com a atividade FOOD_SERVICE contratada e ativa. Permissões ou registros antigos não alteram essa regra.</p><button onClick={() => navigateTo('/pos')} className="mt-6 rounded-xl bg-rose-600 px-5 py-3 text-sm font-black text-white">Voltar ao PDV</button></section></main>
   }
   return <div className="min-h-screen bg-slate-100">
     <Toast toast={toast} />

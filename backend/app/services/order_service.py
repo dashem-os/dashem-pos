@@ -26,6 +26,7 @@ from app.models.table_service import ServiceTable, TableSession, TableSessionSta
 from app.models.assortment import Assortment, SalesContextEnum
 from app.services.assortment_service import resolve_effective_product_ids
 from app.services import reliability_service, table_service
+from app.modules.capabilities.service import capability_allowed_by_activity
 
 
 def _hash(payload: dict[str, Any]) -> str:
@@ -117,10 +118,12 @@ def _fulfillment_to_context(fulfillment: OrderFulfillmentEnum) -> Optional[Sales
     return mapping.get(fulfillment)
 
 
-def _enforce_journey_capability(context: TenantContext, sales_context: SalesContextEnum) -> None:
+def _enforce_journey_capability(session: Session, context: TenantContext, sales_context: SalesContextEnum) -> None:
     caps = set(context.capabilities or ())
     if sales_context == SalesContextEnum.TABLE:
         if "table_service" not in caps:
+            if not capability_allowed_by_activity(session, context.tenant_id, "table_service"):
+                raise HTTPException(status_code=403, detail="Jornada de mesa indisponível: a atividade FOOD_SERVICE não está contratada e ativa nesta unidade.")
             raise HTTPException(status_code=403, detail="Capacidade 'table_service' não contratada ou inativa para esta unidade.")
     elif sales_context == SalesContextEnum.DELIVERY:
         if "delivery_orders" not in caps:
@@ -168,7 +171,7 @@ def create_order(
         raise HTTPException(status_code=404, detail="Unidade não encontrada.")
     order_context = _fulfillment_to_context(fulfillment)
     if order_context:
-        _enforce_journey_capability(context, order_context)
+        _enforce_journey_capability(session, context, order_context)
     if register_id:
         register = session.get(Register, register_id)
         if not register or register.tenant_id != context.tenant_id or register.store_id != store_id or not register.is_active:
@@ -288,7 +291,7 @@ def add_item(
     order_context = _fulfillment_to_context(order.fulfillment)
     if not order_context:
         raise HTTPException(status_code=400, detail=f"Contexto de fulfillment '{order.fulfillment}' inválido.")
-    _enforce_journey_capability(context, order_context)
+    _enforce_journey_capability(session, context, order_context)
 
     authorized_ids = resolve_effective_product_ids(
         session, context.tenant_id, order.store_id, order_context, order.channel_id

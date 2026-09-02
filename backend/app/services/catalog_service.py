@@ -17,6 +17,7 @@ from app.models.catalog import (
 from app.models.assortment import SalesContextEnum
 from app.services.assortment_service import resolve_effective_product_ids
 from app.services import reliability_service
+from app.modules.capabilities.service import capability_allowed_by_activity
 
 
 def _actor(context: TenantContext) -> uuid.UUID:
@@ -189,6 +190,8 @@ def list_sellable_products(
         caps = set(context.capabilities or ())
         if sales_context == SalesContextEnum.TABLE:
             if "table_service" not in caps:
+                if not capability_allowed_by_activity(session, context.tenant_id, "table_service"):
+                    raise HTTPException(status_code=403, detail="Jornada de mesa indisponível: a atividade FOOD_SERVICE não está contratada e ativa nesta unidade.")
                 raise HTTPException(status_code=403, detail="Capacidade 'table_service' não contratada ou inativa para esta unidade.")
         elif sales_context == SalesContextEnum.DELIVERY:
             if "delivery_orders" not in caps:

@@ -47,6 +47,7 @@ export const PosLayout: React.FC = () => {
     actionLoading,
     openPaymentModal,
     permissions,
+    activities,
     capabilities,
   } = usePos()
 
@@ -135,7 +136,7 @@ export const PosLayout: React.FC = () => {
             )}
           </div>
 
-          {permissions.includes('table.read') && 'table_service' in capabilities && <button
+          {activities.includes('FOOD_SERVICE') && permissions.includes('table.read') && 'table_service' in capabilities && <button
             onClick={() => navigateTo(managementValidation ? '/manage?module=tables' : '/tables')}
             className="h-9 px-3.5 rounded-xl bg-orange-50 hover:bg-orange-100 text-orange-800 text-xs font-bold flex items-center space-x-1.5 transition-colors border border-orange-200 active:scale-95"
             title="Operar mesas e comandas"

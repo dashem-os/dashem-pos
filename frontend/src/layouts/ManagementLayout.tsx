@@ -44,17 +44,19 @@ export const ManagementLayout: React.FC = () => {
   })
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false)
   const { signOut } = useAuth()
-  const { tenant, store, contributions } = usePos()
+  const { tenant, store, contributions, activities } = usePos()
 
   const visibleGroups = useMemo(() => {
     const groups = new Map<string, NavigationItem[]>()
-    contributions.filter(item => item.surface === 'MANAGEMENT_NAV' && MODULE_IDS.has(item.implementation_key as ModuleId)).forEach(item => {
+    contributions.filter(item => item.surface === 'MANAGEMENT_NAV' && MODULE_IDS.has(item.implementation_key as ModuleId))
+      .filter(item => item.implementation_key !== 'tables' || activities.includes('FOOD_SERVICE'))
+      .forEach(item => {
       const group = item.group_key || 'OUTROS'
       const entry: NavigationItem = { id: item.implementation_key as ModuleId, label: item.label, icon: MODULE_ICONS[item.implementation_key as ModuleId] }
       groups.set(group, [...(groups.get(group) || []), entry])
     })
     return Array.from(groups, ([label, items]) => ({ label, items }))
-  }, [contributions])
+  }, [activities, contributions])
   const selected = visibleGroups.flatMap((group) => group.items).find((item) => item.id === module)
   const availableModules = useMemo(() => new Set(visibleGroups.flatMap((group) => group.items.map((item) => item.id))), [visibleGroups])
 

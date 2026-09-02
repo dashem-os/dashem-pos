@@ -7,6 +7,24 @@ from app.modules.capabilities.registry import CAPABILITY_REGISTRY, resolve_depen
 from app.services.contract_entitlement_service import resolve_contract_entitlements
 
 
+TABLE_SERVICE_ACTIVITY = "FOOD_SERVICE"
+
+
+def capability_allowed_by_activity(session: Session, tenant_id, capability_key: str) -> bool:
+    """Return whether a contracted capability is coherent with tenant activities.
+
+    The activity list is part of the immutable contract snapshot.  A table
+    journey is a food-service concern; a permission or a stale capability row
+    must never publish it for a retail/beauty tenant.  Pre-contract tenants are
+    kept readable through the explicit legacy path until they receive a
+    contract snapshot.
+    """
+    if capability_key != "table_service":
+        return True
+    snapshot = resolve_contract_entitlements(session, tenant_id)
+    return snapshot is None or TABLE_SERVICE_ACTIVITY in snapshot.activity_keys
+
+
 def effective_capabilities(session: Session, tenant_id, store_id: Optional[object] = None) -> dict[str, dict[str, Any]]:
     entitlements = session.exec(
         select(TenantCapability).where(
@@ -27,6 +45,11 @@ def effective_capabilities(session: Session, tenant_id, store_id: Optional[objec
         # Pre-contract tenants remain readable from their persisted grants. This
         # is explicit legacy state, never an inference from the current plan.
         enabled = persisted
+    enabled = {
+        key: value
+        for key, value in enabled.items()
+        if capability_allowed_by_activity(session, tenant_id, key)
+    }
     if store_id:
         overrides = session.exec(
             select(StoreCapabilityOverride).where(

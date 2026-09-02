@@ -160,6 +160,29 @@ Aceite do gate:
 Prompt de execução e critérios técnicos:
 [`sprint-5-4-gate-0-agent-prompt.md`](sprint-5-4-gate-0-agent-prompt.md).
 
+### Gate 5.4.1 — Elegibilidade da jornada por área de atuação
+
+Este gate corrige uma contradição de autorização descoberta na validação do
+tenant. A capability `table_service` não é suficiente para publicar mesas:
+ela só é elegível quando o snapshot contratual da unidade contém
+`FOOD_SERVICE`. A regra vale para API, navegação de Gestão, botão do PDV e
+rota operacional; permissão ou registro legado não pode reabrir a jornada.
+
+- `FOOD_SERVICE` + `table_service` + permissão efetiva: mesas e reservas são
+  publicadas;
+- atividades sobrepostas (por exemplo `FOOD_SERVICE` + `RETAIL`) continuam
+  permitidas, respeitando os vínculos de sortimento de cada contexto;
+- somente `RETAIL`, somente `BEAUTY_RESELLER` ou snapshot sem atividades não
+  exibem nem aceitam mesas;
+- tenants pré-contrato permanecem no caminho de compatibilidade explicitamente
+  identificado, sem que o sistema invente uma área de atuação;
+- combinação contratual incoerente não é escondida por CSS: a capability é
+  removida da resolução efetiva e a API responde indisponibilidade da jornada.
+
+O gate é pré-requisito para a avaliação visual do restante do Sprint 5.4. A
+mistura de produtos elétricos em uma tela de mesas é um problema separado de
+sortimento persistido e não será corrigida por filtro visual ou texto fixo.
+
 Escopo:
 
 - roteiro assistido para administrador do tenant e operador;
