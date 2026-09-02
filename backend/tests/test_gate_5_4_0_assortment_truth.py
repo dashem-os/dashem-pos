@@ -78,6 +78,13 @@ async def test_new_tenant_without_assortments_has_no_fallback_on_order_add_item(
         store = (await client.post("/api/v1/identity/stores", json={
             "tenant_id": tenant["id"], "name": "Matriz", "code": f"M-{suffix}"
         })).json()
+        with Session(engine) as db:
+            set_platform_db_context(db)
+            db.add(TenantCapability(
+                tenant_id=uuid.UUID(tenant["id"]), key="counter_order",
+                enabled=True, status=EntitlementStatusEnum.ACTIVE,
+            ))
+            db.commit()
         headers = {"X-Tenant-ID": tenant["id"], "X-Store-ID": store["id"]}
 
         # Create master product with price and stock
@@ -127,6 +134,13 @@ async def test_two_stores_same_tenant_independent_assortment_scopes():
         store2 = (await client.post("/api/v1/identity/stores", json={
             "tenant_id": tenant["id"], "name": "Loja 2", "code": f"L2-{suffix}"
         })).json()
+        with Session(engine) as db:
+            set_platform_db_context(db)
+            db.add(TenantCapability(
+                tenant_id=uuid.UUID(tenant["id"]), key="counter_order",
+                enabled=True, status=EntitlementStatusEnum.ACTIVE,
+            ))
+            db.commit()
         h1 = {"X-Tenant-ID": tenant["id"], "X-Store-ID": store1["id"]}
         h2 = {"X-Tenant-ID": tenant["id"], "X-Store-ID": store2["id"]}
 
