@@ -205,6 +205,25 @@ Este gate não é o redesign visual completo. Densidade, responsividade e
 hierarquia do PDV permanecem como trabalho de UI/UX posterior, sem misturar
 sortimento de atividades distintas nem introduzir dados demonstrativos.
 
+### Gate 5.4.3 — Leitura e responsividade do PDV
+
+O primeiro incremento visual deve melhorar a leitura do fluxo de venda sem
+alterar a autoridade dos dados. O escopo é deliberadamente pequeno e
+verificável:
+
+- cartões de produto têm área de toque e tipografia suficientes para leitura em
+  telas menores, sem truncar silenciosamente o nome da mercadoria;
+- a busca principal permanece visível e utilizável por toque, teclado e leitor
+  de código de barras;
+- a grade se adapta a larguras intermediárias antes de formar duas colunas;
+- o carrinho continua separado do catálogo e acessível no mobile;
+- nenhum texto novo afirma integração, estoque ou venda que não esteja presente
+  na projeção persistida.
+
+Este gate não reorganiza categorias, não classifica produtos pelo nicho e não
+introduz mesas para atividades que não as contrataram. A validação deve cobrir
+larguras de 360px, 768px e 1280px, além de contraste e foco de teclado.
+
 Escopo:
 
 - roteiro assistido para administrador do tenant e operador;

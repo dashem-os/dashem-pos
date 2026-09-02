@@ -115,7 +115,7 @@ export const ProductSearch: React.FC = () => {
   return (
     <div ref={containerRef} className="relative w-full">
       <form onSubmit={handleScanOrSubmit} className="relative w-full">
-        <div className="relative flex items-center bg-white rounded-2xl border-2 border-slate-200 focus-within:border-rose-600 focus-within:ring-4 focus-within:ring-rose-500/10 shadow-sm transition-all h-14">
+        <div className="relative flex h-16 items-center rounded-2xl border-2 border-slate-200 bg-white shadow-sm transition-all focus-within:border-rose-600 focus-within:ring-4 focus-within:ring-rose-500/10">
           <div className="pl-4 pr-2 text-slate-400 flex items-center space-x-2 shrink-0">
             <Barcode className="w-6 h-6 text-rose-600" />
             <Search className="w-4 h-4 text-slate-400" />
@@ -131,7 +131,7 @@ export const ProductSearch: React.FC = () => {
             }}
             placeholder="Escanear código de barras (Enter) ou digitar SKU / nome..."
             disabled={!isCashOpen || !canSell || actionLoading}
-            className="w-full h-full pr-24 bg-transparent text-slate-900 placeholder:text-slate-400 font-semibold text-sm sm:text-base outline-none disabled:opacity-50"
+            className="h-full w-full bg-transparent pr-24 text-base font-semibold text-slate-900 outline-none placeholder:text-slate-400 disabled:opacity-50 sm:text-lg"
           />
 
           <div className="absolute right-3 flex items-center space-x-1.5 shrink-0">

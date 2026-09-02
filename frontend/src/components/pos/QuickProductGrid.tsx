@@ -84,7 +84,7 @@ export const QuickProductGrid: React.FC = () => {
       </div>
 
       {/* Touch Grid of Product Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-2.5 sm:gap-3">
+      <div className="grid grid-cols-1 min-[420px]:grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4" aria-label="Produtos disponíveis para venda">
         {filteredProducts.map((product) => {
           const price = prices[product.id] ?? 0
           const stock = balances[product.id] ?? 0
@@ -96,7 +96,7 @@ export const QuickProductGrid: React.FC = () => {
               key={product.id}
               onClick={() => addItemToCart(product.id, 1)}
               disabled={actionLoading || !canSell}
-              className="group relative flex flex-col justify-between p-3 sm:p-3.5 rounded-2xl bg-white border border-slate-200 hover:border-rose-400 hover:shadow-md active:scale-[0.98] transition-all text-left min-h-[120px] shadow-sm select-none"
+              className="group relative flex min-h-[148px] flex-col justify-between rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition-all hover:border-rose-400 hover:shadow-md active:scale-[0.98] select-none sm:min-h-[160px] sm:p-5"
             >
               {/* Header: Category & Stock */}
               <div className="flex items-center justify-between w-full mb-1">
@@ -121,7 +121,7 @@ export const QuickProductGrid: React.FC = () => {
 
               {/* Title & SKU */}
               <div className="my-1 flex-1">
-                <h4 className="text-xs sm:text-sm font-bold text-slate-900 leading-snug line-clamp-2 group-hover:text-rose-600 transition-colors">
+                <h4 className="text-sm font-bold leading-snug text-slate-900 transition-colors line-clamp-3 group-hover:text-rose-600 sm:text-base">
                   {product.name}
                 </h4>
                 <span className="text-[11px] font-mono text-slate-400 mt-0.5 block">{product.sku}</span>

@@ -29,3 +29,11 @@ test('searches and paginates server-side in POS and Gestão', () => {
   assert.match(catalog, /pageSize: 25/)
   assert.doesNotMatch(catalog, /products\.filter/)
 })
+
+test('keeps the POS catalog readable and responsive without changing its data authority', () => {
+  assert.match(quickGrid, /min-\[420px\]:grid-cols-2/)
+  assert.match(quickGrid, /min-h-\[148px\]/)
+  assert.match(quickGrid, /line-clamp-3/)
+  assert.match(search, /h-16 items-center/)
+  assert.match(search, /text-base font-semibold/)
+})

@@ -235,7 +235,7 @@ export const PosLayout: React.FC = () => {
         /* CASH OPEN: MAIN OPERATIONAL WORKSPACE                                     */
         /* 2-Column on >= 1024px (lg:), Single Column with Fixed Bottom on < 1024px  */
         /* ========================================================================= */
-        <main className="flex-1 flex flex-col lg:flex-row overflow-hidden p-3 sm:p-4 gap-3 sm:gap-4 max-w-[1920px] w-full mx-auto">
+        <main className="mx-auto flex w-full max-w-[1920px] flex-1 flex-col gap-4 overflow-hidden p-3 sm:gap-5 sm:p-5 lg:flex-row">
           {/* LEFT COLUMN: Search + Category Tabs + Touch Product Grid */}
           <div className="flex-1 flex flex-col space-y-3 overflow-y-auto min-w-0 pr-0.5">
             <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl p-1.5 w-fit" aria-label="Modo da operação">
