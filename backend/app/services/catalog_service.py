@@ -14,6 +14,8 @@ from app.models.catalog import (
     ModifierGroup, Product, ProductModifierGroup, ProductPrice,
     QuickAccessProduct,
 )
+from app.models.assortment import SalesContextEnum
+from app.services.assortment_service import resolve_effective_product_ids
 from app.services import reliability_service
 
 
@@ -151,9 +153,59 @@ def list_prices(session: Session, context: TenantContext, store_id: Optional[uui
     return list(session.exec(query).all())
 
 
-def list_sellable_products(session: Session, context: TenantContext, page: int, page_size: int, search: Optional[str], category_id: Optional[uuid.UUID], quick_access: bool) -> dict[str, Any]:
+def list_sellable_products(
+    session: Session,
+    context: TenantContext,
+    page: int,
+    page_size: int,
+    search: Optional[str],
+    category_id: Optional[uuid.UUID],
+    quick_access: bool,
+    sales_context: Optional[SalesContextEnum] = None,
+    channel_id: Optional[uuid.UUID] = None,
+    master: bool = False,
+) -> dict[str, Any]:
     if not context.store_id:
         raise HTTPException(status_code=400, detail="X-Store-ID é obrigatório para o catálogo operacional.")
+
+    # The local subject is an explicit development/test boundary. Every
+    # authenticated deployment must carry the management permission; an
+    # operational token must never turn the master flag into a publication
+    # bypass.
+    if master and context.auth_subject != "local-auth-bypass" and "management.read" not in context.permissions:
+        raise HTTPException(
+            status_code=403,
+            detail="O catálogo mestre exige autorização gerencial explícita.",
+        )
+
+    authorized_product_ids: set[uuid.UUID] = set()
+    if not master:
+        if not sales_context:
+            raise HTTPException(
+                status_code=400,
+                detail="Contexto de venda (sales_context: COUNTER, TAKEAWAY, TABLE, DELIVERY, ECOMMERCE) é obrigatório.",
+            )
+
+        caps = set(context.capabilities or ())
+        if sales_context == SalesContextEnum.TABLE:
+            if "table_service" not in caps:
+                raise HTTPException(status_code=403, detail="Capacidade 'table_service' não contratada ou inativa para esta unidade.")
+        elif sales_context == SalesContextEnum.DELIVERY:
+            if "delivery_orders" not in caps:
+                raise HTTPException(status_code=403, detail="Capacidade 'delivery_orders' não contratada ou inativa para esta unidade.")
+        elif sales_context in {SalesContextEnum.COUNTER, SalesContextEnum.TAKEAWAY}:
+            if "counter_order" not in caps:
+                raise HTTPException(status_code=403, detail="Capacidade 'counter_order' não contratada ou inativa para esta unidade.")
+        elif sales_context == SalesContextEnum.ECOMMERCE:
+            if "ecommerce" not in caps:
+                raise HTTPException(status_code=403, detail="Jornada de e-commerce não contratada ou habilitada para esta unidade.")
+
+        authorized_product_ids = resolve_effective_product_ids(
+            session, context.tenant_id, context.store_id, sales_context, channel_id
+        )
+        if not authorized_product_ids:
+            return {"items": [], "total": 0, "page": page, "page_size": page_size}
+
     StorePrice, GlobalPrice = aliased(ProductPrice), aliased(ProductPrice)
     Balance, Quick = aliased(InventoryBalance), aliased(QuickAccessProduct)
     sale_price = func.coalesce(StorePrice.sale_price, GlobalPrice.sale_price, 0)
@@ -175,8 +227,16 @@ def list_sellable_products(session: Session, context: TenantContext, page: int, 
         .outerjoin(GlobalPrice, and_(GlobalPrice.product_id == Product.id, GlobalPrice.tenant_id == Product.tenant_id, GlobalPrice.store_id.is_(None)))
         .outerjoin(Balance, and_(Balance.product_id == Product.id, Balance.tenant_id == Product.tenant_id, Balance.store_id == context.store_id))
         .outerjoin(Quick, and_(Quick.product_id == Product.id, Quick.tenant_id == Product.tenant_id, Quick.store_id == context.store_id, Quick.membership_id == context.membership_id))
-        .where(Product.tenant_id == context.tenant_id, Product.is_active.is_(True), Product.available_for_sale.is_(True))
+        .where(
+            Product.tenant_id == context.tenant_id,
+            Product.is_active.is_(True),
+        )
     )
+    if not master:
+        query = query.where(
+            Product.available_for_sale.is_(True),
+            Product.id.in_(authorized_product_ids),
+        )
     if category_id: query = query.where(Product.category_id == category_id)
     if quick_access: query = query.where(Quick.id.is_not(None))
     if search:

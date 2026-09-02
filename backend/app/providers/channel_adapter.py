@@ -71,7 +71,7 @@ class UnavailableExternalAdapter:
 
 def resolve_channel_adapter(provider_code: str) -> ChannelAdapter:
     if provider_code == "CONTRACT_TEST":
-        if settings.ENVIRONMENT.lower() != "test":
+        if settings.ENVIRONMENT.lower() not in {"test", "development"}:
             raise LookupError("Adapter de contrato indisponível fora de testes.")
         return ContractTestChannelAdapter()
     return UnavailableExternalAdapter()

@@ -31,6 +31,12 @@ async def _context(client: httpx.AsyncClient, prefix: str):
     await client.post("/api/v1/catalog/prices", headers=headers, json={
         "product_id": product["id"], "store_id": store["id"], "cost_price": 10, "sale_price": 60,
     })
+    await client.post("/api/v1/catalog/assortments", headers=headers, json={
+        "code": f"ASSORT-REC-{uuid.uuid4().hex[:8]}",
+        "name": "Sortimento Balcão",
+        "scopes": [{"store_id": store["id"], "sales_context": "COUNTER"}],
+        "product_ids": [product["id"]],
+    })
     return tenant, store, headers, actor, customer, product
 
 

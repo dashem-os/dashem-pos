@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react'
-import { Archive, Package, Plus, Search, ArrowUpDown, CheckCircle2, Star } from 'lucide-react'
+import { Archive, Package, Plus, Search, ArrowUpDown, CheckCircle2, Star, AlertCircle } from 'lucide-react'
 import { usePos } from '../../context/PosContext'
 import { Modal } from '../common/Modal'
 import * as api from '../../services/api'
 
 export const CatalogManager: React.FC = () => {
-  const { tenant, store, products, createNewProduct, adjustStock, refreshData, actionLoading } = usePos()
+  const { tenant, store, products, prices, balances, createNewProduct, adjustStock, refreshData, actionLoading } = usePos()
   const [searchQuery, setSearchQuery] = useState('')
   const [catalogItems, setCatalogItems] = useState<api.SellableProduct[]>([])
   const [total, setTotal] = useState(0)
@@ -28,23 +28,37 @@ export const CatalogManager: React.FC = () => {
   const [adjustType, setAdjustType] = useState<'PURCHASE' | 'LOSS' | 'ADJUSTMENT'>('PURCHASE')
   const [adjustReason, setAdjustReason] = useState('Entrada de Mercadoria')
   const [minimumStock, setMinimumStock] = useState('')
+  const [viewMode, setViewMode] = useState<'MASTER' | 'PROJECTION'>('MASTER')
+  const [salesContext, setSalesContext] = useState<api.SalesContext>('COUNTER')
+  const [contextError, setContextError] = useState<string | null>(null)
+  const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => {
     if (!tenant || !store) return
+
     const timer = window.setTimeout(() => {
+      setContextError(null)
       api.fetchSellableProducts(
         { 'X-Tenant-ID': tenant.id, 'X-Store-ID': store.id },
-        { page, pageSize: 25, search: searchQuery.trim() || undefined }
+        {
+          sales_context: salesContext,
+          master: viewMode === 'MASTER',
+          page,
+          pageSize: 25,
+          search: searchQuery.trim() || undefined,
+        }
       ).then((result) => {
         setCatalogItems(result.items)
         setTotal(result.total)
-      }).catch(() => {
+        setContextError(null)
+      }).catch((err: unknown) => {
         setCatalogItems([])
         setTotal(0)
+        setContextError(err instanceof Error ? err.message : 'Falha ao carregar catálogo.')
       })
     }, 250)
     return () => window.clearTimeout(timer)
-  }, [tenant, store, page, searchQuery, products])
+  }, [tenant, store, page, searchQuery, viewMode, salesContext, reloadKey])
 
   const handleCreateProduct = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -130,6 +144,84 @@ export const CatalogManager: React.FC = () => {
           <span>Cadastrar Novo Produto</span>
         </button>
       </div>
+
+      {/* View Mode Switcher: Master Catalog vs Operational Projection */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-dashem-border pb-3">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => { setViewMode('MASTER'); setPage(1); setContextError(null) }}
+            className={`px-4 py-2 rounded-2xl text-xs font-black transition ${
+              viewMode === 'MASTER'
+                ? 'bg-dashem-red text-white shadow-sm'
+                : 'bg-dashem-surface border border-dashem-border text-dashem-muted hover:text-white'
+            }`}
+          >
+            Catálogo Mestre ({viewMode === 'MASTER' ? total : products.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => { setViewMode('PROJECTION'); setPage(1) }}
+            className={`px-4 py-2 rounded-2xl text-xs font-black transition ${
+              viewMode === 'PROJECTION'
+                ? 'bg-dashem-red text-white shadow-sm'
+                : 'bg-dashem-surface border border-dashem-border text-dashem-muted hover:text-white'
+            }`}
+          >
+            Projeção Vendável por Contexto
+          </button>
+        </div>
+
+        {viewMode === 'PROJECTION' && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs font-bold text-dashem-muted mr-1">Contexto de Venda:</span>
+            {([
+              { key: 'COUNTER', label: 'Balcão', operational: true },
+              { key: 'TAKEAWAY', label: 'Retirada', operational: true },
+              { key: 'TABLE', label: 'Mesa', operational: true },
+              { key: 'DELIVERY', label: 'Delivery', operational: true },
+              { key: 'ECOMMERCE', label: 'E-commerce', operational: false },
+            ] as const).map((item) => {
+              const active = salesContext === item.key
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  disabled={!item.operational}
+                  onClick={() => { setSalesContext(item.key as api.SalesContext); setPage(1) }}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+                    !item.operational
+                      ? 'opacity-40 cursor-not-allowed bg-dashem-surface border border-dashem-border text-dashem-muted'
+                      : active
+                        ? 'bg-white text-dashem-bg font-black shadow-sm'
+                        : 'bg-dashem-surface border border-dashem-border text-dashem-muted hover:text-white'
+                  }`}
+                  title={!item.operational ? 'Jornada não contratada' : undefined}
+                >
+                  {item.label}
+                </button>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Explicit Error Banner & Retry */}
+      {contextError && (
+        <div className="p-4 rounded-2xl bg-rose-950/40 border border-rose-800/60 flex items-center justify-between text-xs text-rose-200">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+            <span>{contextError}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setReloadKey(k => k + 1)}
+            className="px-3 py-1 rounded-xl bg-rose-900/60 hover:bg-rose-800 border border-rose-700 text-[11px] font-bold text-white transition"
+          >
+            Tentar novamente
+          </button>
+        </div>
+      )}
 
       {/* Search Input */}
       <div className="relative">

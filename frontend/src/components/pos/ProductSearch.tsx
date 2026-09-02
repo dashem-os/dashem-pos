@@ -6,7 +6,7 @@ import * as api from '../../services/api'
 import { formatCurrency, formatStock } from '../../utils/format'
 
 export const ProductSearch: React.FC = () => {
-  const { tenant, store, prices, balances, addItemToCart, showToast, actionLoading, cashSession, permissions, connectionState } = usePos()
+  const { tenant, store, prices, balances, addItemToCart, showToast, actionLoading, cashSession, permissions, connectionState, operationMode } = usePos()
   const [query, setQuery] = useState('')
   const [searchResults, setSearchResults] = useState<SellableProduct[]>([])
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
@@ -74,7 +74,7 @@ export const ProductSearch: React.FC = () => {
     if (!tenant || !store) return
     const result = await api.fetchSellableProducts(
       { 'X-Tenant-ID': tenant.id, 'X-Store-ID': store.id },
-      { search: clean, pageSize: 20 }
+      { sales_context: operationMode, search: clean, pageSize: 20 }
     ).catch(() => null)
     const matches = result?.items || []
 

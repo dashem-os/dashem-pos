@@ -20,6 +20,7 @@ from app.models.channel_hub import (
     ExternalOrderMapping, MerchantConnection, MerchantConnectionStatusEnum,
 )
 from app.models.order import OrderFulfillmentEnum, OrderOriginEnum
+from app.modules.capabilities.service import effective_capabilities
 from app.providers.channel_adapter import resolve_channel_adapter
 from app.services import order_service, reliability_service
 
@@ -47,7 +48,7 @@ def create_connection(
         raise HTTPException(status_code=403, detail="Conexão fora da unidade ativa.")
     actor = _actor(context, actor_id)
     code = provider_code.strip().upper()
-    if code == "CONTRACT_TEST" and settings.ENVIRONMENT.lower() != "test":
+    if code == "CONTRACT_TEST" and settings.ENVIRONMENT.lower() not in {"test", "development"}:
         raise HTTPException(status_code=422, detail="Adapter de contrato existe somente em testes.")
     payload = {
         "store_id": str(store_id), "provider_code": code,
@@ -204,10 +205,12 @@ def receive_event(
     # The provider identity is server-issued and cannot be selected by the
     # webhook payload.  Downstream services therefore see the persisted
     # service principal as their authoritative context actor.
+    effective = effective_capabilities(session, tenant_id, store_id)
     context = TenantContext(
         tenant_id=tenant_id, store_id=store_id,
         user_id=connection.service_actor_id,
         auth_subject=f"service:channel:{connection.id}",
+        capabilities=tuple(effective.keys()),
     )
     mapping = session.exec(select(ExternalOrderMapping).where(
         ExternalOrderMapping.merchant_connection_id == connection.id,

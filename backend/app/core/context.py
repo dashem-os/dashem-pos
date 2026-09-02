@@ -18,6 +18,7 @@ from app.models.identity import (
     RoleEnum, Store, Tenant, TenantStatusEnum, User,
 )
 from app.models.device import OperationalDevice, OperationalDeviceStatusEnum
+from app.modules.capabilities.service import effective_capabilities
 from app.services.operational_session_service import mark_expired
 
 
@@ -114,12 +115,15 @@ def authorize_tenant_context(
 ) -> TenantContext:
     if principal.bypass:
         set_tenant_db_context(session, tenant_id, store_id, principal.legacy_user_id)
+        effective = effective_capabilities(session, tenant_id, store_id)
+        caps = tuple(effective.keys())
         return TenantContext(
             tenant_id=tenant_id,
             store_id=store_id,
             user_id=principal.legacy_user_id,
             auth_subject=principal.subject,
             auth_provider=principal.provider,
+            capabilities=caps,
         )
 
     user = resolve_internal_user(session, principal)

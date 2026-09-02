@@ -26,6 +26,22 @@ async def _context(client: httpx.AsyncClient, prefix: str):
     store = (await client.post("/api/v1/identity/stores", json={
         "tenant_id": tenant["id"], "name": "Matriz", "code": f"{prefix[:3].upper()}-{suffix}",
     })).json()
+    with Session(engine) as db:
+        set_platform_db_context(db)
+        from app.models.platform import TenantCapability, EntitlementStatusEnum
+        db.add(TenantCapability(
+            tenant_id=uuid.UUID(tenant["id"]),
+            key="counter_order",
+            enabled=True,
+            status=EntitlementStatusEnum.ACTIVE,
+        ))
+        db.add(TenantCapability(
+            tenant_id=uuid.UUID(tenant["id"]),
+            key="table_service",
+            enabled=True,
+            status=EntitlementStatusEnum.ACTIVE,
+        ))
+        db.commit()
     headers = {"X-Tenant-ID": tenant["id"], "X-Store-ID": store["id"]}
     table = (await client.post("/api/v1/tables", headers={**headers, "Idempotency-Key": f"table-{suffix}"}, json={
         "store_id": store["id"], "code": "M-01", "name": "Mesa 01", "capacity": 4, "actor_id": actor,
@@ -34,12 +50,21 @@ async def _context(client: httpx.AsyncClient, prefix: str):
         "store_id": store["id"], "service_table_id": table["id"], "actor_id": actor,
     })).json()
     order_id = table_session["orders"][0]["id"]
+    assortment = (await client.post("/api/v1/catalog/assortments", headers=headers, json={
+        "code": f"ASSORT-S8-{suffix}",
+        "name": "Sortimento Mesas",
+        "scopes": [{"store_id": store["id"], "sales_context": "TABLE"}],
+        "product_ids": [],
+    })).json()
     for index, price in enumerate((10, 20, 34.9), start=1):
         product = (await client.post("/api/v1/catalog/products", headers=headers, json={
             "name": f"Item {index}", "sku": f"S8-{suffix}-{index}", "unit": "UN", "tracks_inventory": False,
         })).json()
         await client.post("/api/v1/catalog/prices", headers=headers, json={
             "product_id": product["id"], "store_id": store["id"], "cost_price": 1, "sale_price": price,
+        })
+        await client.post(f"/api/v1/catalog/assortments/{assortment['id']}/products", headers=headers, json={
+            "expected_version": index, "product_ids": [product["id"]],
         })
         launched = await client.post(f"/api/v1/orders/{order_id}/items", headers={
             **headers, "Idempotency-Key": f"item-{suffix}-{index}",
@@ -186,6 +211,12 @@ async def test_s8_concurrent_intents_cannot_overbook_and_consumption_change_inva
         })).json()
         await client.post("/api/v1/catalog/prices", headers=headers, json={
             "product_id": product["id"], "store_id": store["id"], "cost_price": 1, "sale_price": 1,
+        })
+        await client.post("/api/v1/catalog/assortments", headers=headers, json={
+            "code": f"ASSORT-CH-{uuid.uuid4().hex[:8]}",
+            "name": "Sortimento Mudança",
+            "scopes": [{"store_id": store["id"], "sales_context": "TABLE"}],
+            "product_ids": [product["id"]],
         })
         changed = await client.post(f"/api/v1/orders/{order_id}/items", headers={
             **headers, "Idempotency-Key": f"changed-{uuid.uuid4()}",

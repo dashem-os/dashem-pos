@@ -40,6 +40,9 @@ from app.models.catalog import (
     QuickAccessProduct, ModifierGroup, Modifier, ProductModifierGroup,
     Combo, ComboItem, ItemTypeEnum, MovementTypeEnum,
 )
+from app.models.assortment import (
+    Assortment, AssortmentScope, AssortmentProduct, AssortmentStatusEnum, SalesContextEnum,
+)
 from app.models.sale import (
     Customer, Sale, SaleItem, SaleStatusEnum, DiscountTypeEnum,
     FulfillmentTypeEnum, SaleOperationModeEnum, SyncStatusEnum,
@@ -267,4 +270,5 @@ __all__ = [
     "SaasFinanceDailyMetric", "SaasFinanceSubscriptionSnapshot",
     "SaasMrrMovementTypeEnum",
     "StorageMeterSource", "StorageMeasurement", "StorageProviderMeasurement", "StorageReservation",
+    "Assortment", "AssortmentScope", "AssortmentProduct", "AssortmentStatusEnum", "SalesContextEnum",
 ]

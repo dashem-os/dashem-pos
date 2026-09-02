@@ -36,6 +36,13 @@ async def test_s6_order_stays_open_accepts_idempotent_launches_and_snapshots_mod
         })).json()
         await client.post(f"/api/v1/catalog/products/{product['id']}/modifier-groups", headers=headers, json={"group_id": group["id"], "position": 1})
 
+        await client.post("/api/v1/catalog/assortments", headers=headers, json={
+            "code": f"ASSORT-O-{suffix}",
+            "name": "Sortimento Retirada",
+            "scopes": [{"store_id": store["id"], "sales_context": "TAKEAWAY"}],
+            "product_ids": [product["id"]],
+        })
+
         order_key = f"order-open-{suffix}"
         order_payload = {
             "store_id": store["id"], "origin": "POS", "fulfillment": "TAKEAWAY",

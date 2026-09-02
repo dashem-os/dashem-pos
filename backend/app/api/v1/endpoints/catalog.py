@@ -12,9 +12,12 @@ from app.models.catalog import (
     Category, Combo, ItemTypeEnum, Modifier, ModifierGroup, Product,
     ProductModifierGroup, ProductPrice, QuickAccessProduct,
 )
+from app.models.assortment import SalesContextEnum
+from app.api.v1.endpoints import assortments
 from app.services import catalog_service
 
 router = APIRouter()
+router.include_router(assortments.router, prefix="/assortments", tags=["Assortments & Menus"])
 
 
 class CategoryCreateDTO(BaseModel):
@@ -177,12 +180,18 @@ def archive_product_endpoint(product_id: uuid.UUID, context: TenantContext = Dep
 
 @router.get("/sellable-products", response_model=SellableProductPageDTO)
 def sellable_products_endpoint(
+    sales_context: Optional[SalesContextEnum] = Query(default=None, description="Contexto de venda obrigatório exceto em modo master"),
+    channel_id: Optional[uuid.UUID] = Query(default=None, description="Canal de venda opcional"),
+    master: bool = Query(default=False, description="Visualizar catálogo mestre da unidade"),
     page: int = Query(default=1, ge=1), page_size: int = Query(default=50, ge=1, le=100),
     search: Optional[str] = Query(default=None, max_length=160), category_id: Optional[uuid.UUID] = None,
     quick_access: bool = False, context: TenantContext = Depends(get_tenant_context),
     session: Session = Depends(get_session),
 ):
-    return catalog_service.list_sellable_products(session, context, page, page_size, search, category_id, quick_access)
+    return catalog_service.list_sellable_products(
+        session, context, page, page_size, search, category_id, quick_access,
+        sales_context=sales_context, channel_id=channel_id, master=master,
+    )
 
 
 @router.post("/prices", response_model=ProductPrice)

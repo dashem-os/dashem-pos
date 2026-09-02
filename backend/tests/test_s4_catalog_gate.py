@@ -52,7 +52,18 @@ async def test_s4_catalog_projection_pagination_stock_policy_and_composition():
         })
         assert minimum.status_code == 200
 
-        projection_response = await client.get("/api/v1/catalog/sellable-products?page=1&page_size=1&search=BURGER", headers=headers)
+        assortment_res = await client.post("/api/v1/catalog/assortments", headers=headers, json={
+            "code": f"ASSORT-{suffix}",
+            "name": "Sortimento Balcão",
+            "scopes": [{"store_id": store["id"], "sales_context": "COUNTER"}],
+            "product_ids": [product["id"]],
+        })
+        assert assortment_res.status_code == 201
+
+        projection_response = await client.get(
+            "/api/v1/catalog/sellable-products?sales_context=COUNTER&page=1&page_size=1&search=BURGER",
+            headers=headers,
+        )
         assert projection_response.status_code == 200, projection_response.text
         projection = projection_response.json()
         assert projection["total"] == 1
@@ -87,7 +98,7 @@ async def test_s4_catalog_projection_pagination_stock_policy_and_composition():
 
         archived = await client.delete(f"/api/v1/catalog/products/{product['id']}", headers=headers)
         assert archived.status_code == 200
-        hidden = await client.get("/api/v1/catalog/sellable-products?search=BURGER", headers=headers)
+        hidden = await client.get("/api/v1/catalog/sellable-products?sales_context=COUNTER&search=BURGER", headers=headers)
         assert hidden.status_code == 200
         assert hidden.json()["total"] == 0
 

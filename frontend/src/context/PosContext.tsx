@@ -136,13 +136,7 @@ export const PosProvider: React.FC<{
     setTimeout(() => setToast(null), 4000)
   }, [])
 
-  const setOperationMode = useCallback((mode: 'COUNTER' | 'TAKEAWAY') => {
-    if (currentSale && currentSale.items.length > 0 && currentSale.status !== 'COMPLETED' && currentSale.status !== 'CANCELED') {
-      showToast('error', 'Finalize ou cancele a operação atual antes de trocar o modo.')
-      return
-    }
-    setOperationModeState(mode)
-  }, [currentSale, showToast])
+
 
   useEffect(() => {
     let active = true
@@ -236,11 +230,12 @@ export const PosProvider: React.FC<{
   }, [source, operationalOperatorId, operationalOperatorName, tenantId, tenantName, tenantSlug, storeId, storeName, storeCode, registerId, registerName, registerCode, showToast])
 
   // Refresh products, inventory and sales data
-  const refreshData = useCallback(async () => {
+  const refreshData = useCallback(async (targetMode?: 'COUNTER' | 'TAKEAWAY') => {
     if (!tenant || !store) return
+    const mode = targetMode || operationMode
     try {
       const hdrs = getHeaders()
-      const catalog = await api.fetchSellableProducts(hdrs, { pageSize: 100 })
+      const catalog = await api.fetchSellableProducts(hdrs, { sales_context: mode, pageSize: 100 })
       const prods = catalog.items
       setProducts(prods)
 
@@ -264,7 +259,17 @@ export const PosProvider: React.FC<{
     } catch (err: unknown) {
       console.error('Error refreshing data:', err)
     }
-  }, [tenant, store, getHeaders])
+  }, [tenant, store, getHeaders, operationMode])
+
+  const setOperationMode = useCallback((mode: 'COUNTER' | 'TAKEAWAY') => {
+    if (mode === operationMode) return
+    if (currentSale && currentSale.items.length > 0 && currentSale.status !== 'COMPLETED' && currentSale.status !== 'CANCELED') {
+      showToast('error', 'Finalize ou cancele a operação atual antes de trocar o modo.')
+      return
+    }
+    setOperationModeState(mode)
+    void refreshData(mode)
+  }, [currentSale, operationMode, refreshData, showToast])
 
   useEffect(() => {
     loadInitialContext()
@@ -274,7 +279,7 @@ export const PosProvider: React.FC<{
     if (tenant && store) {
       refreshData()
     }
-  }, [tenant, store, refreshData])
+  }, [tenant, store, refreshData, operationMode])
 
   useEffect(() => {
     if (!tenant || !store || !register || !operatorId) return

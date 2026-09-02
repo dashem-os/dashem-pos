@@ -1,6 +1,6 @@
 # Trilha corretiva — Gestão do tenant
 
-Status: **5.3 em validação**
+Status: **5.3 publicado, homologação em curso; 5.4 condicionado ao Gate 5.4.0**
 
 Data de referência: 1º de setembro de 2026
 
@@ -119,6 +119,46 @@ texto, fixture ou filtro cosmético.
 
 Objetivo: transformar a nova arquitetura em evidência de uso, não em aprovação
 por aparência.
+
+### Gate 5.4.0 — Verdade de sortimento por contexto
+
+Este é o primeiro gate do Sprint 5.4 e deve ficar verde antes de qualquer
+polimento visual ou homologação de usabilidade.
+
+Decisão:
+
+- atividade comercial contratada define composição e elegibilidade de
+  capabilities, mas não deve ser usada como categoria implícita de produto;
+- capability habilita uma jornada, como mesas ou delivery, mas não publica
+  automaticamente todo o catálogo nessa jornada;
+- a visibilidade comercial deve ser resolvida por uma relação canônica entre
+  produto, sortimento/cardápio, unidade, canal e modo de atendimento;
+- balcão, retirada, mesa, delivery e e-commerce não podem receber o catálogo
+  global por fallback silencioso;
+- toda resolução ocorre no servidor, sob tenant, unidade, permissions,
+  capabilities e RLS; filtros de frontend não constituem isolamento;
+- dados existentes não podem ser classificados por nome, categoria ou nicho
+  presumido. A migração deve preservar sua origem em estado explícito e exigir
+  decisão administrativa para qualquer nova publicação contextual;
+- um tenant novo começa sem produtos, categorias, mesas ou comandas copiadas de
+  outro tenant e sem conteúdo demonstrativo apresentado como dado real.
+
+Aceite do gate:
+
+- um produto publicado para balcão não aparece em mesa, delivery ou e-commerce
+  sem vínculo persistido para esse contexto;
+- contratar `table_service` não publica produtos no atendimento de mesa;
+- um tenant com mais de uma atividade consegue manter sortimentos distintos
+  sem duplicar o cadastro mestre do produto;
+- a Gestão permite consultar e alterar os vínculos com permissão efetiva,
+  autoria, auditoria e concorrência controlada;
+- POS e consumidores futuros recebem somente a projeção vendável do contexto
+  solicitado, sem fallback para o catálogo completo;
+- migrations, testes de isolamento entre tenants e modos, frontend e CI ficam
+  verdes.
+
+Prompt de execução e critérios técnicos:
+[`sprint-5-4-gate-0-agent-prompt.md`](sprint-5-4-gate-0-agent-prompt.md).
 
 Escopo:
 

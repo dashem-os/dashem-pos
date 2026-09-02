@@ -15,11 +15,29 @@ async def _base(client: httpx.AsyncClient, label: str):
     suffix=uuid.uuid4().hex[:8]; actor=str(uuid.uuid4())
     tenant=(await client.post("/api/v1/identity/tenants",json={"name":label,"slug":f"{label.lower()}-{suffix}"})).json()
     store=(await client.post("/api/v1/identity/stores",json={"tenant_id":tenant["id"],"name":"Matriz","code":f"P-{suffix}"})).json()
+    with Session(engine) as db:
+        set_platform_db_context(db)
+        from app.models.platform import TenantCapability, EntitlementStatusEnum
+        db.add(TenantCapability(tenant_id=uuid.UUID(tenant["id"]), key="counter_order", enabled=True, status=EntitlementStatusEnum.ACTIVE))
+        db.add(TenantCapability(tenant_id=uuid.UUID(tenant["id"]), key="table_service", enabled=True, status=EntitlementStatusEnum.ACTIVE))
+        db.add(TenantCapability(tenant_id=uuid.UUID(tenant["id"]), key="delivery_orders", enabled=True, status=EntitlementStatusEnum.ACTIVE))
+        db.commit()
     headers={"X-Tenant-ID":tenant["id"],"X-Store-ID":store["id"]}
     product=(await client.post("/api/v1/catalog/products",headers=headers,json={
         "name":"Hambúrguer","sku":f"HB-{suffix}","unit":"UN","tracks_inventory":False,
         "requires_fulfillment":True,"production_destination":"COZINHA"})).json()
     await client.post("/api/v1/catalog/prices",headers=headers,json={"product_id":product["id"],"store_id":store["id"],"cost_price":7,"sale_price":25})
+    await client.post("/api/v1/catalog/assortments", headers=headers, json={
+        "code": f"ASSORT-KDS-{uuid.uuid4().hex[:8]}",
+        "name": "Sortimento KDS",
+        "scopes": [
+            {"store_id": store["id"], "sales_context": "COUNTER"},
+            {"store_id": store["id"], "sales_context": "TAKEAWAY"},
+            {"store_id": store["id"], "sales_context": "TABLE"},
+            {"store_id": store["id"], "sales_context": "DELIVERY"},
+        ],
+        "product_ids": [product["id"]],
+    })
     kitchen=(await client.post("/api/v1/production/points",headers={**headers,"Idempotency-Key":f"point-{uuid.uuid4()}"},json={
         "store_id":store["id"],"code":"COZINHA","name":"Cozinha","point_type":"KITCHEN","actor_id":actor})).json()
     bar=(await client.post("/api/v1/production/points",headers={**headers,"Idempotency-Key":f"point-{uuid.uuid4()}"},json={

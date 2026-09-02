@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react'
 import {
-  BadgeDollarSign, Banknote, Boxes, ChefHat, FileCheck2, FileText, Home, LogOut, Menu, Monitor,
+  BadgeDollarSign, Banknote, Boxes, ChefHat, FileCheck2, FileText, Home, Layers, LogOut, Menu, Monitor,
   Package, Plug, ShoppingCart, Store as StoreIcon, Tags, Users, X,
 } from 'lucide-react'
 import { usePos } from '../context/PosContext'
@@ -8,6 +8,7 @@ import { useAuth } from '../context/AuthContext'
 import { DashboardBI } from '../components/management/DashboardBI'
 import { SalesHistory } from '../components/management/SalesHistory'
 import { CatalogManager } from '../components/management/CatalogManager'
+import { AssortmentManager } from '../components/management/AssortmentManager'
 import { CashManager } from '../components/management/CashManager'
 import { TeamManager } from '../components/management/TeamManager'
 import { ChannelHubWorkspace } from '../components/management/ChannelHubWorkspace'
@@ -20,7 +21,7 @@ import { CustomerManager } from '../components/management/CustomerManager'
 import { TenantPlanWorkspace } from '../components/management/TenantPlanWorkspace'
 import { navigateTo } from '../utils/navigation'
 
-type ModuleId = 'overview' | 'sales' | 'tables' | 'channels' | 'cash' | 'receivables' | 'products' | 'categories' | 'inventory' | 'customers' | 'team' | 'devices' | 'subscription'
+type ModuleId = 'overview' | 'sales' | 'tables' | 'channels' | 'cash' | 'receivables' | 'products' | 'assortments' | 'categories' | 'inventory' | 'customers' | 'team' | 'devices' | 'subscription'
 
 interface NavigationItem {
   id: ModuleId
@@ -30,7 +31,7 @@ interface NavigationItem {
 
 const MODULE_ICONS: Record<ModuleId, React.ComponentType<{ className?: string }>> = {
   overview: Home, sales: FileText, cash: Banknote, channels: Plug,
-  receivables: BadgeDollarSign, products: Package, categories: Tags,
+  receivables: BadgeDollarSign, products: Package, assortments: Layers, categories: Tags,
   inventory: Boxes, customers: Users, tables: ChefHat, devices: Monitor, team: Users,
   subscription: FileCheck2,
 }
@@ -73,6 +74,7 @@ export const ManagementLayout: React.FC = () => {
       case 'overview': return <DashboardBI availableModules={availableModules} onOpenModule={(target) => choose(target)} />
       case 'sales': return <SalesHistory />
       case 'products': return <CatalogManager />
+      case 'assortments': return <AssortmentManager />
       case 'categories': return <CategoryManager />
       case 'inventory': return <InventoryManager />
       case 'customers': return <CustomerManager />

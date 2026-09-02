@@ -13,6 +13,9 @@ from app.models.reliability import OutboxEvent
 from app.models.table_service import ServiceTable, TableSession
 
 
+from app.models.platform import TenantCapability, EntitlementStatusEnum
+
+
 BASE_URL = os.getenv("TEST_BASE_URL", "http://localhost:8002")
 
 
@@ -24,6 +27,15 @@ async def _context(client: httpx.AsyncClient, prefix: str):
     store = (await client.post("/api/v1/identity/stores", json={
         "tenant_id": tenant["id"], "name": "Matriz", "code": f"{prefix[:3].upper()}-{suffix}",
     })).json()
+    with Session(engine) as db:
+        set_platform_db_context(db)
+        db.add(TenantCapability(
+            tenant_id=uuid.UUID(tenant["id"]),
+            key="table_service",
+            enabled=True,
+            status=EntitlementStatusEnum.ACTIVE,
+        ))
+        db.commit()
     return tenant, store, {"X-Tenant-ID": tenant["id"], "X-Store-ID": store["id"]}
 
 
@@ -61,6 +73,12 @@ async def test_s7_opens_table_idempotently_supports_multiple_tabs_and_consolidat
         })).json()
         await client.post("/api/v1/catalog/prices", headers=headers, json={
             "product_id": product["id"], "store_id": store["id"], "cost_price": 8, "sale_price": 21.5,
+        })
+        await client.post("/api/v1/catalog/assortments", headers=headers, json={
+            "code": f"ASSORT-T-{uuid.uuid4().hex[:8]}",
+            "name": "Sortimento Mesas",
+            "scopes": [{"store_id": store["id"], "sales_context": "TABLE"}],
+            "product_ids": [product["id"]],
         })
         first_order = table_session["orders"][0]
         added = await client.post(f"/api/v1/orders/{first_order['id']}/items", headers={

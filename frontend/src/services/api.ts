@@ -145,6 +145,56 @@ export interface SellableProductPage {
   page_size: number
 }
 
+export type SalesContext = 'COUNTER' | 'TAKEAWAY' | 'TABLE' | 'DELIVERY' | 'ECOMMERCE'
+
+export interface AssortmentScope {
+  id?: string
+  store_id: string
+  channel_id?: string | null
+  sales_context: SalesContext
+  created_at?: string
+}
+
+export interface Assortment {
+  id: string
+  tenant_id: string
+  code: string
+  name: string
+  description?: string | null
+  status: 'ACTIVE' | 'INACTIVE'
+  version: number
+  created_at: string
+  updated_at: string
+  product_count: number
+  scopes: AssortmentScope[]
+}
+
+export interface AssortmentPage {
+  items: Assortment[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export interface AssortmentProductItem {
+  id: string
+  name: string
+  sku: string
+  barcode?: string
+  unit: string
+  category_id?: string
+  is_active: boolean
+  available_for_sale: boolean
+  sort_order: number
+}
+
+export interface AssortmentProductPage {
+  items: AssortmentProductItem[]
+  total: number
+  page: number
+  page_size: number
+}
+
 export interface ProductPrice {
   id: string
   tenant_id: string
@@ -2389,24 +2439,229 @@ export async function createStore(tenantId: string, name: string, code: string):
 export async function fetchProducts(headers: Record<string, string>, search?: string): Promise<Product[]> {
   const url = search ? `${API_BASE_URL}/api/v1/catalog/products?search=${encodeURIComponent(search)}` : `${API_BASE_URL}/api/v1/catalog/products`
   const res = await fetch(url, { headers })
-  if (!res.ok) return []
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || 'Erro ao carregar produtos do catálogo mestre')
+  }
   return res.json()
 }
 
 export async function fetchSellableProducts(
   headers: Record<string, string>,
-  options: { page?: number; pageSize?: number; search?: string; categoryId?: string; quickAccess?: boolean } = {}
+  options: {
+    sales_context?: SalesContext
+    page?: number
+    pageSize?: number
+    search?: string
+    categoryId?: string
+    quickAccess?: boolean
+    channelId?: string
+    master?: boolean
+  } = {}
 ): Promise<SellableProductPage> {
   const params = new URLSearchParams({
     page: String(options.page || 1),
-    page_size: String(options.pageSize || 50)
+    page_size: String(options.pageSize || 50),
   })
+  if (options.master) params.set('master', 'true')
+  if (options.sales_context) params.set('sales_context', options.sales_context)
+  if (options.channelId) params.set('channel_id', options.channelId)
   if (options.search) params.set('search', options.search)
   if (options.categoryId) params.set('category_id', options.categoryId)
   if (options.quickAccess) params.set('quick_access', 'true')
   const res = await fetch(`${API_BASE_URL}/api/v1/catalog/sellable-products?${params}`, { headers })
-  if (!res.ok) throw new Error('Erro ao carregar catálogo operacional')
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || 'Erro ao carregar catálogo')
+  }
   return res.json()
+}
+
+export async function fetchAssortments(
+  headers: Record<string, string>,
+  options: {
+    page?: number
+    pageSize?: number
+    search?: string
+    status?: string
+    storeId?: string
+    salesContext?: SalesContext
+  } = {}
+): Promise<AssortmentPage> {
+  const params = new URLSearchParams({
+    page: String(options.page || 1),
+    page_size: String(options.pageSize || 20),
+  })
+  if (options.search) params.set('search', options.search)
+  if (options.status) params.set('status', options.status)
+  if (options.storeId) params.set('store_id', options.storeId)
+  if (options.salesContext) params.set('sales_context', options.salesContext)
+  const res = await fetch(`${API_BASE_URL}/api/v1/catalog/assortments?${params}`, { headers })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || 'Erro ao carregar sortimentos')
+  }
+  return res.json()
+}
+
+export async function getAssortment(
+  headers: Record<string, string>,
+  assortmentId: string
+): Promise<Assortment> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/catalog/assortments/${assortmentId}`, { headers })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || 'Erro ao consultar sortimento')
+  }
+  return res.json()
+}
+
+export async function createAssortment(
+  headers: Record<string, string>,
+  data: {
+    code: string
+    name: string
+    description?: string
+    status?: 'ACTIVE' | 'INACTIVE'
+    scopes?: AssortmentScope[]
+    product_ids?: string[]
+  },
+  idempotencyKey?: string
+): Promise<Assortment> {
+  const reqHeaders: Record<string, string> = {
+    ...headers,
+    'Content-Type': 'application/json',
+  }
+  if (idempotencyKey) {
+    reqHeaders['Idempotency-Key'] = idempotencyKey
+  }
+  const res = await fetch(`${API_BASE_URL}/api/v1/catalog/assortments`, {
+    method: 'POST',
+    headers: reqHeaders,
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || 'Erro ao criar sortimento')
+  }
+  return res.json()
+}
+
+export async function updateAssortment(
+  headers: Record<string, string>,
+  assortmentId: string,
+  data: {
+    expected_version: number
+    code?: string
+    name?: string
+    description?: string
+    status?: 'ACTIVE' | 'INACTIVE'
+    scopes?: AssortmentScope[]
+  },
+  idempotencyKey?: string
+): Promise<Assortment> {
+  const reqHeaders: Record<string, string> = {
+    ...headers,
+    'Content-Type': 'application/json',
+  }
+  if (idempotencyKey) {
+    reqHeaders['Idempotency-Key'] = idempotencyKey
+  }
+  const res = await fetch(`${API_BASE_URL}/api/v1/catalog/assortments/${assortmentId}`, {
+    method: 'PATCH',
+    headers: reqHeaders,
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || 'Erro ao atualizar sortimento')
+  }
+  return res.json()
+}
+
+export async function linkAssortmentProducts(
+  headers: Record<string, string>,
+  assortmentId: string,
+  productIds: string[],
+  expectedVersion: number,
+  idempotencyKey?: string
+): Promise<Assortment> {
+  const reqHeaders: Record<string, string> = {
+    ...headers,
+    'Content-Type': 'application/json',
+  }
+  if (idempotencyKey) {
+    reqHeaders['Idempotency-Key'] = idempotencyKey
+  }
+  const res = await fetch(`${API_BASE_URL}/api/v1/catalog/assortments/${assortmentId}/products`, {
+    method: 'POST',
+    headers: reqHeaders,
+    body: JSON.stringify({ product_ids: productIds, expected_version: expectedVersion }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || 'Erro ao vincular produtos ao sortimento')
+  }
+  return res.json()
+}
+
+export async function unlinkAssortmentProducts(
+  headers: Record<string, string>,
+  assortmentId: string,
+  productIds: string[],
+  expectedVersion: number,
+  idempotencyKey?: string
+): Promise<Assortment> {
+  const reqHeaders: Record<string, string> = {
+    ...headers,
+    'Content-Type': 'application/json',
+  }
+  if (idempotencyKey) {
+    reqHeaders['Idempotency-Key'] = idempotencyKey
+  }
+  const res = await fetch(`${API_BASE_URL}/api/v1/catalog/assortments/${assortmentId}/products`, {
+    method: 'DELETE',
+    headers: reqHeaders,
+    body: JSON.stringify({ product_ids: productIds, expected_version: expectedVersion }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || 'Erro ao desvincular produtos do sortimento')
+  }
+  return res.json()
+}
+
+export async function fetchAssortmentProducts(
+  headers: Record<string, string>,
+  assortmentId: string,
+  options: { page?: number; pageSize?: number; search?: string } = {}
+): Promise<AssortmentProductPage> {
+  const params = new URLSearchParams({
+    page: String(options.page || 1),
+    page_size: String(options.pageSize || 50),
+  })
+  if (options.search) params.set('search', options.search)
+  const res = await fetch(`${API_BASE_URL}/api/v1/catalog/assortments/${assortmentId}/products?${params}`, { headers })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || 'Erro ao carregar produtos do sortimento')
+  }
+  return res.json()
+}
+
+export async function deleteAssortment(
+  headers: Record<string, string>,
+  assortmentId: string,
+  expectedVersion: number
+): Promise<void> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/catalog/assortments/${assortmentId}?expected_version=${expectedVersion}`, {
+    method: 'DELETE',
+    headers,
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || 'Erro ao remover sortimento')
+  }
 }
 
 export async function setQuickAccess(headers: Record<string, string>, productId: string, position: number): Promise<void> {

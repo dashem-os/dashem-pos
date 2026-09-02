@@ -1,8 +1,17 @@
 import os,uuid
 import httpx,pytest
+from sqlmodel import Session
+from app.core.database import engine
+from app.core.tenancy import set_platform_db_context
+from app.models.platform import TenantCapability, EntitlementStatusEnum
 BASE_URL=os.getenv("TEST_BASE_URL","http://localhost:8002")
 async def base(client,label):
- s=uuid.uuid4().hex[:8];actor=str(uuid.uuid4());tenant=(await client.post('/api/v1/identity/tenants',json={'name':label,'slug':f'{label.lower()}-{s}'})).json();store=(await client.post('/api/v1/identity/stores',json={'tenant_id':tenant['id'],'name':'Matriz','code':s})).json();h={'X-Tenant-ID':tenant['id'],'X-Store-ID':store['id']};return tenant,store,h,actor
+ s=uuid.uuid4().hex[:8];actor=str(uuid.uuid4());tenant=(await client.post('/api/v1/identity/tenants',json={'name':label,'slug':f'{label.lower()}-{s}'})).json();store=(await client.post('/api/v1/identity/stores',json={'tenant_id':tenant['id'],'name':'Matriz','code':s})).json()
+ with Session(engine) as db:
+  set_platform_db_context(db)
+  db.add(TenantCapability(tenant_id=uuid.UUID(tenant['id']), key='table_service', enabled=True, status=EntitlementStatusEnum.ACTIVE))
+  db.commit()
+ h={'X-Tenant-ID':tenant['id'],'X-Store-ID':store['id']};return tenant,store,h,actor
 async def tab(client,h,store,actor,label):
  r=await client.post('/api/v1/tables/sessions',headers={**h,'Idempotency-Key':f'tab-{uuid.uuid4()}'},json={'store_id':store['id'],'display_label':label,'actor_id':actor});assert r.status_code==200,r.text;return r.json()
 @pytest.mark.asyncio
@@ -10,6 +19,7 @@ async def test_s12_conserves_item_value_records_lineage_conflicts_and_merges_exp
  async with httpx.AsyncClient(base_url=BASE_URL) as client:
   tenant,store,h,actor=await base(client,'Transfer');source=await tab(client,h,store,actor,'Origem');dest=await tab(client,h,store,actor,'Destino')
   product=(await client.post('/api/v1/catalog/products',headers=h,json={'name':'Produto transferível','sku':f'T-{uuid.uuid4().hex[:8]}','unit':'UN'})).json();await client.post('/api/v1/catalog/prices',headers=h,json={'product_id':product['id'],'store_id':store['id'],'cost_price':4,'sale_price':15})
+  await client.post('/api/v1/catalog/assortments',headers=h,json={'code':f'ASSORT-TR-{uuid.uuid4().hex[:8]}','name':'Mesas','scopes':[{'store_id':store['id'],'sales_context':'TABLE'}],'product_ids':[product['id']]})
   item=(await client.post(f"/api/v1/orders/{source['orders'][0]['id']}/items",headers={**h,'Idempotency-Key':f'item-{uuid.uuid4()}'},json={'product_id':product['id'],'quantity':3,'actor_id':actor})).json()
   source=(await client.get(f"/api/v1/tables/sessions/{source['id']}",headers=h)).json();dest=(await client.get(f"/api/v1/tables/sessions/{dest['id']}",headers=h)).json();key=f'transfer-{uuid.uuid4()}'
   payload={'source_session_id':source['id'],'destination_session_id':dest['id'],'order_item_id':item['id'],'quantity':1,'expected_source_version':source['version'],'expected_destination_version':dest['version'],'reason':'Cliente mudou de comanda','actor_id':actor}

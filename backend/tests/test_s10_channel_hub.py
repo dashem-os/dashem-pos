@@ -28,6 +28,16 @@ async def _base(client: httpx.AsyncClient, prefix: str):
     suffix = uuid.uuid4().hex[:8]; actor = str(uuid.uuid4())
     tenant = (await client.post("/api/v1/identity/tenants", json={"name": prefix, "slug": f"{prefix.lower()}-{suffix}"})).json()
     store = (await client.post("/api/v1/identity/stores", json={"tenant_id": tenant["id"], "name": "Matriz", "code": f"CH-{suffix}"})).json()
+    with Session(engine) as db:
+        set_platform_db_context(db)
+        from app.models.platform import TenantCapability, EntitlementStatusEnum
+        db.add(TenantCapability(
+            tenant_id=uuid.UUID(tenant["id"]),
+            key="delivery_orders",
+            enabled=True,
+            status=EntitlementStatusEnum.ACTIVE,
+        ))
+        db.commit()
     headers = {"X-Tenant-ID": tenant["id"], "X-Store-ID": store["id"]}
     product = (await client.post("/api/v1/catalog/products", headers=headers, json={
         "name": "Produto canal", "sku": f"CH-{suffix}", "unit": "UN", "tracks_inventory": False,
@@ -35,6 +45,12 @@ async def _base(client: httpx.AsyncClient, prefix: str):
     })).json()
     await client.post("/api/v1/catalog/prices", headers=headers, json={
         "product_id": product["id"], "store_id": store["id"], "cost_price": 5, "sale_price": 18.5,
+    })
+    await client.post("/api/v1/catalog/assortments", headers=headers, json={
+        "code": f"ASSORT-DELIV-{suffix}",
+        "name": "Sortimento Delivery",
+        "scopes": [{"store_id": store["id"], "sales_context": "DELIVERY"}],
+        "product_ids": [product["id"]],
     })
     key = f"connection-{uuid.uuid4()}"
     connection_payload = {
@@ -80,7 +96,7 @@ async def test_s10_durable_inbox_deduplicates_into_canonical_order_and_quarantin
         accepted = await client.post("/api/v1/channels/webhooks", json=webhook)
         assert accepted.status_code == 200, accepted.text
         event = accepted.json()
-        assert event["status"] == "PROCESSED"
+        assert event["status"] == "PROCESSED", f"Event quarantined: {event.get('quarantine_reason')}"
         assert event["acknowledged_at"] is not None
         assert event["order_id"] is not None
         order = (await client.get(f"/api/v1/orders/{event['order_id']}", headers=headers)).json()

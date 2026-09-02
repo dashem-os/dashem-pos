@@ -23,6 +23,8 @@ from app.models.order import (
 from app.models.payment import Register
 from app.models.sale import Customer, Sale
 from app.models.table_service import ServiceTable, TableSession, TableSessionStatusEnum
+from app.models.assortment import Assortment, SalesContextEnum
+from app.services.assortment_service import resolve_effective_product_ids
 from app.services import reliability_service, table_service
 
 
@@ -105,6 +107,32 @@ def list_orders(session: Session, context: TenantContext, status_filter: Optiona
     return list(session.exec(query.order_by(Order.updated_at.desc()).limit(100)).all())
 
 
+def _fulfillment_to_context(fulfillment: OrderFulfillmentEnum) -> Optional[SalesContextEnum]:
+    mapping = {
+        OrderFulfillmentEnum.COUNTER: SalesContextEnum.COUNTER,
+        OrderFulfillmentEnum.TAKEAWAY: SalesContextEnum.TAKEAWAY,
+        OrderFulfillmentEnum.DINE_IN: SalesContextEnum.TABLE,
+        OrderFulfillmentEnum.DELIVERY: SalesContextEnum.DELIVERY,
+    }
+    return mapping.get(fulfillment)
+
+
+def _enforce_journey_capability(context: TenantContext, sales_context: SalesContextEnum) -> None:
+    caps = set(context.capabilities or ())
+    if sales_context == SalesContextEnum.TABLE:
+        if "table_service" not in caps:
+            raise HTTPException(status_code=403, detail="Capacidade 'table_service' não contratada ou inativa para esta unidade.")
+    elif sales_context == SalesContextEnum.DELIVERY:
+        if "delivery_orders" not in caps:
+            raise HTTPException(status_code=403, detail="Capacidade 'delivery_orders' não contratada ou inativa para esta unidade.")
+    elif sales_context in {SalesContextEnum.COUNTER, SalesContextEnum.TAKEAWAY}:
+        if "counter_order" not in caps:
+            raise HTTPException(status_code=403, detail="Capacidade 'counter_order' não contratada ou inativa para esta unidade.")
+    elif sales_context == SalesContextEnum.ECOMMERCE:
+        if "ecommerce" not in caps:
+            raise HTTPException(status_code=403, detail="Jornada de e-commerce não contratada ou habilitada para esta unidade.")
+
+
 def create_order(
     session: Session, context: TenantContext, *, store_id: uuid.UUID,
     idempotency_key: str, actor_id: Optional[uuid.UUID],
@@ -138,6 +166,9 @@ def create_order(
     store = session.get(Store, store_id)
     if not store or store.tenant_id != context.tenant_id or not store.is_active:
         raise HTTPException(status_code=404, detail="Unidade não encontrada.")
+    order_context = _fulfillment_to_context(fulfillment)
+    if order_context:
+        _enforce_journey_capability(context, order_context)
     if register_id:
         register = session.get(Register, register_id)
         if not register or register.tenant_id != context.tenant_id or register.store_id != store_id or not register.is_active:
@@ -253,6 +284,20 @@ def add_item(
     ), Product, context)).first()
     if not product:
         raise HTTPException(status_code=404, detail="Produto indisponível no tenant.")
+
+    order_context = _fulfillment_to_context(order.fulfillment)
+    if not order_context:
+        raise HTTPException(status_code=400, detail=f"Contexto de fulfillment '{order.fulfillment}' inválido.")
+    _enforce_journey_capability(context, order_context)
+
+    authorized_ids = resolve_effective_product_ids(
+        session, context.tenant_id, order.store_id, order_context, order.channel_id
+    )
+    if product.id not in authorized_ids:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Produto '{product.name}' não pertence ao sortimento autorizado para o contexto {order_context.value}.",
+        )
     price = session.exec(scope_tenant_query(select(ProductPrice).where(
         ProductPrice.product_id == product_id, ProductPrice.store_id == order.store_id,
     ), ProductPrice, context)).first()
