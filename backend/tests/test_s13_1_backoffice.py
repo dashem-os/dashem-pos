@@ -4,7 +4,11 @@ from datetime import datetime, timedelta
 
 import httpx
 import pytest
+from sqlmodel import Session
 
+from app.core.database import engine
+from app.core.tenancy import set_platform_db_context
+from app.models.platform import EntitlementStatusEnum, TenantCapability
 
 BASE_URL = os.getenv("TEST_BASE_URL", "http://localhost:8002")
 
@@ -13,6 +17,18 @@ async def _context(client: httpx.AsyncClient, prefix: str):
     suffix = uuid.uuid4().hex[:8]
     tenant = (await client.post("/api/v1/identity/tenants", json={"name": f"{prefix} {suffix}", "slug": f"{prefix.lower()}-{suffix}"})).json()
     store = (await client.post("/api/v1/identity/stores", json={"tenant_id": tenant["id"], "name": "Matriz", "code": f"{prefix[:3].upper()}-{suffix}"})).json()
+    # This legacy fixture exercises the table lifecycle itself. Declare its
+    # capability explicitly; the production guard still requires FOOD_SERVICE
+    # for contract-backed tenants before publishing the journey.
+    with Session(engine) as db:
+        set_platform_db_context(db)
+        db.add(TenantCapability(
+            tenant_id=uuid.UUID(tenant["id"]),
+            key="table_service",
+            enabled=True,
+            status=EntitlementStatusEnum.ACTIVE,
+        ))
+        db.commit()
     return tenant, store, {"X-Tenant-ID": tenant["id"], "X-Store-ID": store["id"]}
 
 
