@@ -32,6 +32,7 @@ import { canNavigateToManagement, operationalRoleLabel } from '../domain/operati
 export const PosLayout: React.FC = () => {
   const { session, signOut } = useAuth()
   const {
+    accessMode,
     store,
     register,
     operatorId,
@@ -59,6 +60,7 @@ export const PosLayout: React.FC = () => {
   const canReadCash = permissions.includes('cash.read')
   const canOpenCash = permissions.includes('cash.open')
   const roleLabel = operationalRoleLabel(operatorRole)
+  const managementValidation = accessMode === 'MANAGEMENT'
 
   const handleOpenCash = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -134,12 +136,12 @@ export const PosLayout: React.FC = () => {
           </div>
 
           {permissions.includes('table.read') && 'table_service' in capabilities && <button
-            onClick={() => navigateTo('/tables')}
+            onClick={() => navigateTo(managementValidation ? '/manage?module=tables' : '/tables')}
             className="h-9 px-3.5 rounded-xl bg-orange-50 hover:bg-orange-100 text-orange-800 text-xs font-bold flex items-center space-x-1.5 transition-colors border border-orange-200 active:scale-95"
             title="Operar mesas e comandas"
           >
             <UtensilsCrossed className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Mesas</span>
+            <span className="hidden sm:inline">{managementValidation ? 'Configurar mesas' : 'Mesas'}</span>
           </button>}
 
           {managementAvailable && <button
@@ -161,6 +163,13 @@ export const PosLayout: React.FC = () => {
           </button>
         </div>
       </header>
+
+      {managementValidation && (
+        <div role="status" className="flex flex-col justify-between gap-2 border-b border-sky-300 bg-sky-50 px-4 py-2.5 text-xs text-sky-950 sm:flex-row sm:items-center sm:px-6">
+          <p><strong>Acesso gerencial.</strong> Você está validando o PDV com sua identidade administrativa; ações executadas são reais e auditadas.</p>
+          <button onClick={() => navigateTo('/manage')} className="shrink-0 font-black text-sky-800 underline underline-offset-2">Voltar à Gestão</button>
+        </div>
+      )}
 
       {connectionState !== 'ONLINE' && (
         <div role="alert" className="px-4 py-2 bg-amber-100 border-b border-amber-300 text-amber-900 text-xs font-bold text-center">

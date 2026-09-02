@@ -14,11 +14,11 @@ export default {
           red: '#e11d48',
           'red-dark': '#be123c',
           'red-light': '#f43f5e',
-          bg: '#090d16',
-          surface: '#131b2e',
-          'surface-elevated': '#1c263e',
-          border: '#2a3652',
-          muted: '#8b9bb4'
+          bg: '#0b1220',
+          surface: '#172238',
+          'surface-elevated': '#22314d',
+          border: '#435473',
+          muted: '#bdc9d9'
         },
         pdv: {
           bg: '#f8fafc',

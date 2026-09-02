@@ -1,6 +1,6 @@
 # Trilha corretiva — Gestão do tenant
 
-Status: **5.2 em implementação**
+Status: **5.3 em validação**
 
 Data de referência: 1º de setembro de 2026
 
@@ -77,6 +77,10 @@ precisa executar.
 
 Escopo:
 
+- permitir que administrador/gestor valide o PDV com a própria identidade
+  gerencial, sem assumir código, PIN, função ou produtividade de colaborador;
+- manter essa validação sobre dados reais e operações auditadas, sem criar modo
+  demonstração, usuário fictício ou autorização decidida por query string;
 - revisar os grupos de navegação em Operação, Financeiro, Mercadorias,
   Relacionamento e Administração;
 - criar visão de configuração inicial com pendências factuais por empresa,
@@ -90,11 +94,26 @@ Escopo:
 
 Aceite:
 
+- **Validar no PDV** não encerra a Gestão nem redireciona o administrador para
+  a entrada de turno;
+- o backend continua exigindo `management.read`, tenant, unidade, terminal e
+  permissões efetivas; a sessão gerencial não é contabilizada como turno;
 - tarefas administrativas principais são alcançadas sem percorrer a visão de
   BI;
 - nenhuma tela depende de ordem arbitrária ou do primeiro tenant/unidade;
 - cada vazio, falha e falta de permissão possui estado explícito;
 - não há cards decorativos, métricas fictícias ou módulos-placeholder.
+
+### Evidência adiada, sem mutação no Sprint 5.3
+
+As imagens de homologação mostram catálogo de material elétrico junto de uma
+jornada de mesas/comandas. Isso pode ser dado de teste contaminado, composição
+de atividades incorreta ou ausência de filtro por atividade. O Sprint 5.3 não
+apagará, recategorizará nem esconderá esses registros sem determinar a origem.
+A correção exige uma reconciliação posterior, auditada, entre atividades
+contratadas, capabilities efetivas, catálogo, unidade e superfícies
+operacionais. Até lá, o problema permanece registrado e não será tratado com
+texto, fixture ou filtro cosmético.
 
 ## Sprint 5.4 — Usabilidade e validação técnica
 

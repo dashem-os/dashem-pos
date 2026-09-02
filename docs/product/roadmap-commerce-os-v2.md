@@ -1109,8 +1109,11 @@ Entregas:
 
 Gate:
 
-- clicar em **Abrir PDV** com perfil gerencial abre a superfície do terminal,
-  sem conceder autoria operacional;
+- clicar em **Validar no PDV** com perfil gerencial abre a superfície do
+  terminal com a identidade administrativa real, sem exigir que o gestor se
+  apresente como atendente;
+- a validação gerencial não cria turno nem produtividade operacional, mas toda
+  mutação executada continua real, autorizada e auditada pelo servidor;
 - ativação por código + PIN não recarrega a aplicação, não cai em falso estado
   de acesso pendente e não abre seletor organizacional;
 - funcionário e credencial possuem persistência, autorização e auditoria

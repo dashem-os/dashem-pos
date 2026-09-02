@@ -1,10 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, ArrowRight, Banknote, Boxes, ChefHat, CircleDollarSign, Database, Loader2, Monitor, Package, Receipt, RefreshCw, ShoppingCart, TrendingUp, Users, X } from 'lucide-react'
+import { AlertTriangle, ArrowRight, Banknote, Boxes, CheckCircle2, ChefHat, CircleDollarSign, Database, Loader2, Monitor, Receipt, RefreshCw, ShoppingCart, Store as StoreIcon, TrendingUp, Users, X } from 'lucide-react'
 import { usePos } from '../../context/PosContext'
 import { BiDrilldown, fetchBiDrilldown, fetchManagementOverview, fetchOperationalProductivity, ManagementOverview, OperationalProductivity, rebuildOperationalProductivity, refreshBiProjection } from '../../services/api'
 import { formatCurrency } from '../../utils/format'
 
-export const DashboardBI: React.FC<{ onOpenModule?: (module: 'products' | 'tables' | 'devices' | 'team') => void }> = ({ onOpenModule }) => {
+type ShortcutModule = 'products' | 'tables' | 'devices' | 'team'
+
+export const DashboardBI: React.FC<{
+  onOpenModule?: (module: ShortcutModule) => void
+  availableModules?: ReadonlySet<string>
+}> = ({ onOpenModule, availableModules }) => {
   const { tenant, store, operatorId, permissions, showToast } = usePos()
   const [overview, setOverview] = useState<ManagementOverview | null>(null)
   const [productivity, setProductivity] = useState<OperationalProductivity | null>(null)
@@ -69,27 +74,43 @@ export const DashboardBI: React.FC<{ onOpenModule?: (module: 'products' | 'table
     ['Transferências', String(overview.transfers_30d), ArrowRight],
     ['Rupturas / mínimo', String(overview.stockout_products), Boxes],
   ] as const
-  const shortcuts = [
+  const shortcuts = ([
     ['products', 'Cadastrar mercadorias', 'Produtos, preços e acesso rápido', Boxes],
     ['tables', 'Organizar atendimento', 'Ambientes, mesas e reservas', ChefHat],
     ['devices', 'Preparar terminais', 'PDV, KDS e impressão', Monitor],
     ['team', 'Montar a equipe', 'Convites, funções e unidades', Users],
-  ] as const
+  ] as const).filter(([module]) => !availableModules || availableModules.has(module))
+  const setupFacts: Array<{
+    label: string
+    value: string
+    ready: boolean
+    module?: ShortcutModule
+    icon: React.ComponentType<{ className?: string }>
+  }> = [
+    { label: 'Unidade em contexto', value: store?.name ?? 'Não selecionada', ready: Boolean(store), icon: StoreIcon },
+    { label: 'Catálogo', value: `${overview.products} produto(s)`, ready: overview.products > 0, module: 'products', icon: Boxes },
+    { label: 'Equipe ativa', value: `${overview.active_team_members} integrante(s)`, ready: overview.active_team_members > 0, module: 'team', icon: Users },
+    { label: 'Terminais configurados', value: `${overview.resource_usage.DEVICES?.configured ?? 0} dispositivo(s)`, ready: (overview.resource_usage.DEVICES?.configured ?? 0) > 0, module: 'devices', icon: Monitor },
+  ]
 
   return <div className="space-y-6">
     <section className="rounded-3xl border border-dashem-border bg-gradient-to-br from-dashem-surface to-[#14253f] p-6 shadow-xl">
       <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
-        <div><p className="text-[11px] font-extrabold uppercase tracking-[.18em] text-dashem-red">Business Intelligence V1</p><h1 className="mt-2 text-3xl font-black text-white">{store?.name}</h1><p className="mt-2 text-sm text-dashem-muted">{tenant?.name} · projeção v{overview.projection_version} · {new Date(overview.generated_at).toLocaleString('pt-BR')}</p></div>
+        <div><p className="text-[11px] font-extrabold uppercase tracking-[.18em] text-dashem-red">Visão geral da unidade</p><h1 className="mt-2 text-3xl font-black text-white">{store?.name}</h1><p className="mt-2 text-sm text-dashem-muted">{tenant?.name} · dados atualizados em {new Date(overview.generated_at).toLocaleString('pt-BR')}</p></div>
         <div className="flex flex-wrap items-center gap-2"><div className="flex rounded-xl border border-dashem-border bg-dashem-bg p-1">{[7, 30, 90].map((period) => <button key={period} onClick={() => setDays(period)} className={`rounded-lg px-3 py-2 text-xs font-black ${days === period ? 'bg-white text-slate-950' : 'text-dashem-muted'}`}>{period} dias</button>)}</div>{permissions.includes('bi.refresh') && <button onClick={refresh} disabled={refreshing} className="flex h-10 items-center gap-2 rounded-xl bg-dashem-red px-4 text-xs font-black disabled:opacity-40"><RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />Atualizar</button>}</div>
       </div>
       <div className={`mt-5 flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-bold ${overview.projection_lag_seconds > 300 ? 'border-amber-800 bg-amber-950/30 text-amber-300' : 'border-emerald-800 bg-emerald-950/30 text-emerald-300'}`}><Database className="h-4 w-4" />Atraso informado: {overview.projection_lag_seconds}s · fonte até {overview.source_watermark ? new Date(overview.source_watermark).toLocaleString('pt-BR') : 'sem watermark'}.</div>
     </section>
 
+    <section className="rounded-3xl border border-dashem-border bg-dashem-surface p-6"><h2 className="text-lg font-black text-white">Preparar e administrar a operação</h2><p className="mt-1 text-sm text-dashem-muted">Acesse diretamente as tarefas de configuração autorizadas para o seu perfil.</p><div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{shortcuts.map(([module, label, hint, Icon]) => <button key={module} onClick={() => onOpenModule?.(module)} className="group rounded-2xl border border-dashem-border bg-dashem-bg p-4 text-left transition hover:border-slate-300 hover:bg-dashem-surface-elevated"><div className="flex justify-between"><Icon className="h-5 w-5 text-dashem-red" /><ArrowRight className="h-4 w-4 text-dashem-muted" /></div><p className="mt-4 text-sm font-black text-white">{label}</p><p className="mt-1 text-xs leading-5 text-dashem-muted">{hint}</p></button>)}</div></section>
+
+    <section className="rounded-3xl border border-dashem-border bg-dashem-surface p-6"><div><h2 className="text-lg font-black text-white">Prontidão da configuração</h2><p className="mt-1 text-sm text-dashem-muted">Situação observada agora nos registros da organização.</p></div><div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{setupFacts.map(({ label, value, ready, module, icon: Icon }) => { const actionable = module && availableModules?.has(module); const body = <><div className="flex items-center justify-between"><Icon className="h-5 w-5 text-dashem-muted" />{ready ? <CheckCircle2 className="h-5 w-5 text-emerald-300" /> : <AlertTriangle className="h-5 w-5 text-amber-300" />}</div><p className="mt-4 text-xs font-black uppercase tracking-wide text-dashem-muted">{label}</p><p className="mt-1 text-sm font-black text-white">{value}</p>{actionable && <p className="mt-3 flex items-center gap-1 text-xs font-black text-sky-200">Abrir configuração <ArrowRight className="h-3.5 w-3.5" /></p>}</>; return actionable ? <button key={label} onClick={() => onOpenModule?.(module)} className="rounded-2xl border border-dashem-border bg-dashem-bg p-4 text-left transition hover:border-slate-300 hover:bg-dashem-surface-elevated">{body}</button> : <article key={label} className="rounded-2xl border border-dashem-border bg-dashem-bg p-4">{body}</article> })}</div></section>
+
     <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{primaryCards.map(({ label, value, meta, icon: Icon, color }) => <article key={label} className="rounded-2xl border border-dashem-border bg-dashem-surface p-5"><div className="flex justify-between"><div><p className="text-xs font-black uppercase tracking-wide text-dashem-muted">{label}</p><p className="mt-3 text-2xl font-black text-white">{value}</p><p className="mt-1 text-xs text-dashem-muted">{meta}</p></div><Icon className={`h-6 w-6 ${color}`} /></div></article>)}</section>
 
     <section className="grid gap-5 xl:grid-cols-[1.45fr_1fr]">
       <article className="rounded-3xl border border-dashem-border bg-dashem-surface p-6"><div className="flex justify-between"><div><h3 className="font-black text-white">Faturamento diário</h3><p className="text-xs text-dashem-muted">Clique na competência para rastrear as vendas de origem.</p></div><TrendingUp className="h-5 w-5 text-dashem-red" /></div><div className="mt-8 flex h-48 items-end gap-2">{chart.map((item) => <button type="button" onClick={() => openDay(item.date)} key={item.date} className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-2" title={`${item.date}: ${formatCurrency(item.revenue)} · ${item.sales} vendas`}><span className="w-full rounded-t-lg bg-gradient-to-t from-dashem-red to-rose-400 hover:opacity-80" style={{ height: `${Math.max(item.revenue > 0 ? 8 : 2, (item.revenue / maxRevenue) * 100)}%` }} /><span className="hidden text-[9px] text-dashem-muted 2xl:block">{item.date.slice(8)}</span></button>)}</div></article>
-      <article className="rounded-3xl border border-dashem-border bg-dashem-surface p-6"><div className="flex items-center gap-2"><AlertTriangle className="h-5 w-5 text-amber-400" /><h3 className="font-black text-white">Operação e alertas</h3></div>{overview.alerts.length ? <ul className="mt-4 space-y-2">{overview.alerts.map((alert) => <li key={alert} className="rounded-xl border border-amber-800/40 bg-amber-950/30 p-3 text-xs font-semibold text-amber-200">{alert}</li>)}</ul> : <p className="mt-4 rounded-xl border border-emerald-800/40 bg-emerald-950/30 p-3 text-xs font-bold text-emerald-300">Nenhum alerta operacional ativo.</p>}<div className="mt-4 grid grid-cols-2 gap-2">{operations.map(([label, value, Icon]) => <div key={label} className="rounded-xl bg-dashem-bg p-3"><Icon className="h-4 w-4 text-slate-500" /><p className="mt-2 font-black text-white">{value}</p><p className="mt-1 text-[10px] font-bold text-dashem-muted">{label}</p></div>)}</div></article>
+      <article className="rounded-3xl border border-dashem-border bg-dashem-surface p-6"><div className="flex items-center gap-2"><AlertTriangle className="h-5 w-5 text-amber-300" /><h3 className="font-black text-white">Pendências que exigem atenção</h3></div>{overview.alerts.length ? <ul className="mt-4 space-y-2">{overview.alerts.map((alert) => <li key={alert} className="rounded-xl border border-amber-600/60 bg-amber-950/50 p-3 text-sm font-semibold leading-5 text-amber-100">{alert}</li>)}</ul> : <p className="mt-4 rounded-xl border border-emerald-600/60 bg-emerald-950/40 p-3 text-sm font-bold text-emerald-200">Nenhuma pendência operacional identificada.</p>}<div className="mt-4 grid grid-cols-2 gap-2">{operations.map(([label, value, Icon]) => <div key={label} className="rounded-xl border border-dashem-border bg-dashem-bg p-3"><Icon className="h-4 w-4 text-dashem-muted" /><p className="mt-2 font-black text-white">{value}</p><p className="mt-1 text-xs font-bold text-dashem-muted">{label}</p></div>)}</div></article>
     </section>
 
     <section className="rounded-3xl border border-dashem-border bg-dashem-surface p-6">
@@ -102,7 +123,6 @@ export const DashboardBI: React.FC<{ onOpenModule?: (module: 'products' | 'table
 
     <details className="rounded-3xl border border-dashem-border bg-dashem-surface p-6"><summary className="cursor-pointer font-black text-white">Fórmulas e fontes publicadas</summary><div className="mt-4 grid gap-3 md:grid-cols-2">{Object.entries(overview.formulas).map(([metric, formula]) => <div key={metric} className="rounded-xl bg-dashem-bg p-4"><p className="text-xs font-black text-dashem-red">{metric}</p><p className="mt-2 text-xs leading-5 text-dashem-muted">{formula}</p></div>)}</div></details>
 
-    <section className="rounded-3xl border border-dashem-border bg-dashem-surface p-6"><h2 className="font-black text-white">Preparar e administrar a operação</h2><p className="mt-1 text-sm text-dashem-muted">Atalhos da retaguarda, separados da operação do PDV.</p><div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{shortcuts.map(([module, label, hint, Icon]) => <button key={module} onClick={() => onOpenModule?.(module)} className="group rounded-2xl border border-dashem-border bg-dashem-bg p-4 text-left hover:border-slate-600"><div className="flex justify-between"><Icon className="h-5 w-5 text-dashem-red" /><ArrowRight className="h-4 w-4 text-slate-600" /></div><p className="mt-4 text-sm font-black text-white">{label}</p><p className="mt-1 text-xs text-dashem-muted">{hint}</p></button>)}</div></section>
   </div>
 }
 

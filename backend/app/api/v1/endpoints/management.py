@@ -14,6 +14,12 @@ from app.services.quota_policy_service import tenant_count_quota_read_model
 
 router = APIRouter()
 
+_RESOURCE_LABELS = {
+    "USERS": "Usuários",
+    "DEVICES": "Dispositivos",
+    "UNITS": "Unidades",
+}
+
 
 class DailyRevenue(BaseModel):
     date: str
@@ -88,7 +94,8 @@ def management_overview(
     summary["resource_usage"] = resource_usage
     summary["alerts"] = list(summary.get("alerts", [])) + [
         (
-            f"{item['resource']}: {item['occupied']} em uso, "
+            f"{_RESOURCE_LABELS.get(str(item['resource']), str(item['resource']).capitalize())}: "
+            f"{item['occupied']} em uso, "
             f"quota contratual {item['contracted']}, excedente {item['overage']}."
         )
         for item in resource_usage.values()

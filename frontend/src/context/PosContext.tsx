@@ -9,6 +9,7 @@ export interface ToastInfo {
 
 interface PosContextType {
   // Context state
+  accessMode: 'MANAGEMENT' | 'OPERATIONAL_SESSION'
   tenant: api.Tenant | null
   store: api.Store | null
   register: api.Register | null
@@ -204,6 +205,9 @@ export const PosProvider: React.FC<{
       setStore(selectedStore)
       const hdrs = { 'X-Tenant-ID': selectedTenant.id, 'X-Store-ID': selectedStore.id }
       const access = await api.fetchEffectiveAccess(hdrs)
+      if (source === 'MANAGEMENT' && !access.permissions.includes('management.read')) {
+        throw new Error('Esta identidade não possui permissão gerencial para validar o PDV.')
+      }
       setPermissions(access.permissions)
       setCapabilities(access.capabilities)
       setContributions(access.contributions)
@@ -659,6 +663,7 @@ export const PosProvider: React.FC<{
   return (
     <PosContext.Provider
       value={{
+        accessMode: source,
         tenant,
         store,
         register,

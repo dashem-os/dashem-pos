@@ -25,6 +25,8 @@ function IdentityRouter() {
   const [identityLoading, setIdentityLoading] = useState(false)
   const [identityError, setIdentityError] = useState<string | null>(null)
   const [pathname, setPathname] = useState(window.location.pathname)
+  const managementPosRequested = pathname === '/pos'
+    && new URLSearchParams(window.location.search).get('access') === 'management'
 
   useEffect(() => {
     const syncPath = () => setPathname(window.location.pathname)
@@ -54,7 +56,7 @@ function IdentityRouter() {
   }, [loading, session, operationalActive, pathname])
 
   useEffect(() => {
-    if (loading || operationalActive || !session || pathname !== '/pos') return
+    if (loading || operationalActive || !session || pathname !== '/pos' || managementPosRequested) return
     if (!terminalActive) {
       window.history.replaceState({}, '', '/manage?module=devices')
       setPathname('/manage')
@@ -64,7 +66,7 @@ function IdentityRouter() {
       window.history.replaceState({}, '', '/operate')
       setPathname('/operate')
     })
-  }, [loading, operationalActive, pathname, releaseManagementSession, session, terminalActive])
+  }, [loading, managementPosRequested, operationalActive, pathname, releaseManagementSession, session, terminalActive])
 
   const platformRole = me?.platform_role ?? ''
   const activeMemberships = (me?.memberships ?? []).filter((membership) => membership.status === 'ACTIVE')
@@ -81,7 +83,7 @@ function IdentityRouter() {
   }, [authenticatedRoute, pathname])
 
   if (loading) return <FullScreenLoader label="Validando sessão..." />
-  if ((pathname === '/operate' || pathname === '/pos') && !operationalActive) return <OperationalEntryScreen />
+  if ((pathname === '/operate' || pathname === '/pos') && !operationalActive && !(managementPosRequested && session)) return <OperationalEntryScreen />
   if (!session && !operationalActive) return <SignInScreen />
 
   if (passwordRecovery || new URLSearchParams(window.location.search).get('mode') === 'recovery') {
@@ -103,6 +105,10 @@ function IdentityRouter() {
 
   if (!activeMemberships.length) {
     return <AccessState message="Sua identidade não possui membership ativa em um tenant." onSignOut={signOut} onRetry={loadIdentity} />
+  }
+
+  if (managementPosRequested && !canManage) {
+    return <AccessState message="Sua identidade não possui papel gerencial para validar o PDV." onSignOut={signOut} onRetry={loadIdentity} />
   }
 
   const route = authenticatedRoute as ShellRoute
