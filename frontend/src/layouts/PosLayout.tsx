@@ -113,7 +113,7 @@ export const PosLayout: React.FC = () => {
             connectionState === 'ONLINE' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-800 border-amber-200'
           }`}>
             {connectionState === 'ONLINE' ? <Wifi className="w-3.5 h-3.5" /> : <WifiOff className="w-3.5 h-3.5" />}
-            <span>{connectionState === 'ONLINE' ? 'Online' : connectionState === 'OFFLINE' ? 'Offline' : 'Degradado'}</span>
+            <span>{connectionState === 'ONLINE' ? 'API acessível' : connectionState === 'OFFLINE' ? 'Sem rede' : 'API instável'}</span>
           </div>
           {/* Cash Status Pill */}
           <div
@@ -145,7 +145,7 @@ export const PosLayout: React.FC = () => {
             <span className="hidden sm:inline">{managementValidation ? 'Configurar mesas' : 'Mesas'}</span>
           </button>}
 
-          {managementAvailable && <button
+          {managementAvailable && !managementValidation && <button
             onClick={() => navigateTo('/manage')}
             className="h-9 px-3.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center space-x-1.5 transition-colors border border-slate-700 active:scale-95"
             title="Voltar para a Gestão"

@@ -183,6 +183,28 @@ O gate é pré-requisito para a avaliação visual do restante do Sprint 5.4. A
 mistura de produtos elétricos em uma tela de mesas é um problema separado de
 sortimento persistido e não será corrigida por filtro visual ou texto fixo.
 
+### Gate 5.4.2 — Verdade temporal e navegação de validação
+
+Este gate corrige duas falhas observadas na validação publicada: horários eram
+renderizados no fuso do navegador e a validação gerencial oferecia duas ações
+para retornar à Gestão. Também elimina a falsa impressão de que uma projeção
+foi atualizada a partir de dados de origem quando o tenant não possui fatos
+persistidos.
+
+- os indicadores e evidências temporais cobertos por este gate usam a regra
+  canônica `UTC−03:00`, independentemente do fuso do dispositivo;
+- `source_watermark` é o maior timestamp dos fatos persistidos que participaram
+  da projeção; quando não há fatos, permanece ausente;
+- o painel distingue o instante de geração da projeção da última origem
+  observada e não chama ausência de dados de "atualização";
+- a validação gerencial mantém uma única ação de retorno para a Gestão;
+- o selo de conectividade descreve somente alcançabilidade da API/rede, não
+  homologação ou conexão de provedor externo.
+
+Este gate não é o redesign visual completo. Densidade, responsividade e
+hierarquia do PDV permanecem como trabalho de UI/UX posterior, sem misturar
+sortimento de atividades distintas nem introduzir dados demonstrativos.
+
 Escopo:
 
 - roteiro assistido para administrador do tenant e operador;

@@ -22,7 +22,7 @@ test('lets Gestão open the terminal surface without granting management to oper
   const shell = await source('../src/shells/PosShell.tsx')
   const kds = await source('../src/shells/KdsShell.tsx')
   const management = await source('../src/layouts/ManagementLayout.tsx')
-  assert.match(pos, /managementAvailable && <button/)
+  assert.match(pos, /managementAvailable && !managementValidation && <button/)
   assert.match(pos, /canNavigateToManagement\(Boolean\(session\), permissions\)/)
   assert.match(pos, /navigateTo\('\/manage'\)/)
   assert.doesNotMatch(kds, /navigateTo\('\/manage'\)/)
@@ -214,6 +214,8 @@ test('renders management metrics from the aggregate API instead of browser reduc
   assert.match(dashboard, /Prontidão da configuração/)
   assert.match(dashboard, /overview\.resource_usage\.DEVICES\?\.configured/)
   assert.doesNotMatch(dashboard, /salesHistory\.filter|salesHistory\.reduce/)
+  assert.match(dashboard, /formatProductDateTime\(overview\.generated_at\)/)
+  assert.match(dashboard, /não há watermark de origem/)
 })
 
 test('renders operational productivity from the rebuildable backend projection', async () => {

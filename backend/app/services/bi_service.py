@@ -111,6 +111,17 @@ def refresh_daily_projection(
         BiDailyFact.competence_date >= start, BiDailyFact.competence_date <= end,
     ))
     now = datetime.utcnow()
+    # The watermark is the newest timestamp of a persisted source fact that
+    # actually participated in this projection.  It must never be the time
+    # at which the rebuild happened: that would report freshness even when the
+    # tenant has no operational data (or when a connector has not delivered it).
+    source_timestamps = [
+        *(item.occurred_at for item in sales if item.occurred_at),
+        *(item.created_at for item in payments if item.created_at),
+        *(item.created_at for item in refunds if item.created_at),
+        *(item.issued_at for item in receivables if item.issued_at),
+        *(item.confirmed_at for item in receipts if item.confirmed_at),
+    ]
     for (competence, register_key, operator_key, channel_key), values in facts.items():
         session.add(BiDailyFact(
             tenant_id=context.tenant_id, store_id=store_id, competence_date=competence,
@@ -132,6 +143,9 @@ def refresh_daily_projection(
         settlements = session.exec(scope_tenant_query(select(MarketplaceSettlement).where(
             MarketplaceSettlement.store_id == store_id, MarketplaceSettlement.competence_date == day,
         ), MarketplaceSettlement, context)).all()
+        source_timestamps.extend(item.closed_at for item in table_rows if item.closed_at)
+        source_timestamps.extend(item.delivered_at for item in tickets if item.delivered_at)
+        source_timestamps.extend(item.created_at for item in transfers if item.created_at)
         day_receipts = [item for item in receipts if item.confirmed_at and item.confirmed_at.date() == day]
         stockouts = 0
         if day == today:
@@ -155,7 +169,9 @@ def refresh_daily_projection(
         state = BiProjectionState(tenant_id=context.tenant_id, store_id=store_id)
     else:
         state.version += 1
-    state.last_competence = end; state.source_watermark = now; state.projected_at = now
+    state.last_competence = end
+    state.source_watermark = max(source_timestamps, default=None)
+    state.projected_at = now
     state.status = "READY"; state.last_error = None
     session.add(state)
     reliability_service.write_audit_and_outbox(
@@ -179,7 +195,11 @@ def summary(
     state = session.exec(scope_tenant_query(select(BiProjectionState).where(
         BiProjectionState.store_id == store_id, BiProjectionState.projection_key == "BI_V1_DAILY",
     ), BiProjectionState, context)).first()
-    if not state or datetime.utcnow() - state.projected_at > timedelta(minutes=5):
+    # States written before 5.4.2 used the rebuild instant as the watermark.
+    # Rebuild those records once so an old, synthetic freshness claim cannot
+    # survive merely because the projection itself is still recent.
+    legacy_watermark = bool(state and state.source_watermark and state.source_watermark == state.projected_at)
+    if not state or legacy_watermark or datetime.utcnow() - state.projected_at > timedelta(minutes=5):
         state = refresh_daily_projection(session, context, store_id=store_id, actor_id=resolve_actor(context))
     end = datetime.utcnow().date(); start = end - timedelta(days=days - 1)
     query = select(BiDailyFact).where(
@@ -217,7 +237,8 @@ def summary(
     if not products: alerts.append("O catálogo ainda não possui produtos.")
     if any(row.stockout_products for row in operation_rows if row.competence_date == end): alerts.append("Existem produtos no estoque mínimo ou em ruptura.")
     return {
-        "generated_at": state.projected_at, "projection_lag_seconds": max(0, int((datetime.utcnow() - state.projected_at).total_seconds())),
+        "generated_at": state.projected_at,
+        "projection_lag_seconds": max(0, int((datetime.utcnow() - state.source_watermark).total_seconds())) if state.source_watermark else 0,
         "projection_version": state.version, "source_watermark": state.source_watermark,
         "revenue_today": float(sum((row.net_revenue for row in today_rows), ZERO)), "revenue_30d": float(revenue),
         "sales_today": sum(row.sales_count for row in today_rows), "sales_30d": sales_count,
