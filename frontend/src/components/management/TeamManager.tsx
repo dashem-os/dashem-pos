@@ -37,6 +37,8 @@ export function TeamManager() {
   const [editingEmployee, setEditingEmployee] = useState<api.Employee | null>(null)
   const [emailForm, setEmailForm] = useState({ full_name: '', email: '', role: 'MANAGER' })
   const [pinForm, setPinForm] = useState({ employee_id: '', role: 'OPERATOR' as 'SUPERVISOR' | 'CASHIER' | 'OPERATOR', store_id: '', employee_code: '' })
+  const [editingAccess, setEditingAccess] = useState<api.TeamMember | null>(null)
+  const [accessForm, setAccessForm] = useState({ role: '', store_id: '', reason: '' })
   const [activationMember, setActivationMember] = useState<api.TeamMember | null>(null)
   const [activationDelivery, setActivationDelivery] = useState<api.TeamMember | null>(null)
   const canManage = permissions.includes('team.manage')
@@ -118,6 +120,33 @@ export function TeamManager() {
     setEmployeeForm(input); setEditingEmployee(employee)
   }
 
+  const startEditAccess = (member: api.TeamMember) => {
+    setAccessForm({ role: member.role, store_id: member.store_id || '', reason: '' })
+    setEditingAccess(member)
+  }
+
+  /**
+   * Function and unit of an existing access are correctable. The endpoint that
+   * suspends an access already carries them; until now the interface only ever
+   * sent them back unchanged, so a wrong role could not be fixed.
+   */
+  const saveAccess = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!editingAccess) return
+    setSaving(true); setError(null)
+    try {
+      await api.updateTeamMember(headers, editingAccess.membership_id, {
+        role: accessForm.role,
+        status: editingAccess.status,
+        store_id: accessForm.store_id || undefined,
+        reason: accessForm.reason.trim(),
+      })
+      setEditingAccess(null)
+      await load()
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Falha ao alterar o acesso.') }
+    finally { setSaving(false) }
+  }
+
   const changeStatus = async (member: api.TeamMember, status: string) => {
     setSaving(true); setError(null)
     try {
@@ -151,8 +180,33 @@ export function TeamManager() {
     <div className="grid gap-3 sm:grid-cols-3"><Summary icon={<Briefcase />} value={employees.length} title="Funcionários" text="Fichas cadastrais do tenant" /><Summary icon={<Mail />} value={emailCount} title="Acessos por e-mail" text="Administradores e gerentes" /><Summary icon={<KeyRound />} value={pinCount} title="Acessos operacionais" text="Código, PIN, função e unidade" /></div>
     <div className="inline-flex rounded-xl border border-dashem-border bg-dashem-surface p-1"><Tab active={view === 'ACCESS'} onClick={() => setView('ACCESS')}>Acessos</Tab><Tab active={view === 'EMPLOYEES'} onClick={() => setView('EMPLOYEES')}>Cadastro de funcionários</Tab></div>
     {error && <p className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">{error}</p>}
-    {view === 'ACCESS' ? <AccessTable members={members} loading={loading} saving={saving} canManage={canManage} changeStatus={changeStatus} issueActivation={setActivationMember} /> : <EmployeeTable employees={employees} stores={stores} loading={loading} canManage={canManage} edit={openEmployeeEdit} />}
+    {view === 'ACCESS' ? <AccessTable members={members} loading={loading} saving={saving} canManage={canManage} changeStatus={changeStatus} issueActivation={setActivationMember} editAccess={startEditAccess} /> : <EmployeeTable employees={employees} stores={stores} loading={loading} canManage={canManage} edit={openEmployeeEdit} />}
     {!canManage && <p className="flex items-center gap-2 text-sm font-semibold text-dashem-muted"><UserRoundCog className="h-4 w-4" />Seu perfil permite consulta, mas não alteração da equipe.</p>}
+
+    {editingAccess && <Modal title="Editar acesso" onClose={() => setEditingAccess(null)}>
+      <p className="text-sm leading-6 text-dashem-muted">{editingAccess.full_name} · {editingAccess.access_mode === 'PIN' ? `código ${editingAccess.employee_code}` : editingAccess.email}</p>
+      <form onSubmit={saveAccess} className="mt-5 space-y-4">
+        <Select
+          label="Função"
+          value={accessForm.role}
+          onChange={value => setAccessForm(current => ({ ...current, role: value }))}
+          options={editingAccess.access_mode === 'PIN'
+            ? [["OPERATOR", "Atendente"], ["CASHIER", "Caixa"], ["SUPERVISOR", "Supervisor"]]
+            : [["MANAGER", "Gerente"], ["ADMIN", "Administrador"]]}
+        />
+        {editingAccess.access_mode === 'PIN' && <Select
+          label="Unidade do acesso"
+          value={accessForm.store_id}
+          onChange={value => setAccessForm(current => ({ ...current, store_id: value }))}
+          options={stores.map(store => [store.id, store.name])}
+        />}
+        <Field label="Motivo da alteração" value={accessForm.reason} onChange={value => setAccessForm(current => ({ ...current, reason: value }))} />
+        <Info>A função define o que a pessoa pode fazer na operação. Atendente não abre nem fecha caixa; Caixa e Supervisor abrem e fecham. A alteração é auditada e derruba sessões que dependiam da autoridade anterior.</Info>
+        <button disabled={saving || !accessForm.role || accessForm.reason.trim().length < 4} className="h-12 w-full rounded-xl bg-dashem-red text-sm font-black text-brand-contrast disabled:opacity-40">
+          {saving ? 'Salvando...' : 'Salvar acesso'}
+        </button>
+      </form>
+    </Modal>}
 
     {formOpen && <Modal title="Conceder acesso" onClose={() => setFormOpen(false)}><div className="grid grid-cols-2 rounded-xl bg-dashem-bg p-1"><Tab active={mode === 'PIN'} onClick={() => setMode('PIN')}>Operação · código + PIN</Tab><Tab active={mode === 'EMAIL'} onClick={() => setMode('EMAIL')}>Gestão · e-mail</Tab></div><form onSubmit={submit} className="mt-5 space-y-4">{mode === 'EMAIL' ? <><Field label="Nome completo" value={emailForm.full_name} onChange={value => setEmailForm(current => ({ ...current, full_name: value }))} /><Field label="E-mail corporativo" type="email" value={emailForm.email} onChange={value => setEmailForm(current => ({ ...current, email: value }))} /><Select label="Função" value={emailForm.role} onChange={value => setEmailForm(current => ({ ...current, role: value }))} options={[["MANAGER","Gerente"],["ADMIN","Administrador"]]} /><Info>O convite por e-mail dá acesso à Gestão. A operação continua exigindo a identificação pessoal do colaborador em um terminal autorizado.</Info></> : <><div className="grid grid-cols-2 rounded-xl border border-dashem-border p-1"><Tab active={employeeSource === 'EXISTING'} onClick={() => setEmployeeSource('EXISTING')}>Buscar funcionário</Tab><Tab active={employeeSource === 'NEW'} onClick={() => setEmployeeSource('NEW')}>Novo cadastro</Tab></div>{employeeSource === 'EXISTING' ? <div className="space-y-4"><Field label="Buscar por nome ou matrícula" value={employeeSearch} onChange={setEmployeeSearch} icon={<Search className="h-4 w-4" />} /><Select label="Funcionário cadastrado" value={pinForm.employee_id} onChange={selectEmployee} options={availableEmployees.map(employee => [employee.id, `${employee.full_name} · ${employee.employee_number}`])} /></div> : <EmployeeFields value={employeeForm} onChange={setEmployeeForm} stores={stores} compact={false} />}<div className="grid gap-4 sm:grid-cols-2"><Select label="Função operacional" value={pinForm.role} onChange={value => setPinForm(current => ({ ...current, role: value as typeof pinForm.role }))} options={[["OPERATOR","Atendente"],["CASHIER","Caixa"],["SUPERVISOR","Supervisor"]]} /><Select label="Unidade do acesso" value={pinForm.store_id} onChange={value => setPinForm(current => ({ ...current, store_id: value, employee_id: '' }))} options={stores.map(store => [store.id, store.name])} /></div><Field label="Código de acesso do colaborador" value={pinForm.employee_code} onChange={value => setPinForm(current => ({ ...current, employee_code: value.replace(/[^A-Z0-9_-]/gi, '').toUpperCase().slice(0, 20) }))} /><Info>A Gestão define código, função e unidade. O colaborador recebe um código de ativação temporário e cria o próprio PIN no terminal autorizado; o gestor nunca vê esse PIN.</Info></>}<button disabled={saving || mode === 'EMAIL' && (!emailForm.full_name || !emailForm.email.includes('@')) || mode === 'PIN' && (!selectedEmployeeValid || !pinForm.store_id || pinForm.employee_code.length < 3)} className="h-12 w-full rounded-xl bg-dashem-red text-sm font-black text-brand-contrast disabled:opacity-40">{saving ? 'Salvando...' : mode === 'PIN' ? 'Conceder e emitir ativação' : 'Enviar convite de gestão'}</button></form></Modal>}
     {editingEmployee && <Modal title={`Ficha · ${editingEmployee.full_name}`} onClose={() => setEditingEmployee(null)}><form onSubmit={saveEmployee} className="mt-5 space-y-4"><EmployeeFields value={employeeForm} onChange={setEmployeeForm} stores={stores} compact={false} /><button disabled={saving || !employeeForm.full_name || !employeeForm.employee_number} className="h-12 w-full rounded-xl bg-dashem-red font-black text-brand-contrast disabled:opacity-40">{saving ? 'Salvando...' : 'Salvar ficha cadastral'}</button></form></Modal>}
@@ -161,7 +215,7 @@ export function TeamManager() {
   </div>
 }
 
-function AccessTable({ members, loading, saving, canManage, changeStatus, issueActivation }: { members: api.TeamMember[]; loading: boolean; saving: boolean; canManage: boolean; changeStatus: (member: api.TeamMember, status: string) => Promise<void>; issueActivation: (member: api.TeamMember) => void }) { return <section className="overflow-hidden rounded-2xl border border-dashem-border bg-dashem-surface">{loading ? <Loading /> : <DataTable
+function AccessTable({ members, loading, saving, canManage, changeStatus, issueActivation, editAccess }: { members: api.TeamMember[]; loading: boolean; saving: boolean; canManage: boolean; changeStatus: (member: api.TeamMember, status: string) => Promise<void>; issueActivation: (member: api.TeamMember) => void; editAccess: (member: api.TeamMember) => void }) { return <section className="overflow-hidden rounded-2xl border border-dashem-border bg-dashem-surface">{loading ? <Loading /> : <DataTable
   rows={members}
   rowKey={(member) => member.membership_id}
   empty={<Empty text="Nenhum acesso concedido." />}
@@ -171,7 +225,7 @@ function AccessTable({ members, loading, saving, canManage, changeStatus, issueA
     { key: 'role', header: 'Função', cell: (member) => <span className="text-sm font-bold text-dashem-muted">{roleLabel[member.role] || member.role}</span> },
     { key: 'store', header: 'Unidade', cell: (member) => <span className="text-sm text-dashem-muted">{member.store_name || 'Tenant inteiro'}</span> },
     { key: 'state', header: 'Estado', cell: (member) => <span className="rounded-full bg-dashem-bg px-2 py-1 text-xs font-black text-dashem-muted">{member.status !== 'ACTIVE' ? (member.status === 'SUSPENDED' ? 'Suspenso' : member.status) : member.credential_state === 'PENDING_ACTIVATION' ? 'Aguardando ativação' : 'Ativo'}</span> },
-    { key: 'actions', header: 'Ações', actions: true, cell: (member) => <div className="flex flex-wrap gap-2">{canManage && member.access_mode === 'PIN' && <Action onClick={() => issueActivation(member)} disabled={saving} tone="violet"><RotateCcwKey className="h-4 w-4" />Nova ativação</Action>}{canManage && (member.status === 'ACTIVE' ? <Action onClick={() => void changeStatus(member, 'SUSPENDED')} disabled={saving} tone="amber"><Ban className="h-4 w-4" />Suspender</Action> : <Action onClick={() => void changeStatus(member, 'ACTIVE')} disabled={saving} tone="emerald"><ShieldCheck className="h-4 w-4" />Reativar</Action>)}</div> },
+    { key: 'actions', header: 'Ações', actions: true, cell: (member) => <div className="flex flex-wrap gap-2">{canManage && <Action onClick={() => editAccess(member)} tone="neutral"><Pencil className="h-4 w-4" />Editar acesso</Action>}{canManage && member.access_mode === 'PIN' && <Action onClick={() => issueActivation(member)} disabled={saving} tone="violet"><RotateCcwKey className="h-4 w-4" />Nova ativação</Action>}{canManage && (member.status === 'ACTIVE' ? <Action onClick={() => void changeStatus(member, 'SUSPENDED')} disabled={saving} tone="amber"><Ban className="h-4 w-4" />Suspender</Action> : <Action onClick={() => void changeStatus(member, 'ACTIVE')} disabled={saving} tone="emerald"><ShieldCheck className="h-4 w-4" />Reativar</Action>)}</div> },
   ]}
 />}</section> }
 
