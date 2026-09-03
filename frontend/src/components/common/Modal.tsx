@@ -46,7 +46,11 @@ export const Modal: React.FC<ModalProps> = ({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150"
+      // Clicking the backdrop dismisses, the same way Escape and the X do.
+      onClick={(event) => { if (event.target === event.currentTarget) onClose() }}
+    >
       <div
         className={`w-full ${getMaxWidthClass()} bg-white border border-slate-200 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-150 text-slate-900`}
       >

@@ -3,10 +3,18 @@ import { Ban, Briefcase, KeyRound, Loader2, Mail, Pencil, Plus, RefreshCw as Rot
 import { usePos } from '../../context/PosContext'
 import * as api from '../../services/api'
 import { DataTable } from '../common/DataTable'
+import { Modal as SharedModal } from '../common/Modal'
 
 type AccessMode = 'EMAIL' | 'PIN'
 type EmployeeSource = 'EXISTING' | 'NEW'
 type View = 'ACCESS' | 'EMPLOYEES'
+
+/**
+ * Standard job titles offered on the employee record. They mirror the
+ * operational roles so the connection is visible when granting access, and
+ * "Outro" keeps a tenant from being locked out of a title we did not foresee.
+ */
+const JOB_TITLES = ['Atendente', 'Caixa', 'Supervisor', 'Gerente', 'Estoquista', 'Cozinha', 'Entregador']
 
 const roleLabel: Record<string, string> = {
   OWNER: 'Responsável do tenant', TENANT_OWNER: 'Responsável do tenant', ADMIN: 'Administrador', MANAGER: 'Gerente',
@@ -120,6 +128,17 @@ export function TeamManager() {
     setEmployeeForm(input); setEditingEmployee(employee)
   }
 
+  const openGrantForm = () => {
+    setMode('PIN')
+    setEmployeeSource('EXISTING')
+    setEmployeeSearch('')
+    setEmailForm({ full_name: '', email: '', role: 'MANAGER' })
+    setPinForm({ employee_id: '', role: 'OPERATOR', store_id: stores[0]?.id || '', employee_code: '' })
+    setEmployeeForm(blankEmployee())
+    setError(null)
+    setFormOpen(true)
+  }
+
   const startEditAccess = (member: api.TeamMember) => {
     setAccessForm({ role: member.role, store_id: member.store_id || '', reason: '' })
     setEditingAccess(member)
@@ -176,8 +195,8 @@ export function TeamManager() {
   const pinCount = members.filter(member => member.access_mode === 'PIN').length
 
   return <div className="space-y-5">
-    <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center"><div><p className="text-xs font-black uppercase tracking-[.16em] text-dashem-red">Administração do tenant</p><h2 className="mt-1 text-2xl font-black text-dashem-strong">Equipe e identidades</h2><p className="mt-1 max-w-3xl text-sm text-dashem-muted">O cadastro do funcionário existe antes do acesso. Gestores entram por e-mail; equipe operacional assume o turno com código e PIN.</p></div>{canManage && <button onClick={() => setFormOpen(true)} className="flex h-11 items-center justify-center gap-2 rounded-xl bg-dashem-red px-5 text-sm font-black text-brand-contrast"><Plus className="h-4 w-4" />Conceder acesso</button>}</div>
-    <div className="grid gap-3 sm:grid-cols-3"><Summary icon={<Briefcase />} value={employees.length} title="Funcionários" text="Fichas cadastrais do tenant" /><Summary icon={<Mail />} value={emailCount} title="Acessos por e-mail" text="Administradores e gerentes" /><Summary icon={<KeyRound />} value={pinCount} title="Acessos operacionais" text="Código, PIN, função e unidade" /></div>
+    <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center"><div><p className="text-xs font-black uppercase tracking-[.16em] text-dashem-red">Administração do tenant</p><h2 className="mt-1 text-2xl font-black text-dashem-strong">Equipe e identidades</h2><p className="mt-1 max-w-3xl text-sm text-dashem-muted">O cadastro do funcionário existe antes do acesso. Gestores entram por e-mail; equipe operacional assume o turno com código e PIN.</p></div>{canManage && <button onClick={openGrantForm} className="flex h-11 items-center justify-center gap-2 rounded-xl bg-dashem-red px-5 text-sm font-black text-brand-contrast"><Plus className="h-4 w-4" />Conceder acesso</button>}</div>
+    <div className="grid gap-3 sm:grid-cols-3"><Summary icon={<Briefcase />} value={employees.length} title="Funcionários" text="Fichas cadastrais do tenant" onClick={() => setView('EMPLOYEES')} /><Summary icon={<Mail />} value={emailCount} title="Acessos por e-mail" text="Administradores e gerentes" onClick={() => setView('ACCESS')} /><Summary icon={<KeyRound />} value={pinCount} title="Acessos operacionais" text="Código, PIN, função e unidade" onClick={() => setView('ACCESS')} /></div>
     <div className="inline-flex rounded-xl border border-dashem-border bg-dashem-surface p-1"><Tab active={view === 'ACCESS'} onClick={() => setView('ACCESS')}>Acessos</Tab><Tab active={view === 'EMPLOYEES'} onClick={() => setView('EMPLOYEES')}>Cadastro de funcionários</Tab></div>
     {error && <p className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">{error}</p>}
     {view === 'ACCESS' ? <AccessTable members={members} loading={loading} saving={saving} canManage={canManage} changeStatus={changeStatus} issueActivation={setActivationMember} editAccess={startEditAccess} /> : <EmployeeTable employees={employees} stores={stores} loading={loading} canManage={canManage} edit={openEmployeeEdit} />}
@@ -215,6 +234,11 @@ export function TeamManager() {
   </div>
 }
 
+/** Keeps the call sites short while every dialog shares one behaviour. */
+function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  return <SharedModal isOpen onClose={onClose} title={title} maxWidth="2xl">{children}</SharedModal>
+}
+
 function AccessTable({ members, loading, saving, canManage, changeStatus, issueActivation, editAccess }: { members: api.TeamMember[]; loading: boolean; saving: boolean; canManage: boolean; changeStatus: (member: api.TeamMember, status: string) => Promise<void>; issueActivation: (member: api.TeamMember) => void; editAccess: (member: api.TeamMember) => void }) { return <section className="overflow-hidden rounded-2xl border border-dashem-border bg-dashem-surface">{loading ? <Loading /> : <DataTable
   rows={members}
   rowKey={(member) => member.membership_id}
@@ -243,9 +267,34 @@ function EmployeeTable({ employees, stores, loading, canManage, edit }: { employ
   ]}
 />}</section> }
 
-function EmployeeFields({ value, onChange, stores, compact }: { value: api.EmployeeInput; onChange: (value: api.EmployeeInput) => void; stores: api.Store[]; compact: boolean }) { const set = (key: keyof api.EmployeeInput, fieldValue: string) => onChange({ ...value, [key]: fieldValue }); return <div className="space-y-4"><div className="grid gap-4 sm:grid-cols-2"><Field label="Nome completo" value={value.full_name} onChange={v => set('full_name', v)} /><Field label="Nome preferido" value={value.preferred_name || ''} onChange={v => set('preferred_name', v)} required={false} /><Field label="Matrícula" value={value.employee_number} onChange={v => set('employee_number', v.toUpperCase())} /><Field label="CPF" value={value.tax_id || ''} onChange={v => set('tax_id', v.replace(/\D/g, '').slice(0, 11))} required={false} /></div><div className="grid gap-4 sm:grid-cols-4"><Field label="Cargo" value={value.job_title || ''} onChange={v => set('job_title', v)} required={false} /><Field label="Setor" value={value.department || ''} onChange={v => set('department', v)} required={false} /><Field label="Admissão" type="date" value={value.hire_date || ''} onChange={v => set('hire_date', v)} required={false} /><Select label="Situação" value={value.status} onChange={v => set('status', v)} options={[["ACTIVE","Ativo"],["ON_LEAVE","Afastado"],["INACTIVE","Inativo"],["TERMINATED","Desligado"]]} /></div><div className="grid gap-4 sm:grid-cols-3"><Select label="Lotação principal" value={value.home_store_id || ''} onChange={v => set('home_store_id', v)} options={stores.map(store => [store.id, store.name])} required={false} /><Field label="Telefone" value={value.phone || ''} onChange={v => set('phone', v)} required={false} /><Field label="E-mail de contato" type="email" value={value.email || ''} onChange={v => set('email', v)} required={false} /></div>{!compact && <><p className="border-t border-dashem-border pt-4 text-xs font-black uppercase tracking-wider text-dashem-muted">Endereço e emergência</p><div className="grid gap-4 sm:grid-cols-4"><Field label="CEP" value={value.postal_code || ''} onChange={v => set('postal_code', v.replace(/\D/g, '').slice(0, 8))} required={false} /><div className="sm:col-span-2"><Field label="Logradouro" value={value.street || ''} onChange={v => set('street', v)} required={false} /></div><Field label="Número" value={value.street_number || ''} onChange={v => set('street_number', v)} required={false} /><Field label="Complemento" value={value.address_complement || ''} onChange={v => set('address_complement', v)} required={false} /><Field label="Bairro" value={value.district || ''} onChange={v => set('district', v)} required={false} /><Field label="Cidade" value={value.city || ''} onChange={v => set('city', v)} required={false} /><Field label="UF" value={value.state || ''} onChange={v => set('state', v.toUpperCase().slice(0, 2))} required={false} /></div><div className="grid gap-4 sm:grid-cols-2"><Field label="Contato de emergência" value={value.emergency_contact_name || ''} onChange={v => set('emergency_contact_name', v)} required={false} /><Field label="Telefone de emergência" value={value.emergency_contact_phone || ''} onChange={v => set('emergency_contact_phone', v)} required={false} /></div><Field label="Observações administrativas" value={value.notes || ''} onChange={v => set('notes', v)} required={false} /></>}</div> }
+function EmployeeFields({ value, onChange, stores, compact }: { value: api.EmployeeInput; onChange: (value: api.EmployeeInput) => void; stores: api.Store[]; compact: boolean }) { const set = (key: keyof api.EmployeeInput, fieldValue: string) => onChange({ ...value, [key]: fieldValue }); return <div className="space-y-4"><div className="grid gap-4 sm:grid-cols-2"><Field label="Nome completo" value={value.full_name} onChange={v => set('full_name', v)} /><Field label="Nome preferido" value={value.preferred_name || ''} onChange={v => set('preferred_name', v)} required={false} /><Field label="Matrícula" value={value.employee_number} onChange={v => set('employee_number', v.toUpperCase())} /><Field label="CPF" value={value.tax_id || ''} onChange={v => set('tax_id', v.replace(/\D/g, '').slice(0, 11))} required={false} /></div><div className="grid gap-4 sm:grid-cols-4"><JobTitleField value={value.job_title || ''} onChange={v => set('job_title', v)} /><Field label="Setor" value={value.department || ''} onChange={v => set('department', v)} required={false} /><Field label="Admissão" type="date" value={value.hire_date || ''} onChange={v => set('hire_date', v)} required={false} /><Select label="Situação" value={value.status} onChange={v => set('status', v)} options={[["ACTIVE","Ativo"],["ON_LEAVE","Afastado"],["INACTIVE","Inativo"],["TERMINATED","Desligado"]]} /></div><div className="grid gap-4 sm:grid-cols-3"><Select label="Lotação principal" value={value.home_store_id || ''} onChange={v => set('home_store_id', v)} options={stores.map(store => [store.id, store.name])} required={false} /><Field label="Telefone" value={value.phone || ''} onChange={v => set('phone', v)} required={false} /><Field label="E-mail de contato" type="email" value={value.email || ''} onChange={v => set('email', v)} required={false} /></div>{!compact && <><p className="border-t border-dashem-border pt-4 text-xs font-black uppercase tracking-wider text-dashem-muted">Endereço e emergência</p><div className="grid gap-4 sm:grid-cols-4"><Field label="CEP" value={value.postal_code || ''} onChange={v => set('postal_code', v.replace(/\D/g, '').slice(0, 8))} required={false} /><div className="sm:col-span-2"><Field label="Logradouro" value={value.street || ''} onChange={v => set('street', v)} required={false} /></div><Field label="Número" value={value.street_number || ''} onChange={v => set('street_number', v)} required={false} /><Field label="Complemento" value={value.address_complement || ''} onChange={v => set('address_complement', v)} required={false} /><Field label="Bairro" value={value.district || ''} onChange={v => set('district', v)} required={false} /><Field label="Cidade" value={value.city || ''} onChange={v => set('city', v)} required={false} /><Field label="UF" value={value.state || ''} onChange={v => set('state', v.toUpperCase().slice(0, 2))} required={false} /></div><div className="grid gap-4 sm:grid-cols-2"><Field label="Contato de emergência" value={value.emergency_contact_name || ''} onChange={v => set('emergency_contact_name', v)} required={false} /><Field label="Telefone de emergência" value={value.emergency_contact_phone || ''} onChange={v => set('emergency_contact_phone', v)} required={false} /></div><Field label="Observações administrativas" value={value.notes || ''} onChange={v => set('notes', v)} required={false} /></>}</div> }
 
-function Summary({ icon, value, title, text }: { icon: React.ReactNode; value: number; title: string; text: string }) { return <div className="flex items-center gap-4 rounded-2xl border border-dashem-border bg-dashem-surface p-4"><div className="flex h-11 w-11 items-center justify-center rounded-xl bg-dashem-bg text-dashem-red">{icon}</div><div><p className="text-xl font-black text-dashem-strong">{value}</p><p className="text-sm font-black text-dashem-muted">{title}</p><p className="text-xs text-dashem-muted">{text}</p></div></div> }
+function JobTitleField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  // "Outro" has to survive an empty value, otherwise choosing it looks the same
+  // as never having chosen anything and the free field disappears while typing.
+  const [custom, setCustom] = React.useState(Boolean(value) && !JOB_TITLES.includes(value))
+  return (
+    <div className="space-y-2">
+      <Select
+        label="Cargo"
+        value={custom ? 'OUTRO' : value}
+        onChange={(selected) => {
+          if (selected === 'OUTRO') { setCustom(true); onChange('') ; return }
+          setCustom(false); onChange(selected)
+        }}
+        options={[...JOB_TITLES.map(title => [title, title] as [string, string]), ['OUTRO', 'Outro (especificar)']]}
+      />
+      {custom && <Field label="Qual cargo" value={value} onChange={onChange} />}
+    </div>
+  )
+}
+
+function Summary({ icon, value, title, text, onClick }: { icon: React.ReactNode; value: number; title: string; text: string; onClick?: () => void }) {
+  const body = <><div className="flex h-11 w-11 items-center justify-center rounded-xl bg-dashem-bg text-brand-ink">{icon}</div><div><p className="text-xl font-black text-dashem-strong">{value}</p><p className="text-sm font-black text-dashem-muted">{title}</p><p className="text-xs text-dashem-muted">{text}</p></div></>
+  const shell = "flex w-full items-center gap-4 rounded-2xl border border-dashem-border bg-dashem-surface p-4 text-left"
+  if (!onClick) return <div className={shell}>{body}</div>
+  return <button type="button" onClick={onClick} className={`${shell} transition hover:border-brand-ink hover:shadow-sm`}>{body}</button>
+}
 function Field({ label, value, onChange, type = 'text', required = true, icon }: { label: string; value: string; onChange: (value: string) => void; type?: string; required?: boolean; icon?: React.ReactNode }) { return <label className="block text-xs font-black uppercase text-dashem-muted">{label}<div className="mt-2 flex items-center rounded-xl border border-dashem-border bg-dashem-bg px-3 focus-within:border-dashem-red">{icon}<input required={required} type={type} value={value} onChange={event => onChange(event.target.value)} className="h-11 min-w-0 flex-1 bg-transparent px-2 text-sm font-bold normal-case text-dashem-strong outline-none" /></div></label> }
 function Select({ label, value, onChange, options, required = true }: { label: string; value: string; onChange: (value: string) => void; options: string[][]; required?: boolean }) { return <label className="block text-xs font-black uppercase text-dashem-muted">{label}<select required={required} value={value} onChange={event => onChange(event.target.value)} className="mt-2 h-11 w-full rounded-xl border border-dashem-border bg-dashem-bg px-3 text-sm font-bold normal-case text-dashem-strong"><option value="">Selecione...</option>{options.map(([key, name]) => <option key={key} value={key}>{name}</option>)}</select></label> }
 function Tab({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) { return <button type="button" onClick={onClick} className={`h-10 rounded-lg px-4 text-xs font-black ${active ? 'bg-brand text-brand-contrast' : 'text-dashem-muted'}`}>{children}</button> }
@@ -254,4 +303,3 @@ function AccessBadge({ mode }: { mode: AccessMode }) { return <span className={`
 function Action({ onClick, disabled = false, tone, children }: { onClick: () => void; disabled?: boolean; tone: 'violet' | 'amber' | 'emerald' | 'neutral'; children: React.ReactNode }) { const color = { violet: 'border-violet-200 text-violet-700', amber: 'border-amber-200 text-amber-700', emerald: 'border-emerald-200 text-emerald-700', neutral: 'border-dashem-border text-dashem-muted' }[tone]; return <button disabled={disabled} onClick={onClick} className={`flex items-center gap-1 rounded-lg border px-3 py-2 text-xs font-black ${color}`}>{children}</button> }
 function Loading() { return <div className="flex min-h-48 items-center justify-center text-sm font-bold text-dashem-muted"><Loader2 className="mr-3 h-5 w-5 animate-spin" />Carregando equipe...</div> }
 function Empty({ text }: { text: string }) { return <p className="p-10 text-center text-sm font-bold text-dashem-muted">{text}</p> }
-function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) { return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 p-3 sm:p-4"><section className="max-h-[94vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-dashem-border bg-dashem-surface p-4 shadow-2xl sm:rounded-3xl sm:p-6"><div className="flex items-center justify-between"><h3 className="text-xl font-black text-dashem-strong">{title}</h3><button onClick={onClose} className="flex h-10 w-10 items-center justify-center rounded-xl border border-dashem-border text-dashem-muted"><X className="h-5 w-5" /></button></div>{children}</section></div> }
