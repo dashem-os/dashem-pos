@@ -36,35 +36,35 @@ export const SalesHistory: React.FC = () => {
     switch (status) {
       case 'COMPLETED':
         return (
-          <span className="px-2.5 py-1 rounded-md bg-emerald-950/80 text-emerald-300 border border-emerald-800/50 font-bold text-[11px] flex items-center space-x-1">
-            <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+          <span className="px-2.5 py-1 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold text-[11px] flex items-center space-x-1">
+            <CheckCircle2 className="w-3 h-3 text-emerald-700" />
             <span>Concluída</span>
           </span>
         )
       case 'PAID':
         return (
-          <span className="px-2.5 py-1 rounded-md bg-sky-950/80 text-sky-300 border border-sky-800/50 font-bold text-[11px] flex items-center space-x-1">
-            <CheckCircle2 className="w-3 h-3 text-sky-400" />
+          <span className="px-2.5 py-1 rounded-md bg-sky-50 text-sky-700 border border-sky-200 font-bold text-[11px] flex items-center space-x-1">
+            <CheckCircle2 className="w-3 h-3 text-sky-700" />
             <span>Paga (NF Pendente)</span>
           </span>
         )
       case 'AWAITING_PAYMENT':
         return (
-          <span className="px-2.5 py-1 rounded-md bg-amber-950/80 text-amber-300 border border-amber-800/50 font-bold text-[11px] flex items-center space-x-1">
-            <Clock className="w-3 h-3 text-amber-400" />
+          <span className="px-2.5 py-1 rounded-md bg-amber-50 text-amber-700 border border-amber-200 font-bold text-[11px] flex items-center space-x-1">
+            <Clock className="w-3 h-3 text-amber-700" />
             <span>Aguardando Pagamento</span>
           </span>
         )
       case 'CANCELED':
         return (
-          <span className="px-2.5 py-1 rounded-md bg-rose-950/80 text-rose-300 border border-rose-800/50 font-bold text-[11px] flex items-center space-x-1">
-            <Ban className="w-3 h-3 text-rose-400" />
+          <span className="px-2.5 py-1 rounded-md bg-rose-50 text-rose-700 border border-rose-200 font-bold text-[11px] flex items-center space-x-1">
+            <Ban className="w-3 h-3 text-rose-700" />
             <span>Cancelada</span>
           </span>
         )
       default:
         return (
-          <span className="px-2.5 py-1 rounded-md bg-slate-800 text-slate-300 font-bold text-[11px]">
+          <span className="px-2.5 py-1 rounded-md bg-slate-800 text-dashem-muted font-bold text-[11px]">
             {status}
           </span>
         )
@@ -76,7 +76,7 @@ export const SalesHistory: React.FC = () => {
       {/* Header & Filter Row */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-black text-white tracking-tight flex items-center space-x-2">
+          <h2 className="text-xl font-black text-dashem-strong tracking-tight flex items-center space-x-2">
             <FileText className="w-5 h-5 text-dashem-red" />
             <span>Histórico de Vendas & Transações</span>
           </h2>
@@ -99,7 +99,7 @@ export const SalesHistory: React.FC = () => {
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
                 filterStatus === tab.id
                   ? 'bg-dashem-red text-white shadow-md'
-                  : 'text-dashem-muted hover:text-white'
+                  : 'text-dashem-muted hover:text-dashem-strong'
               }`}
             >
               {tab.label}
@@ -116,7 +116,7 @@ export const SalesHistory: React.FC = () => {
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder="Buscar por ID da venda ou observação..."
-          className="w-full h-11 pl-11 pr-4 rounded-xl bg-dashem-surface border border-dashem-border text-white text-xs font-medium focus:border-dashem-red outline-none"
+          className="w-full h-11 pl-11 pr-4 rounded-xl bg-dashem-surface border border-dashem-border text-dashem-strong text-xs font-medium focus:border-dashem-red outline-none"
         />
       </div>
 
@@ -124,7 +124,7 @@ export const SalesHistory: React.FC = () => {
       {filtered.length === 0 ? (
         <div className="p-12 text-center border border-dashed border-dashem-border rounded-3xl bg-dashem-surface text-dashem-muted">
           <FileText className="w-12 h-12 mx-auto mb-2 opacity-40" />
-          <p className="text-base font-bold text-white">Nenhuma venda encontrada com este filtro</p>
+          <p className="text-base font-bold text-dashem-strong">Nenhuma venda encontrada com este filtro</p>
           <p className="text-xs text-dashem-muted mt-1">Altere o filtro de status ou realize novas operações no PDV.</p>
         </div>
       ) : (
@@ -147,7 +147,7 @@ export const SalesHistory: React.FC = () => {
                     </div>
                     <div>
                       <div className="flex items-center space-x-2">
-                        <span className="font-mono text-xs font-bold text-white">{sale.id}</span>
+                        <span className="font-mono text-xs font-bold text-dashem-strong">{sale.id}</span>
                         {getStatusBadge(sale.status)}
                       </div>
                       <span className="text-[11px] text-dashem-muted block mt-0.5">
@@ -162,7 +162,7 @@ export const SalesHistory: React.FC = () => {
                         Bruto: R$ {Number(sale.gross_total).toFixed(2)}{' '}
                         {Number(sale.discount_total) > 0 && `(Desc: R$ ${Number(sale.discount_total).toFixed(2)})`}
                       </span>
-                      <span className="text-base font-black text-white">
+                      <span className="text-base font-black text-dashem-strong">
                         R$ {Number(sale.net_total).toFixed(2)}
                       </span>
                     </div>
@@ -182,18 +182,18 @@ export const SalesHistory: React.FC = () => {
                       {sale.items.map((item, idx) => (
                         <div key={item.id || idx} className="pt-1.5 first:pt-0 flex items-center justify-between text-xs">
                           <div>
-                            <span className="font-bold text-white">{item.product_name}</span>
+                            <span className="font-bold text-dashem-strong">{item.product_name}</span>
                             <span className="text-[11px] text-dashem-muted ml-2">
                               {item.quantity}x R$ {Number(item.unit_price).toFixed(2)}
                             </span>
                           </div>
                           <div className="text-right">
                             {Number(item.discount_amount) > 0 && (
-                              <span className="text-[10px] text-emerald-400 font-semibold block">
+                              <span className="text-[10px] text-emerald-700 font-semibold block">
                                 - R$ {Number(item.discount_amount).toFixed(2)} desc.
                               </span>
                             )}
-                            <span className="font-bold text-white">R$ {Number(item.net_total).toFixed(2)}</span>
+                            <span className="font-bold text-dashem-strong">R$ {Number(item.net_total).toFixed(2)}</span>
                           </div>
                         </div>
                       ))}
@@ -201,15 +201,15 @@ export const SalesHistory: React.FC = () => {
 
                     {sale.notes && (
                       <div className="pt-2 text-xs text-dashem-muted border-t border-dashem-border">
-                        <span className="font-bold text-white">Observações:</span> {sale.notes}
+                        <span className="font-bold text-dashem-strong">Observações:</span> {sale.notes}
                       </div>
                     )}
                     {permissions.includes('reconciliation.manage') && ['PAID', 'COMPLETED', 'PARTIALLY_REFUNDED', 'REFUNDED'].includes(sale.status) && (
                       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-dashem-border pt-3">
                         <div className="text-xs text-dashem-muted">
-                          {reconciliations[sale.id] ? <span className={reconciliations[sale.id].status === 'MATCHED' ? 'font-bold text-emerald-400' : 'font-bold text-amber-400'}>{reconciliations[sale.id].status === 'MATCHED' ? 'Conferência sem diferenças' : `Diferença de R$ ${Number(reconciliations[sale.id].difference).toFixed(2)}`}</span> : 'Compare venda, pagamentos, crediário e documento fiscal sem alterar os fatos.'}
+                          {reconciliations[sale.id] ? <span className={reconciliations[sale.id].status === 'MATCHED' ? 'font-bold text-emerald-700' : 'font-bold text-amber-700'}>{reconciliations[sale.id].status === 'MATCHED' ? 'Conferência sem diferenças' : `Diferença de R$ ${Number(reconciliations[sale.id].difference).toFixed(2)}`}</span> : 'Compare venda, pagamentos, crediário e documento fiscal sem alterar os fatos.'}
                         </div>
-                        <button type="button" onClick={() => reconcile(sale)} disabled={reconciling === sale.id} className="flex h-9 items-center gap-2 rounded-xl border border-dashem-border px-3 text-xs font-black text-white hover:border-dashem-red disabled:opacity-40"><Scale className="h-4 w-4" />{reconciling === sale.id ? 'Conferindo...' : 'Conciliar venda'}</button>
+                        <button type="button" onClick={() => reconcile(sale)} disabled={reconciling === sale.id} className="flex h-9 items-center gap-2 rounded-xl border border-dashem-border px-3 text-xs font-black text-dashem-strong hover:border-dashem-red disabled:opacity-40"><Scale className="h-4 w-4" />{reconciling === sale.id ? 'Conferindo...' : 'Conciliar venda'}</button>
                       </div>
                     )}
                   </div>

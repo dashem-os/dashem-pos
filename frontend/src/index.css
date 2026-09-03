@@ -2,13 +2,70 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+  DASHEM design tokens.
+
+  Channels are space-separated RGB so Tailwind opacity modifiers work (bg-brand/10).
+  :root carries the primary identity (Akira red over a silver/white neutral scale).
+  [data-niche="..."] overrides only the brand channels — surfaces stay constant so
+  every niche shares the same layout contrast and readability.
+*/
+:root {
+  /* Brand — primary identity */
+  --brand: 225 33 32;
+  --brand-strong: 178 26 25;
+  --brand-ink: 178 26 25;
+  --brand-soft: 253 234 233;
+  --brand-contrast: 255 255 255;
+
+  /* Neutrals — silver / white */
+  --surface-bg: 244 245 247;
+  --surface: 255 255 255;
+  --surface-elevated: 248 249 251;
+  --border: 223 226 233;
+  --text-strong: 16 21 31;
+  --text-muted: 100 108 122;
+}
+
+/* Food service — Akira red (same as the primary identity). */
+:root[data-niche='FOOD_SERVICE'] {
+  --brand: 225 33 32;
+  --brand-strong: 178 26 25;
+  --brand-ink: 178 26 25;
+  --brand-soft: 253 234 233;
+  --brand-contrast: 255 255 255;
+}
+
+/* Retail — deep navy. */
+:root[data-niche='RETAIL'] {
+  --brand: 2 36 68;
+  --brand-strong: 1 24 46;
+  --brand-ink: 2 36 68;
+  --brand-soft: 230 236 243;
+  --brand-contrast: 255 255 255;
+}
+
+/* Beauty — amber. Light enough that it requires dark text on top. */
+:root[data-niche='BEAUTY_RESELLER'] {
+  --brand: 255 191 0;
+  --brand-strong: 214 158 0;
+  --brand-ink: 138 100 0;
+  --brand-soft: 255 246 219;
+  --brand-contrast: 38 28 0;
+}
+
 .operational-pin-mask {
   -webkit-text-security: disc;
 }
 
 @layer base {
   body {
-    @apply font-sans antialiased selection:bg-rose-500 selection:text-white min-h-screen bg-slate-50 text-slate-900;
+    @apply min-h-screen bg-dashem-bg font-sans text-dashem-strong antialiased selection:bg-brand selection:text-brand-contrast;
+  }
+
+  /* Consistent focus ring across hand-rolled and shared controls. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-brand/60 ring-offset-2 ring-offset-dashem-surface;
   }
 }
 

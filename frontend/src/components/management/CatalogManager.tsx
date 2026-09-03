@@ -127,7 +127,7 @@ export const CatalogManager: React.FC = () => {
       {/* Header Row */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-black text-white tracking-tight flex items-center space-x-2">
+          <h2 className="text-xl font-black text-dashem-strong tracking-tight flex items-center space-x-2">
             <Package className="w-5 h-5 text-dashem-red" />
             <span>Catálogo de Produtos & Estoque</span>
           </h2>
@@ -154,7 +154,7 @@ export const CatalogManager: React.FC = () => {
             className={`px-4 py-2 rounded-2xl text-xs font-black transition ${
               viewMode === 'MASTER'
                 ? 'bg-dashem-red text-white shadow-sm'
-                : 'bg-dashem-surface border border-dashem-border text-dashem-muted hover:text-white'
+                : 'bg-dashem-surface border border-dashem-border text-dashem-muted hover:text-dashem-strong'
             }`}
           >
             Catálogo Mestre ({viewMode === 'MASTER' ? total : products.length})
@@ -165,7 +165,7 @@ export const CatalogManager: React.FC = () => {
             className={`px-4 py-2 rounded-2xl text-xs font-black transition ${
               viewMode === 'PROJECTION'
                 ? 'bg-dashem-red text-white shadow-sm'
-                : 'bg-dashem-surface border border-dashem-border text-dashem-muted hover:text-white'
+                : 'bg-dashem-surface border border-dashem-border text-dashem-muted hover:text-dashem-strong'
             }`}
           >
             Projeção Vendável por Contexto
@@ -194,7 +194,7 @@ export const CatalogManager: React.FC = () => {
                       ? 'opacity-40 cursor-not-allowed bg-dashem-surface border border-dashem-border text-dashem-muted'
                       : active
                         ? 'bg-white text-dashem-bg font-black shadow-sm'
-                        : 'bg-dashem-surface border border-dashem-border text-dashem-muted hover:text-white'
+                        : 'bg-dashem-surface border border-dashem-border text-dashem-muted hover:text-dashem-strong'
                   }`}
                   title={!item.operational ? 'Jornada não contratada' : undefined}
                 >
@@ -208,15 +208,15 @@ export const CatalogManager: React.FC = () => {
 
       {/* Explicit Error Banner & Retry */}
       {contextError && (
-        <div className="p-4 rounded-2xl bg-rose-950/40 border border-rose-800/60 flex items-center justify-between text-xs text-rose-200">
+        <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 flex items-center justify-between text-xs text-rose-700">
           <div className="flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+            <AlertCircle className="w-4 h-4 text-rose-700 shrink-0" />
             <span>{contextError}</span>
           </div>
           <button
             type="button"
             onClick={() => setReloadKey(k => k + 1)}
-            className="px-3 py-1 rounded-xl bg-rose-900/60 hover:bg-rose-800 border border-rose-700 text-[11px] font-bold text-white transition"
+            className="px-3 py-1 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-200 text-[11px] font-bold text-rose-700 transition"
           >
             Tentar novamente
           </button>
@@ -231,7 +231,7 @@ export const CatalogManager: React.FC = () => {
           value={searchQuery}
           onChange={(e) => { setSearchQuery(e.target.value); setPage(1) }}
           placeholder="Buscar produto por nome, SKU ou código de barras..."
-          className="w-full h-11 pl-11 pr-4 rounded-xl bg-dashem-surface border border-dashem-border text-white text-xs font-medium focus:border-dashem-red outline-none"
+          className="w-full h-11 pl-11 pr-4 rounded-xl bg-dashem-surface border border-dashem-border text-dashem-strong text-xs font-medium focus:border-dashem-red outline-none"
         />
       </div>
 
@@ -258,24 +258,24 @@ export const CatalogManager: React.FC = () => {
                 return (
                   <tr key={prod.id} className="hover:bg-dashem-surface-elevated/40 transition-colors">
                     <td className="px-5 py-3.5">
-                      <span className="font-bold text-white block">{prod.name}</span>
+                      <span className="font-bold text-dashem-strong block">{prod.name}</span>
                       {prod.description && <span className="text-[11px] text-dashem-muted">{prod.description}</span>}
                     </td>
                     <td className="px-4 py-3.5">
-                      <span className="font-mono text-white block">{prod.sku}</span>
+                      <span className="font-mono text-dashem-strong block">{prod.sku}</span>
                       {prod.barcode && <span className="text-[10px] text-dashem-muted">EAN: {prod.barcode}</span>}
                     </td>
                     <td className="px-4 py-3.5">
                       <span
                         className={`px-2 py-0.5 rounded-md font-bold text-[10px] uppercase ${
-                          isService ? 'bg-amber-950/60 text-amber-300 border border-amber-800/40' : 'bg-dashem-surface-elevated text-slate-300'
+                          isService ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-dashem-surface-elevated text-dashem-muted'
                         }`}
                       >
                         {prod.item_type}
                       </span>
                     </td>
                     <td className="px-4 py-3.5 text-right">
-                      <span className="font-black text-white text-sm">R$ {price.toFixed(2)}</span>
+                      <span className="font-black text-dashem-strong text-sm">R$ {price.toFixed(2)}</span>
                     </td>
                     <td className="px-4 py-3.5 text-right">
                       {isService ? (
@@ -284,10 +284,10 @@ export const CatalogManager: React.FC = () => {
                         <span
                           className={`font-bold px-2 py-0.5 rounded-md text-[11px] ${
                             !prod.is_low_stock
-                              ? 'text-emerald-400 bg-emerald-950/40'
+                              ? 'text-emerald-700 bg-emerald-50'
                               : stock > 0
-                              ? 'text-amber-400 bg-amber-950/40'
-                              : 'text-rose-400 bg-rose-950/40'
+                              ? 'text-amber-700 bg-amber-50'
+                              : 'text-rose-700 bg-rose-50'
                           }`}
                         >
                           {stock} / {Number(prod.minimum_stock)} {prod.unit.toLowerCase()}
@@ -296,14 +296,14 @@ export const CatalogManager: React.FC = () => {
                     </td>
                     <td className="px-5 py-3.5 text-center">
                       <div className="inline-flex gap-2">
-                        <button type="button" onClick={() => setProductToArchive(prod)} title="Arquivar e retirar do PDV" className="rounded-lg border border-amber-900 bg-amber-950/30 p-2 text-amber-300"><Archive className="h-3.5 w-3.5" /></button>
+                        <button type="button" onClick={() => setProductToArchive(prod)} title="Arquivar e retirar do PDV" className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-amber-700"><Archive className="h-3.5 w-3.5" /></button>
                         <button
                           type="button"
                           onClick={() => handleQuickAccess(prod)}
                           title={prod.quick_position != null ? 'Remover do acesso rápido' : 'Adicionar ao acesso rápido'}
                           className="p-2 rounded-lg bg-dashem-surface-elevated border border-dashem-border"
                         >
-                          <Star className={`w-3.5 h-3.5 ${prod.quick_position != null ? 'fill-amber-400 text-amber-400' : 'text-dashem-muted'}`} />
+                          <Star className={`w-3.5 h-3.5 ${prod.quick_position != null ? 'fill-amber-400 text-amber-700' : 'text-dashem-muted'}`} />
                         </button>
                         {!isService && (
                         <button
@@ -312,7 +312,7 @@ export const CatalogManager: React.FC = () => {
                             setMinimumStock(String(prod.minimum_stock))
                             setIsStockModalOpen(true)
                           }}
-                          className="px-3 py-1.5 rounded-lg bg-dashem-surface-elevated hover:bg-dashem-border text-white text-[11px] font-bold transition-all border border-dashem-border inline-flex items-center space-x-1"
+                          className="px-3 py-1.5 rounded-lg bg-dashem-surface-elevated hover:bg-dashem-border text-dashem-strong text-[11px] font-bold transition-all border border-dashem-border inline-flex items-center space-x-1"
                         >
                           <ArrowUpDown className="w-3.5 h-3.5 text-dashem-red" />
                           <span>Ajustar</span>
@@ -346,49 +346,49 @@ export const CatalogManager: React.FC = () => {
       >
         <form onSubmit={handleCreateProduct} className="space-y-4">
           <div className="space-y-1.5">
-            <label className="text-xs font-bold text-white block">Nome do Produto / Serviço</label>
+            <label className="text-xs font-bold text-dashem-strong block">Nome do Produto / Serviço</label>
             <input
               type="text"
               required
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Ex.: Hambúrguer artesanal, diária ou camiseta"
-              className="w-full h-11 px-3.5 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-white text-xs font-semibold focus:border-dashem-red outline-none"
+              className="w-full h-11 px-3.5 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-dashem-strong text-xs font-semibold focus:border-dashem-red outline-none"
             />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-white block">SKU / Código</label>
+              <label className="text-xs font-bold text-dashem-strong block">SKU / Código</label>
               <input
                 type="text"
                 required
                 value={sku}
                 onChange={(e) => setSku(e.target.value)}
                 placeholder="Ex: CAB-25"
-                className="w-full h-11 px-3.5 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-white text-xs font-semibold focus:border-dashem-red outline-none"
+                className="w-full h-11 px-3.5 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-dashem-strong text-xs font-semibold focus:border-dashem-red outline-none"
               />
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-white block">Código de Barras (EAN)</label>
+              <label className="text-xs font-bold text-dashem-strong block">Código de Barras (EAN)</label>
               <input
                 type="text"
                 value={barcode}
                 onChange={(e) => setBarcode(e.target.value)}
                 placeholder="Ex: 789123456789"
-                className="w-full h-11 px-3.5 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-white text-xs font-semibold focus:border-dashem-red outline-none"
+                className="w-full h-11 px-3.5 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-dashem-strong text-xs font-semibold focus:border-dashem-red outline-none"
               />
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-white block">Tipo</label>
+              <label className="text-xs font-bold text-dashem-strong block">Tipo</label>
               <select
                 value={itemType}
                 onChange={(e) => setItemType(e.target.value as any)}
-                className="w-full h-11 px-3.5 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-white text-xs font-semibold focus:border-dashem-red outline-none"
+                className="w-full h-11 px-3.5 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-dashem-strong text-xs font-semibold focus:border-dashem-red outline-none"
               >
                 <option value="PRODUCT">Produto Físico</option>
                 <option value="SERVICE">Serviço / Mão de Obra</option>
@@ -396,7 +396,7 @@ export const CatalogManager: React.FC = () => {
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-white block">Preço de Venda (R$)</label>
+              <label className="text-xs font-bold text-dashem-strong block">Preço de Venda (R$)</label>
               <input
                 type="number"
                 step="0.01"
@@ -404,19 +404,19 @@ export const CatalogManager: React.FC = () => {
                 value={priceInput}
                 onChange={(e) => setPriceInput(e.target.value)}
                 placeholder="Ex: 49.90"
-                className="w-full h-11 px-3.5 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-white text-xs font-semibold focus:border-dashem-red outline-none"
+                className="w-full h-11 px-3.5 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-dashem-strong text-xs font-semibold focus:border-dashem-red outline-none"
               />
             </div>
           </div>
 
           {itemType === 'PRODUCT' && (
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-white block">Estoque Inicial (unidades)</label>
+              <label className="text-xs font-bold text-dashem-strong block">Estoque Inicial (unidades)</label>
               <input
                 type="number"
                 value={stockInput}
                 onChange={(e) => setStockInput(e.target.value)}
-                className="w-full h-11 px-3.5 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-white text-xs font-semibold focus:border-dashem-red outline-none"
+                className="w-full h-11 px-3.5 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-dashem-strong text-xs font-semibold focus:border-dashem-red outline-none"
               />
             </div>
           )}
@@ -443,11 +443,11 @@ export const CatalogManager: React.FC = () => {
       >
         <form onSubmit={handleAdjustStock} className="space-y-4">
           <div className="space-y-1.5">
-            <label className="text-xs font-bold text-white block">Tipo de Movimentação</label>
+            <label className="text-xs font-bold text-dashem-strong block">Tipo de Movimentação</label>
             <select
               value={adjustType}
               onChange={(e) => setAdjustType(e.target.value as any)}
-              className="w-full h-11 px-3.5 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-white text-xs font-semibold focus:border-dashem-red outline-none"
+              className="w-full h-11 px-3.5 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-dashem-strong text-xs font-semibold focus:border-dashem-red outline-none"
             >
               <option value="PURCHASE">Entrada / Compra de Mercadoria</option>
               <option value="LOSS">Perda / Avaria / Vencimento</option>
@@ -456,7 +456,7 @@ export const CatalogManager: React.FC = () => {
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-xs font-bold text-white block">Quantidade</label>
+            <label className="text-xs font-bold text-dashem-strong block">Quantidade</label>
             <input
               type="number"
               step="1"
@@ -464,22 +464,22 @@ export const CatalogManager: React.FC = () => {
               value={adjustQty}
               onChange={(e) => setAdjustQty(e.target.value)}
               placeholder="Ex: 10"
-              className="w-full h-11 px-3.5 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-white text-xs font-semibold focus:border-dashem-red outline-none"
+              className="w-full h-11 px-3.5 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-dashem-strong text-xs font-semibold focus:border-dashem-red outline-none"
             />
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-xs font-bold text-white block">Motivo / Observação</label>
+            <label className="text-xs font-bold text-dashem-strong block">Motivo / Observação</label>
             <input
               type="text"
               value={adjustReason}
               onChange={(e) => setAdjustReason(e.target.value)}
-              className="w-full h-11 px-3.5 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-white text-xs font-semibold focus:border-dashem-red outline-none"
+              className="w-full h-11 px-3.5 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-dashem-strong text-xs font-semibold focus:border-dashem-red outline-none"
             />
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-xs font-bold text-white block">Estoque mínimo desta unidade</label>
+            <label className="text-xs font-bold text-dashem-strong block">Estoque mínimo desta unidade</label>
             <input
               type="number"
               min="0"
@@ -487,7 +487,7 @@ export const CatalogManager: React.FC = () => {
               required
               value={minimumStock}
               onChange={(e) => setMinimumStock(e.target.value)}
-              className="w-full h-11 px-3.5 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-white text-xs font-semibold focus:border-dashem-red outline-none"
+              className="w-full h-11 px-3.5 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-dashem-strong text-xs font-semibold focus:border-dashem-red outline-none"
             />
           </div>
 
@@ -504,7 +504,7 @@ export const CatalogManager: React.FC = () => {
         </form>
       </Modal>
 
-      <Modal isOpen={Boolean(productToArchive)} onClose={() => setProductToArchive(null)} title="Arquivar item do catálogo" subtitle="O item deixa o PDV sem apagar seu histórico."><div className="space-y-4"><p className="rounded-xl border border-amber-900/50 bg-amber-950/30 p-4 text-sm font-bold text-amber-200">{productToArchive?.name} será retirado da venda e do acesso rápido. Vendas, estoque e auditoria permanecem preservados.</p><div className="grid grid-cols-2 gap-3"><button onClick={() => setProductToArchive(null)} className="h-11 rounded-xl border border-dashem-border font-black text-white">Cancelar</button><button disabled={actionLoading} onClick={() => void archiveProduct()} className="h-11 rounded-xl bg-amber-600 font-black text-white disabled:opacity-40">Arquivar item</button></div></div></Modal>
+      <Modal isOpen={Boolean(productToArchive)} onClose={() => setProductToArchive(null)} title="Arquivar item do catálogo" subtitle="O item deixa o PDV sem apagar seu histórico."><div className="space-y-4"><p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-700">{productToArchive?.name} será retirado da venda e do acesso rápido. Vendas, estoque e auditoria permanecem preservados.</p><div className="grid grid-cols-2 gap-3"><button onClick={() => setProductToArchive(null)} className="h-11 rounded-xl border border-dashem-border font-black text-dashem-strong">Cancelar</button><button disabled={actionLoading} onClick={() => void archiveProduct()} className="h-11 rounded-xl bg-amber-600 font-black text-white disabled:opacity-40">Arquivar item</button></div></div></Modal>
     </div>
   )
 }

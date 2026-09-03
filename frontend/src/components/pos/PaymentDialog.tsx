@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { Modal } from '../common/Modal'
+import { Button } from '../common/Button'
 import { usePos } from '../../context/PosContext'
 import { Banknote, QrCode, CreditCard, Check, Split, ArrowLeft } from 'lucide-react'
 import { Payment } from '../../services/api'
@@ -180,50 +181,28 @@ export const PaymentDialog: React.FC = () => {
               </div>
             </div>
 
-            {/* Quick Bill Increments */}
-            <div className="grid grid-cols-6 gap-1 pt-0.5">
-              <button
-                type="button"
-                onClick={() => handleQuickTender(activeAmountToPay)}
-                className="h-8 rounded-lg bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold transition-colors border border-slate-200"
-              >
-                Exato
-              </button>
-              <button
-                type="button"
-                onClick={() => handleQuickAddTender(10)}
-                className="h-8 rounded-lg bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold transition-colors border border-slate-200"
-              >
-                + R$ 10
-              </button>
-              <button
-                type="button"
-                onClick={() => handleQuickAddTender(20)}
-                className="h-8 rounded-lg bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold transition-colors border border-slate-200"
-              >
-                + R$ 20
-              </button>
-              <button
-                type="button"
-                onClick={() => handleQuickAddTender(50)}
-                className="h-8 rounded-lg bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold transition-colors border border-slate-200"
-              >
-                + R$ 50
-              </button>
-              <button
-                type="button"
-                onClick={() => handleQuickTender(100)}
-                className="h-8 rounded-lg bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold transition-colors border border-slate-200"
-              >
-                R$ 100
-              </button>
-              <button
-                type="button"
-                onClick={() => handleQuickTender(200)}
-                className="h-8 rounded-lg bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold transition-colors border border-slate-200"
-              >
-                R$ 200
-              </button>
+            {/*
+              Two separate rows: setting the tendered value and adding to it are
+              different actions, and mixing them in one row of 32px buttons made
+              both easy to hit by mistake.
+            */}
+            <div className="space-y-2 pt-0.5">
+              <div>
+                <span className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-500">Recebido</span>
+                <div className="grid grid-cols-3 gap-1.5">
+                  <Button variant="secondary" onClick={() => handleQuickTender(activeAmountToPay)}>Valor exato</Button>
+                  <Button variant="secondary" onClick={() => handleQuickTender(100)}>R$ 100</Button>
+                  <Button variant="secondary" onClick={() => handleQuickTender(200)}>R$ 200</Button>
+                </div>
+              </div>
+              <div>
+                <span className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-500">Somar ao recebido</span>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {[10, 20, 50].map((amount) => (
+                    <Button key={amount} variant="secondary" onClick={() => handleQuickAddTender(amount)}>+ R$ {amount}</Button>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -249,30 +228,21 @@ export const PaymentDialog: React.FC = () => {
         )}
 
         {/* Action Buttons */}
-        <div className="flex items-center space-x-2 pt-2">
-          <button
-            type="button"
-            onClick={closePaymentModal}
-            disabled={actionLoading}
-            className="px-4 h-14 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-bold transition-colors border border-slate-200 flex items-center space-x-1 shrink-0"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            <span>Voltar</span>
-          </button>
+        <div className="flex items-center gap-2 pt-2">
+          <Button size="lg" variant="secondary" icon={ArrowLeft} onClick={closePaymentModal} disabled={actionLoading} className="shrink-0">
+            Voltar
+          </Button>
 
-          <button
-            type="button"
+          <Button
+            size="lg"
+            icon={Check}
             onClick={handleConfirmPayment}
-            disabled={actionLoading || activeAmountToPay <= 0 || (method === 'CASH' && tenderedAmount < activeAmountToPay)}
-            className="flex-1 h-14 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-base font-black flex items-center justify-center space-x-2 transition-all shadow-md active:scale-[0.98] disabled:opacity-40"
+            loading={actionLoading}
+            disabled={activeAmountToPay <= 0 || (method === 'CASH' && tenderedAmount < activeAmountToPay)}
+            className="flex-1"
           >
-            <Check className="w-5 h-5" />
-            <span>
-              {actionLoading
-                ? 'Processando...'
-                : `CONFIRMAR RECEBIMENTO (${formatCurrency(activeAmountToPay)})`}
-            </span>
-          </button>
+            {actionLoading ? 'Processando...' : `CONFIRMAR RECEBIMENTO (${formatCurrency(activeAmountToPay)})`}
+          </Button>
         </div>
       </div>
     </Modal>

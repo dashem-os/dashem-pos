@@ -285,7 +285,7 @@ export const AssortmentManager: React.FC = () => {
         <div>
           <div className="flex items-center gap-2">
             <Layers className="h-6 w-6 text-dashem-red" />
-            <h1 className="text-xl font-black text-white">Sortimentos e Cardápios</h1>
+            <h1 className="text-xl font-black text-dashem-strong">Sortimentos e Cardápios</h1>
           </div>
           <p className="text-xs text-dashem-muted font-medium mt-1">
             Fonte canônica de sortimento por contexto operacional. Cada jornada possui escopo explícito sem fallback global.
@@ -305,14 +305,14 @@ export const AssortmentManager: React.FC = () => {
 
       {/* Error alert */}
       {error && (
-        <div className="flex items-center justify-between p-4 rounded-2xl bg-red-950/40 border border-red-800/60 text-red-300 text-xs">
+        <div className="flex items-center justify-between p-4 rounded-2xl bg-red-50 border border-red-200 text-red-700 text-xs">
           <div className="flex items-center gap-2">
             <AlertCircle className="h-4 w-4 shrink-0" />
             <span>{error}</span>
           </div>
           <button
             onClick={loadAssortments}
-            className="flex items-center gap-1.5 px-3 py-1 bg-red-900/60 hover:bg-red-800 rounded-lg text-white text-[11px] font-bold"
+            className="flex items-center gap-1.5 px-3 py-1 bg-red-50 hover:bg-red-100 rounded-lg text-red-700 text-[11px] font-bold"
           >
             <RefreshCw className="h-3 w-3" />
             <span>Tentar novamente</span>
@@ -322,9 +322,9 @@ export const AssortmentManager: React.FC = () => {
 
       {/* Conflict error alert */}
       {conflictError && (
-        <div className="flex items-center justify-between p-4 rounded-2xl bg-amber-950/40 border border-amber-700 text-amber-200 text-xs">
+        <div className="flex items-center justify-between p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-700 text-xs">
           <div className="flex items-center gap-2">
-            <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400" />
+            <AlertTriangle className="h-4 w-4 shrink-0 text-amber-700" />
             <span>{conflictError}</span>
           </div>
           <button
@@ -355,13 +355,13 @@ export const AssortmentManager: React.FC = () => {
             value={search}
             onChange={(e) => { setSearch(e.target.value); setPage(1) }}
             placeholder="Buscar por código ou nome do sortimento..."
-            className="w-full h-10 pl-11 pr-4 rounded-xl bg-dashem-surface border border-dashem-border text-white text-xs font-medium focus:border-dashem-red outline-none"
+            className="w-full h-10 pl-11 pr-4 rounded-xl bg-dashem-surface border border-dashem-border text-dashem-strong text-xs font-medium focus:border-dashem-red outline-none"
           />
         </div>
         <select
           value={statusFilter}
           onChange={(e) => { setStatusFilter(e.target.value); setPage(1) }}
-          className="h-10 px-3 rounded-xl bg-dashem-surface border border-dashem-border text-white text-xs font-medium focus:border-dashem-red outline-none"
+          className="h-10 px-3 rounded-xl bg-dashem-surface border border-dashem-border text-dashem-strong text-xs font-medium focus:border-dashem-red outline-none"
         >
           <option value="">Todos os estados</option>
           <option value="ACTIVE">Ativos</option>
@@ -379,7 +379,7 @@ export const AssortmentManager: React.FC = () => {
         ) : assortments.length === 0 ? (
           <div className="p-12 text-center text-dashem-muted text-xs font-medium flex flex-col items-center gap-2">
             <Layers className="h-8 w-8 text-dashem-muted/40" />
-            <span className="text-white font-bold text-sm">Nenhum sortimento encontrado</span>
+            <span className="text-dashem-strong font-bold text-sm">Nenhum sortimento encontrado</span>
             <span className="max-w-md">
               Não há sortimentos cadastrados para os filtros selecionados. Crie um novo sortimento para vincular produtos aos contextos de venda.
             </span>
@@ -401,7 +401,7 @@ export const AssortmentManager: React.FC = () => {
                 {assortments.map((ass) => (
                   <tr key={ass.id} className="hover:bg-dashem-surface-elevated/50 transition">
                     <td className="px-5 py-4">
-                      <div className="font-extrabold text-white text-sm">{ass.name}</div>
+                      <div className="font-extrabold text-dashem-strong text-sm">{ass.name}</div>
                       <div className="text-[11px] font-mono text-dashem-muted">{ass.code}</div>
                       {ass.description && (
                         <div className="text-[11px] text-dashem-muted mt-0.5 line-clamp-1">{ass.description}</div>
@@ -412,18 +412,18 @@ export const AssortmentManager: React.FC = () => {
                         {ass.scopes.map((s, idx) => (
                           <span
                             key={idx}
-                            className="px-2 py-0.5 rounded-lg bg-dashem-bg border border-dashem-border text-[10px] font-bold text-slate-300"
+                            className="px-2 py-0.5 rounded-lg bg-dashem-bg border border-dashem-border text-[10px] font-bold text-dashem-muted"
                           >
                             {CONTEXT_LABELS[s.sales_context] || s.sales_context}
                           </span>
                         ))}
                         {ass.scopes.length === 0 && (
-                          <span className="text-[11px] text-amber-400 font-semibold italic">Sem escopos</span>
+                          <span className="text-[11px] text-amber-700 font-semibold italic">Sem escopos</span>
                         )}
                       </div>
                     </td>
                     <td className="px-4 py-4 text-center">
-                      <span className="font-bold text-white">{ass.product_count}</span>
+                      <span className="font-bold text-dashem-strong">{ass.product_count}</span>
                     </td>
                     <td className="px-4 py-4 text-center font-mono text-dashem-muted text-[11px]">
                       v{ass.version}
@@ -432,8 +432,8 @@ export const AssortmentManager: React.FC = () => {
                       <span
                         className={`inline-block px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
                           ass.status === 'ACTIVE'
-                            ? 'bg-emerald-950/60 text-emerald-300 border border-emerald-800/60'
-                            : 'bg-slate-800 text-slate-400 border border-slate-700'
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                            : 'bg-slate-800 text-dashem-muted border border-dashem-border'
                         }`}
                       >
                         {ass.status === 'ACTIVE' ? 'Ativo' : 'Inativo'}
@@ -442,7 +442,7 @@ export const AssortmentManager: React.FC = () => {
                     <td className="px-5 py-4 text-right space-x-2">
                       <button
                         onClick={() => openManageProducts(ass)}
-                        className="px-3 py-1.5 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-white text-xs font-bold hover:border-dashem-red transition"
+                        className="px-3 py-1.5 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-dashem-strong text-xs font-bold hover:border-dashem-red transition"
                       >
                         Produtos ({ass.product_count})
                       </button>
@@ -450,14 +450,14 @@ export const AssortmentManager: React.FC = () => {
                         <>
                           <button
                             onClick={() => openEditModal(ass)}
-                            className="p-1.5 rounded-lg text-dashem-muted hover:text-white transition"
+                            className="p-1.5 rounded-lg text-dashem-muted hover:text-dashem-strong transition"
                             title="Editar sortimento"
                           >
                             <Edit3 className="h-4 w-4" />
                           </button>
                           <button
                             onClick={() => handleDelete(ass)}
-                            className="p-1.5 rounded-lg text-dashem-muted hover:text-red-400 transition"
+                            className="p-1.5 rounded-lg text-dashem-muted hover:text-red-700 transition"
                             title="Excluir sortimento"
                           >
                             <Trash2 className="h-4 w-4" />
@@ -478,8 +478,8 @@ export const AssortmentManager: React.FC = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
           <div className="w-full max-w-lg bg-dashem-surface border border-dashem-border rounded-3xl p-6 shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-dashem-border pb-4">
-              <h2 className="text-base font-black text-white">Criar Novo Sortimento</h2>
-              <button onClick={() => setIsCreateOpen(false)} className="text-dashem-muted hover:text-white">
+              <h2 className="text-base font-black text-dashem-strong">Criar Novo Sortimento</h2>
+              <button onClick={() => setIsCreateOpen(false)} className="text-dashem-muted hover:text-dashem-strong">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -493,7 +493,7 @@ export const AssortmentManager: React.FC = () => {
                   placeholder="EX: CARDAPIO-BALCAO"
                   value={formCode}
                   onChange={(e) => setFormCode(e.target.value.toUpperCase())}
-                  className="w-full h-10 px-3 rounded-xl bg-dashem-bg border border-dashem-border text-white text-xs font-mono font-bold focus:border-dashem-red outline-none"
+                  className="w-full h-10 px-3 rounded-xl bg-dashem-bg border border-dashem-border text-dashem-strong text-xs font-mono font-bold focus:border-dashem-red outline-none"
                 />
               </div>
 
@@ -505,7 +505,7 @@ export const AssortmentManager: React.FC = () => {
                   placeholder="Ex: Cardápio Principal do Balcão"
                   value={formName}
                   onChange={(e) => setFormName(e.target.value)}
-                  className="w-full h-10 px-3 rounded-xl bg-dashem-bg border border-dashem-border text-white text-xs font-bold focus:border-dashem-red outline-none"
+                  className="w-full h-10 px-3 rounded-xl bg-dashem-bg border border-dashem-border text-dashem-strong text-xs font-bold focus:border-dashem-red outline-none"
                 />
               </div>
 
@@ -516,7 +516,7 @@ export const AssortmentManager: React.FC = () => {
                   placeholder="Finalidade e observações deste sortimento..."
                   value={formDescription}
                   onChange={(e) => setFormDescription(e.target.value)}
-                  className="w-full p-3 rounded-xl bg-dashem-bg border border-dashem-border text-white text-xs font-medium focus:border-dashem-red outline-none"
+                  className="w-full p-3 rounded-xl bg-dashem-bg border border-dashem-border text-dashem-strong text-xs font-medium focus:border-dashem-red outline-none"
                 />
               </div>
 
@@ -538,8 +538,8 @@ export const AssortmentManager: React.FC = () => {
                           !item.operational
                             ? 'opacity-40 cursor-not-allowed bg-dashem-bg border-dashem-border text-dashem-muted'
                             : isChecked
-                              ? 'bg-dashem-red/10 border-dashem-red text-white'
-                              : 'bg-dashem-bg border-dashem-border text-dashem-muted hover:border-slate-600'
+                              ? 'bg-brand-soft border-brand text-brand-ink'
+                              : 'bg-dashem-bg border-dashem-border text-dashem-muted hover:border-brand/40'
                         }`}
                       >
                         <div className="flex items-center gap-2">
@@ -549,7 +549,7 @@ export const AssortmentManager: React.FC = () => {
                           <span>{item.label}</span>
                         </div>
                         {scope?.channel_id && (
-                          <span className="text-[10px] font-mono text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded">
+                          <span className="text-[10px] font-mono text-amber-700 bg-amber-400/10 px-1.5 py-0.5 rounded">
                             Canal: {scope.channel_id.slice(0, 6)}
                           </span>
                         )}
@@ -563,7 +563,7 @@ export const AssortmentManager: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setIsCreateOpen(false)}
-                  className="px-4 py-2 rounded-xl border border-dashem-border text-xs font-bold text-dashem-muted hover:text-white"
+                  className="px-4 py-2 rounded-xl border border-dashem-border text-xs font-bold text-dashem-muted hover:text-dashem-strong"
                 >
                   Cancelar
                 </button>
@@ -586,10 +586,10 @@ export const AssortmentManager: React.FC = () => {
           <div className="w-full max-w-lg bg-dashem-surface border border-dashem-border rounded-3xl p-6 shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-dashem-border pb-4">
               <div>
-                <h2 className="text-base font-black text-white">Editar Sortimento</h2>
+                <h2 className="text-base font-black text-dashem-strong">Editar Sortimento</h2>
                 <p className="text-[11px] font-mono text-dashem-muted">Versão esperada: v{editingAssortment.version}</p>
               </div>
-              <button onClick={() => setEditingAssortment(null)} className="text-dashem-muted hover:text-white">
+              <button onClick={() => setEditingAssortment(null)} className="text-dashem-muted hover:text-dashem-strong">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -602,7 +602,7 @@ export const AssortmentManager: React.FC = () => {
                   required
                   value={formCode}
                   onChange={(e) => setFormCode(e.target.value.toUpperCase())}
-                  className="w-full h-10 px-3 rounded-xl bg-dashem-bg border border-dashem-border text-white text-xs font-mono font-bold focus:border-dashem-red outline-none"
+                  className="w-full h-10 px-3 rounded-xl bg-dashem-bg border border-dashem-border text-dashem-strong text-xs font-mono font-bold focus:border-dashem-red outline-none"
                 />
               </div>
 
@@ -613,7 +613,7 @@ export const AssortmentManager: React.FC = () => {
                   required
                   value={formName}
                   onChange={(e) => setFormName(e.target.value)}
-                  className="w-full h-10 px-3 rounded-xl bg-dashem-bg border border-dashem-border text-white text-xs font-bold focus:border-dashem-red outline-none"
+                  className="w-full h-10 px-3 rounded-xl bg-dashem-bg border border-dashem-border text-dashem-strong text-xs font-bold focus:border-dashem-red outline-none"
                 />
               </div>
 
@@ -623,7 +623,7 @@ export const AssortmentManager: React.FC = () => {
                   rows={2}
                   value={formDescription}
                   onChange={(e) => setFormDescription(e.target.value)}
-                  className="w-full p-3 rounded-xl bg-dashem-bg border border-dashem-border text-white text-xs font-medium focus:border-dashem-red outline-none"
+                  className="w-full p-3 rounded-xl bg-dashem-bg border border-dashem-border text-dashem-strong text-xs font-medium focus:border-dashem-red outline-none"
                 />
               </div>
 
@@ -632,7 +632,7 @@ export const AssortmentManager: React.FC = () => {
                 <select
                   value={formStatus}
                   onChange={(e) => setFormStatus(e.target.value as 'ACTIVE' | 'INACTIVE')}
-                  className="w-full h-10 px-3 rounded-xl bg-dashem-bg border border-dashem-border text-white text-xs font-bold focus:border-dashem-red outline-none"
+                  className="w-full h-10 px-3 rounded-xl bg-dashem-bg border border-dashem-border text-dashem-strong text-xs font-bold focus:border-dashem-red outline-none"
                 >
                   <option value="ACTIVE">Ativo</option>
                   <option value="INACTIVE">Inativo</option>
@@ -656,8 +656,8 @@ export const AssortmentManager: React.FC = () => {
                           !item.operational
                             ? 'opacity-40 cursor-not-allowed bg-dashem-bg border-dashem-border text-dashem-muted'
                             : isChecked
-                              ? 'bg-dashem-red/10 border-dashem-red text-white'
-                              : 'bg-dashem-bg border-dashem-border text-dashem-muted hover:border-slate-600'
+                              ? 'bg-brand-soft border-brand text-brand-ink'
+                              : 'bg-dashem-bg border-dashem-border text-dashem-muted hover:border-brand/40'
                         }`}
                       >
                         <div className="flex items-center gap-2">
@@ -667,7 +667,7 @@ export const AssortmentManager: React.FC = () => {
                           <span>{item.label}</span>
                         </div>
                         {scope?.channel_id && (
-                          <span className="text-[10px] font-mono text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded">
+                          <span className="text-[10px] font-mono text-amber-700 bg-amber-400/10 px-1.5 py-0.5 rounded">
                             Canal: {scope.channel_id.slice(0, 6)}
                           </span>
                         )}
@@ -681,7 +681,7 @@ export const AssortmentManager: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setEditingAssortment(null)}
-                  className="px-4 py-2 rounded-xl border border-dashem-border text-xs font-bold text-dashem-muted hover:text-white"
+                  className="px-4 py-2 rounded-xl border border-dashem-border text-xs font-bold text-dashem-muted hover:text-dashem-strong"
                 >
                   Cancelar
                 </button>
@@ -704,10 +704,10 @@ export const AssortmentManager: React.FC = () => {
           <div className="w-full max-w-2xl bg-dashem-surface border border-dashem-border rounded-3xl p-6 shadow-2xl space-y-5 max-h-[90vh] flex flex-col">
             <div className="flex items-center justify-between border-b border-dashem-border pb-4">
               <div>
-                <h2 className="text-base font-black text-white">Produtos do Sortimento</h2>
+                <h2 className="text-base font-black text-dashem-strong">Produtos do Sortimento</h2>
                 <p className="text-xs text-dashem-muted">{managingProductsAssortment.name} ({managingProductsAssortment.code}) — v{managingProductsAssortment.version}</p>
               </div>
-              <button onClick={() => setManagingProductsAssortment(null)} className="text-dashem-muted hover:text-white">
+              <button onClick={() => setManagingProductsAssortment(null)} className="text-dashem-muted hover:text-dashem-strong">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -718,7 +718,7 @@ export const AssortmentManager: React.FC = () => {
                 <select
                   value={selectedProductIdToAdd}
                   onChange={(e) => setSelectedProductIdToAdd(e.target.value)}
-                  className="w-full sm:flex-1 h-10 px-3 rounded-xl bg-dashem-surface border border-dashem-border text-white text-xs font-medium focus:border-dashem-red outline-none"
+                  className="w-full sm:flex-1 h-10 px-3 rounded-xl bg-dashem-surface border border-dashem-border text-dashem-strong text-xs font-medium focus:border-dashem-red outline-none"
                 >
                   <option value="">Selecione um produto do catálogo mestre...</option>
                   {availableMasterProducts
@@ -764,7 +764,7 @@ export const AssortmentManager: React.FC = () => {
                   <tbody className="divide-y divide-dashem-border/50">
                     {assortmentProducts.map((p) => (
                       <tr key={p.id} className="hover:bg-dashem-surface-elevated/40">
-                        <td className="px-4 py-2.5 font-bold text-white">{p.name}</td>
+                        <td className="px-4 py-2.5 font-bold text-dashem-strong">{p.name}</td>
                         <td className="px-4 py-2.5 font-mono text-dashem-muted">{p.sku}</td>
                         <td className="px-4 py-2.5 text-center text-dashem-muted">{p.unit}</td>
                         {canManage && (
@@ -772,7 +772,7 @@ export const AssortmentManager: React.FC = () => {
                             <button
                               onClick={() => handleUnlinkProduct(p.id)}
                               disabled={actionLoading}
-                              className="text-red-400 hover:text-red-300 font-bold text-xs"
+                              className="text-red-700 hover:text-red-700 font-bold text-xs"
                             >
                               Desvincular
                             </button>
@@ -788,7 +788,7 @@ export const AssortmentManager: React.FC = () => {
             <div className="flex justify-end pt-2">
               <button
                 onClick={() => setManagingProductsAssortment(null)}
-                className="px-4 py-2 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-xs font-bold text-white hover:border-dashem-red"
+                className="px-4 py-2 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-xs font-bold text-dashem-strong hover:border-dashem-red"
               >
                 Concluir
               </button>

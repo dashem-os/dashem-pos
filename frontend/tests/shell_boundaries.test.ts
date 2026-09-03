@@ -107,8 +107,9 @@ test('hydrates POS from the server-validated operational context without organiz
   assert.match(gate, /operatorName: context\.full_name/)
   assert.match(gate, /operatorRole: context\.role/)
   assert.match(context, /setOperatorName\(operationalOperatorName/)
-  assert.match(layout, /operatorName \|\| `Colaborador/)
-  assert.doesNotMatch(layout, /Operador: \{operatorId\.slice/)
+  // The fallback must be a generic label, never a slice of an identifier.
+  assert.match(layout, /operatorName \|\| ['`]Colaborador/)
+  assert.doesNotMatch(layout, /operatorId\.slice/)
 })
 
 test('renders cash opening only for the effective cash.open permission', async () => {
@@ -215,7 +216,11 @@ test('renders management metrics from the aggregate API instead of browser reduc
   assert.match(dashboard, /overview\.resource_usage\.DEVICES\?\.configured/)
   assert.doesNotMatch(dashboard, /salesHistory\.filter|salesHistory\.reduce/)
   assert.match(dashboard, /formatProductDateTime\(overview\.generated_at\)/)
-  assert.match(dashboard, /não há watermark de origem/)
+  // The absence of a source watermark must stay disclosed on screen, in operator
+  // language rather than in the projection's technical vocabulary.
+  assert.match(dashboard, /!overview\.source_watermark/)
+  assert.match(dashboard, /Ainda não há movimento registrado neste período/)
+  assert.match(dashboard, /overview\.projection_lag_seconds/)
 })
 
 test('renders operational productivity from the rebuildable backend projection', async () => {

@@ -17,12 +17,12 @@ function SecurityShell({ title, description, children }: { title: string; descri
     <main className="min-h-screen bg-[#07101f] p-6 text-slate-950 sm:p-10">
       <div className="mx-auto max-w-2xl">
         <div className="mb-8 flex items-center justify-between text-white">
-          <div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-600 font-black">D</div><span className="font-black">DASHEM POS</span></div>
+          <div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand font-black">D</div><span className="font-black">DASHEM POS</span></div>
           <button onClick={signOut} className="flex items-center gap-2 text-sm font-bold text-slate-400 hover:text-white"><LogOut className="h-4 w-4" />Sair</button>
         </div>
         <section className="rounded-3xl bg-white p-7 shadow-2xl sm:p-10">
-          <div className="mb-7 flex h-12 w-12 items-center justify-center rounded-2xl bg-rose-50 text-rose-600"><ShieldCheck className="h-6 w-6" /></div>
-          <p className="text-xs font-black uppercase tracking-[.2em] text-rose-600">Primeiro acesso seguro</p>
+          <div className="mb-7 flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-soft text-brand-ink"><ShieldCheck className="h-6 w-6" /></div>
+          <p className="text-xs font-black uppercase tracking-[.2em] text-brand-ink">Primeiro acesso seguro</p>
           <h1 className="mt-2 text-3xl font-black tracking-tight">{title}</h1>
           <p className="mt-3 leading-7 text-slate-500">{description}</p>
           {children}
@@ -67,14 +67,14 @@ export function PasswordSetupScreen({ onComplete, recovery = false }: { onComple
   return (
     <SecurityShell title={recovery ? 'Defina uma nova senha' : 'Crie sua senha de acesso'} description="Sua senha é protegida pelo Supabase Auth e nunca é armazenada pelo Dashem POS.">
       <form onSubmit={submit} className="mt-8 space-y-5">
-        <label className="block text-sm font-bold">Nova senha<input type="password" autoComplete="new-password" value={password} onChange={e => setPassword(e.target.value)} className="mt-2 h-12 w-full rounded-xl border border-slate-300 px-4 outline-none focus:border-rose-500 focus:ring-4 focus:ring-rose-100" /></label>
-        <label className="block text-sm font-bold">Confirme a senha<input type="password" autoComplete="new-password" value={confirmation} onChange={e => setConfirmation(e.target.value)} className="mt-2 h-12 w-full rounded-xl border border-slate-300 px-4 outline-none focus:border-rose-500 focus:ring-4 focus:ring-rose-100" /></label>
+        <label className="block text-sm font-bold">Nova senha<input type="password" autoComplete="new-password" value={password} onChange={e => setPassword(e.target.value)} className="mt-2 h-12 w-full rounded-xl border border-slate-300 px-4 outline-none focus:border-brand focus:ring-4 focus:ring-brand/20" /></label>
+        <label className="block text-sm font-bold">Confirme a senha<input type="password" autoComplete="new-password" value={confirmation} onChange={e => setConfirmation(e.target.value)} className="mt-2 h-12 w-full rounded-xl border border-slate-300 px-4 outline-none focus:border-brand focus:ring-4 focus:ring-brand/20" /></label>
         <div className="grid grid-cols-2 gap-2 rounded-2xl bg-slate-50 p-4 text-xs font-bold text-slate-500 sm:grid-cols-3">
           {requirements.map(([label, test]) => <span key={label} className={`flex items-center gap-2 ${test(password) ? 'text-emerald-700' : ''}`}><Check className="h-3.5 w-3.5" />{label}</span>)}
           <span className={`flex items-center gap-2 ${password && password === confirmation ? 'text-emerald-700' : ''}`}><Check className="h-3.5 w-3.5" />Senhas iguais</span>
         </div>
         {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</p>}
-        <button disabled={!valid || loading} className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-rose-600 font-black text-white disabled:cursor-not-allowed disabled:opacity-40">{loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <><KeyRound className="h-5 w-5" />Salvar senha forte</>}</button>
+        <button disabled={!valid || loading} className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-brand font-black text-white disabled:cursor-not-allowed disabled:opacity-40">{loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <><KeyRound className="h-5 w-5" />Salvar senha forte</>}</button>
       </form>
     </SecurityShell>
   )
@@ -130,12 +130,12 @@ export function OwnerMfaScreen({ onComplete }: { onComplete: () => Promise<void>
 
   return (
     <SecurityShell title={enrollment ? 'Proteja o Console Owner' : 'Confirme seu segundo fator'} description={enrollment ? 'Escaneie o QR code com seu aplicativo autenticador. O acesso administrativo exige MFA.' : 'Digite o código atual do seu aplicativo autenticador para continuar.'}>
-      {loading && !factorId ? <div className="flex justify-center py-12"><Loader2 className="h-7 w-7 animate-spin text-rose-600" /></div> : (
+      {loading && !factorId ? <div className="flex justify-center py-12"><Loader2 className="h-7 w-7 animate-spin text-brand-ink" /></div> : (
         <form onSubmit={verify} className="mt-8">
-          {qrSource && <div className="mb-6 grid gap-5 rounded-2xl border border-slate-200 bg-slate-50 p-5 sm:grid-cols-[180px_1fr] sm:items-center"><img src={qrSource} alt="QR code para cadastrar o segundo fator" className="h-44 w-44 rounded-xl bg-white p-2" /><div><p className="text-sm font-bold">Não consegue escanear?</p><p className="mt-2 break-all font-mono text-xs text-slate-500">{enrollment?.secret}</p><button type="button" onClick={() => enrollment && navigator.clipboard.writeText(enrollment.secret)} className="mt-3 flex items-center gap-2 text-xs font-black text-rose-600"><Copy className="h-3.5 w-3.5" />Copiar chave</button></div></div>}
-          <label className="block text-sm font-bold">Código de 6 dígitos<input inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={e => setCode(e.target.value.replace(/\D/g, ''))} className="mt-2 h-14 w-full rounded-xl border border-slate-300 px-4 text-center font-mono text-2xl font-black tracking-[.45em] outline-none focus:border-rose-500 focus:ring-4 focus:ring-rose-100" /></label>
+          {qrSource && <div className="mb-6 grid gap-5 rounded-2xl border border-slate-200 bg-slate-50 p-5 sm:grid-cols-[180px_1fr] sm:items-center"><img src={qrSource} alt="QR code para cadastrar o segundo fator" className="h-44 w-44 rounded-xl bg-white p-2" /><div><p className="text-sm font-bold">Não consegue escanear?</p><p className="mt-2 break-all font-mono text-xs text-slate-500">{enrollment?.secret}</p><button type="button" onClick={() => enrollment && navigator.clipboard.writeText(enrollment.secret)} className="mt-3 flex items-center gap-2 text-xs font-black text-brand-ink"><Copy className="h-3.5 w-3.5" />Copiar chave</button></div></div>}
+          <label className="block text-sm font-bold">Código de 6 dígitos<input inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={e => setCode(e.target.value.replace(/\D/g, ''))} className="mt-2 h-14 w-full rounded-xl border border-slate-300 px-4 text-center font-mono text-2xl font-black tracking-[.45em] outline-none focus:border-brand focus:ring-4 focus:ring-brand/20" /></label>
           {error && <p role="alert" className="mt-4 rounded-xl bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</p>}
-          <button disabled={code.length !== 6 || loading || !factorId} className="mt-5 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-rose-600 font-black text-white disabled:opacity-40">{loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <><ShieldCheck className="h-5 w-5" />Validar e acessar o Console</>}</button>
+          <button disabled={code.length !== 6 || loading || !factorId} className="mt-5 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-brand font-black text-white disabled:opacity-40">{loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <><ShieldCheck className="h-5 w-5" />Validar e acessar o Console</>}</button>
         </form>
       )}
     </SecurityShell>

@@ -43,7 +43,7 @@ export function SignInScreen() {
       </section>
       <section className="flex items-center justify-center border-t border-white/10 bg-slate-50 px-5 py-8 text-slate-950 lg:min-h-screen lg:border-l lg:border-t-0 lg:px-12">
         <div className="w-full max-w-md">
-          <p className="text-xs font-black uppercase tracking-[.2em] text-rose-600">{recovery ? 'Recuperar acesso' : 'Acesso à gestão'}</p>
+          <p className="text-xs font-black uppercase tracking-[.2em] text-brand-ink">{recovery ? 'Recuperar acesso' : 'Acesso à gestão'}</p>
           <h2 className="mt-3 text-3xl font-black tracking-[-.035em] sm:text-4xl">{recovery ? 'Redefina sua senha' : 'Bem-vindo de volta'}</h2>
           <p className="mt-3 text-sm leading-6 text-slate-500">{recovery ? 'Informe seu e-mail para receber um link seguro.' : 'Use sua identidade administrativa. A operação do terminal é iniciada no próprio ponto autorizado.'}</p>
           {!configured ? <div className="mt-7 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">Configure <code>VITE_SUPABASE_URL</code> e <code>VITE_SUPABASE_PUBLISHABLE_KEY</code> para habilitar o login.</div> : <>
@@ -53,9 +53,9 @@ export function SignInScreen() {
               {!recovery && <Field label="Senha"><input className="h-full min-w-0 flex-1 bg-transparent font-semibold outline-none" type={showPassword ? 'text' : 'password'} value={password} onChange={event => setPassword(event.target.value)} required autoComplete="current-password" placeholder="Sua senha" /><button type="button" onClick={() => setShowPassword(value => !value)} className="flex h-10 w-10 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}>{showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}</button></Field>}
               {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</p>}
               {notice && <p className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-700">{notice}</p>}
-              <button disabled={submitting} className="flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-rose-600 font-black text-white shadow-[0_16px_36px_rgba(225,29,72,.22)] transition hover:-translate-y-0.5 hover:bg-rose-700 disabled:translate-y-0 disabled:opacity-60">{submitting ? <Loader2 className="h-5 w-5 animate-spin" /> : <>{recovery ? 'Enviar link seguro' : 'Entrar na Gestão'}<ArrowRight className="h-4 w-4" /></>}</button>
+              <button disabled={submitting} className="flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-brand font-black text-white shadow-[0_16px_36px_rgba(225,29,72,.22)] transition hover:-translate-y-0.5 hover:bg-brand-strong disabled:translate-y-0 disabled:opacity-60">{submitting ? <Loader2 className="h-5 w-5 animate-spin" /> : <>{recovery ? 'Enviar link seguro' : 'Entrar na Gestão'}<ArrowRight className="h-4 w-4" /></>}</button>
             </form>
-            <button type="button" onClick={() => { setRecovery(value => !value); setError(null); setNotice(null) }} className="mt-4 flex min-h-11 w-full items-center justify-center text-sm font-bold text-slate-500 hover:text-rose-600">{recovery ? 'Voltar ao login' : 'Esqueci minha senha'}</button>
+            <button type="button" onClick={() => { setRecovery(value => !value); setError(null); setNotice(null) }} className="mt-4 flex min-h-11 w-full items-center justify-center text-sm font-bold text-slate-500 hover:text-brand-ink">{recovery ? 'Voltar ao login' : 'Esqueci minha senha'}</button>
           </>}
           <p className="mt-8 border-t border-slate-200 pt-5 text-center text-[11px] leading-5 text-slate-500">Esta entrada é exclusiva da Gestão. O acesso operacional acontece no próprio terminal autorizado.</p>
         </div>
@@ -64,7 +64,7 @@ export function SignInScreen() {
   </main>
 }
 
-function Brand() { return <div className="flex items-center gap-3"><div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-rose-600 text-lg font-black shadow-[0_16px_45px_rgba(225,29,72,.35)]">D</div><div><p className="text-lg font-black tracking-tight">DASHEM POS</p><p className="text-[10px] font-bold uppercase tracking-[.24em] text-slate-400">Commerce Operating System</p></div></div> }
+function Brand() { return <div className="flex items-center gap-3"><div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand text-lg font-black shadow-[0_16px_45px_rgba(225,29,72,.35)]">D</div><div><p className="text-lg font-black tracking-tight">DASHEM POS</p><p className="text-[10px] font-bold uppercase tracking-[.24em] text-slate-400">Commerce Operating System</p></div></div> }
 function Social({ onClick, children }: { onClick: () => void; children: React.ReactNode }) { return <button type="button" onClick={onClick} className="h-12 rounded-xl border border-slate-200 bg-white text-sm font-black text-slate-700 transition hover:border-slate-300 hover:bg-slate-100">{children}</button> }
 function Divider() { return <div className="my-6 flex items-center gap-3 text-[10px] font-black uppercase tracking-[.16em] text-slate-400"><span className="h-px flex-1 bg-slate-200" />ou use seu e-mail<span className="h-px flex-1 bg-slate-200" /></div> }
-function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label className="block text-sm font-black text-slate-700">{label}<div className="mt-2 flex h-14 items-center rounded-xl border border-slate-300 bg-white px-4 transition focus-within:border-rose-500 focus-within:ring-4 focus-within:ring-rose-100">{children}</div></label> }
+function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label className="block text-sm font-black text-slate-700">{label}<div className="mt-2 flex h-14 items-center rounded-xl border border-slate-300 bg-white px-4 transition focus-within:border-brand focus-within:ring-4 focus-within:ring-brand/20">{children}</div></label> }

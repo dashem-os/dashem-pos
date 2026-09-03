@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react'
 import * as api from '../services/api'
 import { paymentProgress, requireAuthenticatedActor, saleNeedsCreation } from '../domain/operationalRules'
+import { useNicheTheme } from '../utils/nicheTheme'
 
 export interface ToastInfo {
   type: 'success' | 'error' | 'info'
@@ -137,6 +138,9 @@ export const PosProvider: React.FC<{
     setToast({ type, text })
     setTimeout(() => setToast(null), 4000)
   }, [])
+
+  // Applies the visual identity of the contracted business niche to the root element.
+  useNicheTheme(activities)
 
 
 

@@ -35,7 +35,6 @@ export const PosLayout: React.FC = () => {
     accessMode,
     store,
     register,
-    operatorId,
     operatorName,
     operatorRole,
     cashSession,
@@ -73,20 +72,20 @@ export const PosLayout: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900 flex flex-col font-sans selection:bg-rose-500 selection:text-white pb-20 lg:pb-0">
+    <div className="min-h-screen bg-slate-100 text-slate-900 flex flex-col font-sans selection:bg-brand selection:text-brand-contrast pb-20 lg:pb-0">
       {/* ========================================================================= */}
       {/* COMPACT OPERATIONAL HEADER (56px)                                         */}
       {/* ========================================================================= */}
       <header className="h-14 px-4 sm:px-6 bg-white border-b border-slate-200 flex items-center justify-between shrink-0 z-30 select-none shadow-xs">
         {/* Brand & Instance Identification */}
         <div className="flex items-center space-x-3">
-          <div className="w-8 h-8 rounded-xl bg-rose-600 flex items-center justify-center font-black text-white text-base shadow-sm">
+          <div className="w-8 h-8 rounded-xl bg-brand flex items-center justify-center font-black text-brand-contrast text-base shadow-sm">
             D
           </div>
           <div>
             <div className="flex items-center space-x-2">
               <span className="font-black text-sm sm:text-base leading-none tracking-tight text-slate-900">
-                DASHEM <span className="text-rose-600">PDV</span>
+                DASHEM <span className="text-brand-ink">PDV</span>
               </span>
               <span className="hidden sm:inline-block text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
                 Frente de Caixa
@@ -94,14 +93,14 @@ export const PosLayout: React.FC = () => {
             </div>
             <div className="flex items-center space-x-2 text-[11px] text-slate-400 font-medium mt-0.5">
               <span className="flex items-center space-x-1 truncate max-w-[140px] sm:max-w-none text-slate-600">
-                <StoreIcon className="w-3 h-3 text-rose-600 shrink-0" />
+                <StoreIcon className="w-3 h-3 text-brand-ink shrink-0" />
                 <span>{store?.name || 'Unidade não selecionada'}</span>
               </span>
               <span>•</span>
               <span className="text-slate-600">{register?.name || 'Terminal não selecionado'}</span>
               <span>•</span>
               <span className="hidden md:inline max-w-[240px] truncate text-slate-500">
-                {operatorName || `Colaborador ${operatorId.slice(0, 8)}`}{roleLabel ? ` · ${roleLabel}` : ''}
+                {operatorName || 'Colaborador'}{roleLabel ? ` · ${roleLabel}` : ''}
               </span>
             </div>
           </div>
@@ -213,14 +212,14 @@ export const PosLayout: React.FC = () => {
                   value={openingBalanceInput}
                   onChange={(e) => setOpeningBalanceInput(e.target.value)}
                   placeholder="0,00"
-                  className="w-full h-12 px-4 rounded-xl bg-slate-50 border-2 border-slate-300 focus:border-rose-600 text-slate-900 text-lg font-black outline-none transition-all"
+                  className="w-full h-12 px-4 rounded-xl bg-slate-50 border-2 border-slate-300 focus:border-brand text-slate-900 text-lg font-black outline-none transition-all"
                 />
               </div>
 
               <button
                 type="submit"
                 disabled={actionLoading || !openingBalanceInput}
-                className="w-full h-13 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-sm flex items-center justify-center space-x-2 transition-all shadow-md active:scale-95 disabled:opacity-40"
+                className="w-full min-h-12 rounded-xl bg-brand hover:bg-brand-strong text-brand-contrast font-black text-sm flex items-center justify-center space-x-2 transition-all shadow-md active:scale-95 disabled:opacity-40"
               >
                 <Unlock className="w-4 h-4" />
                 <span>ABRIR CAIXA E INICIAR VENDAS</span>
@@ -245,7 +244,7 @@ export const PosLayout: React.FC = () => {
                   type="button"
                   onClick={() => setOperationMode(mode)}
                   disabled={Boolean(currentSale?.items.length)}
-                  className={`h-8 px-3 rounded-lg text-xs font-bold flex items-center gap-1.5 disabled:cursor-not-allowed ${operationMode === mode ? 'bg-rose-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+                  className={`min-h-9 px-3 rounded-lg text-xs font-bold flex items-center gap-1.5 disabled:cursor-not-allowed ${operationMode === mode ? 'bg-brand text-brand-contrast' : 'text-slate-600 hover:bg-slate-100'}`}
                 >
                   {mode === 'TAKEAWAY' && <UtensilsCrossed className="w-3.5 h-3.5" />}
                   <span>{mode === 'COUNTER' ? 'Balcão' : 'Retirada'}</span>
@@ -256,11 +255,12 @@ export const PosLayout: React.FC = () => {
             <QuickProductGrid />
           </div>
 
-          {/* RIGHT COLUMN (DESKTOP >= 1024px): "Venda atual" + Items + Totals */}
-          <div className="hidden lg:flex flex-col w-[380px] xl:w-[420px] shrink-0 bg-white border border-slate-200 rounded-3xl p-4 overflow-hidden shadow-sm justify-between">
+          {/* RIGHT COLUMN (DESKTOP >= 1024px): "Venda atual" + Items + Totals.
+              Fluid width: a hard 380px squeezed the product grid between 1024 and 1150px. */}
+          <div className="hidden lg:flex flex-col w-[clamp(20rem,30vw,27rem)] shrink-0 bg-white border border-slate-200 rounded-3xl p-4 overflow-hidden shadow-sm justify-between">
             <div className="flex items-center justify-between pb-2.5 border-b border-slate-100 shrink-0">
               <h2 className="text-sm font-black text-slate-900 flex items-center space-x-2">
-                <ShoppingBag className="w-4 h-4 text-rose-600" />
+                <ShoppingBag className="w-4 h-4 text-brand-ink" />
                 <span>Venda Atual</span>
               </h2>
               <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
@@ -287,10 +287,10 @@ export const PosLayout: React.FC = () => {
             onClick={() => setIsMobileCartOpen(true)}
             className="flex items-center space-x-3 text-left"
           >
-            <div className="w-12 h-12 rounded-xl bg-slate-100 flex items-center justify-center text-rose-600 relative border border-slate-200">
+            <div className="w-12 h-12 rounded-xl bg-slate-100 flex items-center justify-center text-brand-ink relative border border-slate-200">
               <ShoppingBag className="w-6 h-6" />
               {items.length > 0 && (
-                <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-rose-600 text-white text-[10px] font-black flex items-center justify-center shadow-xs">
+                <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-brand text-brand-contrast text-[10px] font-black flex items-center justify-center shadow-xs">
                   {items.length}
                 </span>
               )}
@@ -324,7 +324,7 @@ export const PosLayout: React.FC = () => {
                 }
               }}
               disabled={items.length === 0}
-              className="h-12 px-5 rounded-xl bg-rose-600 hover:bg-rose-500 disabled:opacity-40 text-white font-black text-xs flex items-center space-x-1.5 shadow-md active:scale-95 transition-all"
+              className="h-12 px-5 rounded-xl bg-brand hover:bg-brand-strong disabled:opacity-40 text-brand-contrast font-black text-xs flex items-center space-x-1.5 shadow-md active:scale-95 transition-all"
             >
               <span>RECEBER</span>
               <ChevronUp className="w-4 h-4" />
@@ -339,7 +339,7 @@ export const PosLayout: React.FC = () => {
           <div className="bg-white border-t border-slate-200 rounded-t-3xl p-4 max-h-[85vh] flex flex-col space-y-3 shadow-2xl animate-in slide-in-from-bottom duration-200">
             <div className="flex items-center justify-between pb-2 border-b border-slate-100">
               <h3 className="text-sm font-black text-slate-900 flex items-center space-x-2">
-                <ShoppingBag className="w-4 h-4 text-rose-600" />
+                <ShoppingBag className="w-4 h-4 text-brand-ink" />
                 <span>Venda Atual ({items.length} itens)</span>
               </h3>
               <button

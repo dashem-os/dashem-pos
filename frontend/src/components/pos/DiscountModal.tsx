@@ -1,7 +1,9 @@
 import React, { useState } from 'react'
 import { Modal } from '../common/Modal'
+import { Button } from '../common/Button'
+import { NumericKeypad } from '../common/NumericKeypad'
 import { usePos } from '../../context/PosContext'
-import { Check, Percent, DollarSign, Delete } from 'lucide-react'
+import { Check, Percent, DollarSign } from 'lucide-react'
 
 export const DiscountModal: React.FC = () => {
   const { isDiscountModalOpen, closeDiscountModal, currentSale, applyDiscount, actionLoading } = usePos()
@@ -103,75 +105,26 @@ export const DiscountModal: React.FC = () => {
         <div className="grid grid-cols-4 gap-1.5">
           {discountType === 'PERCENTAGE'
             ? [5, 10, 15, 20].map((p) => (
-                <button
-                  key={p}
-                  type="button"
-                  onClick={() => handleQuickPercent(p)}
-                  className="h-8 rounded-lg bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold transition-colors border border-slate-200"
-                >
-                  {p}%
-                </button>
+                <Button key={p} variant="secondary" onClick={() => handleQuickPercent(p)}>{p}%</Button>
               ))
             : [5, 10, 20, 50].map((f) => (
-                <button
-                  key={f}
-                  type="button"
-                  onClick={() => handleQuickFixed(f)}
-                  className="h-8 rounded-lg bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold transition-colors border border-slate-200"
-                >
-                  R$ {f}
-                </button>
+                <Button key={f} variant="secondary" onClick={() => handleQuickFixed(f)}>R$ {f}</Button>
               ))}
         </div>
 
-        {/* Numeric Touch Keypad */}
-        <div className="grid grid-cols-3 gap-1.5">
-          {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((num) => (
-            <button
-              key={num}
-              type="button"
-              onClick={() => handleDigit(num)}
-              className="h-11 rounded-xl bg-white hover:bg-slate-50 text-slate-900 text-lg font-black transition-all border border-slate-200 active:scale-95 flex items-center justify-center shadow-xs"
-            >
-              {num}
-            </button>
-          ))}
+        <NumericKeypad onDigit={handleDigit} onBackspace={handleBackspace} leadingKey="decimal" />
 
-          <button
-            type="button"
-            onClick={() => handleDigit('.')}
-            className="h-11 rounded-xl bg-white hover:bg-slate-50 text-slate-900 text-lg font-black transition-all border border-slate-200 active:scale-95 flex items-center justify-center shadow-xs"
-          >
-            .
-          </button>
-
-          <button
-            type="button"
-            onClick={() => handleDigit('0')}
-            className="h-11 rounded-xl bg-white hover:bg-slate-50 text-slate-900 text-lg font-black transition-all border border-slate-200 active:scale-95 flex items-center justify-center shadow-xs"
-          >
-            0
-          </button>
-
-          <button
-            type="button"
-            onClick={handleBackspace}
-            className="h-11 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-500 text-sm font-bold transition-all border border-slate-200 active:scale-95 flex items-center justify-center"
-          >
-            <Delete className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Confirm Button */}
-        <button
-          type="button"
+        <Button
+          size="lg"
+          block
+          icon={Check}
           onClick={handleConfirm}
-          disabled={actionLoading || calculatedDiscount() > grossTotal}
-          className="w-full h-13 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-black flex items-center justify-center space-x-2 transition-all shadow-md active:scale-[0.98] disabled:opacity-40"
+          loading={actionLoading}
+          disabled={calculatedDiscount() > grossTotal}
+          className="bg-emerald-600 text-white hover:bg-emerald-700"
         >
-          <Check className="w-4 h-4" />
-          <span>Confirmar Desconto</span>
-        </button>
+          Confirmar Desconto
+        </Button>
       </div>
     </Modal>
   )
