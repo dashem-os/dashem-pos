@@ -63,9 +63,15 @@
     @apply min-h-screen bg-dashem-bg font-sans text-dashem-strong antialiased selection:bg-brand selection:text-brand-contrast;
   }
 
-  /* Consistent focus ring across hand-rolled and shared controls. */
+  /*
+    Consistent focus ring across hand-rolled and shared controls.
+    The ring color stays fully opaque: a translucent ring serializes as rgba()
+    in computed style, which defeats contrast checks on the focus indicator.
+    It uses brand-ink rather than brand so the amber identity still reaches the
+    3:1 contrast a focus indicator requires against a light background.
+  */
   :focus-visible {
-    @apply outline-none ring-2 ring-brand/60 ring-offset-2 ring-offset-dashem-surface;
+    @apply outline-none ring-2 ring-brand-ink ring-offset-2 ring-offset-dashem-surface;
   }
 }
 

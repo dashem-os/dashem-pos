@@ -2,7 +2,7 @@ import React, { useId } from 'react'
 
 const CONTROL = `min-h-11 w-full rounded-xl border border-dashem-border bg-dashem-surface px-3 text-sm
   font-semibold text-dashem-strong placeholder:font-normal placeholder:text-dashem-muted
-  transition focus:border-brand disabled:cursor-not-allowed disabled:opacity-60`
+  transition focus:border-brand-ink disabled:cursor-not-allowed disabled:opacity-60`
 
 export interface FieldProps {
   label: string
