@@ -243,7 +243,13 @@ test('never traps a person on the operational context gate', async () => {
   assert.match(gate, /navigateTo\('\/manage'\)/)
 
   // The person staring at an empty terminal list may be the administrator the
-  // old copy told them to go ask.
-  assert.match(gate, /Cadastre um em Terminais e dispositivos/)
-  assert.match(gate, /Configurar terminais/)
+  // old copy told them to go ask. Instead of a dead end they get a confirmed
+  // provisioning: nothing is created silently, and the cash session stays closed
+  // so opening it remains an explicit, valued act.
+  assert.match(gate, /Nenhum terminal foi configurado nesta unidade/)
+  assert.match(gate, /registra a ação na auditoria/)
+  assert.match(gate, /O caixa continua fechado/)
+  assert.match(gate, /createOperationalDevice/)
+  assert.match(gate, /Configurar em Terminais e dispositivos/)
+  assert.doesNotMatch(gate, /openCash|abrirCaixa/)
 })

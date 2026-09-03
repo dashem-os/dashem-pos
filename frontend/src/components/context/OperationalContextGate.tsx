@@ -42,6 +42,10 @@ export function OperationalContextGate({
   const [registerId, setRegisterId] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [terminalName, setTerminalName] = useState('Caixa 01')
+  const [terminalCode, setTerminalCode] = useState('CAIXA-01')
+  const [provisioning, setProvisioning] = useState(false)
+  const [provisionError, setProvisionError] = useState<string | null>(null)
 
   useEffect(() => {
     let active = true
@@ -86,6 +90,36 @@ export function OperationalContextGate({
       .finally(() => setLoading(false))
   }, [requireTerminal, tenantId, storeId])
 
+  /**
+   * Creates the first terminal of the unit after the manager confirms it. The
+   * backend provisions terminal and register in the same transaction and writes
+   * the audit trail; the cash session stays closed, so opening it remains an
+   * explicit act with its own value and record.
+   */
+  const provisionFirstTerminal = async () => {
+    if (!tenantId || !storeId || provisioning) return
+    setProvisioning(true)
+    setProvisionError(null)
+    try {
+      const headers = { 'X-Tenant-ID': tenantId, 'X-Store-ID': storeId }
+      const device = await api.createOperationalDevice(headers, {
+        store_id: storeId,
+        code: terminalCode.trim().toUpperCase(),
+        name: terminalName.trim(),
+        device_type: 'POS',
+      })
+      const items = await api.fetchRegisters(headers, storeId)
+      setRegisters(items)
+      const created = device.register_id ?? selectOnlyOption(items)?.id ?? ''
+      if (created) sessionStorage.setItem(`dashem.register_id.${storeId}`, created)
+      setRegisterId(created)
+    } catch (reason) {
+      setProvisionError(reason instanceof Error ? reason.message : 'Não foi possível criar o terminal.')
+    } finally {
+      setProvisioning(false)
+    }
+  }
+
   const ready = Boolean(tenantId && storeId && (!requireTerminal || registerId))
   const selection = useMemo(() => ready ? {
     source: 'MANAGEMENT' as const,
@@ -99,7 +133,7 @@ export function OperationalContextGate({
   if (error) return <ContextState label={error} error />
   if (selection) return <>{children(selection)}</>
 
-  return <main className="flex min-h-screen items-center justify-center bg-[#07101f] p-6 text-white"><section className="w-full max-w-xl rounded-3xl bg-white p-8 text-slate-900 shadow-2xl"><p className="text-xs font-black uppercase tracking-[.18em] text-brand-ink">Contexto operacional</p><h1 className="mt-2 text-2xl font-black">Escolha onde você vai operar</h1><p className="mt-2 text-sm leading-6 text-slate-500">Somente contextos autorizados são exibidos. A escolha fica nesta sessão e pode ser alterada ao sair.</p><div className="mt-7 space-y-4">{tenants.length > 1 && <SelectField icon={<Building2 />} label="Empresa" value={tenantId} onChange={(value) => { setTenantId(value); setStoreId(''); setRegisterId(''); sessionStorage.setItem('dashem.tenant_id', value) }} options={tenants.map((item) => ({ value: item.id, label: item.name }))} />}{tenantId && stores.length > 1 && <SelectField icon={<StoreIcon />} label="Unidade" value={storeId} onChange={(value) => { setStoreId(value); setRegisterId(''); sessionStorage.setItem(`dashem.store_id.${tenantId}`, value) }} options={stores.map((item) => ({ value: item.id, label: item.name }))} />}{requireTerminal && storeId && registers.length > 1 && <SelectField icon={<Monitor />} label="Terminal" value={registerId} onChange={(value) => { setRegisterId(value); sessionStorage.setItem(`dashem.register_id.${storeId}`, value) }} options={registers.map((item) => ({ value: item.id, label: item.name }))} />}{tenants.length === 0 && <Empty text="Nenhum tenant ativo foi autorizado para esta identidade." />}{tenantId && stores.length === 0 && !loading && <Empty text="Nenhuma unidade ativa está disponível para este tenant." />}{requireTerminal && storeId && registers.length === 0 && !loading && <Empty text={managementAccess ? "Nenhum terminal foi configurado nesta unidade. Cadastre um em Terminais e dispositivos para abrir a frente de caixa." : "Nenhum terminal foi configurado nesta unidade. Solicite ao administrador do tenant."} action={managementAccess ? { label: "Configurar terminais", onClick: () => navigateTo("/manage?module=devices") } : undefined} />}</div>{loading && <p className="mt-5 flex items-center gap-2 text-sm font-bold text-slate-500"><Loader2 className="h-4 w-4 animate-spin" />Atualizando opções...</p>}<GateExit managementAccess={managementAccess} onSignOut={signOut} /></section></main>
+  return <main className="flex min-h-screen items-center justify-center bg-[#07101f] p-6 text-white"><section className="w-full max-w-xl rounded-3xl bg-white p-8 text-slate-900 shadow-2xl"><p className="text-xs font-black uppercase tracking-[.18em] text-brand-ink">Contexto operacional</p><h1 className="mt-2 text-2xl font-black">Escolha onde você vai operar</h1><p className="mt-2 text-sm leading-6 text-slate-500">Somente contextos autorizados são exibidos. A escolha fica nesta sessão e pode ser alterada ao sair.</p><div className="mt-7 space-y-4">{tenants.length > 1 && <SelectField icon={<Building2 />} label="Empresa" value={tenantId} onChange={(value) => { setTenantId(value); setStoreId(''); setRegisterId(''); sessionStorage.setItem('dashem.tenant_id', value) }} options={tenants.map((item) => ({ value: item.id, label: item.name }))} />}{tenantId && stores.length > 1 && <SelectField icon={<StoreIcon />} label="Unidade" value={storeId} onChange={(value) => { setStoreId(value); setRegisterId(''); sessionStorage.setItem(`dashem.store_id.${tenantId}`, value) }} options={stores.map((item) => ({ value: item.id, label: item.name }))} />}{requireTerminal && storeId && registers.length > 1 && <SelectField icon={<Monitor />} label="Terminal" value={registerId} onChange={(value) => { setRegisterId(value); sessionStorage.setItem(`dashem.register_id.${storeId}`, value) }} options={registers.map((item) => ({ value: item.id, label: item.name }))} />}{tenants.length === 0 && <Empty text="Nenhum tenant ativo foi autorizado para esta identidade." />}{tenantId && stores.length === 0 && !loading && <Empty text="Nenhuma unidade ativa está disponível para este tenant." />}{requireTerminal && storeId && registers.length === 0 && !loading && (managementAccess ? <FirstTerminal name={terminalName} code={terminalCode} onName={setTerminalName} onCode={setTerminalCode} onConfirm={provisionFirstTerminal} busy={provisioning} error={provisionError} /> : <Empty text="Nenhum terminal foi configurado nesta unidade. Solicite ao administrador do tenant." />)}</div>{loading && <p className="mt-5 flex items-center gap-2 text-sm font-bold text-slate-500"><Loader2 className="h-4 w-4 animate-spin" />Atualizando opções...</p>}<GateExit managementAccess={managementAccess} onSignOut={signOut} /></section></main>
 }
 
 function SelectField({ icon, label, value, onChange, options }: { icon: React.ReactNode; label: string; value: string; onChange: (value: string) => void; options: Array<{ value: string; label: string }> }) {
@@ -115,6 +149,51 @@ function Empty({ text, action }: { text: string; action?: { label: string; onCli
           {action.label}
         </button>
       )}
+    </div>
+  )
+}
+
+/**
+ * A unit with no terminal cannot sell: the cash session and the sale bind to a
+ * register. Rather than dead-ending the manager, the gate offers to create the
+ * first one, stating plainly what will happen and letting the name be changed
+ * before confirming. Nothing is created silently.
+ */
+function FirstTerminal({ name, code, onName, onCode, onConfirm, busy, error }: {
+  name: string
+  code: string
+  onName: (value: string) => void
+  onCode: (value: string) => void
+  onConfirm: () => void
+  busy: boolean
+  error: string | null
+}) {
+  return (
+    <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+      <p className="text-sm font-bold text-amber-900">Nenhum terminal foi configurado nesta unidade.</p>
+      <p className="mt-2 text-sm leading-6 text-amber-800">
+        Ao confirmar, o sistema cria este terminal e o caixa vinculado a ele, e registra a ação na auditoria.
+        O caixa continua fechado: a abertura permanece um ato seu, com valor informado.
+      </p>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <label className="block text-xs font-black uppercase tracking-wide text-amber-900">Nome do terminal
+          <input value={name} onChange={(event) => onName(event.target.value)} className="mt-2 h-11 w-full rounded-xl border border-amber-300 bg-white px-3 text-sm font-bold text-slate-900 outline-none focus:border-brand-ink" />
+        </label>
+        <label className="block text-xs font-black uppercase tracking-wide text-amber-900">Código
+          <input value={code} onChange={(event) => onCode(event.target.value.toUpperCase())} className="mt-2 h-11 w-full rounded-xl border border-amber-300 bg-white px-3 font-mono text-sm font-bold text-slate-900 outline-none focus:border-brand-ink" />
+        </label>
+      </div>
+      {error && <p className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-800">{error}</p>}
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button type="button" onClick={onConfirm} disabled={busy || name.trim().length < 2 || code.trim().length < 2}
+          className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-black text-white disabled:opacity-40">
+          {busy ? 'Criando terminal...' : 'Criar terminal e abrir o PDV'}
+        </button>
+        <button type="button" onClick={() => navigateTo('/manage?module=devices')}
+          className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-amber-300 px-4 text-sm font-black text-amber-900">
+          Configurar em Terminais e dispositivos
+        </button>
+      </div>
     </div>
   )
 }
