@@ -19,7 +19,6 @@ from __future__ import annotations
 import argparse
 import sys
 import uuid
-from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
 
@@ -42,41 +41,9 @@ from app.models.catalog import Category, InventoryBalance, ItemTypeEnum, Product
 from app.models.sale import SaleItem  # noqa: E402
 
 
-@dataclass(frozen=True)
-class DemoItem:
-    name: str
-    sku: str
-    category: str
-    price: str
-    quantity: int
+from app.services.starter_catalog_service import CATALOGUES  # noqa: E402
 
 
-CATALOGUES: dict[str, tuple[str, tuple[DemoItem, ...]]] = {
-    "FOOD_SERVICE": ("Cardápio demonstrativo", (
-        DemoItem("Hambúrguer Artesanal 180g", "DEMO-FOOD-BURGER", "Lanches", "32.90", 40),
-        DemoItem("Cheeseburger Duplo", "DEMO-FOOD-CHEESE", "Lanches", "38.50", 40),
-        DemoItem("Porção de Batata Frita G", "DEMO-FOOD-FRIES", "Porções", "24.00", 60),
-        DemoItem("Refrigerante Lata 350ml", "DEMO-FOOD-SODA", "Bebidas", "7.00", 120),
-        DemoItem("Suco Natural de Laranja 500ml", "DEMO-FOOD-JUICE", "Bebidas", "12.90", 60),
-        DemoItem("Milkshake de Morango", "DEMO-FOOD-SHAKE", "Sobremesas", "18.50", 30),
-    )),
-    "RETAIL": ("Sortimento demonstrativo de varejo", (
-        DemoItem("Caderno Universitário 200 folhas", "DEMO-RET-NOTE", "Papelaria", "34.90", 50),
-        DemoItem("Caneta Esferográfica Azul", "DEMO-RET-PEN", "Papelaria", "3.50", 300),
-        DemoItem("Pilha Alcalina AA (cartela com 4)", "DEMO-RET-BATT", "Utilidades", "24.90", 80),
-        DemoItem("Fone de Ouvido Intra-auricular", "DEMO-RET-PHONE", "Eletrônicos", "59.90", 25),
-        DemoItem("Garrafa Térmica 1L", "DEMO-RET-BOTTLE", "Utilidades", "79.90", 20),
-        DemoItem("Carregador USB-C 20W", "DEMO-RET-CHARGER", "Eletrônicos", "89.90", 30),
-    )),
-    "BEAUTY_RESELLER": ("Sortimento demonstrativo de beleza", (
-        DemoItem("Shampoo Hidratante 300ml", "DEMO-BEA-SHAMPOO", "Cabelos", "42.90", 45),
-        DemoItem("Condicionador Nutritivo 300ml", "DEMO-BEA-COND", "Cabelos", "44.90", 45),
-        DemoItem("Máscara Capilar 250g", "DEMO-BEA-MASK", "Cabelos", "68.00", 25),
-        DemoItem("Perfume Floral 100ml", "DEMO-BEA-PERFUME", "Perfumaria", "189.90", 15),
-        DemoItem("Base Líquida Matte", "DEMO-BEA-BASE", "Maquiagem", "79.90", 30),
-        DemoItem("Batom Cremoso", "DEMO-BEA-LIPS", "Maquiagem", "39.90", 60),
-    )),
-}
 
 # The operator-facing journeys a demo set publishes into.
 DEMO_CONTEXTS = (SalesContextEnum.COUNTER, SalesContextEnum.TAKEAWAY)

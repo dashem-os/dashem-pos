@@ -6,6 +6,7 @@ from app.core.database import get_session
 from app.modules.capabilities.service import effective_capabilities
 from app.models.platform import ModuleContribution, TenantProfileAssignment, CapabilityProfileRevision
 from app.services.contract_entitlement_service import resolve_contract_entitlements
+from app.services.starter_catalog_service import is_homologation_tenant
 
 
 router = APIRouter()
@@ -37,6 +38,8 @@ def get_effective_capabilities(
         "permissions": list(context.permissions),
         "contributions": visible,
         "activities": list(contract_snapshot.activity_keys) if contract_snapshot else [],
+        # Lets the console offer the starter catalogue only where it belongs.
+        "homologation": is_homologation_tenant(session, context.tenant_id),
         "contract": (
             {
                 "id": str(contract_snapshot.contract_id),

@@ -30,7 +30,7 @@ const AVAILABLE_CONTEXTS: Array<{ key: api.SalesContext; label: string; operatio
 ]
 
 export const AssortmentManager: React.FC = () => {
-  const { tenant, store, permissions, activities } = usePos()
+  const { tenant, store, permissions, activities, homologation, operatorId, showToast } = usePos()
   const canManage = permissions.includes('catalog.update')
 
   const [assortments, setAssortments] = useState<api.Assortment[]>([])
@@ -60,6 +60,8 @@ export const AssortmentManager: React.FC = () => {
   const [formActivity, setFormActivity] = useState<string>('')
   const [formScopes, setFormScopes] = useState<FormScope[]>([])
   const [actionLoading, setActionLoading] = useState(false)
+  const [starterActivity, setStarterActivity] = useState('')
+  const [starterBusy, setStarterBusy] = useState(false)
 
   const headers = useCallback((): Record<string, string> => {
     if (!tenant) return {}
@@ -156,6 +158,24 @@ export const AssortmentManager: React.FC = () => {
       setFormScopes(formScopes.filter(s => !(s.store_id === storeId && s.sales_context === ctx)))
     } else {
       setFormScopes([...formScopes, { store_id: storeId, sales_context: ctx, channel_id: null }])
+    }
+  }
+
+  const publishStarter = async () => {
+    const activity = starterActivity || activities[0]
+    if (!activity) return
+    setStarterBusy(true)
+    setError(null)
+    try {
+      const result = await api.publishStarterCatalogue(headers(), activity as api.BusinessNiche, operatorId || undefined)
+      const retired = result.retired_assortments.length
+      showToast('success', `${result.products_total} produto(s) publicados em ${result.assortment_code}` +
+        (retired > 0 ? `; ${retired} sortimento(s) sem atividade foram desativados.` : '.'))
+      loadAssortments()
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Falha ao publicar o catálogo inicial.')
+    } finally {
+      setStarterBusy(false)
     }
   }
 
@@ -351,6 +371,39 @@ export const AssortmentManager: React.FC = () => {
             <span>Recarregar e sincronizar</span>
           </button>
         </div>
+      )}
+
+      {/* Homologation only: publishes a set coherent with the contracted activity
+          and retires the sets that publish here without declaring one. */}
+      {homologation && canManage && activities.length > 0 && (
+        <section className="rounded-2xl border border-dashem-border bg-dashem-surface p-5">
+          <p className="text-xs font-black uppercase tracking-wider text-brand-ink">Tenant de homologação</p>
+          <h2 className="mt-1 text-base font-black text-dashem-strong">Publicar catálogo inicial da atividade</h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-dashem-muted">
+            Cria um sortimento declarando a atividade escolhida, com produtos coerentes com ela, e desativa
+            os sortimentos que publicam nesta unidade sem declarar atividade nenhuma. Nada é apagado: o
+            catálogo mestre continua intacto e um sortimento desativado pode ser reativado.
+          </p>
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <select
+              value={starterActivity || activities[0]}
+              onChange={(event) => setStarterActivity(event.target.value)}
+              className="min-h-11 rounded-xl border border-dashem-border bg-dashem-bg px-3 text-sm font-bold text-dashem-strong outline-none focus:border-brand-ink"
+            >
+              {activities.map((activity) => (
+                <option key={activity} value={activity}>{NICHE_LABELS[activity] || activity}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => void publishStarter()}
+              disabled={starterBusy}
+              className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-brand px-4 text-sm font-black text-brand-contrast disabled:opacity-40"
+            >
+              {starterBusy ? 'Publicando...' : 'Publicar catálogo inicial'}
+            </button>
+          </div>
+        </section>
       )}
 
       {/* Filters */}

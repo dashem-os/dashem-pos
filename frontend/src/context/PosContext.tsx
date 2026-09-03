@@ -27,6 +27,8 @@ interface PosContextType {
   operationMode: 'COUNTER' | 'TAKEAWAY'
   /** Contracted activity being operated. Null when the tenant has none contracted. */
   activeActivity: api.BusinessNiche | null
+  /** Internal or test tenant: the console may publish a starter catalogue. */
+  homologation: boolean
 
   // Data state
   products: api.SellableProduct[]
@@ -117,6 +119,7 @@ export const PosProvider: React.FC<{
   const [connectionState, setConnectionState] = useState<'ONLINE' | 'DEGRADED' | 'OFFLINE'>(navigator.onLine ? 'ONLINE' : 'OFFLINE')
   const [operationMode, setOperationModeState] = useState<'COUNTER' | 'TAKEAWAY'>('COUNTER')
   const [activeActivity, setActiveActivityState] = useState<api.BusinessNiche | null>(null)
+  const [homologation, setHomologation] = useState(false)
 
   const [products, setProducts] = useState<api.SellableProduct[]>([])
   const [categories, setCategories] = useState<api.Category[]>([])
@@ -218,6 +221,7 @@ export const PosProvider: React.FC<{
       // Same precedence that drives the visual identity, so the catalogue the
       // operator sees and the colours around it always describe one activity.
       setActiveActivityState(resolveNicheTheme(contracted))
+      setHomologation(Boolean(access.homologation))
       setCapabilities(access.capabilities)
       setContributions(access.contributions)
       if (registerId) {
@@ -713,6 +717,7 @@ export const PosProvider: React.FC<{
         operationMode,
         activeActivity,
         setActiveActivity,
+        homologation,
         products,
         categories,
         prices,

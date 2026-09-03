@@ -757,6 +757,8 @@ export interface EffectiveAccess {
   permissions: string[]
   /** Contracted business activities, not inferred from capabilities. */
   activities: Array<'FOOD_SERVICE' | 'RETAIL' | 'BEAUTY_RESELLER' | string>
+  /** Internal or test tenant: the console may publish a starter catalogue. */
+  homologation?: boolean
   contributions: Array<{
     id: string
     capability_key?: string
@@ -2480,6 +2482,32 @@ export async function fetchSellableProducts(
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
     throw new Error(err.detail || 'Erro ao carregar catálogo')
+  }
+  return res.json()
+}
+
+export interface StarterCatalogueResult {
+  assortment_code: string
+  activity: BusinessNiche
+  products_total: number
+  products_created: number
+  retired_assortments: string[]
+}
+
+/** Management publishes a set for one contracted activity; the POS consumes it. */
+export async function publishStarterCatalogue(
+  headers: Record<string, string>,
+  activity: BusinessNiche,
+  actorId?: string
+): Promise<StarterCatalogueResult> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/catalog/starter-catalogue`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ activity, actor_id: actorId }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || 'Falha ao publicar o catálogo inicial')
   }
   return res.json()
 }

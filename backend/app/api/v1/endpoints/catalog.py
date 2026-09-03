@@ -2,7 +2,7 @@ import uuid
 from decimal import Decimal
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
 from sqlmodel import Session
 
@@ -14,7 +14,7 @@ from app.models.catalog import (
 )
 from app.models.assortment import SalesContextEnum
 from app.api.v1.endpoints import assortments
-from app.services import catalog_service
+from app.services import catalog_service, starter_catalog_service
 
 router = APIRouter()
 router.include_router(assortments.router, prefix="/assortments", tags=["Assortments & Menus"])
@@ -192,6 +192,25 @@ def sellable_products_endpoint(
     return catalog_service.list_sellable_products(
         session, context, page, page_size, search, category_id, quick_access,
         sales_context=sales_context, channel_id=channel_id, master=master, activity=activity,
+    )
+
+
+class StarterCatalogueDTO(BaseModel):
+    activity: str = Field(min_length=1, max_length=40)
+    actor_id: Optional[uuid.UUID] = None
+
+
+@router.post("/starter-catalogue")
+def publish_starter_catalogue_endpoint(
+    data: StarterCatalogueDTO,
+    context: TenantContext = Depends(get_tenant_context),
+    session: Session = Depends(get_session),
+):
+    """Management publishes a set for one contracted activity; the POS consumes it."""
+    if "catalog.update" not in context.permissions and context.auth_subject != "local-auth-bypass":
+        raise HTTPException(status_code=403, detail="Publicar catálogo inicial exige autorização de catálogo.")
+    return starter_catalog_service.publish_starter_catalogue(
+        session, context, data.activity, data.actor_id
     )
 
 
