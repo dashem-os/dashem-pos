@@ -262,3 +262,11 @@ test('does not offer shift controls to a management identity', async () => {
   assert.match(pos, /permissions\.includes\('cash\.close'\) && !managementValidation/)
   assert.match(pos, /O turno pertence a quem o assume/)
 })
+
+test('offers retry on the operational entry only when there is something to retry', async () => {
+  // Resolving the terminal reads the stored authorisation. With none stored the
+  // effect returns immediately, so the button could only ever do nothing — which
+  // is what a person clicking it experienced.
+  const entry = await source('../src/components/auth/OperationalEntryScreen.tsx')
+  assert.match(entry, /\{terminalToken && <button onClick=\{\(\) => setTerminalCheck/)
+})
