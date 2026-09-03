@@ -113,3 +113,19 @@ test('no gradient runs from a light stop to a dark one', () => {
   const hits = violations((chunk) => LIGHT_GRADIENT_STOP.test(chunk) && DARK_GRADIENT_STOP.test(chunk))
   assert.deepEqual(hits, [], `Gradiente atravessa claro e escuro:\n${hits.join('\n')}`)
 })
+
+test('the focus indicator is not animated into existence', () => {
+  // `transition` animates box-shadow, so the ring only appears after the
+  // animation ends. An accessibility indicator has to be there the instant
+  // focus lands — and reading it synchronously is exactly what the acceptance
+  // suite does, which is how this reached CI unnoticed.
+  const hits: string[] = []
+  for (const file of tsxFiles(SRC)) {
+    for (const chunk of classStrings(readFileSync(file, 'utf8'))) {
+      if (!/\bfocus-visible:ring-\d/.test(chunk) && !/\bfocus:ring-\d/.test(chunk)) continue
+      if (!/\btransition(?![-\w])/.test(chunk)) continue
+      hits.push(`${file.slice(SRC.length + 1)}: ${chunk.trim().slice(0, 90)}`)
+    }
+  }
+  assert.deepEqual(hits, [], `Use transition-colors: 'transition' anima o anel de foco:\n${hits.join('\n')}`)
+})
