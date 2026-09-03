@@ -7,8 +7,9 @@ import { fileURLToPath } from 'node:url'
 /**
  * The light-theme migration was mechanical and produced text that collides with
  * its own background: a dark hero left with near-black text, a selected tab
- * painted white on white. These rules catch that class of defect statically,
- * in both directions, so a colour edit cannot ship an unreadable surface again.
+ * painted white on white, a white card inheriting the white text of the dark
+ * shell around it. These rules catch that class of defect statically, in both
+ * directions, so a colour edit cannot ship an unreadable surface again.
  */
 
 const SRC = join(fileURLToPath(new URL('../src', import.meta.url)))
@@ -20,6 +21,13 @@ const LIGHT_TEXT = /\btext-(white|dashem-bg|slate-(100|200))(?![-\w])/
 const BRAND_FILL = /\bbg-(brand|dashem-red)(?![-\w/])/
 const LIGHT_GRADIENT_STOP = /\b(from|via|to)-(white|dashem-surface|dashem-surface-elevated|dashem-bg|slate-(50|100))(?![-\w])/
 const DARK_GRADIENT_STOP = /\b(from|via|to)-(\[#[0-7][0-9a-fA-F]{5}\]|slate-(700|800|900|950))(?![-\w])/
+
+/**
+ * A colour declared on the element itself for its base state. A variant such as
+ * `placeholder:text-slate-400` does not colour the typed value, so it must not
+ * satisfy the rule.
+ */
+const OWN_TEXT_COLOUR = /(^|[\s"'`{])text-[a-z]/
 
 /** Every quoted string in the file, with template holes removed. */
 function classStrings(source: string): string[] {
@@ -73,6 +81,30 @@ test('a brand fill states its own contrast colour', () => {
   // text-white breaks the amber identity; brand-contrast follows the niche.
   const hits = violations((chunk) => BRAND_FILL.test(chunk) && /\btext-white\b/.test(chunk))
   assert.deepEqual(hits, [], `Use text-brand-contrast sobre preenchimento de marca:\n${hits.join('\n')}`)
+})
+
+test('every credential input declares its own text colour', () => {
+  // The first-access password field rendered white on white because it inherited
+  // the dark shell's text colour into a white card. On a screen where someone
+  // types a secret, an invisible character is a usability and security failure,
+  // so these inputs never rely on inheritance.
+  const folders = ['components/auth', 'components/context']
+  const hits: string[] = []
+  for (const folder of folders) {
+    for (const file of tsxFiles(join(SRC, folder))) {
+      const source = readFileSync(file, 'utf8')
+      let index = source.indexOf('<input')
+      while (index !== -1) {
+        const close = source.indexOf('/>', index)
+        const tag = source.slice(index, close === -1 ? index + 800 : close)
+        if (!OWN_TEXT_COLOUR.test(tag)) {
+          hits.push(`${file.slice(SRC.length + 1)}: ${tag.replace(/\s+/g, ' ').slice(0, 90)}`)
+        }
+        index = source.indexOf('<input', index + 1)
+      }
+    }
+  }
+  assert.deepEqual(hits, [], `Campo de credencial sem cor de texto própria:\n${hits.join('\n')}`)
 })
 
 test('no gradient runs from a light stop to a dark one', () => {
