@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { Ban, Briefcase, KeyRound, Loader2, Mail, Pencil, Plus, RefreshCw as RotateCcwKey, Search, ShieldCheck, UserRoundCog, X } from 'lucide-react'
+import { Ban, Briefcase, KeyRound, Loader2, Mail, Pencil, Plus, RefreshCw as RotateCcwKey, Search, ShieldCheck, Unlock, UserRoundCog, X } from 'lucide-react'
 import { usePos } from '../../context/PosContext'
 import * as api from '../../services/api'
 import { DataTable } from '../common/DataTable'
@@ -178,6 +178,22 @@ export function TeamManager() {
     finally { setSaving(false) }
   }
 
+  /**
+   * Failed attempts lock the credential for fifteen minutes. Reissuing the
+   * activation also lifts the lock, but it destroys the PIN; someone who only
+   * mistyped deserves the smaller remedy.
+   */
+  const releaseLock = async (member: api.TeamMember) => {
+    setSaving(true); setError(null)
+    try {
+      await api.releaseOperationalPinLock(headers, member.membership_id, {
+        reason: 'Bloqueio por tentativas liberado pela administração do tenant',
+      })
+      await load()
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Falha ao liberar o acesso.') }
+    finally { setSaving(false) }
+  }
+
   const issueActivation = async () => {
     if (!activationMember) return
     setSaving(true); setError(null)
@@ -199,7 +215,7 @@ export function TeamManager() {
     <div className="grid gap-3 sm:grid-cols-3"><Summary icon={<Briefcase />} value={employees.length} title="Funcionários" text="Fichas cadastrais do tenant" onClick={() => setView('EMPLOYEES')} /><Summary icon={<Mail />} value={emailCount} title="Acessos por e-mail" text="Administradores e gerentes" onClick={() => setView('ACCESS')} /><Summary icon={<KeyRound />} value={pinCount} title="Acessos operacionais" text="Código, PIN, função e unidade" onClick={() => setView('ACCESS')} /></div>
     <div className="inline-flex rounded-xl border border-dashem-border bg-dashem-surface p-1"><Tab active={view === 'ACCESS'} onClick={() => setView('ACCESS')}>Acessos</Tab><Tab active={view === 'EMPLOYEES'} onClick={() => setView('EMPLOYEES')}>Cadastro de funcionários</Tab></div>
     {error && <p className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">{error}</p>}
-    {view === 'ACCESS' ? <AccessTable members={members} loading={loading} saving={saving} canManage={canManage} changeStatus={changeStatus} issueActivation={setActivationMember} editAccess={startEditAccess} /> : <EmployeeTable employees={employees} stores={stores} loading={loading} canManage={canManage} edit={openEmployeeEdit} />}
+    {view === 'ACCESS' ? <AccessTable members={members} loading={loading} saving={saving} canManage={canManage} changeStatus={changeStatus} issueActivation={setActivationMember} editAccess={startEditAccess} releaseLock={releaseLock} /> : <EmployeeTable employees={employees} stores={stores} loading={loading} canManage={canManage} edit={openEmployeeEdit} />}
     {!canManage && <p className="flex items-center gap-2 text-sm font-semibold text-dashem-muted"><UserRoundCog className="h-4 w-4" />Seu perfil permite consulta, mas não alteração da equipe.</p>}
 
     {editingAccess && <Modal title="Editar acesso" onClose={() => setEditingAccess(null)}>
@@ -239,7 +255,7 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
   return <SharedModal isOpen onClose={onClose} title={title} maxWidth="2xl">{children}</SharedModal>
 }
 
-function AccessTable({ members, loading, saving, canManage, changeStatus, issueActivation, editAccess }: { members: api.TeamMember[]; loading: boolean; saving: boolean; canManage: boolean; changeStatus: (member: api.TeamMember, status: string) => Promise<void>; issueActivation: (member: api.TeamMember) => void; editAccess: (member: api.TeamMember) => void }) { return <section className="overflow-hidden rounded-2xl border border-dashem-border bg-dashem-surface">{loading ? <Loading /> : <DataTable
+function AccessTable({ members, loading, saving, canManage, changeStatus, issueActivation, editAccess, releaseLock }: { members: api.TeamMember[]; loading: boolean; saving: boolean; canManage: boolean; changeStatus: (member: api.TeamMember, status: string) => Promise<void>; issueActivation: (member: api.TeamMember) => void; editAccess: (member: api.TeamMember) => void; releaseLock: (member: api.TeamMember) => Promise<void> }) { return <section className="overflow-hidden rounded-2xl border border-dashem-border bg-dashem-surface">{loading ? <Loading /> : <DataTable
   rows={members}
   rowKey={(member) => member.membership_id}
   empty={<Empty text="Nenhum acesso concedido." />}
@@ -248,8 +264,10 @@ function AccessTable({ members, loading, saving, canManage, changeStatus, issueA
     { key: 'entry', header: 'Entrada', cell: (member) => <AccessBadge mode={member.access_mode} /> },
     { key: 'role', header: 'Função', cell: (member) => <span className="text-sm font-bold text-dashem-muted">{roleLabel[member.role] || member.role}</span> },
     { key: 'store', header: 'Unidade', cell: (member) => <span className="text-sm text-dashem-muted">{member.store_name || 'Tenant inteiro'}</span> },
-    { key: 'state', header: 'Estado', cell: (member) => <span className="rounded-full bg-dashem-bg px-2 py-1 text-xs font-black text-dashem-muted">{member.status !== 'ACTIVE' ? (member.status === 'SUSPENDED' ? 'Suspenso' : member.status) : member.credential_state === 'PENDING_ACTIVATION' ? 'Aguardando ativação' : 'Ativo'}</span> },
-    { key: 'actions', header: 'Ações', actions: true, cell: (member) => <div className="flex flex-wrap gap-2">{canManage && <Action onClick={() => editAccess(member)} tone="neutral"><Pencil className="h-4 w-4" />Editar acesso</Action>}{canManage && member.access_mode === 'PIN' && <Action onClick={() => issueActivation(member)} disabled={saving} tone="violet"><RotateCcwKey className="h-4 w-4" />Nova ativação</Action>}{canManage && (member.status === 'ACTIVE' ? <Action onClick={() => void changeStatus(member, 'SUSPENDED')} disabled={saving} tone="amber"><Ban className="h-4 w-4" />Suspender</Action> : <Action onClick={() => void changeStatus(member, 'ACTIVE')} disabled={saving} tone="emerald"><ShieldCheck className="h-4 w-4" />Reativar</Action>)}</div> },
+    { key: 'state', header: 'Estado', cell: (member) => member.locked_until
+      ? <span className="rounded-full bg-amber-100 px-2 py-1 text-xs font-black text-amber-900">Bloqueado até {new Date(member.locked_until).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+      : <span className="rounded-full bg-dashem-bg px-2 py-1 text-xs font-black text-dashem-muted">{member.status !== 'ACTIVE' ? (member.status === 'SUSPENDED' ? 'Suspenso' : member.status) : member.credential_state === 'PENDING_ACTIVATION' ? 'Aguardando ativação' : 'Ativo'}</span> },
+    { key: 'actions', header: 'Ações', actions: true, cell: (member) => <div className="flex flex-wrap gap-2">{canManage && <Action onClick={() => editAccess(member)} tone="neutral"><Pencil className="h-4 w-4" />Editar acesso</Action>}{canManage && member.locked_until && <Action onClick={() => void releaseLock(member)} disabled={saving} tone="emerald"><Unlock className="h-4 w-4" />Liberar bloqueio</Action>}{canManage && member.access_mode === 'PIN' && <Action onClick={() => issueActivation(member)} disabled={saving} tone="violet"><RotateCcwKey className="h-4 w-4" />Nova ativação</Action>}{canManage && (member.status === 'ACTIVE' ? <Action onClick={() => void changeStatus(member, 'SUSPENDED')} disabled={saving} tone="amber"><Ban className="h-4 w-4" />Suspender</Action> : <Action onClick={() => void changeStatus(member, 'ACTIVE')} disabled={saving} tone="emerald"><ShieldCheck className="h-4 w-4" />Reativar</Action>)}</div> },
   ]}
 />}</section> }
 

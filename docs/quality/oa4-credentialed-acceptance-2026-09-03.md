@@ -30,9 +30,9 @@ neste documento. Identificadores aparecem truncados quando necessários.
 |---|---|---|---|---|
 | 1 | Gestor entra por e-mail | chega a `/manage`, nunca ao PDV automaticamente | janela anônima em `/login`; após autenticar parou em `/manage`, sem desvio para o PDV | PASS |
 | 2 | Gestor autoriza POS | contexto persistido e auditado no servidor | `Validar no PDV` abriu `/pos?access=management` com contexto Matriz Homologação · Caixa 01 · gestor identificado, faixa de acesso gerencial e caixa fechado. O terminal já existia de execução anterior, então o caminho de provisionamento confirmado não foi exercitado aqui; ele foi verificado contra a pilha local no commit `bf5a1dd` | PASS |
-| 3 | Colaborador ativa credencial | define o próprio PIN; ativação torna-se inutilizável | — | pendente |
-| 4 | Código + PIN válidos | cria sessão e abre `/pos` no contexto do terminal | — | pendente |
-| 5 | Código ou PIN inválido | mensagem neutra, sem enumeração, com rate limit | — | pendente |
+| 3 | Colaborador ativa credencial | define o próprio PIN; ativação torna-se inutilizável | Gestão emitiu nova ativação para o Atendente OP com o aviso de revogação das sessões vigentes. Na janela anônima, `Primeiro acesso / novo PIN` com matrícula 0040, código temporário e PIN escolhido pelo colaborador devolveu "PIN pessoal ativado. Informe o mesmo código e PIN para assumir a operação" e voltou ao modo de entrada. A segunda tentativa com o mesmo código temporário foi recusada com "Código de ativação inválido ou expirado. Solicite um novo código à Gestão". A Gestão em momento algum viu o PIN | PASS |
+| 4 | Código + PIN válidos | cria sessão e abre `/pos` no contexto do terminal | `Entrar no turno` com matrícula 0040 e o PIN recém-definido abriu `/pos` no contexto Matriz Homologação, com a faixa "Identidade reconhecida: Atendente OP · Operador" e o caixa em estado fechado. Sem botão de Gestão e sem controles de caixa no cabeçalho, coerente com a função Atendente, que só carrega `cash.read` | PASS |
+| 5 | Código ou PIN inválido | mensagem neutra, sem enumeração, com rate limit | Matrícula válida com PIN errado, `ZZ-9999` e `CC-2026` devolveram todas a mesma frase, "Código ou PIN inválido para esta unidade". Cinco erros seguidos **na mesma matrícula** bloquearam o acesso com "Acesso temporariamente bloqueado após tentativas inválidas", e o PIN correto continuou recusado durante a janela — a trava por credencial funciona. | **FAIL na primeira execução**, por dois furos que a varredura por códigos diferentes escondeu. (a) O contador vivia só na credencial: uma matrícula que não resolve saía antes de incrementar qualquer coisa, então varrer códigos no terminal era ilimitado. (b) A neutralidade valia só para as saídas 401 — matrícula existente sem PIN ativado devolvia 409 e suspensa devolvia 403, confirmando a existência do código a custo zero. Corrigido no commit `0ee7e9d`: contador por terminal (10 falhas em 10 minutos, teto de 1 tentativa por minuto), recusa única para toda falha de identidade, orientação de primeiro acesso fixa na tela e limpeza do portão por ociosidade de 60 segundos. Ficou também a liberação auditada do bloqueio na Gestão, porque a única saída existente era reemitir a ativação e destruir o PIN do colaborador. **A reexecutar no deploy** |
 | 6 | Operador de outro tenant/unidade | acesso negado sem seletor de contexto | — | pendente |
 | 7 | Contexto adulterado | backend recusa antes da mutação | — | pendente |
 | 8 | Saída do turno | sessão encerra; terminal permanece autorizado | — | pendente |
@@ -48,8 +48,8 @@ neste documento. Identificadores aparecem truncados quando necessários.
 | Estado | Captura | Observação |
 |---|---|---|
 | Terminal não autorizado | — | pendente |
-| Ativação inicial do colaborador | — | pendente |
-| Entrada por código e PIN | — | pendente |
+| Ativação inicial do colaborador | 03/09/2026 20:02 e 20:08 | confirmação de ativação e recusa da reutilização. **A captura de 20:08 exibe o código temporário e não pode ser anexada ao dossiê sem tarja** |
+| Entrada por código e PIN | 03/09/2026 20:09 | `/pos` com identidade Atendente OP · Operador e caixa fechado |
 | Erro de credencial | — | pendente |
 | Offline preservando autoridade | — | pendente |
 | Sessão expirada ou revogada | — | pendente |

@@ -75,11 +75,15 @@ def test_operational_member_has_no_fake_email_and_activates_store_scoped_token()
         assert wrong.value.status_code == 403
 
         authorization = operational_access_service.authorize_terminal(session, context, device_id)
+        # A code that exists but has no PIN yet answers exactly like a code that
+        # does not exist. Answering 409 here confirmed the matrícula was real to
+        # anyone who guessed it, at no cost. See
+        # tests/test_oa4_terminal_credential_throttle.py.
         with pytest.raises(HTTPException) as pending:
             operational_access_service.activate_from_terminal(
                 session, terminal_token=authorization["terminal_token"], employee_code="atd-01", pin="4826",
             )
-        assert pending.value.status_code == 409
+        assert pending.value.status_code == 401
         with pytest.raises(HTTPException) as invalid_activation:
             operational_access_service.activate_pin_from_terminal(
                 session, terminal_token=authorization["terminal_token"], employee_code="atd-01",

@@ -20,6 +20,9 @@ function normalizeEmployeeCode(value: string) {
   return value.replace(/[^A-Z0-9_-]/gi, '').toUpperCase().slice(0, 20)
 }
 
+/** Idle time after which the shared gate wipes whatever was left on it. */
+const IDLE_RESET_MS = 60_000
+
 export function OperationalEntryScreen() {
   const { session, terminalToken, clearTerminalAuthorization, activateOperationalSession } = useAuth()
   const [context, setContext] = useState<api.TerminalAuthorizationContext | null>(null)
@@ -65,6 +68,21 @@ export function OperationalEntryScreen() {
     }).finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [terminalToken, clearTerminalAuthorization, terminalCheck])
+
+  /**
+   * A counter terminal is shared. Whatever the previous person left on screen —
+   * their employee code above all — must not sit there for the next one to
+   * read. The refusal upstream stopped confirming which codes exist; leaving a
+   * real one on display would have handed it back for free.
+   */
+  useEffect(() => {
+    if (!employeeCode && !pin && !confirmPin && !activationCode && !error && !notice) return
+    const timer = window.setTimeout(() => {
+      setEmployeeCode(''); setPin(''); setConfirmPin(''); setActivationCode('')
+      setError(null); setNotice(null); setMode('LOGIN')
+    }, IDLE_RESET_MS)
+    return () => window.clearTimeout(timer)
+  }, [employeeCode, pin, confirmPin, activationCode, error, notice])
 
   const switchMode = (next: EntryMode) => {
     setMode(next); setPin(''); setConfirmPin(''); setActivationCode(''); setError(null); setNotice(null)
@@ -139,6 +157,7 @@ export function OperationalEntryScreen() {
           <label className="text-xs font-black uppercase tracking-wide text-slate-700">Confirmar PIN<input name="operational-confirm-pin" type="text" inputMode="numeric" autoComplete="one-time-code" data-1p-ignore data-lpignore="true" value={confirmPin} onChange={event => setConfirmPin(event.target.value.replace(/\D/g, '').slice(0, 8))} className="operational-pin-mask mt-2 h-12 w-full rounded-xl border border-slate-300 px-4 text-center text-lg font-black tracking-[.25em] text-slate-950 outline-none focus:border-brand-ink focus:ring-4 focus:ring-brand-soft" /></label>
           <p className="text-xs leading-5 text-slate-600 sm:col-span-2">Use de 4 a 8 números, sem repetições simples ou sequências como 1234.</p>
         </div>}
+        {mode === 'LOGIN' && <p className="mt-4 text-xs leading-5 text-slate-600">Primeiro dia, PIN esquecido ou acesso bloqueado? Peça um código de ativação à Gestão e use <span className="font-black text-slate-800">Primeiro acesso / novo PIN</span>.</p>}
         {!online && <p role="status" className="mt-4 flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm font-bold text-amber-900"><WifiOff className="h-4 w-4 shrink-0" />Sem conexão. O terminal e o turno foram preservados.</p>}
         {notice && <p role="status" className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-bold text-emerald-800">{notice}</p>}
         {error && <p role="alert" className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">{error}</p>}

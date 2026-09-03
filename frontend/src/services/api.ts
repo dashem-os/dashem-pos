@@ -790,6 +790,8 @@ export interface TeamMember {
   store_name?: string
   credential_state?: 'PENDING_ACTIVATION' | 'ACTIVE'
   pin_activated_at?: string
+  /** Present only while the credential is locked by failed attempts. */
+  locked_until?: string
   activation_code?: string
   activation_expires_at?: string
 }
@@ -1616,6 +1618,16 @@ export async function issueOperationalPinActivation(
     method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(input),
   })
   if (!res.ok) throw await apiError(res, 'Não foi possível emitir a ativação do PIN pessoal.')
+  return res.json()
+}
+
+export async function releaseOperationalPinLock(
+  headers: Record<string, string>, membershipId: string, input: { reason: string },
+): Promise<TeamMember> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/team/${membershipId}/unlock`, {
+    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível liberar o acesso bloqueado.')
   return res.json()
 }
 

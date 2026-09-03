@@ -28,6 +28,14 @@ SESSION_HOURS = 12
 TERMINAL_SESSION_DAYS = 90
 ACTIVATION_HOURS = 24
 ACTIVATION_MAX_ATTEMPTS = 5
+# The credential lockout stops someone guessing a PIN for a code they already
+# know. These stop someone guessing the code itself: every failed assumption on
+# a terminal counts, whoever was typed. Ten failures inside the window put the
+# terminal on a one-attempt-per-minute ceiling, which makes a sweep useless
+# without taking a busy counter out of service the way a long lock would.
+DEVICE_MAX_ATTEMPTS = 10
+DEVICE_LOCK_SECONDS = 60
+DEVICE_WINDOW_MINUTES = 10
 OPERATIONAL_ROLES = {RoleEnum.SUPERVISOR, RoleEnum.CASHIER, RoleEnum.OPERATOR}
 MANAGEMENT_ROLES = {RoleEnum.OWNER, RoleEnum.TENANT_OWNER, RoleEnum.ADMIN, RoleEnum.MANAGER}
 
@@ -274,6 +282,26 @@ def activate_pin_from_terminal(
     return {"employee_code": code, "activated_at": now}
 
 
+def _register_terminal_failure(session: Session, device: OperationalDevice, now: datetime) -> None:
+    """Count one failed shift assumption against the terminal.
+
+    The window is what keeps an ordinary shop honest: a mistyped PIN in the
+    morning and another after lunch never accumulate into a lock. Once the
+    ceiling is reached the counter is deliberately *not* cleared, so each
+    further failure re-locks and the ceiling holds instead of handing out a
+    fresh batch of ten attempts every minute.
+    """
+    if device.auth_last_failed_at and device.auth_last_failed_at < now - timedelta(minutes=DEVICE_WINDOW_MINUTES):
+        device.auth_failed_attempts = 0
+    device.auth_failed_attempts += 1
+    device.auth_last_failed_at = now
+    if device.auth_failed_attempts >= DEVICE_MAX_ATTEMPTS:
+        device.auth_locked_until = now + timedelta(seconds=DEVICE_LOCK_SECONDS)
+    device.updated_at = now
+    session.add(device)
+    session.commit()
+
+
 def activate(
     session: Session, context: TenantContext, *, employee_code: str, pin: str,
     store_id: uuid.UUID, register_id: uuid.UUID | None, device_id: uuid.UUID | None = None,
@@ -281,15 +309,46 @@ def activate(
     if not register_id or not device_id:
         raise HTTPException(status_code=403, detail="O PIN exige um terminal POS previamente autorizado.")
     code = normalize_employee_code(employee_code)
+    now = datetime.utcnow()
+
+    # The terminal is validated before any identity is looked up. Its state is
+    # a property of the device, not of whoever is typing, so reporting it
+    # reveals nothing about which employee codes exist.
+    device = session.exec(select(OperationalDevice).where(
+        OperationalDevice.id == device_id,
+        OperationalDevice.tenant_id == context.tenant_id,
+    ).with_for_update()).first()
+    register = session.get(Register, register_id)
+    if (
+        not device or device.store_id != store_id
+        or device.register_id != register_id or device.status != OperationalDeviceStatusEnum.ACTIVE
+        or not device.authorization_expires_at or device.authorization_expires_at <= now
+        or not register or register.tenant_id != context.tenant_id or register.store_id != store_id or not register.is_active
+    ):
+        raise HTTPException(status_code=403, detail="Terminal fora da unidade ou sem autorização ativa.")
+    if device.auth_locked_until and device.auth_locked_until > now:
+        raise HTTPException(
+            status_code=429,
+            detail="Terminal temporariamente bloqueado após tentativas inválidas. Aguarde um instante e tente de novo.",
+        )
+
+    # Every refusal below this line says the same thing. Telling "no such code"
+    # apart from "exists but never activated a PIN" or "suspended" confirmed to
+    # a stranger at the counter which employee codes are real, and cost zero
+    # attempts to learn.
+    generic = "Código ou PIN inválido para esta unidade."
     credential = session.exec(select(OperationalCredential).where(
         OperationalCredential.tenant_id == context.tenant_id,
         OperationalCredential.store_id == store_id,
         OperationalCredential.employee_code == code,
     ).with_for_update()).first()
-    generic = "Código ou PIN inválido para esta unidade."
     if not credential:
+        _register_terminal_failure(session, device, now)
         raise HTTPException(status_code=401, detail=generic)
-    now = datetime.utcnow()
+    # The credential lockout is the one refusal that still identifies a real
+    # code, and that is deliberate: reaching it costs five failures on that
+    # exact code, and a cashier locked out mid-rush needs to know to call the
+    # supervisor instead of retyping a PIN that will never work again.
     if credential.locked_until and credential.locked_until > now:
         raise HTTPException(status_code=429, detail="Acesso temporariamente bloqueado após tentativas inválidas.")
     membership = session.get(Membership, credential.membership_id)
@@ -300,18 +359,11 @@ def activate(
         or membership.status != MembershipStatusEnum.ACTIVE or membership.role not in OPERATIONAL_ROLES
         or membership.tenant_id != context.tenant_id or membership.store_id != store_id
     ):
-        raise HTTPException(status_code=403, detail="Acesso operacional inativo ou fora da unidade.")
+        _register_terminal_failure(session, device, now)
+        raise HTTPException(status_code=401, detail=generic)
     if not credential.pin_hash or not credential.pin_salt or not credential.pin_activated_at:
-        raise HTTPException(status_code=409, detail="O PIN pessoal ainda não foi ativado neste acesso.")
-    device = session.get(OperationalDevice, device_id)
-    register = session.get(Register, register_id)
-    if (
-        not device or device.tenant_id != context.tenant_id or device.store_id != store_id
-        or device.register_id != register_id or device.status != OperationalDeviceStatusEnum.ACTIVE
-        or not device.authorization_expires_at or device.authorization_expires_at <= now
-        or not register or register.tenant_id != context.tenant_id or register.store_id != store_id or not register.is_active
-    ):
-        raise HTTPException(status_code=403, detail="Terminal fora da unidade ou sem autorização ativa.")
+        _register_terminal_failure(session, device, now)
+        raise HTTPException(status_code=401, detail=generic)
     if not _matches(credential, pin):
         credential.failed_attempts += 1
         if credential.failed_attempts >= 5:
@@ -319,8 +371,11 @@ def activate(
             credential.failed_attempts = 0
         credential.updated_at = now
         session.add(credential)
-        session.commit()
+        _register_terminal_failure(session, device, now)
         raise HTTPException(status_code=401, detail=generic)
+    device.auth_failed_attempts = 0
+    device.auth_last_failed_at = None
+    device.auth_locked_until = None
     credential.failed_attempts = 0
     credential.locked_until = None
     credential.last_used_at = now

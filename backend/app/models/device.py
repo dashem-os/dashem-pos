@@ -47,5 +47,11 @@ class OperationalDevice(SQLModel, table=True):
     authorized_by: Optional[uuid.UUID] = Field(default=None, foreign_key="users.id", index=True)
     authorization_expires_at: Optional[datetime] = Field(default=None, index=True)
     last_seen_at: Optional[datetime] = Field(default=None, index=True)
+    # Shift assumption is throttled here as well as on the credential: a code
+    # that resolves to nobody never reaches a credential, and without a counter
+    # on the terminal that lets someone sweep employee codes for free.
+    auth_failed_attempts: int = Field(default=0)
+    auth_last_failed_at: Optional[datetime] = Field(default=None)
+    auth_locked_until: Optional[datetime] = Field(default=None, index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

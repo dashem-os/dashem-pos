@@ -37,6 +37,7 @@ class TeamMemberRead(BaseModel):
     store_name: Optional[str] = None
     credential_state: Optional[Literal["PENDING_ACTIVATION", "ACTIVE"]] = None
     pin_activated_at: Optional[datetime] = None
+    locked_until: Optional[datetime] = None
     activation_code: Optional[str] = None
     activation_expires_at: Optional[datetime] = None
 
@@ -130,6 +131,11 @@ def _member_read(
         store_name=store.name if store else None,
         credential_state=("ACTIVE" if credential.pin_hash else "PENDING_ACTIVATION") if credential else None,
         pin_activated_at=credential.pin_activated_at if credential else None,
+        locked_until=(
+            credential.locked_until
+            if credential and credential.locked_until and credential.locked_until > datetime.utcnow()
+            else None
+        ),
         activation_code=activation_code,
         activation_expires_at=activation_expires_at,
     )
@@ -402,6 +408,29 @@ def update_team_member(membership_id: uuid.UUID, data: TeamAccessUpdate, context
     payload = {"membership_id": str(membership.id), "previous": previous, "current": {"role": data.role.value, "status": data.status.value, "store_id": str(data.store_id) if data.store_id else None}, "reason": data.reason}
     _audit(session, context, membership, "tenant.team.access_updated", payload)
     session.commit(); session.refresh(membership)
+    return _member_read(session, membership)
+
+
+@router.post("/{membership_id}/unlock", response_model=TeamMemberRead)
+def unlock_operational_credential(membership_id: uuid.UUID, data: TeamActivationIssue, context: TenantContext = Depends(get_tenant_context), session: Session = Depends(get_session)):
+    """Release a credential locked by failed attempts, keeping the PIN intact.
+
+    Reissuing the activation also clears the lock, but it wipes the PIN and
+    forces the collaborator through first access again. Someone who simply
+    mistyped five times should not lose their credential over it.
+    """
+    membership = session.get(Membership, membership_id)
+    credential = _credential(session, membership_id)
+    if not membership or membership.tenant_id != context.tenant_id or not credential:
+        raise HTTPException(status_code=404, detail="Acesso operacional não encontrado.")
+    credential.failed_attempts = 0
+    credential.locked_until = None
+    credential.updated_at = datetime.utcnow()
+    session.add(credential)
+    _audit(session, context, membership, "tenant.team.pin_lock_released", {
+        "membership_id": str(membership.id), "reason": data.reason,
+    })
+    session.commit()
     return _member_read(session, membership)
 
 
