@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { Building2, Loader2, Monitor, Store as StoreIcon } from 'lucide-react'
+import { ArrowLeft, Building2, Loader2, LogOut, Monitor, Store as StoreIcon } from 'lucide-react'
 import * as api from '../../services/api'
+import { useAuth } from '../../context/AuthContext'
 import { selectOnlyOption } from '../../domain/operationalRules'
+import { navigateTo } from '../../utils/navigation'
 
 export interface OperationalSelection {
   source?: 'MANAGEMENT' | 'OPERATIONAL_SESSION'
@@ -28,6 +30,10 @@ export function OperationalContextGate({
   requireTerminal: boolean
   children: (selection: OperationalSelection) => React.ReactNode
 }) {
+  const { signOut } = useAuth()
+  // Set by the management console when it opens an operational surface for
+  // validation, which is also what makes the return route legitimate.
+  const managementAccess = new URLSearchParams(window.location.search).get('access') === 'management'
   const [tenants, setTenants] = useState<api.Tenant[]>([])
   const [stores, setStores] = useState<api.Store[]>([])
   const [registers, setRegisters] = useState<api.Register[]>([])
@@ -93,12 +99,43 @@ export function OperationalContextGate({
   if (error) return <ContextState label={error} error />
   if (selection) return <>{children(selection)}</>
 
-  return <main className="flex min-h-screen items-center justify-center bg-[#07101f] p-6 text-white"><section className="w-full max-w-xl rounded-3xl bg-white p-8 text-slate-900 shadow-2xl"><p className="text-xs font-black uppercase tracking-[.18em] text-brand-ink">Contexto operacional</p><h1 className="mt-2 text-2xl font-black">Escolha onde você vai operar</h1><p className="mt-2 text-sm leading-6 text-slate-500">Somente contextos autorizados são exibidos. A escolha fica nesta sessão e pode ser alterada ao sair.</p><div className="mt-7 space-y-4">{tenants.length > 1 && <SelectField icon={<Building2 />} label="Empresa" value={tenantId} onChange={(value) => { setTenantId(value); setStoreId(''); setRegisterId(''); sessionStorage.setItem('dashem.tenant_id', value) }} options={tenants.map((item) => ({ value: item.id, label: item.name }))} />}{tenantId && stores.length > 1 && <SelectField icon={<StoreIcon />} label="Unidade" value={storeId} onChange={(value) => { setStoreId(value); setRegisterId(''); sessionStorage.setItem(`dashem.store_id.${tenantId}`, value) }} options={stores.map((item) => ({ value: item.id, label: item.name }))} />}{requireTerminal && storeId && registers.length > 1 && <SelectField icon={<Monitor />} label="Terminal" value={registerId} onChange={(value) => { setRegisterId(value); sessionStorage.setItem(`dashem.register_id.${storeId}`, value) }} options={registers.map((item) => ({ value: item.id, label: item.name }))} />}{tenants.length === 0 && <Empty text="Nenhum tenant ativo foi autorizado para esta identidade." />}{tenantId && stores.length === 0 && !loading && <Empty text="Nenhuma unidade ativa está disponível para este tenant." />}{requireTerminal && storeId && registers.length === 0 && !loading && <Empty text="Nenhum terminal foi configurado nesta unidade. Solicite ao administrador do tenant." />}</div>{loading && <p className="mt-5 flex items-center gap-2 text-sm font-bold text-slate-500"><Loader2 className="h-4 w-4 animate-spin" />Atualizando opções...</p>}</section></main>
+  return <main className="flex min-h-screen items-center justify-center bg-[#07101f] p-6 text-white"><section className="w-full max-w-xl rounded-3xl bg-white p-8 text-slate-900 shadow-2xl"><p className="text-xs font-black uppercase tracking-[.18em] text-brand-ink">Contexto operacional</p><h1 className="mt-2 text-2xl font-black">Escolha onde você vai operar</h1><p className="mt-2 text-sm leading-6 text-slate-500">Somente contextos autorizados são exibidos. A escolha fica nesta sessão e pode ser alterada ao sair.</p><div className="mt-7 space-y-4">{tenants.length > 1 && <SelectField icon={<Building2 />} label="Empresa" value={tenantId} onChange={(value) => { setTenantId(value); setStoreId(''); setRegisterId(''); sessionStorage.setItem('dashem.tenant_id', value) }} options={tenants.map((item) => ({ value: item.id, label: item.name }))} />}{tenantId && stores.length > 1 && <SelectField icon={<StoreIcon />} label="Unidade" value={storeId} onChange={(value) => { setStoreId(value); setRegisterId(''); sessionStorage.setItem(`dashem.store_id.${tenantId}`, value) }} options={stores.map((item) => ({ value: item.id, label: item.name }))} />}{requireTerminal && storeId && registers.length > 1 && <SelectField icon={<Monitor />} label="Terminal" value={registerId} onChange={(value) => { setRegisterId(value); sessionStorage.setItem(`dashem.register_id.${storeId}`, value) }} options={registers.map((item) => ({ value: item.id, label: item.name }))} />}{tenants.length === 0 && <Empty text="Nenhum tenant ativo foi autorizado para esta identidade." />}{tenantId && stores.length === 0 && !loading && <Empty text="Nenhuma unidade ativa está disponível para este tenant." />}{requireTerminal && storeId && registers.length === 0 && !loading && <Empty text={managementAccess ? "Nenhum terminal foi configurado nesta unidade. Cadastre um em Terminais e dispositivos para abrir a frente de caixa." : "Nenhum terminal foi configurado nesta unidade. Solicite ao administrador do tenant."} action={managementAccess ? { label: "Configurar terminais", onClick: () => navigateTo("/manage?module=devices") } : undefined} />}</div>{loading && <p className="mt-5 flex items-center gap-2 text-sm font-bold text-slate-500"><Loader2 className="h-4 w-4 animate-spin" />Atualizando opções...</p>}<GateExit managementAccess={managementAccess} onSignOut={signOut} /></section></main>
 }
 
 function SelectField({ icon, label, value, onChange, options }: { icon: React.ReactNode; label: string; value: string; onChange: (value: string) => void; options: Array<{ value: string; label: string }> }) {
   return <label className="block text-sm font-black">{label}<div className="mt-2 flex items-center rounded-xl border border-slate-300 px-3 text-slate-400">{icon}<select value={value} onChange={(event) => onChange(event.target.value)} className="h-12 flex-1 bg-transparent px-3 font-bold text-slate-900 outline-none"><option value="">Selecione...</option>{options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></div></label>
 }
 
-function Empty({ text }: { text: string }) { return <p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-800">{text}</p> }
+function Empty({ text, action }: { text: string; action?: { label: string; onClick: () => void } }) {
+  return (
+    <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+      <p className="text-sm font-bold text-amber-800">{text}</p>
+      {action && (
+        <button type="button" onClick={action.onClick} className="mt-3 inline-flex min-h-11 items-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-black text-white">
+          {action.label}
+        </button>
+      )}
+    </div>
+  )
+}
+
+/**
+ * This gate covers the whole screen and blocks the surface behind it. Without an
+ * exit it becomes a trap: the copy above promises the choice can be changed on
+ * the way out, so the way out has to exist.
+ */
+function GateExit({ managementAccess, onSignOut }: { managementAccess: boolean; onSignOut: () => void }) {
+  return (
+    <div className="mt-7 flex flex-wrap items-center gap-2 border-t border-slate-200 pt-5">
+      {managementAccess && (
+        <button type="button" onClick={() => navigateTo('/manage')} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-slate-300 px-4 text-sm font-black text-slate-700">
+          <ArrowLeft className="h-4 w-4" />Voltar à Gestão
+        </button>
+      )}
+      <button type="button" onClick={onSignOut} className="inline-flex min-h-11 items-center gap-2 rounded-xl px-4 text-sm font-bold text-slate-500 hover:text-slate-800">
+        <LogOut className="h-4 w-4" />Sair
+      </button>
+    </div>
+  )
+}
 function ContextState({ label, error = false }: { label: string; error?: boolean }) { return <div className={`flex min-h-screen items-center justify-center bg-[#07101f] p-6 text-sm font-bold ${error ? 'text-red-300' : 'text-slate-300'}`}>{!error && <Loader2 className="mr-3 h-5 w-5 animate-spin" />}{label}</div> }

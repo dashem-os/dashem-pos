@@ -232,3 +232,18 @@ test('renders operational productivity from the rebuildable backend projection',
   assert.match(api, /management\/productivity/)
   assert.doesNotMatch(dashboard, /providerTransactions\.reduce|paymentEvents\.reduce/)
 })
+
+test('never traps a person on the operational context gate', async () => {
+  // The gate covers the whole screen and its own copy says the choice can be
+  // changed on the way out, so an exit has to exist. A blocking surface whose
+  // only escape is the browser back button is a dead end, not a gate.
+  const gate = await source('../src/components/context/OperationalContextGate.tsx')
+  assert.match(gate, /onSignOut/)
+  assert.match(gate, /Voltar à Gestão/)
+  assert.match(gate, /navigateTo\('\/manage'\)/)
+
+  // The person staring at an empty terminal list may be the administrator the
+  // old copy told them to go ask.
+  assert.match(gate, /Cadastre um em Terminais e dispositivos/)
+  assert.match(gate, /Configurar terminais/)
+})
