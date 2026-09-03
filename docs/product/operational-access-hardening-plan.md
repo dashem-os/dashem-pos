@@ -1,6 +1,6 @@
 # Plano de hardening — Acesso Operacional do Colaborador
 
-Status: **OA-1–OA-3 implementados; OA-4 com CI verde — pré-piloto bloqueado até evidência no deploy**
+Status: **OA-1–OA-3 implementados; OA-4 com CI verde e execução parcial no deploy — pré-piloto bloqueado até os cenários credenciados serem repetidos em produção**
 Data: 26 de agosto de 2026
 Autoridade arquitetural: [ADR-024](../architecture/adr-024-operational-employee-access.md)
 
@@ -45,7 +45,7 @@ no CI e no deploy.
 | OA-1 | contexto exclusivo de terminal + `OperationalSession`; `/login`, `/operate`, `/pos` e `/manage` separados | backend, contrato API, testes de fronteira e build | concluída no código |
 | OA-2 | ativação temporária; PIN criado pelo colaborador; reativação revoga sessões | migration 045, testes de domínio e contrato | concluída no código |
 | OA-3 | portão operacional clean, toque, teclado físico, contexto validado sem exposição visual, contraste corrigido e estado offline preservando autoridade | testes estáticos, typecheck e build | corrigida no código; E2E e deploy pendentes |
-| OA-4 | matriz, fixture isolado, suíte Playwright e job de CI | CI verde no commit `1f9bb93`; execução assistida no deploy ainda não anexada | repetir no deploy e submeter ao Gate B |
+| OA-4 | matriz, fixture isolado, suíte Playwright e job de CI | CI verde no commit `a6cab8e`; execução assistida no deploy cobriu 5 cenários não credenciados em 03/09/2026 ([evidência](../quality/oa4-deploy-acceptance-2026-09-03.md)) | repetir em produção os 14 cenários credenciados e submeter ao Gate B |
 
 Validação automatizada desta revisão:
 
@@ -60,6 +60,25 @@ Validação automatizada desta revisão:
 Esses verdes comprovam a implementação e a jornada no CI. A repetição assistida
 no deploy público, com evidências sanitizadas, continua obrigatória. O Gate B
 permanece `REOPENED` e o piloto permanece `NO-GO` até essa decisão.
+
+## Execução assistida no deploy em 03/09/2026
+
+Primeira rodada contra `https://dashem-pos.vercel.app` no commit `a6cab8e`,
+registrada em [`oa4-deploy-acceptance-2026-09-03.md`](../quality/oa4-deploy-acceptance-2026-09-03.md).
+
+Aprovados no deploy, sem credencial: login público exclusivamente gerencial;
+navegador sem autorização não recebe formulário de código + PIN; entrada
+operacional sem rolagem horizontal de 360 a 1366 px; indicador de foco presente
+com 21,00:1; título da entrada com 20,17:1.
+
+Não executados: os catorze cenários que exigem terminal autorizado, código
+ativado e PIN pessoal. Eles passam no job de CI contra pilha efêmera, mas o
+plano exige repetição no deploy, e o executor não possui credencial de produção.
+Nenhum deles é presumido aprovado.
+
+Consequência: o Gate B continua `REOPENED`. A promoção depende de criar em
+produção um terminal e um colaborador de homologação, repetir os catorze
+cenários e anexar a evidência sanitizada no mesmo formato.
 
 ## Sprint OA-1 — Autoridade e contexto únicos
 

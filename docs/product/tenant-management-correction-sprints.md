@@ -1,8 +1,8 @@
 # Trilha corretiva — Gestão do tenant
 
-Status: **5.4.3 publicado, CI verde; aceitação OA-4/Gate B ainda pendente de evidência no deploy**
+Status: **5.4.0–5.4.3 publicados com CI verde; 5.4.4 aberto; OA-4 parcialmente executado no deploy e Gate B ainda `REOPENED`**
 
-Data de referência: 1º de setembro de 2026
+Data de referência: 1º de setembro de 2026 · última atualização de estado: 3 de setembro de 2026
 
 ## Decisão de arquitetura
 
@@ -160,6 +160,30 @@ Aceite do gate:
 Prompt de execução e critérios técnicos:
 [`sprint-5-4-gate-0-agent-prompt.md`](sprint-5-4-gate-0-agent-prompt.md).
 
+**Estado em 03/09/2026 — verde, com dívida registrada.**
+
+Entregue: a migração 069 materializou `LEGACY-DEFAULT` preservando a publicação
+pré-existente sem classificar por nome, categoria ou nicho presumido, como o
+gate exigia.
+
+Observado na validação de 02–03/09/2026: esse mesmo conjunto legado é o caminho
+pelo qual material elétrico chegava ao PDV de um tenant contratado apenas como
+`FOOD_SERVICE`. Não é contradição do gate — ele mandou preservar a origem em
+estado explícito — mas expôs que faltava a decisão administrativa prevista aqui
+para reclassificar ou aposentar esse conjunto.
+
+Entregue em 03/09/2026, commits `1399c38` e `dc3dc5a`: `assortments.business_activity`
+(migration 070), a atividade como dimensão da cadeia de resolução, e a ação de
+Gestão que publica o conjunto da atividade contratada e desativa os conjuntos
+ativos que publicam na mesma unidade sem declarar atividade. Nada é apagado: o
+conjunto aposentado mantém produtos e pode ser reativado.
+
+Dívida aberta: essa ação cria conteúdo demonstrativo. Hoje ela é restrita a
+tenant `INTERNAL` ou em fase `TEST` e o conjunto é rotulado como homologação,
+mas a regra deste gate diz que nenhum tenant recebe conteúdo demonstrativo
+apresentado como dado real. A reconciliação definitiva pertence ao Gate 5.4.4,
+que substitui o catálogo embutido no código por biblioteca de conteúdo.
+
 ### Gate 5.4.1 — Elegibilidade da jornada por área de atuação
 
 Este gate corrige uma contradição de autorização descoberta na validação do
@@ -182,6 +206,29 @@ rota operacional; permissão ou registro legado não pode reabrir a jornada.
 O gate é pré-requisito para a avaliação visual do restante do Sprint 5.4. A
 mistura de produtos elétricos em uma tela de mesas é um problema separado de
 sortimento persistido e não será corrigida por filtro visual ou texto fixo.
+
+**Estado em 03/09/2026 — verde para mesas; estendido para catálogo.**
+
+Já estava entregue: elegibilidade de mesas condicionada a `FOOD_SERVICE` no
+snapshot contratual, valendo para API, navegação, botão do PDV e rota.
+
+Entregue em 03/09/2026: a previsão acima de que a mistura seria resolvida por
+sortimento persistido foi implementada. A atividade passou a ser propriedade do
+conjunto curado, e não do produto, porque o mesmo produto pode ser vendido por
+operações de nichos diferentes. A projeção vendável aceita a atividade em
+operação, recusa com `403` uma atividade não contratada e resolve apenas os
+conjuntos daquela atividade mais os deliberadamente abertos a todas. As abas de
+categoria do PDV passaram a derivar da projeção, para não anunciar "Perfumaria"
+dentro de um balcão de alimentação.
+
+Seletor de negócio: o PDV exibe a escolha da atividade somente quando o tenant
+contratou mais de uma; a Gestão configura os conjuntos e o operador consome.
+A troca segue a mesma regra que já bloqueia a troca de modo com venda aberta.
+
+A refatorar: a atividade ativa vive em estado de cliente. Ela ainda não é
+persistida na sessão operacional nem registrada na auditoria, então a escolha
+não sobrevive a uma nova sessão nem é atribuível. Deve ser resolvida junto com
+o contrato de sessão operacional do Gate B.
 
 ### Gate 5.4.2 — Verdade temporal e navegação de validação
 
@@ -242,6 +289,89 @@ Aceite:
 - a decisão seguinte distingue claramente desenvolvimento interno, pré-piloto
   e homologação externa.
 
+**Estado em 03/09/2026 — incremento técnico entregue; aceite assistido pendente.**
+
+Entregue: tabela vira lista de cartões abaixo de `md` por primitivo
+compartilhado, em catálogo, estoque, clientes e equipe; piso tipográfico de
+12 px para texto de conteúdo, com 10 e 11 px restritos a rótulos em caixa alta;
+alvo de toque de 44 px; grades de conteúdo com escada de colunas; cabeçalho do
+PDV que não empurra a página na horizontal. Verificado em 360, 390, 768, 1024,
+1280 e 1440 px, incluindo contra o deploy publicado.
+
+Contraste e foco deixaram de depender de inspeção manual: `frontend/tests/theme_contrast.test.ts`
+reprova fundo escuro com texto escuro, fundo claro com texto claro, branco sobre
+preenchimento de marca e gradiente que atravessa claro e escuro.
+
+A refatorar: `DashboardBI` mantém tabela com largura mínima de 760 px; os
+módulos do Owner não entram neste escopo por decisão do dono do SaaS, que
+mantém identidade visual própria no Dashem Control.
+
+Pendente do aceite original: roteiro assistido com administrador e operador,
+avaliação externa, registro de achados por severidade e repetição dos fluxos no
+deploy com pessoas reais. O incremento técnico não substitui esse aceite.
+
+### Gate 5.4.4 — Vocabulário, conteúdo e mídia por atividade
+
+Este gate nasce de uma constatação registrada em 03/09/2026: correções feitas
+fora da trilha resolveram o caso relatado sem resolver a classe do problema. O
+rótulo do módulo de sortimento foi ajustado por condicional binário entre
+alimentação e o resto, o catálogo inicial por atividade vive em constante no
+código, e a foto do produto entrou como endereço avulso. Cada um atende o nicho
+de hoje e cobra outro toque no código no próximo nicho.
+
+Decisão:
+
+- vocabulário do console é dado da atividade de negócio, não condicional no
+  servidor nem texto fixo no componente; acrescentar um nicho não pode exigir
+  alteração de código de apresentação;
+- conteúdo inicial por atividade é dado versionado e auditável, não constante
+  compilada, e continua restrito a tenant interno ou em fase de teste, jamais
+  apresentado a um cliente como dado real;
+- mídia de produto tem duas origens legítimas: uma biblioteca do sistema
+  disponível a todos os tenants e o acervo próprio do tenant;
+- isolamento de condomínio é inegociável: um inquilino nunca lista, busca ou
+  referencia mídia de outro inquilino, apenas a própria e a do sistema;
+- arquivo binário não é embutido no registro do produto; a imagem é objeto
+  persistido com referência, e não conteúdo em base64 dentro da linha.
+
+Entregas:
+
+- catálogo de vocabulário por atividade, com chave, termo e origem, consumido
+  pela resolução de acesso efetivo e pelas telas, substituindo o condicional
+  atual e o texto fixo do cabeçalho;
+- conteúdo inicial por atividade migrado da constante em código para dado
+  versionado, mantendo a restrição a tenant interno ou de teste;
+- biblioteca de mídia do sistema, legível por qualquer tenant e não gravável
+  por eles;
+- upload de mídia própria do tenant no bucket `tenant-assets`, com quota,
+  tipo permitido e caminho isolado por tenant;
+- referência de mídia no produto apontando para objeto persistido, com
+  fallback explícito quando não houver imagem;
+- atividade ativa do PDV persistida na sessão operacional e registrada na
+  auditoria, encerrando a dívida do Gate 5.4.1.
+
+Aceite do gate:
+
+- acrescentar uma quarta atividade de negócio não exige alterar código de
+  apresentação nem de resolução de acesso para que o console fale a língua
+  correta;
+- um tenant de beleza não lê "cardápio" em nenhuma superfície;
+- listar ou buscar mídia em um tenant nunca retorna objeto de outro tenant,
+  provado por teste negativo entre inquilinos;
+- produto sem foto exibe fallback determinístico, sem espaço quebrado na grade;
+- nenhum registro de produto carrega binário embutido;
+- a escolha de atividade no PDV sobrevive a uma nova sessão e é atribuível a
+  um operador.
+
+Dependência externa declarada: o upload gerenciado recusa toda gravação
+enquanto o contrato do tenant não declara limite de storage, respondendo
+"Limite contratual de storage não informado". Definir esse entitlement é
+decisão comercial no Dashem Control e antecede a entrega de upload.
+
+Estado: **aberto, não iniciado**. O que existe hoje das três frentes está
+registrado como dívida nos Gates 5.4.0, 5.4.1 e nas linhas correspondentes do
+roadmap canônico.
+
 ## Continuação após 5.4
 
 A trilha 5.2–5.4 não substitui os Sprints S0–S21 do roadmap canônico. Após sua
@@ -250,8 +380,19 @@ Integração TEF/SmartPOS e delivery/e-commerce continuam condicionados aos
 adapters e homologações reais; não serão apresentados como disponíveis por
 texto, fixture ou capability sem execução comprovada.
 
-Com o CI verde do commit `1f9bb93`, o próximo ciclo autorizado é o OA-4 do
+Com o CI verde do commit `a6cab8e`, o ciclo autorizado continua sendo o OA-4 do
 plano de hardening operacional: repetir a jornada em navegador e no deploy
 publicado, anexar evidências sanitizadas e então submeter a decisão do Gate B.
 Isso não autoriza ainda piloto comercial nem uma nova funcionalidade de
 integração.
+
+Estado do OA-4 em 03/09/2026: a primeira execução assistida contra o deploy
+cobriu os cinco cenários alcançáveis sem credencial e todos passaram
+([evidência](../quality/oa4-deploy-acceptance-2026-09-03.md)). Os catorze
+cenários credenciados continuam pendentes, porque exigem terminal autorizado,
+código ativado e PIN pessoal em produção. O Gate B segue `REOPENED`.
+
+O Gate 5.4.4 fica registrado como destino do trabalho de vocabulário, conteúdo
+e mídia executado em paralelo à trilha. Ele não corre antes da decisão do Gate
+B, e não deve ser executado como sequência de correções pontuais: a regra é
+resolver a classe do problema, não o caso relatado.

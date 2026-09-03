@@ -14,6 +14,14 @@ detalhada nos Sprints corretivos 5.2–5.4 de
 Essa trilha não renumera nem substitui os Sprints canônicos abaixo; o pré-piloto,
 storage comercial e homologações externas preservam seus próprios gates.
 
+Atualização de estado de 3 de setembro de 2026: os Gates 5.4.0–5.4.3 estão
+publicados com CI verde; o Gate 5.4.4 foi aberto para vocabulário, conteúdo e
+mídia por atividade; o OA-4 teve a primeira execução assistida no deploy, com
+cinco cenários não credenciados aprovados e catorze credenciados ainda
+pendentes. O Gate B continua `REOPENED` e o S21 continua `NO-GO`. As seções 4 e
+9 abaixo receberam marcação de entregue, a refatorar e pendente; o texto da
+seção 4 ainda descreve a leitura feita logo após o S7 e não foi reescrito.
+
 ## 1. Por que este roadmap existe
 
 O Dashem não será desenvolvido como uma sucessão de telas. Cada sprint deve
@@ -612,6 +620,22 @@ Gate:
 - preço e saldo efetivos vêm do backend;
 - catálogo grande não é carregado integralmente;
 - nenhum fallback semântico usa descrição ou posição da lista.
+
+Estado em 03/09/2026: **entregue, com uma entrega da lista em aberto desde o
+sprint original**. Categoria, produto, preço, saldo, paginação, busca,
+`SellableProduct`, acesso rápido, alertas de mínimo, modifiers e combos estão
+implementados e protegidos por teste.
+
+`imagem` constava como entrega deste sprint e nunca chegou à interface: o campo
+`products.image_url` existia, nenhuma tela preenchia e nenhuma exibia. Em
+03/09/2026 o cadastro passou a aceitar o endereço da imagem, a lista do catálogo
+mostra miniatura e o cartão do PDV mostra a foto, com área reservada e fallback
+pela inicial para a grade não desalinhar.
+
+A refatorar no Gate 5.4.4: mídia continua sendo um endereço avulso. Falta a
+biblioteca de imagens do sistema, o upload do acervo próprio do tenant e a
+prova de isolamento entre inquilinos. Binário embutido no registro está
+proibido. O upload gerenciado depende do limite de storage no contrato.
 
 ### S5 — Frente de Caixa COUNTER
 
@@ -1456,6 +1480,12 @@ e aparece como `não configurada`, nunca como pronta.
 | Endpoint de identidade e saúde ainda amplos | S18 | routers e observabilidade por domínio | resolvido: router Control e instrumentação explícita |
 | Control expõe caixas, vendas, unidades em operação ou quadro de funcionários do tenant | S18.1 | somente contrato, cobrança SaaS e observabilidade técnica no Owner | **resolvido e protegido por testes no primeiro sprint** |
 | Cobrança SaaS limitada a campos editáveis da assinatura | S18.1 | faturas, recebimentos, inadimplência e métricas SaaS rastreáveis | **planejado** |
+| Imagem do produto listada no S4 e nunca entregue na interface | S4 → 5.4.4 | cadastro, listagem e PDV exibindo mídia persistida | endereço de imagem entregue em 03/09; biblioteca, upload e isolamento pendentes |
+| Atividade contratada sem efeito sobre o conteúdo publicado | 5.4.0 + 5.4.1 | atividade como dimensão do sortimento, resolvida no servidor | resolvido em 03/09: `assortments.business_activity`, migration 070, recusa 403 para atividade não contratada |
+| Conjunto legado publicando conteúdo de outro nicho no PDV | 5.4.0 | decisão administrativa explícita para reclassificar ou aposentar | resolvido em 03/09: ação de Gestão publica o conjunto da atividade e aposenta o não classificado, sem apagar nada |
+| Vocabulário do console assumindo alimentação para todo tenant | 5.4.4 | termo por atividade como dado extensível | **corrigido por condicional binário em 03/09; classe do problema em aberto** |
+| Conteúdo inicial por atividade em constante compilada | 5.4.4 | dado versionado e auditável, restrito a tenant interno ou de teste | **dívida aberta, criada em 03/09** |
+| Atividade ativa do PDV mantida apenas no cliente | 5.4.4 + Gate B | escolha persistida na sessão operacional e auditável | **dívida aberta, criada em 03/09** |
 | Segurança/confiabilidade deixadas para o fim | contínuo + S20 | gate por sprint e prova combinada | política corrigida |
 | Cliente capaz de escolher o autor de uma mutação | Gate A | ator derivado do principal ou service actor emitido pelo servidor | resolvido e testado; retirada dos campos legados fica para evolução de contrato |
 
@@ -1557,6 +1587,24 @@ OA-1 autoridade/contexto
 O plano executável está em
 [`operational-access-hardening-plan.md`](operational-access-hardening-plan.md).
 Funcionalidades novas e homologações de campo não antecedem essa decisão.
+
+Execução em 03/09/2026: a primeira rodada assistida contra o deploy publicado
+aprovou os cinco cenários alcançáveis sem credencial — login exclusivamente
+gerencial, navegador sem autorização sem formulário de código e PIN, entrada
+operacional sem rolagem horizontal de 360 a 1366 px, foco visível com 21,00:1 e
+título com 20,17:1. A evidência está em
+[`oa4-deploy-acceptance-2026-09-03.md`](../quality/oa4-deploy-acceptance-2026-09-03.md).
+
+Faltam os catorze cenários que exigem terminal autorizado, código ativado e PIN
+pessoal em produção. Eles passam no job de CI contra pilha efêmera, mas o plano
+exige repetição no deploy e CI verde não substitui essa prova. Enquanto isso, o
+Gate B permanece `REOPENED`.
+
+Trabalho executado fora desta sequência entre 02 e 03/09/2026 — atividade como
+dimensão do sortimento, publicação do conjunto por atividade, seletor de negócio
+no PDV, vocabulário por nicho, imagem de produto, responsividade e correção de
+contraste — está registrado nos Gates 5.4.0, 5.4.1, 5.4.3 e 5.4.4 da trilha
+corretiva e nas linhas de dívida da seção 9. Nada disso promove gate por si só.
 
 S0–S17, S18–S20 e o Gate A preservam suas implementações internas. S17.1–S17.3,
 S21.1 e o Gate B estão reabertos na integração operacional; S21 permanece
