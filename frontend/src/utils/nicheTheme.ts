@@ -8,6 +8,13 @@ export const NICHE_THEMES = ['FOOD_SERVICE', 'RETAIL', 'BEAUTY_RESELLER'] as con
 
 export type NicheTheme = typeof NICHE_THEMES[number]
 
+/** Operator-facing name of each business activity, shared by every surface. */
+export const NICHE_LABELS: Record<string, string> = {
+  FOOD_SERVICE: 'Alimentação',
+  RETAIL: 'Varejo',
+  BEAUTY_RESELLER: 'Beleza',
+}
+
 /**
  * Deterministic precedence for tenants that contract more than one activity.
  * The operation with the heaviest visual footprint wins so the console does not

@@ -25,12 +25,22 @@ class Assortment(SQLModel, table=True):
     __table_args__ = (
         UniqueConstraint("tenant_id", "code", name="uq_tenant_assortment_code"),
         CheckConstraint("version > 0", name="ck_assortment_version_positive"),
+        CheckConstraint(
+            "business_activity IS NULL OR business_activity IN "
+            "('FOOD_SERVICE', 'RETAIL', 'BEAUTY_RESELLER')",
+            name="ck_assortment_business_activity",
+        ),
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     tenant_id: uuid.UUID = Field(foreign_key="tenants.id", index=True)
     code: str = Field(max_length=40, index=True)
     name: str = Field(max_length=160, index=True)
+    # Contracted business activity this curated set belongs to. NULL keeps the
+    # assortment valid for every activity, which is what pre-existing rows need.
+    # The activity is a property of the curated set, not of the product: the same
+    # product may be sold by operations of different niches.
+    business_activity: Optional[str] = Field(default=None, max_length=40, index=True, nullable=True)
     description: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     status: AssortmentStatusEnum = Field(
         default=AssortmentStatusEnum.ACTIVE,

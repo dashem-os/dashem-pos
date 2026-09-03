@@ -48,3 +48,6 @@ frontend/tests_e2e/
 .idea/
 *.swp
 *.swo
+
+# Claude Code: preferências pessoais da máquina (o settings.json do projeto é versionado)
+.claude/settings.local.json

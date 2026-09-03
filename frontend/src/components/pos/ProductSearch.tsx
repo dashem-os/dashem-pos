@@ -115,7 +115,7 @@ export const ProductSearch: React.FC = () => {
   return (
     <div ref={containerRef} className="relative w-full">
       <form onSubmit={handleScanOrSubmit} className="relative w-full">
-        <div className="relative flex h-16 items-center rounded-2xl border-2 border-slate-200 bg-white shadow-sm transition-all focus-within:border-rose-600 focus-within:ring-4 focus-within:ring-rose-500/10">
+        <div className="relative flex h-16 items-center rounded-2xl border border-slate-200 bg-white shadow-sm transition-all focus-within:border-rose-400 focus-within:ring-2 focus-within:ring-rose-500/10">
           <div className="pl-4 pr-2 text-slate-400 flex items-center space-x-2 shrink-0">
             <Barcode className="w-6 h-6 text-rose-600" />
             <Search className="w-4 h-4 text-slate-400" />
@@ -151,7 +151,7 @@ export const ProductSearch: React.FC = () => {
               </button>
             )}
 
-            <div className="hidden sm:flex items-center space-x-1 px-2 py-1 rounded-lg bg-slate-100 text-slate-500 text-[11px] font-bold border border-slate-200 pointer-events-none">
+            <div className="hidden sm:flex items-center space-x-1 px-2 py-1 rounded-lg bg-slate-100 text-slate-500 text-xs font-bold border border-slate-200 pointer-events-none">
               <CornerDownLeft className="w-3 h-3 text-slate-400" />
               <span>Enter</span>
             </div>

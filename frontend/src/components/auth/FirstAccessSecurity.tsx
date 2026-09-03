@@ -14,7 +14,7 @@ const requirements = [
 function SecurityShell({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {
   const { signOut } = useAuth()
   return (
-    <main className="min-h-screen bg-[#07101f] p-6 text-slate-950 sm:p-10">
+    <main className="min-h-screen bg-[#07101f] p-6 text-white sm:p-10">
       <div className="mx-auto max-w-2xl">
         <div className="mb-8 flex items-center justify-between text-white">
           <div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand font-black">D</div><span className="font-black">DASHEM POS</span></div>
@@ -74,7 +74,7 @@ export function PasswordSetupScreen({ onComplete, recovery = false }: { onComple
           <span className={`flex items-center gap-2 ${password && password === confirmation ? 'text-emerald-700' : ''}`}><Check className="h-3.5 w-3.5" />Senhas iguais</span>
         </div>
         {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</p>}
-        <button disabled={!valid || loading} className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-brand font-black text-white disabled:cursor-not-allowed disabled:opacity-40">{loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <><KeyRound className="h-5 w-5" />Salvar senha forte</>}</button>
+        <button disabled={!valid || loading} className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-brand font-black text-brand-contrast disabled:cursor-not-allowed disabled:opacity-40">{loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <><KeyRound className="h-5 w-5" />Salvar senha forte</>}</button>
       </form>
     </SecurityShell>
   )
@@ -135,7 +135,7 @@ export function OwnerMfaScreen({ onComplete }: { onComplete: () => Promise<void>
           {qrSource && <div className="mb-6 grid gap-5 rounded-2xl border border-slate-200 bg-slate-50 p-5 sm:grid-cols-[180px_1fr] sm:items-center"><img src={qrSource} alt="QR code para cadastrar o segundo fator" className="h-44 w-44 rounded-xl bg-white p-2" /><div><p className="text-sm font-bold">Não consegue escanear?</p><p className="mt-2 break-all font-mono text-xs text-slate-500">{enrollment?.secret}</p><button type="button" onClick={() => enrollment && navigator.clipboard.writeText(enrollment.secret)} className="mt-3 flex items-center gap-2 text-xs font-black text-brand-ink"><Copy className="h-3.5 w-3.5" />Copiar chave</button></div></div>}
           <label className="block text-sm font-bold">Código de 6 dígitos<input inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={e => setCode(e.target.value.replace(/\D/g, ''))} className="mt-2 h-14 w-full rounded-xl border border-slate-300 px-4 text-center font-mono text-2xl font-black tracking-[.45em] outline-none focus:border-brand-ink focus:ring-4 focus:ring-brand-soft" /></label>
           {error && <p role="alert" className="mt-4 rounded-xl bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</p>}
-          <button disabled={code.length !== 6 || loading || !factorId} className="mt-5 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-brand font-black text-white disabled:opacity-40">{loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <><ShieldCheck className="h-5 w-5" />Validar e acessar o Console</>}</button>
+          <button disabled={code.length !== 6 || loading || !factorId} className="mt-5 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-brand font-black text-brand-contrast disabled:opacity-40">{loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <><ShieldCheck className="h-5 w-5" />Validar e acessar o Console</>}</button>
         </form>
       )}
     </SecurityShell>

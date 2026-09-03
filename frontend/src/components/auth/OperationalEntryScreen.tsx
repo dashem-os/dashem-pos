@@ -117,7 +117,7 @@ export function OperationalEntryScreen() {
   return <main className="flex min-h-[100dvh] items-center justify-center bg-[#06101f] p-4">
     <form autoComplete="off" onSubmit={mode === 'LOGIN' ? submitLogin : submitActivation} className="w-full max-w-md rounded-[28px] bg-white p-5 shadow-2xl sm:p-7">
         <div className="flex items-center justify-center gap-3" aria-label="Dashem POS">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand text-lg font-black text-white">D</div>
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand text-lg font-black text-brand-contrast">D</div>
           <p className="text-xl font-black tracking-tight text-[#08275b]">DASHEM <span className="text-brand-ink">POS</span></p>
         </div>
         <div className="mt-5 text-center">
@@ -142,7 +142,7 @@ export function OperationalEntryScreen() {
         {!online && <p role="status" className="mt-4 flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm font-bold text-amber-900"><WifiOff className="h-4 w-4 shrink-0" />Sem conexão. O terminal e o turno foram preservados.</p>}
         {notice && <p role="status" className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-bold text-emerald-800">{notice}</p>}
         {error && <p role="alert" className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">{error}</p>}
-        <button disabled={!online || busy || employeeCode.length < 3 || (mode === 'LOGIN' ? pin.length < 4 : activationCode.length !== 8 || !strongPin(pin) || pin !== confirmPin)} className="mt-5 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-brand font-black text-white focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-950 disabled:opacity-40">{busy ? <Loader2 className="h-5 w-5 animate-spin" /> : <ShieldCheck className="h-5 w-5" />}{busy ? 'Validando...' : mode === 'LOGIN' ? 'Entrar no turno' : 'Ativar meu PIN'}</button>
+        <button disabled={!online || busy || employeeCode.length < 3 || (mode === 'LOGIN' ? pin.length < 4 : activationCode.length !== 8 || !strongPin(pin) || pin !== confirmPin)} className="mt-5 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-brand font-black text-brand-contrast focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-950 disabled:opacity-40">{busy ? <Loader2 className="h-5 w-5 animate-spin" /> : <ShieldCheck className="h-5 w-5" />}{busy ? 'Validando...' : mode === 'LOGIN' ? 'Entrar no turno' : 'Ativar meu PIN'}</button>
     </form>
   </main>
 }

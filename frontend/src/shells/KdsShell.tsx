@@ -110,7 +110,7 @@ function SelectedKdsShell({ selection }: { selection: OperationalSelection }) {
                 {/* Human status on screen; the projection version stays available on hover for support. */}
                 <span
                   title={`Versão ${projection.ticket.version}`}
-                  className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-black ${STATUS_TONES[projection.ticket.status]}`}
+                  className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-black ${STATUS_TONES[projection.ticket.status]}`}
                 >
                   {STATUS_LABELS[projection.ticket.status]}
                 </span>
@@ -124,7 +124,7 @@ function SelectedKdsShell({ selection }: { selection: OperationalSelection }) {
                 {projection.items.map((item) => (
                   <div key={item.id} className={`rounded-xl border p-3 ${item.operation === 'CANCEL' ? 'border-red-300 bg-red-50' : 'border-slate-200'}`}>
                     <p className="font-black">{Number(item.quantity)}× {item.product_name_snapshot}</p>
-                    <p className="text-[10px] font-bold text-slate-500" title={`Item versão ${item.item_version}`}>
+                    <p className="text-xs font-bold text-slate-500" title={`Item versão ${item.item_version}`}>
                       {item.operation === 'CANCEL' ? 'Item cancelado' : 'Item do pedido'}
                     </p>
                     {item.notes_snapshot && <p className="mt-1 text-xs">{item.notes_snapshot}</p>}

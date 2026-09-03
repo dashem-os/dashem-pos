@@ -26,7 +26,7 @@ function TablesSurface() {
   }
   return <div className="min-h-screen bg-slate-100">
     <Toast toast={toast} />
-    <nav className="flex h-14 items-center justify-between border-b border-slate-200 bg-white px-4 sm:px-6"><div><p className="text-sm font-black text-slate-950">DASHEM <span className="text-orange-500">MESAS</span></p><p className="text-[10px] font-bold text-slate-500">{tenant?.name} · {store?.name}</p></div><div className="flex gap-2"><button onClick={() => navigateTo('/pos')} className="flex h-9 items-center gap-2 rounded-xl bg-rose-600 px-3 text-xs font-black text-white"><ShoppingCart className="h-4 w-4" />PDV</button><button onClick={signOut} className="flex h-9 items-center gap-2 rounded-xl border border-slate-300 px-3 text-xs font-black text-slate-600"><LogOut className="h-4 w-4" />Sair</button></div></nav>
+    <nav className="flex h-14 items-center justify-between border-b border-slate-200 bg-white px-4 sm:px-6"><div><p className="text-sm font-black text-slate-950">DASHEM <span className="text-orange-500">MESAS</span></p><p className="text-xs font-bold text-slate-500">{tenant?.name} · {store?.name}</p></div><div className="flex gap-2"><button onClick={() => navigateTo('/pos')} className="flex h-9 items-center gap-2 rounded-xl bg-rose-600 px-3 text-xs font-black text-white"><ShoppingCart className="h-4 w-4" />PDV</button><button onClick={signOut} className="flex h-9 items-center gap-2 rounded-xl border border-slate-300 px-3 text-xs font-black text-slate-600"><LogOut className="h-4 w-4" />Sair</button></div></nav>
     <main className="mx-auto max-w-[1600px] p-4 sm:p-6"><TableServiceWorkspace /></main>
   </div>
 }

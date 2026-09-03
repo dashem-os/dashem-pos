@@ -3,6 +3,9 @@ import { Archive, Package, Plus, Search, ArrowUpDown, CheckCircle2, Star, AlertC
 import { usePos } from '../../context/PosContext'
 import { Modal } from '../common/Modal'
 import * as api from '../../services/api'
+import { Button } from '../common/Button'
+import { DataTable } from '../common/DataTable'
+import { formatCurrency } from '../../utils/format'
 
 export const CatalogManager: React.FC = () => {
   const { tenant, store, products, prices, balances, createNewProduct, adjustStock, refreshData, actionLoading } = usePos()
@@ -138,7 +141,7 @@ export const CatalogManager: React.FC = () => {
 
         <button
           onClick={() => setIsAddModalOpen(true)}
-          className="h-11 px-5 rounded-2xl bg-dashem-red hover:bg-dashem-red-light text-white text-xs font-black flex items-center justify-center space-x-2 transition-all shadow-md shadow-dashem-red/30 active:scale-95 shrink-0"
+          className="h-11 px-5 rounded-2xl bg-dashem-red hover:bg-dashem-red-light text-brand-contrast text-xs font-black flex items-center justify-center space-x-2 transition-all shadow-md shadow-dashem-red/30 active:scale-95 shrink-0"
         >
           <Plus className="w-4 h-4" />
           <span>Cadastrar Novo Produto</span>
@@ -153,7 +156,7 @@ export const CatalogManager: React.FC = () => {
             onClick={() => { setViewMode('MASTER'); setPage(1); setContextError(null) }}
             className={`px-4 py-2 rounded-2xl text-xs font-black transition ${
               viewMode === 'MASTER'
-                ? 'bg-dashem-red text-white shadow-sm'
+                ? 'bg-dashem-red text-brand-contrast shadow-sm'
                 : 'bg-dashem-surface border border-dashem-border text-dashem-muted hover:text-dashem-strong'
             }`}
           >
@@ -164,7 +167,7 @@ export const CatalogManager: React.FC = () => {
             onClick={() => { setViewMode('PROJECTION'); setPage(1) }}
             className={`px-4 py-2 rounded-2xl text-xs font-black transition ${
               viewMode === 'PROJECTION'
-                ? 'bg-dashem-red text-white shadow-sm'
+                ? 'bg-dashem-red text-brand-contrast shadow-sm'
                 : 'bg-dashem-surface border border-dashem-border text-dashem-muted hover:text-dashem-strong'
             }`}
           >
@@ -193,7 +196,7 @@ export const CatalogManager: React.FC = () => {
                     !item.operational
                       ? 'opacity-40 cursor-not-allowed bg-dashem-surface border border-dashem-border text-dashem-muted'
                       : active
-                        ? 'bg-white text-dashem-bg font-black shadow-sm'
+                        ? 'bg-brand text-brand-contrast font-black shadow-sm'
                         : 'bg-dashem-surface border border-dashem-border text-dashem-muted hover:text-dashem-strong'
                   }`}
                   title={!item.operational ? 'Jornada não contratada' : undefined}
@@ -216,7 +219,7 @@ export const CatalogManager: React.FC = () => {
           <button
             type="button"
             onClick={() => setReloadKey(k => k + 1)}
-            className="px-3 py-1 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-200 text-[11px] font-bold text-rose-700 transition"
+            className="px-3 py-1 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-200 text-xs font-bold text-rose-700 transition"
           >
             Tentar novamente
           </button>
@@ -235,97 +238,82 @@ export const CatalogManager: React.FC = () => {
         />
       </div>
 
-      {/* Products Table */}
-      <div className="bg-dashem-surface border border-dashem-border rounded-3xl overflow-hidden shadow-sm">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-dashem-surface-elevated text-dashem-muted font-extrabold uppercase tracking-wider text-[10px] border-b border-dashem-border">
-              <tr>
-                <th className="px-5 py-3.5">Produto / Descrição</th>
-                <th className="px-4 py-3.5">SKU / EAN</th>
-                <th className="px-4 py-3.5">Tipo</th>
-                <th className="px-4 py-3.5 text-right">Preço de Venda</th>
-                <th className="px-4 py-3.5 text-right">Atual / Mínimo</th>
-                <th className="px-5 py-3.5 text-center">Ações</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-dashem-border/50 font-medium">
-              {catalogItems.map((prod) => {
-                const price = Number(prod.sale_price)
-                const stock = Number(prod.quantity)
-                const isService = prod.item_type === 'SERVICE'
-
-                return (
-                  <tr key={prod.id} className="hover:bg-dashem-surface-elevated/40 transition-colors">
-                    <td className="px-5 py-3.5">
-                      <span className="font-bold text-dashem-strong block">{prod.name}</span>
-                      {prod.description && <span className="text-[11px] text-dashem-muted">{prod.description}</span>}
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <span className="font-mono text-dashem-strong block">{prod.sku}</span>
-                      {prod.barcode && <span className="text-[10px] text-dashem-muted">EAN: {prod.barcode}</span>}
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <span
-                        className={`px-2 py-0.5 rounded-md font-bold text-[10px] uppercase ${
-                          isService ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-dashem-surface-elevated text-dashem-muted'
-                        }`}
-                      >
-                        {prod.item_type}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3.5 text-right">
-                      <span className="font-black text-dashem-strong text-sm">R$ {price.toFixed(2)}</span>
-                    </td>
-                    <td className="px-4 py-3.5 text-right">
-                      {isService ? (
-                        <span className="text-dashem-muted text-[11px]">—</span>
-                      ) : (
-                        <span
-                          className={`font-bold px-2 py-0.5 rounded-md text-[11px] ${
-                            !prod.is_low_stock
-                              ? 'text-emerald-700 bg-emerald-50'
-                              : stock > 0
-                              ? 'text-amber-700 bg-amber-50'
-                              : 'text-rose-700 bg-rose-50'
-                          }`}
-                        >
-                          {stock} / {Number(prod.minimum_stock)} {prod.unit.toLowerCase()}
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-5 py-3.5 text-center">
-                      <div className="inline-flex gap-2">
-                        <button type="button" onClick={() => setProductToArchive(prod)} title="Arquivar e retirar do PDV" className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-amber-700"><Archive className="h-3.5 w-3.5" /></button>
-                        <button
-                          type="button"
-                          onClick={() => handleQuickAccess(prod)}
-                          title={prod.quick_position != null ? 'Remover do acesso rápido' : 'Adicionar ao acesso rápido'}
-                          className="p-2 rounded-lg bg-dashem-surface-elevated border border-dashem-border"
-                        >
-                          <Star className={`w-3.5 h-3.5 ${prod.quick_position != null ? 'fill-amber-400 text-amber-700' : 'text-dashem-muted'}`} />
-                        </button>
-                        {!isService && (
-                        <button
-                          onClick={() => {
-                            setSelectedProductForStock(prod.id)
-                            setMinimumStock(String(prod.minimum_stock))
-                            setIsStockModalOpen(true)
-                          }}
-                          className="px-3 py-1.5 rounded-lg bg-dashem-surface-elevated hover:bg-dashem-border text-dashem-strong text-[11px] font-bold transition-all border border-dashem-border inline-flex items-center space-x-1"
-                        >
-                          <ArrowUpDown className="w-3.5 h-3.5 text-dashem-red" />
-                          <span>Ajustar</span>
-                        </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+      {/* Products: a real table on wide screens, one card per product on narrow. */}
+      <div className="bg-dashem-surface border border-dashem-border rounded-2xl overflow-hidden shadow-sm md:p-0">
+        <DataTable
+          rows={catalogItems}
+          rowKey={(prod) => prod.id}
+          empty={<div className="p-8 text-center text-sm font-bold text-dashem-muted">Nenhum produto encontrado neste contexto.</div>}
+          columns={[
+            {
+              key: 'name', header: 'Produto', primary: true,
+              cell: (prod) => (
+                <div>
+                  <span className="block font-bold text-dashem-strong">{prod.name}</span>
+                  {prod.description && <span className="text-xs text-dashem-muted">{prod.description}</span>}
+                </div>
+              ),
+            },
+            {
+              key: 'sku', header: 'SKU / EAN',
+              cell: (prod) => (
+                <div>
+                  <span className="block font-mono text-dashem-strong">{prod.sku}</span>
+                  {prod.barcode && <span className="text-xs text-dashem-muted">EAN: {prod.barcode}</span>}
+                </div>
+              ),
+            },
+            {
+              key: 'type', header: 'Tipo',
+              cell: (prod) => (
+                <span className={`inline-block rounded-md px-2 py-0.5 text-xs font-bold uppercase ${
+                  prod.item_type === 'SERVICE'
+                    ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                    : 'bg-dashem-surface-elevated text-dashem-muted border border-dashem-border'
+                }`}>{prod.item_type === 'SERVICE' ? 'Serviço' : 'Produto'}</span>
+              ),
+            },
+            {
+              key: 'price', header: 'Preço de venda', align: 'right',
+              cell: (prod) => <span className="font-black text-dashem-strong">{formatCurrency(Number(prod.sale_price))}</span>,
+            },
+            {
+              key: 'stock', header: 'Atual / mínimo', align: 'right',
+              cell: (prod) => prod.item_type === 'SERVICE'
+                ? <span className="text-dashem-muted">—</span>
+                : (
+                  <span className={`inline-block rounded-md px-2 py-0.5 text-xs font-bold ${
+                    !prod.is_low_stock ? 'text-emerald-700 bg-emerald-50'
+                      : Number(prod.quantity) > 0 ? 'text-amber-700 bg-amber-50'
+                      : 'text-rose-700 bg-rose-50'
+                  }`}>
+                    {Number(prod.quantity)} / {Number(prod.minimum_stock)} {prod.unit.toLowerCase()}
+                  </span>
+                ),
+            },
+            {
+              key: 'actions', header: 'Ações', actions: true, align: 'right',
+              cell: (prod) => (
+                <div className="inline-flex flex-wrap gap-2">
+                  <Button variant="secondary" size="sm" icon={Archive} onClick={() => setProductToArchive(prod)}
+                    title="Arquivar e retirar do PDV" className="border-amber-200 bg-amber-50 text-amber-700" aria-label="Arquivar" />
+                  <Button variant="secondary" size="sm" onClick={() => handleQuickAccess(prod)}
+                    title={prod.quick_position != null ? 'Remover do acesso rápido' : 'Adicionar ao acesso rápido'}
+                    aria-label="Acesso rápido">
+                    <Star className={`h-4 w-4 ${prod.quick_position != null ? 'fill-amber-400 text-amber-700' : 'text-dashem-muted'}`} />
+                  </Button>
+                  {prod.item_type !== 'SERVICE' && (
+                    <Button variant="secondary" size="sm" icon={ArrowUpDown} onClick={() => {
+                      setSelectedProductForStock(prod.id)
+                      setMinimumStock(String(prod.minimum_stock))
+                      setIsStockModalOpen(true)
+                    }}>Ajustar</Button>
+                  )}
+                </div>
+              ),
+            },
+          ]}
+        />
       </div>
 
       <div className="flex items-center justify-between text-xs text-dashem-muted">
@@ -425,7 +413,7 @@ export const CatalogManager: React.FC = () => {
             <button
               type="submit"
               disabled={actionLoading}
-              className="w-full h-12 rounded-2xl bg-dashem-red hover:bg-dashem-red-light text-white text-xs font-black flex items-center justify-center space-x-2 transition-all shadow-lg active:scale-95 disabled:opacity-40"
+              className="w-full h-12 rounded-2xl bg-dashem-red hover:bg-dashem-red-light text-brand-contrast text-xs font-black flex items-center justify-center space-x-2 transition-all shadow-lg active:scale-95 disabled:opacity-40"
             >
               <Plus className="w-4 h-4" />
               <span>Salvar Produto no Catálogo</span>

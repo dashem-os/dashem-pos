@@ -18,6 +18,7 @@ from app.models.assortment import SalesContextEnum
 from app.services.assortment_service import resolve_effective_product_ids
 from app.services import reliability_service
 from app.modules.capabilities.service import capability_allowed_by_activity
+from app.services.contract_entitlement_service import resolve_contract_entitlements
 
 
 def _actor(context: TenantContext) -> uuid.UUID:
@@ -165,6 +166,7 @@ def list_sellable_products(
     sales_context: Optional[SalesContextEnum] = None,
     channel_id: Optional[uuid.UUID] = None,
     master: bool = False,
+    activity: Optional[str] = None,
 ) -> dict[str, Any]:
     if not context.store_id:
         raise HTTPException(status_code=400, detail="X-Store-ID é obrigatório para o catálogo operacional.")
@@ -203,8 +205,19 @@ def list_sellable_products(
             if "ecommerce" not in caps:
                 raise HTTPException(status_code=403, detail="Jornada de e-commerce não contratada ou habilitada para esta unidade.")
 
+        # The activity narrows the projection to the curated set of that business
+        # model. It must be contracted: an operator can never sell through an
+        # activity the tenant did not hire, even by crafting the query.
+        if activity:
+            snapshot = resolve_contract_entitlements(session, context.tenant_id)
+            if snapshot is not None and activity not in snapshot.activity_keys:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Atividade '{activity}' não está contratada para este tenant.",
+                )
+
         authorized_product_ids = resolve_effective_product_ids(
-            session, context.tenant_id, context.store_id, sales_context, channel_id
+            session, context.tenant_id, context.store_id, sales_context, channel_id, activity
         )
         if not authorized_product_ids:
             return {"items": [], "total": 0, "page": page, "page_size": page_size}

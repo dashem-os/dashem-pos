@@ -183,6 +183,7 @@ def sellable_products_endpoint(
     sales_context: Optional[SalesContextEnum] = Query(default=None, description="Contexto de venda obrigatório exceto em modo master"),
     channel_id: Optional[uuid.UUID] = Query(default=None, description="Canal de venda opcional"),
     master: bool = Query(default=False, description="Visualizar catálogo mestre da unidade"),
+    activity: Optional[str] = Query(default=None, max_length=40, description="Atividade de negócio ativa (FOOD_SERVICE, RETAIL, BEAUTY_RESELLER)"),
     page: int = Query(default=1, ge=1), page_size: int = Query(default=50, ge=1, le=100),
     search: Optional[str] = Query(default=None, max_length=160), category_id: Optional[uuid.UUID] = None,
     quick_access: bool = False, context: TenantContext = Depends(get_tenant_context),
@@ -190,7 +191,7 @@ def sellable_products_endpoint(
 ):
     return catalog_service.list_sellable_products(
         session, context, page, page_size, search, category_id, quick_access,
-        sales_context=sales_context, channel_id=channel_id, master=master,
+        sales_context=sales_context, channel_id=channel_id, master=master, activity=activity,
     )
 
 

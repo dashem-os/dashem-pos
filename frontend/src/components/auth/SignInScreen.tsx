@@ -53,11 +53,11 @@ export function SignInScreen() {
               {!recovery && <Field label="Senha"><input className="h-full min-w-0 flex-1 bg-transparent font-semibold outline-none" type={showPassword ? 'text' : 'password'} value={password} onChange={event => setPassword(event.target.value)} required autoComplete="current-password" placeholder="Sua senha" /><button type="button" onClick={() => setShowPassword(value => !value)} className="flex h-10 w-10 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}>{showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}</button></Field>}
               {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</p>}
               {notice && <p className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-700">{notice}</p>}
-              <button disabled={submitting} className="flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-brand font-black text-white shadow-[0_16px_36px_rgba(225,29,72,.22)] transition hover:-translate-y-0.5 hover:bg-brand-strong disabled:translate-y-0 disabled:opacity-60">{submitting ? <Loader2 className="h-5 w-5 animate-spin" /> : <>{recovery ? 'Enviar link seguro' : 'Entrar na Gestão'}<ArrowRight className="h-4 w-4" /></>}</button>
+              <button disabled={submitting} className="flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-brand font-black text-brand-contrast shadow-[0_16px_36px_rgba(225,29,72,.22)] transition hover:-translate-y-0.5 hover:bg-brand-strong disabled:translate-y-0 disabled:opacity-60">{submitting ? <Loader2 className="h-5 w-5 animate-spin" /> : <>{recovery ? 'Enviar link seguro' : 'Entrar na Gestão'}<ArrowRight className="h-4 w-4" /></>}</button>
             </form>
             <button type="button" onClick={() => { setRecovery(value => !value); setError(null); setNotice(null) }} className="mt-4 flex min-h-11 w-full items-center justify-center text-sm font-bold text-slate-500 hover:text-brand-ink">{recovery ? 'Voltar ao login' : 'Esqueci minha senha'}</button>
           </>}
-          <p className="mt-8 border-t border-slate-200 pt-5 text-center text-[11px] leading-5 text-slate-500">Esta entrada é exclusiva da Gestão. O acesso operacional acontece no próprio terminal autorizado.</p>
+          <p className="mt-8 border-t border-slate-200 pt-5 text-center text-xs leading-5 text-slate-500">Esta entrada é exclusiva da Gestão. O acesso operacional acontece no próprio terminal autorizado.</p>
         </div>
       </section>
     </div>

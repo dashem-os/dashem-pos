@@ -76,7 +76,7 @@ export const SaleTotals: React.FC = () => {
           type="button"
           onClick={openCancelModal}
           disabled={!hasItems || !isCashOpen || actionLoading || !canCancel}
-          className="col-span-1 h-13 rounded-xl bg-slate-100 hover:bg-rose-50 hover:text-rose-600 text-slate-500 border border-slate-200 flex flex-col items-center justify-center text-[10px] font-bold transition-all disabled:opacity-30 active:scale-95"
+          className="col-span-1 h-13 rounded-xl bg-slate-100 hover:bg-rose-50 hover:text-rose-600 text-slate-500 border border-slate-200 flex flex-col items-center justify-center text-xs font-bold transition-all disabled:opacity-30 active:scale-95"
           title="Cancelar venda atual"
         >
           <Ban className="w-4 h-4 mb-0.5" />

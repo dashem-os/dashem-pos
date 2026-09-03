@@ -39,9 +39,9 @@ export const QuickProductGrid: React.FC = () => {
         <button
           type="button"
           onClick={() => setActiveTab('FAVORITES')}
-          className={`h-9 px-4 rounded-xl text-xs font-bold whitespace-nowrap transition-all border flex items-center space-x-1.5 ${
+          className={`min-h-11 px-4 rounded-xl text-xs font-bold whitespace-nowrap transition-all border flex items-center space-x-1.5 ${
             activeTab === 'FAVORITES'
-              ? 'bg-rose-600 text-white border-rose-600 shadow-sm'
+              ? 'bg-brand text-brand-contrast border-brand shadow-sm'
               : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
           }`}
         >
@@ -53,17 +53,20 @@ export const QuickProductGrid: React.FC = () => {
         <button
           type="button"
           onClick={() => setActiveTab('ALL')}
-          className={`h-9 px-4 rounded-xl text-xs font-bold whitespace-nowrap transition-all border ${
+          className={`min-h-11 px-4 rounded-xl text-xs font-bold whitespace-nowrap transition-all border ${
             activeTab === 'ALL'
-              ? 'bg-rose-600 text-white border-rose-600 shadow-sm'
+              ? 'bg-brand text-brand-contrast border-brand shadow-sm'
               : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
           }`}
         >
           Todos ({products.length})
         </button>
 
-        {/* Real Categories from Backend */}
-        {categories.map((cat) => {
+        {/* Only categories present in the projection: the tenant may hold
+            categories from another contracted activity, and an empty chip for
+            "Perfumaria" inside a food service counter is exactly the mixture
+            the activity scope exists to prevent. */}
+        {categories.filter((cat) => products.some((p) => p.category_id === cat.id)).map((cat) => {
           const count = products.filter((p) => p.category_id === cat.id).length
           const isSelected = activeTab === cat.id
           return (
@@ -71,9 +74,9 @@ export const QuickProductGrid: React.FC = () => {
               key={cat.id}
               type="button"
               onClick={() => setActiveTab(cat.id)}
-              className={`h-9 px-4 rounded-xl text-xs font-bold whitespace-nowrap transition-all border ${
+              className={`min-h-11 px-4 rounded-xl text-xs font-bold whitespace-nowrap transition-all border ${
                 isSelected
-                  ? 'bg-rose-600 text-white border-rose-600 shadow-sm'
+                  ? 'bg-brand text-brand-contrast border-brand shadow-sm'
                   : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
               }`}
             >
@@ -106,7 +109,7 @@ export const QuickProductGrid: React.FC = () => {
 
                 {!isService && (
                   <span
-                    className={`text-[10px] font-bold px-2 py-0.5 rounded-md shrink-0 ${
+                    className={`text-xs font-bold px-2 py-0.5 rounded-md shrink-0 ${
                       !product.is_low_stock
                         ? 'bg-slate-100 text-slate-600'
                         : stock > 0
@@ -124,7 +127,7 @@ export const QuickProductGrid: React.FC = () => {
                 <h4 className="text-sm font-bold leading-snug text-slate-900 transition-colors line-clamp-3 group-hover:text-rose-600 sm:text-base">
                   {product.name}
                 </h4>
-                <span className="text-[11px] font-mono text-slate-400 mt-0.5 block">{product.sku}</span>
+                <span className="text-xs font-mono text-slate-400 mt-0.5 block">{product.sku}</span>
               </div>
 
               {/* Price & Add Icon */}

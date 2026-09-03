@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react'
 import * as api from '../services/api'
 import { paymentProgress, requireAuthenticatedActor, saleNeedsCreation } from '../domain/operationalRules'
-import { useNicheTheme } from '../utils/nicheTheme'
+import { resolveNicheTheme, useNicheTheme } from '../utils/nicheTheme'
 
 export interface ToastInfo {
   type: 'success' | 'error' | 'info'
@@ -25,6 +25,8 @@ interface PosContextType {
   contributions: api.EffectiveAccess['contributions']
   connectionState: 'ONLINE' | 'DEGRADED' | 'OFFLINE'
   operationMode: 'COUNTER' | 'TAKEAWAY'
+  /** Contracted activity being operated. Null when the tenant has none contracted. */
+  activeActivity: api.BusinessNiche | null
 
   // Data state
   products: api.SellableProduct[]
@@ -52,6 +54,7 @@ interface PosContextType {
   // Actions
   showToast: (type: 'success' | 'error' | 'info', text: string) => void
   setOperationMode: (mode: 'COUNTER' | 'TAKEAWAY') => void
+  setActiveActivity: (activity: api.BusinessNiche) => void
   startNewSale: () => Promise<void>
   addItemToCart: (productId: string, quantity?: number) => Promise<boolean>
   updateItemQuantity: (itemId: string, quantity: number) => Promise<void>
@@ -113,6 +116,7 @@ export const PosProvider: React.FC<{
   const [contributions, setContributions] = useState<api.EffectiveAccess['contributions']>([])
   const [connectionState, setConnectionState] = useState<'ONLINE' | 'DEGRADED' | 'OFFLINE'>(navigator.onLine ? 'ONLINE' : 'OFFLINE')
   const [operationMode, setOperationModeState] = useState<'COUNTER' | 'TAKEAWAY'>('COUNTER')
+  const [activeActivity, setActiveActivityState] = useState<api.BusinessNiche | null>(null)
 
   const [products, setProducts] = useState<api.SellableProduct[]>([])
   const [categories, setCategories] = useState<api.Category[]>([])
@@ -209,7 +213,11 @@ export const PosProvider: React.FC<{
         throw new Error('Esta identidade não possui permissão gerencial para validar o PDV.')
       }
       setPermissions(access.permissions)
-      setActivities(access.activities || [])
+      const contracted = access.activities || []
+      setActivities(contracted)
+      // Same precedence that drives the visual identity, so the catalogue the
+      // operator sees and the colours around it always describe one activity.
+      setActiveActivityState(resolveNicheTheme(contracted))
       setCapabilities(access.capabilities)
       setContributions(access.contributions)
       if (registerId) {
@@ -237,12 +245,15 @@ export const PosProvider: React.FC<{
   }, [source, operationalOperatorId, operationalOperatorName, tenantId, tenantName, tenantSlug, storeId, storeName, storeCode, registerId, registerName, registerCode, showToast])
 
   // Refresh products, inventory and sales data
-  const refreshData = useCallback(async (targetMode?: 'COUNTER' | 'TAKEAWAY') => {
+  const refreshData = useCallback(async (targetMode?: 'COUNTER' | 'TAKEAWAY', targetActivity?: api.BusinessNiche | null) => {
     if (!tenant || !store) return
     const mode = targetMode || operationMode
+    const activity = targetActivity !== undefined ? targetActivity : activeActivity
     try {
       const hdrs = getHeaders()
-      const catalog = await api.fetchSellableProducts(hdrs, { sales_context: mode, pageSize: 100 })
+      const catalog = await api.fetchSellableProducts(hdrs, {
+        sales_context: mode, pageSize: 100, activity: activity || undefined,
+      })
       const prods = catalog.items
       setProducts(prods)
 
@@ -266,7 +277,7 @@ export const PosProvider: React.FC<{
     } catch (err: unknown) {
       console.error('Error refreshing data:', err)
     }
-  }, [tenant, store, getHeaders, operationMode])
+  }, [tenant, store, getHeaders, operationMode, activeActivity])
 
   const setOperationMode = useCallback((mode: 'COUNTER' | 'TAKEAWAY') => {
     if (mode === operationMode) return
@@ -277,6 +288,16 @@ export const PosProvider: React.FC<{
     setOperationModeState(mode)
     void refreshData(mode)
   }, [currentSale, operationMode, refreshData, showToast])
+
+  const setActiveActivity = useCallback((activity: api.BusinessNiche) => {
+    if (activity === activeActivity) return
+    if (currentSale && currentSale.items.length > 0 && currentSale.status !== 'COMPLETED' && currentSale.status !== 'CANCELED') {
+      showToast('error', 'Finalize ou cancele a operação atual antes de trocar a atividade.')
+      return
+    }
+    setActiveActivityState(activity)
+    void refreshData(undefined, activity)
+  }, [activeActivity, currentSale, refreshData, showToast])
 
   useEffect(() => {
     loadInitialContext()
@@ -690,6 +711,8 @@ export const PosProvider: React.FC<{
         contributions,
         connectionState,
         operationMode,
+        activeActivity,
+        setActiveActivity,
         products,
         categories,
         prices,

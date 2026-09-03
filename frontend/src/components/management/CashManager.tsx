@@ -285,7 +285,7 @@ export const CashManager: React.FC = () => {
                           ? 'Sangria de Caixa'
                           : 'Suprimento'}
                       </span>
-                      {m.notes && <span className="text-[11px] text-dashem-muted">{m.notes}</span>}
+                      {m.notes && <span className="text-xs text-dashem-muted">{m.notes}</span>}
                     </div>
                   </div>
 
@@ -293,7 +293,7 @@ export const CashManager: React.FC = () => {
                     <span className={`text-sm font-black ${isPositive ? 'text-emerald-700' : 'text-rose-700'}`}>
                       {isPositive ? '+' : '-'} R$ {Number(m.amount).toFixed(2)}
                     </span>
-                    <span className="text-[10px] text-dashem-muted block">
+                    <span className="text-xs text-dashem-muted block">
                       {new Date(m.created_at).toLocaleTimeString()}
                     </span>
                   </div>

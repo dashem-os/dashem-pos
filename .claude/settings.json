@@ -1,0 +1,41 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(bash scripts/verify-local.sh)",
+      "Bash(bash scripts/verify-local.sh *)",
+
+      "Bash(docker ps)",
+      "Bash(docker ps *)",
+      "Bash(docker inspect *)",
+      "Bash(docker start dashem-pos-backend)",
+      "Bash(docker start dashem-pos-db)",
+      "Bash(docker start dashem-pos-worker)",
+      "Bash(docker restart dashem-pos-backend)",
+      "Bash(docker restart dashem-pos-db)",
+      "Bash(docker exec dashem-pos-backend *)",
+      "Bash(docker exec dashem-pos-db *)",
+      "Bash(docker compose ps)",
+      "Bash(docker compose logs *)",
+
+      "Bash(npm test)",
+      "Bash(npm test *)",
+      "Bash(npm run build)",
+      "Bash(npm ci)",
+      "Bash(npx tsc --noEmit)",
+      "Bash(node --test *)",
+
+      "Bash(curl -s http://localhost:8002/*)",
+      "Bash(curl -s http://127.0.0.1:8002/*)",
+      "Bash(curl -sI http://localhost:8002/*)",
+
+      "Bash(git status)",
+      "Bash(git status *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git show *)",
+      "Bash(git branch)",
+      "Bash(git branch *)",
+      "Bash(git remote -v)"
+    ]
+  }
+}

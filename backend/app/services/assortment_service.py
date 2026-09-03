@@ -23,13 +23,18 @@ def resolve_effective_product_ids(
     store_id: uuid.UUID,
     sales_context: SalesContextEnum,
     channel_id: Optional[uuid.UUID] = None,
+    activity: Optional[str] = None,
 ) -> Set[uuid.UUID]:
     """Resolve the set of sellable product IDs authorized for the given context.
 
     Canonical resolution:
-    Master Product -> Assortment -> Store -> Channel -> Sales Context.
+    Master Product -> Assortment -> Business Activity -> Store -> Channel -> Sales Context.
     Invariant: No silent fallback to global catalog. If no assortment or no products are linked,
     an empty set is returned.
+
+    When an activity is given, only assortments curated for that activity resolve,
+    plus the ones left activity-agnostic. That is what stops a food service
+    operation from surfacing a hardware or perfumery catalogue on its own POS.
     """
     query = (
         select(AssortmentProduct.product_id)
@@ -44,6 +49,10 @@ def resolve_effective_product_ids(
             AssortmentScope.sales_context == sales_context,
         )
     )
+    if activity:
+        query = query.where(
+            or_(Assortment.business_activity.is_(None), Assortment.business_activity == activity)
+        )
     if channel_id:
         query = query.where(or_(AssortmentScope.channel_id == channel_id, AssortmentScope.channel_id.is_(None)))
     else:
@@ -103,6 +112,7 @@ def list_assortments(
             "code": ass.code,
             "name": ass.name,
             "description": ass.description,
+            "business_activity": ass.business_activity,
             "status": ass.status,
             "version": ass.version,
             "created_at": ass.created_at,
@@ -157,6 +167,7 @@ def get_assortment(session: Session, context: TenantContext, assortment_id: uuid
         "code": ass.code,
         "name": ass.name,
         "description": ass.description,
+        "business_activity": ass.business_activity,
         "status": ass.status,
         "version": ass.version,
         "created_at": ass.created_at,
@@ -182,6 +193,7 @@ def create_assortment(
     code: str,
     name: str,
     description: Optional[str] = None,
+    business_activity: Optional[str] = None,
     status: AssortmentStatusEnum = AssortmentStatusEnum.ACTIVE,
     scopes: Optional[List[dict[str, Any]]] = None,
     product_ids: Optional[List[uuid.UUID]] = None,
@@ -194,6 +206,7 @@ def create_assortment(
         "code": code.strip(),
         "name": name.strip(),
         "description": description.strip() if description else None,
+        "business_activity": business_activity,
         "status": status.value,
         "scopes": scopes or [],
         "product_ids": [str(pid) for pid in (product_ids or [])],
@@ -223,6 +236,7 @@ def create_assortment(
         code=code.strip(),
         name=name.strip(),
         description=description.strip() if description else None,
+        business_activity=business_activity,
         status=status,
         version=1,
     )
@@ -342,6 +356,8 @@ def update_assortment(
     code: Optional[str] = None,
     name: Optional[str] = None,
     description: Optional[str] = None,
+    business_activity: Optional[str] = None,
+    business_activity_set: bool = False,
     status: Optional[AssortmentStatusEnum] = None,
     scopes: Optional[List[dict[str, Any]]] = None,
     idempotency_key: Optional[str] = None,
@@ -355,6 +371,8 @@ def update_assortment(
         "code": code.strip() if code else None,
         "name": name.strip() if name else None,
         "description": description.strip() if description is not None else None,
+        "business_activity": business_activity,
+        "business_activity_set": business_activity_set,
         "status": status.value if status else None,
         "scopes": scopes,
     }
@@ -397,6 +415,10 @@ def update_assortment(
         assortment.name = name.strip()
     if description is not None:
         assortment.description = description.strip() if description else None
+    # An explicit flag is required because clearing the activity back to
+    # "every activity" is a legitimate edit that sends None.
+    if business_activity_set:
+        assortment.business_activity = business_activity
     if status:
         assortment.status = status
 

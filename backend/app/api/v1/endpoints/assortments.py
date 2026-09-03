@@ -8,6 +8,7 @@ from sqlmodel import Session
 from app.core.context import TenantContext, get_tenant_context
 from app.core.database import get_session
 from app.models.assortment import AssortmentStatusEnum, SalesContextEnum
+from app.modules.capabilities.niches import BusinessNiche
 from app.services import assortment_service
 
 router = APIRouter()
@@ -31,6 +32,8 @@ class AssortmentCreateDTO(BaseModel):
     code: str = Field(min_length=1, max_length=40)
     name: str = Field(min_length=1, max_length=160)
     description: Optional[str] = None
+    # None keeps the assortment valid for every contracted activity.
+    business_activity: Optional[BusinessNiche] = None
     status: AssortmentStatusEnum = AssortmentStatusEnum.ACTIVE
     scopes: Optional[List[AssortmentScopeDTO]] = None
     product_ids: Optional[List[uuid.UUID]] = None
@@ -42,6 +45,7 @@ class AssortmentUpdateDTO(BaseModel):
     code: Optional[str] = Field(default=None, min_length=1, max_length=40)
     name: Optional[str] = Field(default=None, min_length=1, max_length=160)
     description: Optional[str] = None
+    business_activity: Optional[BusinessNiche] = None
     status: Optional[AssortmentStatusEnum] = None
     scopes: Optional[List[AssortmentScopeDTO]] = None
     actor_id: Optional[uuid.UUID] = None
@@ -59,6 +63,7 @@ class AssortmentReadDTO(BaseModel):
     code: str
     name: str
     description: Optional[str]
+    business_activity: Optional[BusinessNiche] = None
     status: AssortmentStatusEnum
     version: int
     created_at: datetime
@@ -130,6 +135,7 @@ def create_assortment_endpoint(
         code=data.code,
         name=data.name,
         description=data.description,
+        business_activity=data.business_activity.value if data.business_activity else None,
         status=data.status,
         scopes=scopes_data,
         product_ids=data.product_ids,
@@ -164,6 +170,8 @@ def update_assortment_endpoint(
         code=data.code,
         name=data.name,
         description=data.description,
+        business_activity=data.business_activity.value if data.business_activity else None,
+        business_activity_set="business_activity" in data.model_fields_set,
         status=data.status,
         scopes=scopes_data,
         idempotency_key=idempotency_key,

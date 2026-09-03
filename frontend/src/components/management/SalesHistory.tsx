@@ -36,35 +36,35 @@ export const SalesHistory: React.FC = () => {
     switch (status) {
       case 'COMPLETED':
         return (
-          <span className="px-2.5 py-1 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold text-[11px] flex items-center space-x-1">
+          <span className="px-2.5 py-1 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold text-xs flex items-center space-x-1">
             <CheckCircle2 className="w-3 h-3 text-emerald-700" />
             <span>Concluída</span>
           </span>
         )
       case 'PAID':
         return (
-          <span className="px-2.5 py-1 rounded-md bg-sky-50 text-sky-700 border border-sky-200 font-bold text-[11px] flex items-center space-x-1">
+          <span className="px-2.5 py-1 rounded-md bg-sky-50 text-sky-700 border border-sky-200 font-bold text-xs flex items-center space-x-1">
             <CheckCircle2 className="w-3 h-3 text-sky-700" />
             <span>Paga (NF Pendente)</span>
           </span>
         )
       case 'AWAITING_PAYMENT':
         return (
-          <span className="px-2.5 py-1 rounded-md bg-amber-50 text-amber-700 border border-amber-200 font-bold text-[11px] flex items-center space-x-1">
+          <span className="px-2.5 py-1 rounded-md bg-amber-50 text-amber-700 border border-amber-200 font-bold text-xs flex items-center space-x-1">
             <Clock className="w-3 h-3 text-amber-700" />
             <span>Aguardando Pagamento</span>
           </span>
         )
       case 'CANCELED':
         return (
-          <span className="px-2.5 py-1 rounded-md bg-rose-50 text-rose-700 border border-rose-200 font-bold text-[11px] flex items-center space-x-1">
+          <span className="px-2.5 py-1 rounded-md bg-rose-50 text-rose-700 border border-rose-200 font-bold text-xs flex items-center space-x-1">
             <Ban className="w-3 h-3 text-rose-700" />
             <span>Cancelada</span>
           </span>
         )
       default:
         return (
-          <span className="px-2.5 py-1 rounded-md bg-slate-800 text-dashem-muted font-bold text-[11px]">
+          <span className="px-2.5 py-1 rounded-md border border-dashem-border bg-dashem-surface-elevated text-dashem-muted font-bold text-xs">
             {status}
           </span>
         )
@@ -98,7 +98,7 @@ export const SalesHistory: React.FC = () => {
               onClick={() => setFilterStatus(tab.id)}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
                 filterStatus === tab.id
-                  ? 'bg-dashem-red text-white shadow-md'
+                  ? 'bg-dashem-red text-brand-contrast shadow-md'
                   : 'text-dashem-muted hover:text-dashem-strong'
               }`}
             >
@@ -150,7 +150,7 @@ export const SalesHistory: React.FC = () => {
                         <span className="font-mono text-xs font-bold text-dashem-strong">{sale.id}</span>
                         {getStatusBadge(sale.status)}
                       </div>
-                      <span className="text-[11px] text-dashem-muted block mt-0.5">
+                      <span className="text-xs text-dashem-muted block mt-0.5">
                         {new Date(sale.created_at).toLocaleString()} • {sale.items.length} itens registrados
                       </span>
                     </div>
@@ -183,13 +183,13 @@ export const SalesHistory: React.FC = () => {
                         <div key={item.id || idx} className="pt-1.5 first:pt-0 flex items-center justify-between text-xs">
                           <div>
                             <span className="font-bold text-dashem-strong">{item.product_name}</span>
-                            <span className="text-[11px] text-dashem-muted ml-2">
+                            <span className="text-xs text-dashem-muted ml-2">
                               {item.quantity}x R$ {Number(item.unit_price).toFixed(2)}
                             </span>
                           </div>
                           <div className="text-right">
                             {Number(item.discount_amount) > 0 && (
-                              <span className="text-[10px] text-emerald-700 font-semibold block">
+                              <span className="text-xs text-emerald-700 font-semibold block">
                                 - R$ {Number(item.discount_amount).toFixed(2)} desc.
                               </span>
                             )}

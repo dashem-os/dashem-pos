@@ -70,7 +70,14 @@
     It uses brand-ink rather than brand so the amber identity still reaches the
     3:1 contrast a focus indicator requires against a light background.
   */
-  :focus-visible {
+  /* Scoped to actionable controls. Text inputs already signal focus through
+     their container border, and stacking a second ring on them read as an
+     error state on the point-of-sale search field. */
+  a:focus-visible,
+  button:focus-visible,
+  select:focus-visible,
+  summary:focus-visible,
+  [role='button']:focus-visible {
     @apply outline-none ring-2 ring-brand-ink ring-offset-2 ring-offset-dashem-surface;
   }
 }

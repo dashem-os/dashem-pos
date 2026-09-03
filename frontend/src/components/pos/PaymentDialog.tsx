@@ -176,7 +176,7 @@ export const PaymentDialog: React.FC = () => {
 
               {/* Large Change Display Badge */}
               <div className="px-4 h-12 rounded-xl bg-emerald-100 border border-emerald-300 flex flex-col justify-center text-right shrink-0">
-                <span className="text-[9px] font-bold uppercase text-emerald-800">Troco</span>
+                <span className="text-[10px] font-bold uppercase text-emerald-800">Troco</span>
                 <span className="text-lg font-black text-emerald-700">{formatCurrency(changeAmount)}</span>
               </div>
             </div>

@@ -166,14 +166,15 @@ export const DashboardBI: React.FC<{
 
     {/* Revenue trend + what needs attention */}
     <section className="grid gap-5 xl:grid-cols-[1.45fr_1fr]">
-      <Card padding="lg" className="flex flex-col">
+      <Card padding="lg">
         <SectionHeader
           title="Faturamento diário"
           description="Clique em uma barra para ver as vendas que compõem o dia."
           actions={<TrendingUp className="h-5 w-5 text-brand-ink" />}
         />
-        {/* Grows with the card so the chart never leaves dead space beside a taller neighbour. */}
-        <div className="mt-6 flex min-h-48 flex-1 items-end gap-1.5">
+        {/* Fixed height: letting the plot grow to match a taller neighbour turned a
+            single day of revenue into a full-height block. */}
+        <div className="mt-6 flex h-48 items-end gap-1.5">
           {chart.map((item) => (
             <button
               type="button"
@@ -186,7 +187,7 @@ export const DashboardBI: React.FC<{
                 className="w-full rounded-t-lg bg-brand/85 transition group-hover:bg-brand"
                 style={{ height: `${Math.max(item.revenue > 0 ? 8 : 2, (item.revenue / maxRevenue) * 100)}%` }}
               />
-              <span className="hidden text-[10px] font-bold text-dashem-muted sm:block">{item.date.slice(8)}</span>
+              <span className="hidden text-xs font-bold text-dashem-muted sm:block">{item.date.slice(8)}</span>
             </button>
           ))}
         </div>
@@ -269,7 +270,7 @@ export const DashboardBI: React.FC<{
       <SectionHeader
         title="Produtividade por operador e turno"
         description="Calculada a partir da cadeia de solicitação, autorização, execução e resultado do pagamento."
-        actions={<span className="text-[11px] font-bold text-dashem-muted">
+        actions={<span className="text-xs font-bold text-dashem-muted">
           {productivity.source_watermark ? `Dados até ${formatProductDateTime(productivity.source_watermark)}` : 'Sem eventos no período'}
         </span>}
       />

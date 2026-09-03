@@ -5,6 +5,7 @@ import {
 } from 'lucide-react'
 import { usePos } from '../../context/PosContext'
 import * as api from '../../services/api'
+import { NICHE_LABELS } from '../../utils/nicheTheme'
 
 const CONTEXT_LABELS: Record<api.SalesContext, string> = {
   COUNTER: 'Balcão',
@@ -29,7 +30,7 @@ const AVAILABLE_CONTEXTS: Array<{ key: api.SalesContext; label: string; operatio
 ]
 
 export const AssortmentManager: React.FC = () => {
-  const { tenant, store, permissions } = usePos()
+  const { tenant, store, permissions, activities } = usePos()
   const canManage = permissions.includes('catalog.update')
 
   const [assortments, setAssortments] = useState<api.Assortment[]>([])
@@ -55,6 +56,8 @@ export const AssortmentManager: React.FC = () => {
   const [formName, setFormName] = useState('')
   const [formDescription, setFormDescription] = useState('')
   const [formStatus, setFormStatus] = useState<'ACTIVE' | 'INACTIVE'>('ACTIVE')
+  // Empty string means the set serves every contracted activity.
+  const [formActivity, setFormActivity] = useState<string>('')
   const [formScopes, setFormScopes] = useState<FormScope[]>([])
   const [actionLoading, setActionLoading] = useState(false)
 
@@ -119,6 +122,7 @@ export const AssortmentManager: React.FC = () => {
     setFormName('')
     setFormDescription('')
     setFormStatus('ACTIVE')
+    setFormActivity('')
     setFormScopes(store ? [{ store_id: store.id, sales_context: 'COUNTER', channel_id: null }] : [])
     setConflictError(null)
     setIsCreateOpen(true)
@@ -130,6 +134,7 @@ export const AssortmentManager: React.FC = () => {
     setFormName(ass.name)
     setFormDescription(ass.description || '')
     setFormStatus(ass.status)
+    setFormActivity(ass.business_activity || '')
     setFormScopes(ass.scopes.map(s => ({
       store_id: s.store_id,
       sales_context: s.sales_context,
@@ -164,6 +169,7 @@ export const AssortmentManager: React.FC = () => {
         code: formCode.trim().toUpperCase(),
         name: formName.trim(),
         description: formDescription.trim() || undefined,
+        business_activity: (formActivity || null) as api.BusinessNiche | null,
         status: formStatus,
         scopes: formScopes.map(s => ({
           store_id: s.store_id,
@@ -192,6 +198,7 @@ export const AssortmentManager: React.FC = () => {
         code: formCode.trim().toUpperCase() !== editingAssortment.code ? formCode.trim().toUpperCase() : undefined,
         name: formName.trim(),
         description: formDescription.trim() || undefined,
+        business_activity: (formActivity || null) as api.BusinessNiche | null,
         status: formStatus,
         scopes: formScopes.map(s => ({
           store_id: s.store_id,
@@ -295,7 +302,7 @@ export const AssortmentManager: React.FC = () => {
         {canManage && (
           <button
             onClick={openCreateModal}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-dashem-red text-white text-xs font-black shadow-sm hover:bg-dashem-red-light transition active:scale-95"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-dashem-red text-brand-contrast text-xs font-black shadow-sm hover:bg-dashem-red-light transition active:scale-95"
           >
             <Plus className="h-4 w-4" />
             <span>Novo Sortimento</span>
@@ -312,7 +319,7 @@ export const AssortmentManager: React.FC = () => {
           </div>
           <button
             onClick={loadAssortments}
-            className="flex items-center gap-1.5 px-3 py-1 bg-red-50 hover:bg-red-100 rounded-lg text-red-700 text-[11px] font-bold"
+            className="flex items-center gap-1.5 px-3 py-1 bg-red-50 hover:bg-red-100 rounded-lg text-red-700 text-xs font-bold"
           >
             <RefreshCw className="h-3 w-3" />
             <span>Tentar novamente</span>
@@ -338,7 +345,7 @@ export const AssortmentManager: React.FC = () => {
                 api.getAssortment(headers(), managingProductsAssortment.id).then(openManageProducts).catch(() => setManagingProductsAssortment(null))
               }
             }}
-            className="flex items-center gap-1.5 px-3 py-1 bg-amber-800/80 hover:bg-amber-700 rounded-lg text-white text-[11px] font-bold"
+            className="flex items-center gap-1.5 px-3 py-1 bg-amber-800/80 hover:bg-amber-700 rounded-lg text-white text-xs font-bold"
           >
             <RefreshCw className="h-3 w-3" />
             <span>Recarregar e sincronizar</span>
@@ -402,9 +409,9 @@ export const AssortmentManager: React.FC = () => {
                   <tr key={ass.id} className="hover:bg-dashem-surface-elevated/50 transition">
                     <td className="px-5 py-4">
                       <div className="font-extrabold text-dashem-strong text-sm">{ass.name}</div>
-                      <div className="text-[11px] font-mono text-dashem-muted">{ass.code}</div>
+                      <div className="text-xs font-mono text-dashem-muted">{ass.code}</div>
                       {ass.description && (
-                        <div className="text-[11px] text-dashem-muted mt-0.5 line-clamp-1">{ass.description}</div>
+                        <div className="text-xs text-dashem-muted mt-0.5 line-clamp-1">{ass.description}</div>
                       )}
                     </td>
                     <td className="px-4 py-4">
@@ -412,20 +419,20 @@ export const AssortmentManager: React.FC = () => {
                         {ass.scopes.map((s, idx) => (
                           <span
                             key={idx}
-                            className="px-2 py-0.5 rounded-lg bg-dashem-bg border border-dashem-border text-[10px] font-bold text-dashem-muted"
+                            className="px-2 py-0.5 rounded-lg bg-dashem-bg border border-dashem-border text-xs font-bold text-dashem-muted"
                           >
                             {CONTEXT_LABELS[s.sales_context] || s.sales_context}
                           </span>
                         ))}
                         {ass.scopes.length === 0 && (
-                          <span className="text-[11px] text-amber-700 font-semibold italic">Sem escopos</span>
+                          <span className="text-xs text-amber-700 font-semibold italic">Sem escopos</span>
                         )}
                       </div>
                     </td>
                     <td className="px-4 py-4 text-center">
                       <span className="font-bold text-dashem-strong">{ass.product_count}</span>
                     </td>
-                    <td className="px-4 py-4 text-center font-mono text-dashem-muted text-[11px]">
+                    <td className="px-4 py-4 text-center font-mono text-dashem-muted text-xs">
                       v{ass.version}
                     </td>
                     <td className="px-4 py-4 text-center">
@@ -433,7 +440,7 @@ export const AssortmentManager: React.FC = () => {
                         className={`inline-block px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
                           ass.status === 'ACTIVE'
                             ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                            : 'bg-slate-800 text-dashem-muted border border-dashem-border'
+                            : 'bg-dashem-surface-elevated text-dashem-muted border border-dashem-border'
                         }`}
                       >
                         {ass.status === 'ACTIVE' ? 'Ativo' : 'Inativo'}
@@ -521,8 +528,23 @@ export const AssortmentManager: React.FC = () => {
               </div>
 
               <div>
+                <label className="block text-xs font-bold text-dashem-muted uppercase tracking-wider mb-1">Atividade de negócio</label>
+                <p className="text-xs text-dashem-muted mb-2">Define para qual modelo de negócio este conjunto é publicado. Sem atividade, ele vale para todas as contratadas.</p>
+                <select
+                  value={formActivity}
+                  onChange={(e) => setFormActivity(e.target.value)}
+                  className="w-full min-h-11 px-3 rounded-xl bg-dashem-bg border border-dashem-border text-dashem-strong text-sm font-bold focus:border-brand-ink outline-none"
+                >
+                  <option value="">Todas as atividades contratadas</option>
+                  {activities.map((activity) => (
+                    <option key={activity} value={activity}>{NICHE_LABELS[activity] || activity}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
                 <label className="block text-[11px] font-bold text-dashem-muted uppercase tracking-wider mb-1">Contextos Operacionais Habilitados</label>
-                <p className="text-[11px] text-dashem-muted mb-2">Selecione as jornadas em que este sortimento será publicado na unidade ativa:</p>
+                <p className="text-xs text-dashem-muted mb-2">Selecione as jornadas em que este sortimento será publicado na unidade ativa:</p>
                 <div className="grid grid-cols-2 gap-2">
                   {AVAILABLE_CONTEXTS.map((item) => {
                     const ctx = item.key
@@ -543,13 +565,13 @@ export const AssortmentManager: React.FC = () => {
                         }`}
                       >
                         <div className="flex items-center gap-2">
-                          <div className={`w-4 h-4 rounded flex items-center justify-center border ${isChecked ? 'bg-dashem-red border-dashem-red text-white' : 'border-dashem-border'}`}>
+                          <div className={`w-4 h-4 rounded flex items-center justify-center border ${isChecked ? 'bg-dashem-red border-dashem-red text-brand-contrast' : 'border-dashem-border'}`}>
                             {isChecked && <Check className="w-3 h-3" />}
                           </div>
                           <span>{item.label}</span>
                         </div>
                         {scope?.channel_id && (
-                          <span className="text-[10px] font-mono text-amber-700 bg-amber-400/10 px-1.5 py-0.5 rounded">
+                          <span className="text-xs font-mono text-amber-700 bg-amber-400/10 px-1.5 py-0.5 rounded">
                             Canal: {scope.channel_id.slice(0, 6)}
                           </span>
                         )}
@@ -570,7 +592,7 @@ export const AssortmentManager: React.FC = () => {
                 <button
                   type="submit"
                   disabled={actionLoading || formScopes.length === 0}
-                  className="px-5 py-2 rounded-xl bg-dashem-red text-xs font-black text-white hover:bg-dashem-red-light disabled:opacity-50 shadow-sm"
+                  className="px-5 py-2 rounded-xl bg-dashem-red text-xs font-black text-brand-contrast hover:bg-dashem-red-light disabled:opacity-50 shadow-sm"
                 >
                   {actionLoading ? 'Salvando...' : 'Criar Sortimento'}
                 </button>
@@ -587,7 +609,7 @@ export const AssortmentManager: React.FC = () => {
             <div className="flex items-center justify-between border-b border-dashem-border pb-4">
               <div>
                 <h2 className="text-base font-black text-dashem-strong">Editar Sortimento</h2>
-                <p className="text-[11px] font-mono text-dashem-muted">Versão esperada: v{editingAssortment.version}</p>
+                <p className="text-xs font-mono text-dashem-muted">Versão esperada: v{editingAssortment.version}</p>
               </div>
               <button onClick={() => setEditingAssortment(null)} className="text-dashem-muted hover:text-dashem-strong">
                 <X className="w-5 h-5" />
@@ -640,6 +662,21 @@ export const AssortmentManager: React.FC = () => {
               </div>
 
               <div>
+                <label className="block text-xs font-bold text-dashem-muted uppercase tracking-wider mb-1">Atividade de negócio</label>
+                <p className="text-xs text-dashem-muted mb-2">Define para qual modelo de negócio este conjunto é publicado. Sem atividade, ele vale para todas as contratadas.</p>
+                <select
+                  value={formActivity}
+                  onChange={(e) => setFormActivity(e.target.value)}
+                  className="w-full min-h-11 px-3 rounded-xl bg-dashem-bg border border-dashem-border text-dashem-strong text-sm font-bold focus:border-brand-ink outline-none"
+                >
+                  <option value="">Todas as atividades contratadas</option>
+                  {activities.map((activity) => (
+                    <option key={activity} value={activity}>{NICHE_LABELS[activity] || activity}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
                 <label className="block text-[11px] font-bold text-dashem-muted uppercase tracking-wider mb-1">Contextos Operacionais Habilitados</label>
                 <div className="grid grid-cols-2 gap-2">
                   {AVAILABLE_CONTEXTS.map((item) => {
@@ -661,13 +698,13 @@ export const AssortmentManager: React.FC = () => {
                         }`}
                       >
                         <div className="flex items-center gap-2">
-                          <div className={`w-4 h-4 rounded flex items-center justify-center border ${isChecked ? 'bg-dashem-red border-dashem-red text-white' : 'border-dashem-border'}`}>
+                          <div className={`w-4 h-4 rounded flex items-center justify-center border ${isChecked ? 'bg-dashem-red border-dashem-red text-brand-contrast' : 'border-dashem-border'}`}>
                             {isChecked && <Check className="w-3 h-3" />}
                           </div>
                           <span>{item.label}</span>
                         </div>
                         {scope?.channel_id && (
-                          <span className="text-[10px] font-mono text-amber-700 bg-amber-400/10 px-1.5 py-0.5 rounded">
+                          <span className="text-xs font-mono text-amber-700 bg-amber-400/10 px-1.5 py-0.5 rounded">
                             Canal: {scope.channel_id.slice(0, 6)}
                           </span>
                         )}
@@ -688,7 +725,7 @@ export const AssortmentManager: React.FC = () => {
                 <button
                   type="submit"
                   disabled={actionLoading || formScopes.length === 0}
-                  className="px-5 py-2 rounded-xl bg-dashem-red text-xs font-black text-white hover:bg-dashem-red-light disabled:opacity-50 shadow-sm"
+                  className="px-5 py-2 rounded-xl bg-dashem-red text-xs font-black text-brand-contrast hover:bg-dashem-red-light disabled:opacity-50 shadow-sm"
                 >
                   {actionLoading ? 'Salvando...' : 'Salvar Alterações'}
                 </button>
@@ -733,7 +770,7 @@ export const AssortmentManager: React.FC = () => {
                   type="button"
                   disabled={!selectedProductIdToAdd || actionLoading}
                   onClick={handleLinkProduct}
-                  className="w-full sm:w-auto px-4 py-2 rounded-xl bg-dashem-red text-white text-xs font-bold hover:bg-dashem-red-light disabled:opacity-50 shrink-0"
+                  className="w-full sm:w-auto px-4 py-2 rounded-xl bg-dashem-red text-brand-contrast text-xs font-bold hover:bg-dashem-red-light disabled:opacity-50 shrink-0"
                 >
                   Vincular ao Sortimento
                 </button>
@@ -741,7 +778,7 @@ export const AssortmentManager: React.FC = () => {
             )}
 
             {/* List of linked products */}
-            <div className="flex-1 overflow-y-auto border border-dashem-border rounded-2xl">
+            <div className="flex-1 overflow-auto border border-dashem-border rounded-2xl">
               {productsLoading ? (
                 <div className="p-8 text-center text-dashem-muted text-xs flex items-center justify-center gap-2">
                   <RefreshCw className="h-4 w-4 animate-spin text-dashem-red" />
@@ -752,7 +789,7 @@ export const AssortmentManager: React.FC = () => {
                   Nenhum produto vinculado a este sortimento. Utilize o seletor acima para adicionar produtos.
                 </div>
               ) : (
-                <table className="w-full text-left text-xs">
+                <table className="w-full min-w-[32rem] text-left text-xs">
                   <thead className="bg-dashem-surface-elevated text-dashem-muted font-bold text-[10px] uppercase border-b border-dashem-border">
                     <tr>
                       <th className="px-4 py-2.5">Produto</th>

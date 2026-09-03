@@ -161,6 +161,8 @@ export interface Assortment {
   code: string
   name: string
   description?: string | null
+  /** null means the set is valid for every contracted activity. */
+  business_activity?: BusinessNiche | null
   status: 'ACTIVE' | 'INACTIVE'
   version: number
   created_at: string
@@ -2459,6 +2461,8 @@ export async function fetchSellableProducts(
     quickAccess?: boolean
     channelId?: string
     master?: boolean
+    /** Contracted business activity being operated; scopes the projection to its curated sets. */
+    activity?: BusinessNiche
   } = {}
 ): Promise<SellableProductPage> {
   const params = new URLSearchParams({
@@ -2471,6 +2475,7 @@ export async function fetchSellableProducts(
   if (options.search) params.set('search', options.search)
   if (options.categoryId) params.set('category_id', options.categoryId)
   if (options.quickAccess) params.set('quick_access', 'true')
+  if (options.activity) params.set('activity', options.activity)
   const res = await fetch(`${API_BASE_URL}/api/v1/catalog/sellable-products?${params}`, { headers })
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
@@ -2524,6 +2529,7 @@ export async function createAssortment(
     code: string
     name: string
     description?: string
+    business_activity?: BusinessNiche | null
     status?: 'ACTIVE' | 'INACTIVE'
     scopes?: AssortmentScope[]
     product_ids?: string[]
@@ -2557,6 +2563,7 @@ export async function updateAssortment(
     code?: string
     name?: string
     description?: string
+    business_activity?: BusinessNiche | null
     status?: 'ACTIVE' | 'INACTIVE'
     scopes?: AssortmentScope[]
   },
