@@ -66,10 +66,12 @@ export const PosLayout: React.FC = () => {
   const netTotal = Number(currentSale?.net_total || 0)
   const managementAvailable = canNavigateToManagement(Boolean(session), permissions)
   const canReadCash = permissions.includes('cash.read')
-  const canOpenCash = permissions.includes('cash.open')
-  const canCloseCash = permissions.includes('cash.close')
-  const roleLabel = operationalRoleLabel(operatorRole)
   const managementValidation = accessMode === 'MANAGEMENT'
+  // Opening and closing a shift require an operational session. Offering the
+  // control to a management identity would be offering a refusal.
+  const canOpenCash = permissions.includes('cash.open') && !managementValidation
+  const canCloseCash = permissions.includes('cash.close') && !managementValidation
+  const roleLabel = operationalRoleLabel(operatorRole)
 
   const handleOpenCash = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -212,9 +214,11 @@ export const PosLayout: React.FC = () => {
               <p className="text-xs text-slate-500 font-medium max-w-xs mt-1">
                 {canOpenCash
                   ? 'Para iniciar as operações de venda na Frente de Caixa, informe o saldo inicial de troco.'
-                  : canReadCash
-                    ? 'Seu perfil pode operar vendas depois que um Caixa ou Supervisor abrir este caixa.'
-                    : 'Sua função atual não possui acesso a este caixa. Solicite a revisão do acesso na Gestão.'}
+                  : managementValidation
+                    ? 'O turno pertence a quem o assume. Você está conferindo a configuração com identidade administrativa; abrir e fechar o caixa exige código e PIN pessoal no terminal.'
+                    : canReadCash
+                      ? 'Seu perfil pode operar vendas depois que um Caixa ou Supervisor abrir este caixa.'
+                      : 'Sua função atual não possui acesso a este caixa. Solicite a revisão do acesso na Gestão.'}
               </p>
             </div>
 

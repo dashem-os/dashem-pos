@@ -41,7 +41,7 @@ neste documento. Identificadores aparecem truncados quando necessários.
 | 11 | Terminal pausado ou revogado | sessão interrompida e nova entrada bloqueada | — | pendente |
 | 12 | Função ou permissão alterada | autoridade antiga deixa de operar | — | pendente |
 | 13 | Operador tenta `/manage` | acesso negado | — | pendente |
-| 14 | Gestor tenta mutação no POS sem assunção | acesso negado | **FAIL na primeira execução**: com identidade administrativa e caixa fechado, informar R$ 100,00 abriu o turno ("Caixa aberto com saldo inicial de R$ 100,00"). O produto autorizava por permissão, sem exigir sessão operacional. Decisão do dono do SaaS em 03/09/2026: seguir a matriz para abertura e fechamento de caixa. Corrigido no commit da mesma data; reexecução pendente | FAIL, corrigido, a reexecutar |
+| 14 | Gestor tenta mutação no POS sem assunção | acesso negado | **FAIL na primeira execução**: com identidade administrativa e caixa fechado, informar R$ 100,00 abriu o turno ("Caixa aberto com saldo inicial de R$ 100,00"). O produto autorizava por permissão, sem exigir sessão operacional. Decisão do dono do SaaS em 03/09/2026: seguir a matriz para abertura e fechamento de caixa. Corrigido no commit `f8d6246`. **Reexecução no deploy**: com identidade administrativa, fechar o caixa foi recusado com "Fechar o caixa exige uma sessão operacional. Assuma o turno com código e PIN pessoal no terminal autorizado." A recusa de abertura será reexecutada depois que o turno órfão for encerrado por um colaborador | PARCIAL: fechamento recusado conforme a matriz; abertura a reexecutar |
 
 ## Evidência de estados (exigida pelo gate do OA-3)
 

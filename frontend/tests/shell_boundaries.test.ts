@@ -253,3 +253,12 @@ test('never traps a person on the operational context gate', async () => {
   assert.match(gate, /Configurar em Terminais e dispositivos/)
   assert.doesNotMatch(gate, /openCash|abrirCaixa/)
 })
+
+test('does not offer shift controls to a management identity', async () => {
+  // Opening and closing a shift require an operational session. A control that
+  // is always refused is worse than no control: it reads as a broken product.
+  const pos = await source('../src/layouts/PosLayout.tsx')
+  assert.match(pos, /permissions\.includes\('cash\.open'\) && !managementValidation/)
+  assert.match(pos, /permissions\.includes\('cash\.close'\) && !managementValidation/)
+  assert.match(pos, /O turno pertence a quem o assume/)
+})
