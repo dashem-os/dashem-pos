@@ -44,7 +44,7 @@ no CI e no deploy.
 |---|---|---|---|
 | OA-1 | contexto exclusivo de terminal + `OperationalSession`; `/login`, `/operate`, `/pos` e `/manage` separados | backend, contrato API, testes de fronteira e build | concluída no código |
 | OA-2 | ativação temporária; PIN criado pelo colaborador; reativação revoga sessões | migration 045, testes de domínio e contrato | concluída no código |
-| OA-3 | portão operacional clean, toque, teclado físico, contexto validado sem exposição visual, contraste corrigido e estado offline preservando autoridade | testes estáticos, typecheck e build | corrigida no código; E2E e deploy pendentes |
+| OA-3 | portão operacional clean, toque, teclado físico, contexto validado sem exposição visual, contraste corrigido e estado offline preservando autoridade | testes estáticos, typecheck e build; achado de campo ilegível corrigido em 03/09/2026 no commit `3480cdb` | corrigida no código; screenshots de estados e deploy pendentes |
 | OA-4 | matriz, fixture isolado, suíte Playwright e job de CI | CI verde no commit `a6cab8e`; execução assistida no deploy cobriu 5 cenários não credenciados em 03/09/2026 ([evidência](../quality/oa4-deploy-acceptance-2026-09-03.md)) | repetir em produção os 14 cenários credenciados e submeter ao Gate B |
 
 Validação automatizada desta revisão:
@@ -156,6 +156,43 @@ Gate:
 As referências visuais fornecidas orientam ergonomia e dedicação da superfície;
 nenhuma interface de terceiro será copiada e nenhum mock substitui comportamento
 real.
+
+### Achado corrigido em 03/09/2026 — campo de credencial ilegível
+
+Encontrado na validação do primeiro acesso do administrador contratual do
+tenant de homologação: os caracteres digitados na senha eram renderizados
+brancos sobre campo branco. Nada aparecia enquanto a pessoa digitava e o valor
+só se tornava visível quando selecionado.
+
+Causa: regressão introduzida pela própria correção de contraste desta sprint. O
+shell escuro do primeiro acesso teve o texto quase preto trocado por branco, e o
+card claro dentro dele não declarava cor própria, herdando esse branco. A
+entrega "correção dos contrastes e tokens de cor em todos os avisos do fluxo"
+tratou os avisos e não os campos de entrada.
+
+Correção, no commit `3480cdb`:
+
+- superfícies claras das telas de credencial declaram a própria cor de texto em
+  vez de herdar do shell;
+- todo campo de entrada dessas telas carrega cor própria, inclusive os do login
+  e da entrada operacional, que funcionavam por herança e estavam sujeitos ao
+  mesmo defeito na próxima alteração de tema;
+- os dois campos de senha ganharam o controle de mostrar e ocultar, reaproveitando
+  o padrão já existente na tela de login, com rótulo acessível; um único controle
+  revela os dois campos, porque a finalidade é conferir a senha contra a
+  confirmação;
+- medido na tela: texto digitado a 17,85:1 contra o campo.
+
+Invariante acrescentada a `frontend/tests/theme_contrast.test.ts`: campo de
+credencial declara a própria cor no estado base. A primeira versão da regra era
+satisfeita por `placeholder:text-slate-400` e deixou a regressão passar quando
+foi testada de propósito; a regra foi apertada e a reintrodução do defeito agora
+reprova a suíte.
+
+Consequência para o gate: o critério "contraste WCAG AA medido para texto,
+controles, foco, erro e aviso" passa a valer também para o valor digitado em
+campo de credencial, e não apenas para avisos. As screenshots de estados exigidas
+pelo gate continuam pendentes de anexação junto à evidência da homologação.
 
 ## Sprint OA-4 — Aceitação E2E e promoção do Gate B
 
