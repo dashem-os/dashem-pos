@@ -44,9 +44,12 @@ test('derives management authority from an active management membership and back
   assert.equal(hasManagementAccess([{ role: 'MANAGER', status: 'ACTIVE' }]), true)
   assert.equal(hasManagementAccess([{ role: 'MANAGER', status: 'SUSPENDED' }]), false)
   assert.equal(hasManagementAccess([{ role: 'OPERATOR', status: 'ACTIVE' }]), false)
-  assert.equal(canNavigateToManagement(true, ['management.read']), true)
-  assert.equal(canNavigateToManagement(false, ['management.read']), false)
-  assert.equal(canNavigateToManagement(true, ['sale.read']), false)
+  assert.equal(canNavigateToManagement(true, ['management.read'], 'MANAGEMENT'), true)
+  assert.equal(canNavigateToManagement(false, ['management.read'], 'MANAGEMENT'), false)
+  assert.equal(canNavigateToManagement(true, ['sale.read'], 'MANAGEMENT'), false)
+  // The e-mail session survives in the same browser while a collaborator holds
+  // the terminal. It is not theirs to use.
+  assert.equal(canNavigateToManagement(true, ['management.read'], 'OPERATIONAL_SESSION'), false)
 })
 
 test('shows the operational role resolved by the backend in human language', () => {

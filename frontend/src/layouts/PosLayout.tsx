@@ -64,7 +64,7 @@ export const PosLayout: React.FC = () => {
   const isCashOpen = cashSession?.status === 'OPEN'
   const items = currentSale?.items || []
   const netTotal = Number(currentSale?.net_total || 0)
-  const managementAvailable = canNavigateToManagement(Boolean(session), permissions)
+  const managementAvailable = canNavigateToManagement(Boolean(session), permissions, accessMode)
   const canReadCash = permissions.includes('cash.read')
   const managementValidation = accessMode === 'MANAGEMENT'
   // Opening and closing a shift require an operational session. Offering the

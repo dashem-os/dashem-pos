@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode, useCa
 import * as api from '../services/api'
 import { paymentProgress, requireAuthenticatedActor, saleNeedsCreation } from '../domain/operationalRules'
 import { resolveNicheTheme, useNicheTheme } from '../utils/nicheTheme'
+import { formatCurrency } from '../utils/format'
 
 export interface ToastInfo {
   type: 'success' | 'error' | 'info'
@@ -618,7 +619,7 @@ export const PosProvider: React.FC<{
       setCashSession(closed)
       showToast(
         'success',
-        `Caixa fechado! Saldo apurado: R$ ${closed.closing_balance?.toFixed(2)} | Divergência: R$ ${closed.variance?.toFixed(2)}`
+        `Caixa fechado! Saldo apurado: ${formatCurrency(closed.closing_balance)} · Divergência: ${formatCurrency(closed.variance)}`
       )
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Erro ao fechar caixa'

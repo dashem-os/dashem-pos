@@ -23,7 +23,8 @@ test('lets Gestão open the terminal surface without granting management to oper
   const kds = await source('../src/shells/KdsShell.tsx')
   const management = await source('../src/layouts/ManagementLayout.tsx')
   assert.match(pos, /managementAvailable && !managementValidation && <button/)
-  assert.match(pos, /canNavigateToManagement\(Boolean\(session\), permissions\)/)
+  // The access mode decides, not the mere presence of a session in this browser.
+  assert.match(pos, /canNavigateToManagement\(Boolean\(session\), permissions, accessMode\)/)
   assert.match(pos, /navigateTo\('\/manage'\)/)
   assert.doesNotMatch(kds, /navigateTo\('\/manage'\)/)
   assert.match(management, /navigateTo\('\/pos\?access=management'\)/)

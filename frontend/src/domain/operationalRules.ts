@@ -17,7 +17,21 @@ export function hasManagementAccess(memberships: readonly MembershipAccess[]): b
   return memberships.some((membership) => membership.status === 'ACTIVE' && MANAGEMENT_ROLES.has(membership.role))
 }
 
-export function canNavigateToManagement(emailSessionActive: boolean, permissions: readonly string[]): boolean {
+/**
+ * Whether this surface may offer a way into the management console.
+ *
+ * The e-mail session lives in browser storage, so it survives while a
+ * collaborator assumes the terminal in the same profile. Authority belongs to
+ * whoever is driving the surface: under an operational session the person at
+ * the terminal is the collaborator, and the manager's lingering session is not
+ * theirs to use.
+ */
+export function canNavigateToManagement(
+  emailSessionActive: boolean,
+  permissions: readonly string[],
+  accessMode: 'MANAGEMENT' | 'OPERATIONAL_SESSION',
+): boolean {
+  if (accessMode !== 'MANAGEMENT') return false
   return emailSessionActive && permissions.includes('management.read')
 }
 
