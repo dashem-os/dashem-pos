@@ -25,7 +25,8 @@ import { QuantityModal } from '../components/pos/QuantityModal'
 import { DiscountModal } from '../components/pos/DiscountModal'
 import { FiscalStatusModal } from '../components/pos/FiscalStatusModal'
 import { CancelModal } from '../components/pos/CancelModal'
-import { formatCurrency, formatQuantity } from '../utils/format'
+import { formatCurrency, formatQuantity, maskCurrencyInput, parseCurrencyInput } from '../utils/format'
+import { Modal } from '../components/common/Modal'
 import { navigateTo } from '../utils/navigation'
 import { canNavigateToManagement, operationalRoleLabel } from '../domain/operationalRules'
 import type { BusinessNiche } from '../services/api'
@@ -45,6 +46,7 @@ export const PosLayout: React.FC = () => {
     operationMode,
     setOperationMode,
     openCash,
+    closeCash,
     actionLoading,
     openPaymentModal,
     permissions,
@@ -56,6 +58,8 @@ export const PosLayout: React.FC = () => {
 
   const [openingBalanceInput, setOpeningBalanceInput] = useState('')
   const [isMobileCartOpen, setIsMobileCartOpen] = useState(false)
+  const [isCloseCashOpen, setIsCloseCashOpen] = useState(false)
+  const [closingBalanceInput, setClosingBalanceInput] = useState('')
 
   const isCashOpen = cashSession?.status === 'OPEN'
   const items = currentSale?.items || []
@@ -63,14 +67,15 @@ export const PosLayout: React.FC = () => {
   const managementAvailable = canNavigateToManagement(Boolean(session), permissions)
   const canReadCash = permissions.includes('cash.read')
   const canOpenCash = permissions.includes('cash.open')
+  const canCloseCash = permissions.includes('cash.close')
   const roleLabel = operationalRoleLabel(operatorRole)
   const managementValidation = accessMode === 'MANAGEMENT'
 
   const handleOpenCash = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!canOpenCash) return
-    const val = parseFloat(openingBalanceInput)
-    if (!isNaN(val) && val >= 0) {
+    const val = parseCurrencyInput(openingBalanceInput)
+    if (val >= 0) {
       await openCash(val)
     }
   }
@@ -138,6 +143,15 @@ export const PosLayout: React.FC = () => {
               </>
             )}
           </div>
+
+          {isCashOpen && canCloseCash && <button
+            onClick={() => { setClosingBalanceInput(''); setIsCloseCashOpen(true) }}
+            className="h-9 px-3.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold flex items-center space-x-1.5 transition-colors border border-slate-300 active:scale-95"
+            title="Conferir e fechar o caixa"
+          >
+            <Lock className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Fechar caixa</span>
+          </button>}
 
           {activities.includes('FOOD_SERVICE') && permissions.includes('table.read') && 'table_service' in capabilities && <button
             onClick={() => navigateTo(managementValidation ? '/manage?module=tables' : '/tables')}
@@ -209,15 +223,17 @@ export const PosLayout: React.FC = () => {
                 <label className="text-xs font-bold text-slate-700 block">
                   Fundo de Troco / Saldo Inicial (R$)
                 </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  required
-                  value={openingBalanceInput}
-                  onChange={(e) => setOpeningBalanceInput(e.target.value)}
-                  placeholder="0,00"
-                  className="w-full h-12 px-4 rounded-xl bg-slate-50 border-2 border-slate-300 focus:border-brand text-slate-900 text-lg font-black outline-none transition-all"
-                />
+                <div className="flex h-12 w-full items-center rounded-xl border-2 border-slate-300 bg-slate-50 px-4 focus-within:border-brand">
+                  <span className="mr-2 text-lg font-black text-slate-400">R$</span>
+                  <input
+                    inputMode="numeric"
+                    required
+                    value={openingBalanceInput}
+                    onChange={(e) => setOpeningBalanceInput(maskCurrencyInput(e.target.value))}
+                    placeholder="0,00"
+                    className="h-full min-w-0 flex-1 bg-transparent text-lg font-black text-slate-900 outline-none placeholder:text-slate-400"
+                  />
+                </div>
               </div>
 
               <button
@@ -384,6 +400,49 @@ export const PosLayout: React.FC = () => {
       {/* ========================================================================= */}
       {/* OPERATIONAL MODALS                                                        */}
       {/* ========================================================================= */}
+      <Modal
+        isOpen={isCloseCashOpen}
+        onClose={() => setIsCloseCashOpen(false)}
+        title="Fechar caixa"
+        subtitle="Informe o valor contado na gaveta para encerrar o turno."
+        maxWidth="sm"
+      >
+        <form
+          onSubmit={async (event) => {
+            event.preventDefault()
+            await closeCash(parseCurrencyInput(closingBalanceInput))
+            setIsCloseCashOpen(false)
+          }}
+          className="space-y-4"
+        >
+          <label className="block text-xs font-black uppercase tracking-wide text-slate-500">
+            Valor contado na gaveta
+            <div className="mt-2 flex h-12 w-full items-center rounded-xl border-2 border-slate-300 bg-slate-50 px-4 focus-within:border-brand">
+              <span className="mr-2 text-lg font-black text-slate-400">R$</span>
+              <input
+                inputMode="numeric"
+                required
+                autoFocus
+                value={closingBalanceInput}
+                onChange={(event) => setClosingBalanceInput(maskCurrencyInput(event.target.value))}
+                placeholder="0,00"
+                className="h-full min-w-0 flex-1 bg-transparent text-lg font-black text-slate-900 outline-none placeholder:text-slate-400"
+              />
+            </div>
+          </label>
+          <p className="text-xs leading-5 text-slate-500">
+            A diferença entre o contado e o esperado é registrada como fato, sem reescrever movimentos.
+          </p>
+          <button
+            type="submit"
+            disabled={actionLoading || !closingBalanceInput}
+            className="w-full min-h-12 rounded-xl bg-slate-950 text-sm font-black text-white disabled:opacity-40"
+          >
+            {actionLoading ? 'Fechando...' : 'Conferir e fechar o caixa'}
+          </button>
+        </form>
+      </Modal>
+
       <PaymentDialog />
       <QuantityModal />
       <DiscountModal />

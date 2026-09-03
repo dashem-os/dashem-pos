@@ -61,3 +61,24 @@ export function formatStock(value: number | string | undefined | null, unit: str
   if (isNaN(num) || num <= 0) return 'Sem estoque'
   return `${formatQuantity(num)} ${unit}`
 }
+
+/**
+ * Progressive BRL entry: digits fill from the cents up, so typing 1, 0, 0, 0
+ * reads 0,01 → 0,10 → 1,00 → 10,00. Anything that is not a digit is ignored,
+ * which keeps backspace working through the comma and the thousand separators
+ * instead of leaving a zero the person cannot erase.
+ */
+export function maskCurrencyInput(raw: string): string {
+  const digits = raw.replace(/\D/g, '').replace(/^0+(?=\d)/, '')
+  if (!digits) return ''
+  const cents = digits.padStart(3, '0')
+  const whole = cents.slice(0, -2)
+  const fraction = cents.slice(-2)
+  return `${Number(whole).toLocaleString('pt-BR')},${fraction}`
+}
+
+/** The numeric value behind a masked BRL string. */
+export function parseCurrencyInput(masked: string): number {
+  const digits = masked.replace(/\D/g, '')
+  return digits ? Number(digits) / 100 : 0
+}

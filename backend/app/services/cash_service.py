@@ -75,6 +75,30 @@ def update_register(
     session.add(register); session.commit(); session.refresh(register)
     return register
 
+def require_operational_shift(context: TenantContext, action: str) -> None:
+    """Opening and closing a shift belong to whoever is holding it.
+
+    A management session authorises the infrastructure — it creates the terminal,
+    configures the unit and opens the surface for validation — but the shift is a
+    financial fact attributed to an operator. Without this, a manager could open
+    or close a drawer under an identity that never assumed the shift, and the
+    productivity and closing figures would answer to nobody.
+    """
+    # The disabled-auth subject is the explicit development and test boundary the
+    # codebase already uses for authority checks; production runs with auth
+    # required, where this exemption never applies.
+    if context.auth_subject == "local-auth-bypass":
+        return
+    if context.auth_provider != "operational" or not context.operational_session_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                f"{action} exige uma sessão operacional. "
+                "Assuma o turno com código e PIN pessoal no terminal autorizado."
+            ),
+        )
+
+
 def open_cash_session(
     session: Session,
     context: TenantContext,
@@ -83,6 +107,7 @@ def open_cash_session(
     operator_id: uuid.UUID,
     opening_balance: Decimal
 ) -> CashSession:
+    require_operational_shift(context, "Abrir o caixa")
     operator_id = resolve_actor(context, operator_id)
     # Pessimistic Lock on Register to prevent concurrent OPEN sessions
     reg_query = select(Register).where(
@@ -190,6 +215,7 @@ def begin_cash_close(
     session: Session, context: TenantContext, session_id: uuid.UUID, *,
     operator_id: uuid.UUID, expected_version: Optional[int], blind_count: bool,
 ) -> CashSession:
+    require_operational_shift(context, "Fechar o caixa")
     operator_id = resolve_actor(context, operator_id)
     query = select(CashSession).where(CashSession.id == session_id).with_for_update()
     query = scope_tenant_query(query, CashSession, context)
