@@ -77,7 +77,7 @@ interface PosContextType {
   openCash: (openingBalance: number) => Promise<void>
   closeCash: (closingBalance: number) => Promise<void>
   addCashMovement: (type: 'BLEED' | 'REINFORCEMENT', amount: number, notes?: string) => Promise<void>
-  createNewProduct: (product: { name: string; sku: string; barcode?: string; item_type?: 'PRODUCT' | 'SERVICE' }, price: number, initialStock?: number) => Promise<void>
+  createNewProduct: (product: { name: string; sku: string; barcode?: string; image_url?: string; item_type?: 'PRODUCT' | 'SERVICE' }, price: number, initialStock?: number) => Promise<void>
   adjustStock: (productId: string, quantity: number, type: string, reason?: string) => Promise<void>
   refreshData: () => Promise<void>
 }
@@ -644,7 +644,7 @@ export const PosProvider: React.FC<{
   }
 
   const createNewProduct = async (
-    product: { name: string; sku: string; barcode?: string; item_type?: 'PRODUCT' | 'SERVICE' },
+    product: { name: string; sku: string; barcode?: string; image_url?: string; item_type?: 'PRODUCT' | 'SERVICE' },
     price: number,
     initialStock: number = 0
   ) => {

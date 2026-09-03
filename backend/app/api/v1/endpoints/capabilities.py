@@ -12,6 +12,23 @@ from app.services.starter_catalog_service import is_homologation_tenant
 router = APIRouter()
 
 
+# Food service speaks of menus; a retail shop or a beauty reseller does not.
+# The navigation label follows the contracted activity instead of assuming one.
+NON_FOOD_LABELS = {
+    "assortments": "Sortimentos e catálogos",
+}
+
+
+def _labelled(contribution, activities: set[str]):
+    """A detached copy, so callers keep the model shape and the row stays clean."""
+    if "FOOD_SERVICE" in activities:
+        return contribution
+    replacement = NON_FOOD_LABELS.get(contribution.contribution_key)
+    if not replacement:
+        return contribution
+    return contribution.model_copy(update={"label": replacement})
+
+
 @router.get("/effective")
 def get_effective_capabilities(
     context: TenantContext = Depends(get_tenant_context),
@@ -33,10 +50,11 @@ def get_effective_capabilities(
     )).first()
     revision = session.get(CapabilityProfileRevision, assignment.revision_id) if assignment else None
     contract_snapshot = resolve_contract_entitlements(session, context.tenant_id)
+    activities = set(contract_snapshot.activity_keys) if contract_snapshot else set()
     return {
         "capabilities": capabilities,
         "permissions": list(context.permissions),
-        "contributions": visible,
+        "contributions": [_labelled(item, activities) for item in visible],
         "activities": list(contract_snapshot.activity_keys) if contract_snapshot else [],
         # Lets the console offer the starter catalogue only where it belongs.
         "homologation": is_homologation_tenant(session, context.tenant_id),

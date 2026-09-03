@@ -122,6 +122,21 @@ export const QuickProductGrid: React.FC = () => {
                 )}
               </div>
 
+              {/* Every card reserves the same photo area, so a catalogue with
+                  partial photography still lines up in the grid. */}
+              {product.image_url ? (
+                <img
+                  src={product.image_url}
+                  alt=""
+                  loading="lazy"
+                  className="mt-2 h-20 w-full rounded-xl border border-slate-100 object-cover"
+                />
+              ) : (
+                <div className="mt-2 flex h-20 w-full items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 text-xl font-black text-slate-300">
+                  {product.name.trim().charAt(0).toUpperCase()}
+                </div>
+              )}
+
               {/* Title & SKU */}
               <div className="my-1 flex-1">
                 <h4 className="text-sm font-bold leading-snug text-slate-900 transition-colors line-clamp-3 group-hover:text-rose-600 sm:text-base">

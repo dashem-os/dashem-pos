@@ -7,6 +7,18 @@ import { Button } from '../common/Button'
 import { DataTable } from '../common/DataTable'
 import { formatCurrency } from '../../utils/format'
 
+/** The product photo, falling back to the initial when a tenant has not set one. */
+function ProductThumb({ name, imageUrl }: { name: string; imageUrl?: string | null }) {
+  if (imageUrl) {
+    return <img src={imageUrl} alt="" className="h-10 w-10 shrink-0 rounded-lg border border-dashem-border object-cover" />
+  }
+  return (
+    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-dashem-border bg-dashem-surface-elevated text-sm font-black text-dashem-muted">
+      {name.trim().charAt(0).toUpperCase()}
+    </span>
+  )
+}
+
 export const CatalogManager: React.FC = () => {
   const { tenant, store, products, prices, balances, createNewProduct, adjustStock, refreshData, actionLoading } = usePos()
   const [searchQuery, setSearchQuery] = useState('')
@@ -22,6 +34,7 @@ export const CatalogManager: React.FC = () => {
   const [name, setName] = useState('')
   const [sku, setSku] = useState('')
   const [barcode, setBarcode] = useState('')
+  const [imageUrl, setImageUrl] = useState('')
   const [itemType, setItemType] = useState<'PRODUCT' | 'SERVICE'>('PRODUCT')
   const [priceInput, setPriceInput] = useState('')
   const [stockInput, setStockInput] = useState('')
@@ -68,7 +81,7 @@ export const CatalogManager: React.FC = () => {
     if (!name || !sku || !priceInput) return
 
     await createNewProduct(
-      { name, sku, barcode: barcode || undefined, item_type: itemType },
+      { name, sku, barcode: barcode || undefined, image_url: imageUrl.trim() || undefined, item_type: itemType },
       parseFloat(priceInput),
       itemType === 'PRODUCT' ? parseInt(stockInput || '0', 10) : 0
     )
@@ -76,6 +89,7 @@ export const CatalogManager: React.FC = () => {
     setName('')
     setSku('')
     setBarcode('')
+    setImageUrl('')
     setPriceInput('')
     setStockInput('')
     setIsAddModalOpen(false)
@@ -248,9 +262,12 @@ export const CatalogManager: React.FC = () => {
             {
               key: 'name', header: 'Produto', primary: true,
               cell: (prod) => (
-                <div>
-                  <span className="block font-bold text-dashem-strong">{prod.name}</span>
-                  {prod.description && <span className="text-xs text-dashem-muted">{prod.description}</span>}
+                <div className="flex items-center gap-3">
+                  <ProductThumb name={prod.name} imageUrl={prod.image_url} />
+                  <div className="min-w-0">
+                    <span className="block font-bold text-dashem-strong">{prod.name}</span>
+                    {prod.description && <span className="text-xs text-dashem-muted">{prod.description}</span>}
+                  </div>
                 </div>
               ),
             },
@@ -367,6 +384,30 @@ export const CatalogManager: React.FC = () => {
                 placeholder="Ex: 789123456789"
                 className="w-full h-11 px-3.5 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-dashem-strong text-xs font-semibold focus:border-dashem-red outline-none"
               />
+  
+            <div className="space-y-1.5 sm:col-span-2">
+              <label className="text-xs font-bold text-dashem-strong block">Foto do produto (endereço da imagem)</label>
+              <input
+                type="url"
+                value={imageUrl}
+                onChange={(e) => setImageUrl(e.target.value)}
+                placeholder="https://..."
+                className="w-full h-11 px-3.5 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-dashem-strong text-xs font-semibold focus:border-brand-ink outline-none"
+              />
+              <p className="text-xs text-dashem-muted">Aparece no cartão do produto no PDV. Deixe em branco para usar a inicial do nome.</p>
+            </div>
+          </div>
+
+            <div className="space-y-1.5 sm:col-span-2">
+              <label className="text-xs font-bold text-dashem-strong block">Foto do produto (endereço da imagem)</label>
+              <input
+                type="url"
+                value={imageUrl}
+                onChange={(e) => setImageUrl(e.target.value)}
+                placeholder="https://..."
+                className="w-full h-11 px-3.5 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-dashem-strong text-xs font-semibold focus:border-brand-ink outline-none"
+              />
+              <p className="text-xs text-dashem-muted">Aparece no cartão do produto no PDV. Deixe em branco para usar a inicial do nome.</p>
             </div>
           </div>
 

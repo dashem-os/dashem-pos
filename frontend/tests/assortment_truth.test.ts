@@ -43,7 +43,10 @@ test('CatalogManager allows selecting explicit sales context for store inventory
 })
 
 test('AssortmentManager supports scopes, product links, and handles optimistic concurrency conflict', () => {
-  assert.match(assortmentManager, /Sortimentos e Cardápios/)
+  // The heading follows the contracted activity: a beauty reseller has no menus.
+  assert.match(assortmentManager, /setsLabel/)
+  assert.match(assortmentManager, /Sortimentos e cardápios/)
+  assert.match(assortmentManager, /Sortimentos e catálogos/)
   assert.match(assortmentManager, /expected_version/)
   assert.match(assortmentManager, /Conflito de concorrência detectado/)
   assert.match(assortmentManager, /linkAssortmentProducts/)

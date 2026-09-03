@@ -32,6 +32,8 @@ const AVAILABLE_CONTEXTS: Array<{ key: api.SalesContext; label: string; operatio
 export const AssortmentManager: React.FC = () => {
   const { tenant, store, permissions, activities, homologation, operatorId, showToast } = usePos()
   const canManage = permissions.includes('catalog.update')
+  // Food service speaks of menus; retail and beauty speak of catalogues.
+  const setsLabel = activities.includes('FOOD_SERVICE') ? 'Sortimentos e cardápios' : 'Sortimentos e catálogos'
 
   const [assortments, setAssortments] = useState<api.Assortment[]>([])
   const [total, setTotal] = useState(0)
@@ -312,7 +314,7 @@ export const AssortmentManager: React.FC = () => {
         <div>
           <div className="flex items-center gap-2">
             <Layers className="h-6 w-6 text-dashem-red" />
-            <h1 className="text-xl font-black text-dashem-strong">Sortimentos e Cardápios</h1>
+            <h1 className="text-xl font-black text-dashem-strong">{setsLabel}</h1>
           </div>
           <p className="text-xs text-dashem-muted font-medium mt-1">
             Fonte canônica de sortimento por contexto operacional. Cada jornada possui escopo explícito sem fallback global.
