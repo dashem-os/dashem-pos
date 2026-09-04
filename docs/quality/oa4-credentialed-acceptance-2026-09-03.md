@@ -43,6 +43,27 @@ neste documento. Identificadores aparecem truncados quando necessários.
 | 13 | Operador tenta `/manage` | acesso negado | — | pendente |
 | 14 | Gestor tenta mutação no POS sem assunção | acesso negado | **FAIL na primeira execução**: com identidade administrativa e caixa fechado, informar R$ 100,00 abriu o turno ("Caixa aberto com saldo inicial de R$ 100,00"). O produto autorizava por permissão, sem exigir sessão operacional. Decisão do dono do SaaS em 03/09/2026: seguir a matriz para abertura e fechamento de caixa. Corrigido no commit `f8d6246`. **Reexecução no deploy**: com identidade administrativa, fechar o caixa foi recusado com "Fechar o caixa exige uma sessão operacional. Assuma o turno com código e PIN pessoal no terminal autorizado." A recusa de abertura será reexecutada depois que o turno órfão for encerrado por um colaborador | PARCIAL: fechamento recusado conforme a matriz; abertura a reexecutar |
 
+## Reexecução do cenário 5 no deploy (commit `9c3dacf`)
+
+Executada em 3 de setembro de 2026, entre 21:10 e 21:18.
+
+| Bloco | Observado | Veredito |
+|---|---|---|
+| Teto do terminal | Errando com matrículas diferentes (`HH-8888` entre elas), o portão passou a recusar com "Terminal temporariamente bloqueado após tentativas inválidas. Aguarde um instante e tente de novo.", mensagem distinta da recusa de identidade e que não fala de nenhuma pessoa | PASS |
+| Limpeza por ociosidade | O portão apagou sozinho matrícula, PIN e mensagem após um minuto parado, voltando ao estado inicial | PASS |
+| Recusa uniforme | Não exercitado nesta rodada: o teto do terminal foi atingido antes da comparação entre matrícula inexistente, existente sem PIN ativado e suspensa. Coberto por teste automatizado em `tests/test_oa4_terminal_credential_throttle.py` | a observar |
+| Bloqueio da credencial e liberação pela Gestão | Não alcançado: o Atendente OP permaneceu `Ativo` e a ação **Liberar bloqueio** não apareceu | ver nota |
+
+**Nota sobre a ordem das travas.** A verificação do teto do terminal acontece
+antes da busca da credencial, então enquanto o terminal está em ritmo limitado
+uma tentativa devolve 429 sem tocar no contador da credencial. É o comportamento
+pretendido — a trava mais ampla protege a mais estreita e evita escrita
+desnecessária —, mas significa que as cinco falhas de PIN sobre a mesma
+matrícula precisam caber abaixo do teto para bloquear o acesso. A janela de dez
+minutos zera o contador do terminal na falha seguinte, então a sequência
+correta é aguardar a janela e então errar cinco vezes seguidas na mesma
+matrícula.
+
 ## Evidência de estados (exigida pelo gate do OA-3)
 
 | Estado | Captura | Observação |
