@@ -21,7 +21,12 @@ for _ in $(seq 1 25); do
 done
 curl --fail --silent --max-time 3 http://localhost:8002/health >/dev/null
 
-step "Alembic: migração reversível e sem drift"
+# Reversibilidade NÃO é verificada aqui, de propósito: `alembic downgrade base`
+# apagaria o banco de desenvolvimento junto com os dados de trabalho. O ciclo
+# completo — upgrade head, downgrade base, upgrade head, check — roda no job
+# "Alembic canonical schema" do CI, contra um Postgres descartável. Uma migração
+# nova só está provada depois que esse job fecha verde.
+step "Alembic: schema aplicado e sem drift (reversibilidade fica no CI)"
 docker exec "$BACKEND_CONTAINER" python -m alembic upgrade head
 docker exec "$BACKEND_CONTAINER" python -m alembic check
 
