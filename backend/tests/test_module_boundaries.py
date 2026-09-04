@@ -127,6 +127,17 @@ BASELINE = {
 }
 
 
+def _class_home() -> dict[str, str]:
+    """Which model file defines each class."""
+    home = {}
+    for path in MODELS.glob("*.py"):
+        if path.stem == "__init__":
+            continue
+        for match in re.finditer(r"^class ([A-Za-z]+)\(", path.read_text(encoding="utf-8"), re.M):
+            home[match.group(1)] = path.stem
+    return home
+
+
 def _model_imports(path: Path) -> set[str]:
     source = path.read_text(encoding="utf-8")
     return set(re.findall(r"^from app\.models\.([a-z_]+)", source, re.MULTILINE))
@@ -194,4 +205,35 @@ def test_no_tenant_module_reaches_into_the_owner_layer():
                 offenders.append(f"{service} -> {model}")
     assert offenders == [], (
         "Serviço de tenant lendo tabela da camada Owner:\n  " + "\n  ".join(offenders)
+    )
+
+
+def test_no_orm_relationship_crosses_a_module_boundary():
+    """The blind spot an audit found, closed.
+
+    A `Relationship` names its target as a string, so an import scan never sees
+    it. `Register.sessions` pointed at `CashSession` — identity reaching into
+    finance — and passed every check while doing so. A relationship is coupling
+    just like an import, and a forward reference is exactly how that coupling
+    hides.
+    """
+    home = _class_home()
+    pattern = re.compile(
+        r"""(\w+):\s*(?:Optional\[|List\[)?["'](\w+)["']\]?\s*=\s*Relationship"""
+    )
+    offenders = []
+    for path in sorted(MODELS.glob("*.py")):
+        if path.stem == "__init__":
+            continue
+        origin = MODULE_OF_MODEL.get(path.stem)
+        if origin is None:
+            continue
+        for field, target in pattern.findall(path.read_text(encoding="utf-8")):
+            destination = MODULE_OF_MODEL.get(home.get(target, ""), "?")
+            if destination not in ALLOWED[origin]:
+                offenders.append(
+                    f"{path.stem}.{field} -> {target} ({origin} -> {destination})"
+                )
+    assert offenders == [], "Relacionamento ORM atravessando fronteira: " + "; ".join(
+        sorted(offenders)
     )

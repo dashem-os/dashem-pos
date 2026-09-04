@@ -334,8 +334,6 @@ class Register(SQLModel, table=True):
     is_active: bool = Field(default=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
-    sessions: List["CashSession"] = Relationship(back_populates="register")
-
 class User(SQLModel, table=True):
     __tablename__ = "users"
     

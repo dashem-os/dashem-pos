@@ -58,7 +58,6 @@ class CashSession(SQLModel, table=True):
     opened_at: datetime = Field(default_factory=datetime.utcnow, index=True)
     closed_at: Optional[datetime] = Field(default=None)
 
-    register: Optional["Register"] = Relationship(back_populates="sessions")
     movements: List["CashMovement"] = Relationship(back_populates="cash_session")
     payments: List["Payment"] = Relationship(back_populates="cash_session")
 
