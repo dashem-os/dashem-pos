@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 from app.main import app
@@ -121,3 +122,55 @@ def test_every_tenant_critical_contract_keeps_context_headers_in_client():
         next_export = source.find("export async function ", start + 1)
         body = source[start: next_export if next_export >= 0 else None]
         assert "headers" in body, f"{function_name} lost tenant/store context headers"
+
+
+FRONTEND_TIMESTAMP_TEST = FRONTEND_API.parents[2] / "tests" / "api_timestamps.test.ts"
+
+
+def _server_date_fields_on_the_wire() -> set[str]:
+    """Every field the API serializes as a date, read from the wire contract."""
+    fields = set()
+    for schema in app.openapi().get("components", {}).get("schemas", {}).values():
+        for field, prop in (schema.get("properties") or {}).items():
+            shapes = [prop, *prop.get("anyOf", []), *prop.get("allOf", []), *prop.get("oneOf", [])]
+            if any(shape.get("format") in ("date-time", "date") for shape in shapes):
+                fields.add(field)
+    return fields
+
+
+def test_frontend_names_every_server_date_field():
+    """The guard against `new Date` on a server timestamp must know every field.
+
+    The frontend rule was a suffix convention — `_at` and `_until` — and it read
+    as complete. It was not: `reserved_for` is a server date-time, escaped the
+    regex, and four screens rendered a reservation shifted by the browser's
+    offset. A 19:00 booking announced itself to the room as 22:00.
+
+    The list of exceptions to the convention now lives in the frontend guard and
+    is checked here against the OpenAPI schema, so it cannot quietly go stale in
+    either direction: a new off-convention field must be named, and a name the
+    contract no longer has must go.
+    """
+    source = FRONTEND_TIMESTAMP_TEST.read_text(encoding="utf-8")
+    block = source[source.index("const SERVER_DATE_FIELDS = ["):]
+    declared = set(re.findall(r"'([a-z_]+)'", block[: block.index("]")]))
+
+    off_convention = {
+        field
+        for field in _server_date_fields_on_the_wire()
+        if not field.endswith("_at") and not field.endswith("_until")
+    }
+
+    unnamed = sorted(off_convention - declared)
+    assert unnamed == [], (
+        "Campos de data do servidor fora da convenção _at/_until que o guard do "
+        "frontend não conhece:\n  " + "\n  ".join(unnamed)
+        + "\n\nAcrescente-os a SERVER_DATE_FIELDS em frontend/tests/api_timestamps.test.ts, "
+        "senão `new Date` sobre eles volta a passar."
+    )
+
+    stale = sorted(declared - off_convention)
+    assert stale == [], (
+        "SERVER_DATE_FIELDS nomeia campos que o contrato não tem mais:\n  "
+        + "\n  ".join(stale)
+    )
