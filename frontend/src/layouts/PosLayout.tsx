@@ -325,7 +325,14 @@ export const PosLayout: React.FC = () => {
 
           {/* RIGHT COLUMN (DESKTOP >= 1024px): "Venda atual" + Items + Totals.
               Fluid width: a hard 380px squeezed the product grid between 1024 and 1150px. */}
-          <div className="hidden lg:flex flex-col w-[clamp(20rem,30vw,27rem)] shrink-0 bg-white border border-slate-200 rounded-3xl p-4 overflow-hidden shadow-sm justify-between">
+          {/*
+            With a till open this column is the cart, and a narrow screen gets it
+            from the fixed bottom bar instead. With the till closed it carries
+            the only way to open one, so it must not sit behind a breakpoint —
+            below 1024px the manager was left looking at a catalogue with no way
+            to start selling.
+          */}
+          <div className={`${isCashOpen ? 'hidden w-[clamp(20rem,30vw,27rem)] lg:flex' : 'order-first flex w-full lg:order-none lg:w-[clamp(20rem,30vw,27rem)]'} flex-col shrink-0 bg-white border border-slate-200 rounded-3xl p-4 overflow-hidden shadow-sm justify-between`}>
             {isCashOpen ? <>
               <div className="flex items-center justify-between pb-2.5 border-b border-slate-100 shrink-0">
                 <h2 className="text-sm font-black text-slate-900 flex items-center space-x-2">

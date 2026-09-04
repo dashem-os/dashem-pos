@@ -315,3 +315,19 @@ test('the permission matrix alone decides the cash controls', async () => {
     )
   }
 })
+
+test('opening a till is never hidden behind a breakpoint', async () => {
+  // The sale column is desktop-only, which is right while it holds a cart: a
+  // narrow screen reaches the cart through the fixed bottom bar. But with the
+  // till closed that column carries the only control that opens one, and below
+  // 1024px the manager was left looking at a catalogue with no way to sell.
+  const layout = await source('../src/layouts/PosLayout.tsx')
+  assert.match(
+    layout,
+    /isCashOpen \? 'hidden [^']*lg:flex' : '[^']*flex[^']*'/,
+    'A coluna que abre o caixa não pode ser escondida quando o caixa está fechado.',
+  )
+  // And the form itself lives there exactly once.
+  const forms = layout.match(/<form onSubmit=\{handleOpenCash\}/g) ?? []
+  assert.equal(forms.length, 2, 'uma abertura no cartão bloqueante, outra na conferência')
+})
