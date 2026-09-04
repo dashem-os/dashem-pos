@@ -11,9 +11,8 @@ from app.core.context import TenantContext, resolve_actor, scope_tenant_query
 from app.models.assortment import (
     Assortment, AssortmentScope, AssortmentProduct, AssortmentStatusEnum, SalesContextEnum,
 )
-from app.models.catalog import Product, Category, ProductPrice
+from app.models.catalog import SalesChannel, Product, Category, ProductPrice
 from app.models.identity import Store
-from app.models.channel import SalesChannel
 from app.services import reliability_service
 
 

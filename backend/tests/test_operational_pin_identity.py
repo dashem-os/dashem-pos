@@ -13,9 +13,8 @@ from app.core.database import engine
 from app.core.config import settings
 from app.core.security import AuthPrincipal, decode_access_token, get_current_principal
 from app.core.tenancy import set_platform_db_context, set_tenant_db_context
-from app.models.identity import Employee, Membership, MembershipStatusEnum, OperationalCredential, OperationalSession, OperationalSessionStatusEnum, RoleEnum, Store, Tenant, TenantStatusEnum, User
+from app.models.identity import Register, Employee, Membership, MembershipStatusEnum, OperationalCredential, OperationalSession, OperationalSessionStatusEnum, RoleEnum, Store, Tenant, TenantStatusEnum, User
 from app.models.device import OperationalDevice, OperationalDeviceStatusEnum, OperationalDeviceTypeEnum
-from app.models.payment import Register
 from app.models.provider import (
     PaymentDeviceBinding, PaymentDeviceExecutionModeEnum,
     PaymentProviderConfiguration, ProviderConfigurationStatusEnum,

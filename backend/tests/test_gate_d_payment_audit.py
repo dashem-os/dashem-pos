@@ -13,7 +13,7 @@ from app.core.database import engine
 from app.core.tenancy import set_platform_db_context, set_tenant_db_context
 from app.models.device import OperationalDevice, OperationalDeviceTypeEnum
 from app.models.identity import (
-    Employee,
+    Register, Employee,
     Membership,
     MembershipStatusEnum,
     OperationalCredential,
@@ -25,7 +25,7 @@ from app.models.identity import (
     User,
 )
 from app.models.negotiation import CheckoutNegotiation, PaymentIntent
-from app.models.payment import PaymentMethodEnum, Register
+from app.models.payment import PaymentMethodEnum
 from app.models.provider import (
     OperationalProductivityProjection,
     PaymentDeviceBinding,

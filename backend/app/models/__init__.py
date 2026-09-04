@@ -1,5 +1,5 @@
 from app.models.identity import (
-    Tenant, Store, User, AuthIdentity, Membership, RoleEnum, TenantStatusEnum,
+    Register, Tenant, Store, User, AuthIdentity, Membership, RoleEnum, TenantStatusEnum,
     MembershipStatusEnum, TenantProfile, TenantContact, ServicePlan, ServicePlanRevision,
     TenantSubscription, TenantCustomerTypeEnum, TenantTypeEnum, TenantPhaseEnum, SubscriptionStatusEnum,
     Permission, RoleProfile, RoleProfilePermission, MembershipRoleProfile,
@@ -29,7 +29,6 @@ from app.models.owner_finance import (
     SaasFinanceDailyMetric, SaasFinanceSubscriptionSnapshot,
     SaasMrrMovementTypeEnum,
 )
-from app.models.channel import SalesChannel, SalesChannelTypeEnum
 from app.models.intelligence import (
     ContextEdge, AgentRun, AgentRunStatusEnum, AgentToolCall,
     ToolCallStatusEnum, ApprovalRequest, ApprovalStatusEnum,
@@ -39,6 +38,7 @@ from app.models.catalog import (
     Category, Product, ProductPrice, InventoryMovement, InventoryBalance,
     QuickAccessProduct, ModifierGroup, Modifier, ProductModifierGroup,
     Combo, ComboItem, ItemTypeEnum, MovementTypeEnum,
+    SalesChannel, SalesChannelTypeEnum,
 )
 from app.models.assortment import (
     Assortment, AssortmentScope, AssortmentProduct, AssortmentStatusEnum, SalesContextEnum,
@@ -47,7 +47,7 @@ from app.models.sale import (
     Customer, Sale, SaleItem, SaleStatusEnum, DiscountTypeEnum,
     FulfillmentTypeEnum, SaleOperationModeEnum, SyncStatusEnum,
 )
-from app.models.payment import Register, CashSession, CashMovement, Payment, CashSessionStatusEnum, CashMovementTypeEnum, PaymentMethodEnum, PaymentStatusEnum
+from app.models.payment import CashSession, CashMovement, Payment, CashSessionStatusEnum, CashMovementTypeEnum, PaymentMethodEnum, PaymentStatusEnum
 from app.models.fiscal import FiscalDocument, FiscalEvent, FiscalStatusEnum, FiscalDocumentTypeEnum, FiscalEventTypeEnum
 from app.models.order import (
     Order, OrderItem, OrderCommand, OrderStatusEnum, OrderOriginEnum,

@@ -13,8 +13,7 @@ from app.core.security import AuthPrincipal
 from app.core.tenancy import set_platform_db_context, set_tenant_db_context
 from app.services import catalog_service
 from app.models.assortment import Assortment, AssortmentScope, AssortmentProduct, SalesContextEnum
-from app.models.catalog import Product
-from app.models.channel import SalesChannel, SalesChannelTypeEnum
+from app.models.catalog import SalesChannel, SalesChannelTypeEnum, Product
 from app.models.identity import Tenant, Store, User, Membership, RoleEnum
 from app.models.platform import TenantCapability, EntitlementStatusEnum
 from app.models.reliability import OutboxEvent

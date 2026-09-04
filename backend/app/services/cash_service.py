@@ -5,8 +5,9 @@ from typing import List, Optional
 from sqlmodel import Session, select
 from fastapi import HTTPException, status
 from app.core.context import TenantContext, resolve_actor, scope_tenant_query
+from app.models.identity import Register
 from app.models.payment import (
-    Register, CashSession, CashMovement, Payment, CashSessionStatusEnum, CashMovementTypeEnum, PaymentMethodEnum, PaymentStatusEnum
+    CashSession, CashMovement, Payment, CashSessionStatusEnum, CashMovementTypeEnum, PaymentMethodEnum, PaymentStatusEnum
 )
 from app.services import reliability_service
 

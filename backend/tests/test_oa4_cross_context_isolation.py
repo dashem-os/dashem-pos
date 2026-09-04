@@ -22,10 +22,10 @@ from app.core.security import AuthPrincipal, decode_access_token
 from app.core.tenancy import set_platform_db_context, set_tenant_db_context
 from app.models.device import OperationalDevice, OperationalDeviceTypeEnum
 from app.models.identity import (
-    Employee, Membership, MembershipStatusEnum, RoleEnum, Store, Tenant,
+    Register, Employee, Membership, MembershipStatusEnum, RoleEnum, Store, Tenant,
     TenantStatusEnum, User,
 )
-from app.models.payment import CashSession, Register
+from app.models.payment import CashSession
 from app.services import cash_service, operational_access_service
 
 

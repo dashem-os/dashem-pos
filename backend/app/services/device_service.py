@@ -7,8 +7,7 @@ from sqlmodel import Session, select
 
 from app.core.context import TenantContext, resolve_actor, scope_tenant_query
 from app.models.device import OperationalDevice, OperationalDeviceStatusEnum, OperationalDeviceTypeEnum
-from app.models.identity import OperationalSession, OperationalSessionStatusEnum
-from app.models.payment import Register
+from app.models.identity import Register, OperationalSession, OperationalSessionStatusEnum
 from app.models.production import ProductionPoint, ProductionPointTypeEnum
 from app.services import reliability_service
 from app.services.quota_policy_service import QuotaCapacityExceededError, require_count_capacity

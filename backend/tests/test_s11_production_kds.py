@@ -7,7 +7,7 @@ from sqlmodel import Session
 
 from app.core.database import engine
 from app.core.tenancy import set_platform_db_context
-from app.models.channel import SalesChannel, SalesChannelTypeEnum
+from app.models.catalog import SalesChannel, SalesChannelTypeEnum
 
 BASE_URL = os.getenv("TEST_BASE_URL", "http://localhost:8002")
 

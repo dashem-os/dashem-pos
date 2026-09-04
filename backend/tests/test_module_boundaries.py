@@ -49,7 +49,6 @@ MODULE_OF_MODEL = {
     "receivable": "finance",
     "reconciliation": "finance",
     "fiscal": "finance",
-    "channel": "channels",
     "channel_hub": "channels",
     "channel_catalog": "channels",
     "bi": "insight",
@@ -115,23 +114,6 @@ ALLOWED = {
 # permission. Remove lines as the migration advances; never add one.
 # ---------------------------------------------------------------------------
 BASELINE = {
-    # Cinco destas oito não são acoplamento de domínio: são dois modelos morando
-    # no arquivo errado, e a migração começa por separá-los.
-    #
-    # `Register` — o ponto de caixa físico de uma unidade — mora em payment.py,
-    # junto de CashSession e Payment. Ele pertence à unidade, ao lado de Store e
-    # OperationalDevice, e é por isso que identity e operation precisam alcançar
-    # o módulo de finanças para enxergar um caixa.
-    "device -> payment",
-    "operational_access -> payment",
-    "order -> payment",
-    #
-    # `SalesChannel` — a dimensão comercial de uma venda — mora em channel.py,
-    # junto do hub de integração externa. São coisas diferentes: uma é atributo
-    # do pedido, a outra é a ponte com iFood e afins.
-    "assortment -> channel",
-    "order -> channel",
-    #
     # As três restantes são acoplamento real, a resolver por contrato de módulo:
     #
     # o dispositivo consulta o ponto de produção para saber se um KDS tem destino

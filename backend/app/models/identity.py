@@ -320,6 +320,22 @@ class Store(SQLModel, table=True):
     tenant: Optional[Tenant] = Relationship(back_populates="stores")
     memberships: List["Membership"] = Relationship(back_populates="store")
 
+class Register(SQLModel, table=True):
+    __tablename__ = "registers"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "store_id", "code", name="uq_tenant_store_register_code"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(index=True)
+    store_id: uuid.UUID = Field(index=True)
+    name: str = Field(index=True)
+    code: str = Field(index=True)
+    is_active: bool = Field(default=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    sessions: List["CashSession"] = Relationship(back_populates="register")
+
 class User(SQLModel, table=True):
     __tablename__ = "users"
     

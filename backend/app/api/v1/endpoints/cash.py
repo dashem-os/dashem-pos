@@ -6,7 +6,8 @@ from pydantic import BaseModel
 from sqlmodel import Session
 from app.core.database import get_session
 from app.core.context import TenantContext, get_tenant_context
-from app.models.payment import Register, CashSession, CashMovement, CashMovementTypeEnum, CashSessionStatusEnum
+from app.models.identity import Register
+from app.models.payment import CashSession, CashMovement, CashMovementTypeEnum, CashSessionStatusEnum
 from app.services import cash_service
 
 router = APIRouter()

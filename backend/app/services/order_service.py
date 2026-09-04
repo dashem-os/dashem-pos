@@ -12,15 +12,13 @@ from sqlmodel import Session, select
 
 from app.core.context import TenantContext, resolve_actor, scope_tenant_query
 from app.models.catalog import (
-    Modifier, ModifierGroup, Product, ProductModifierGroup, ProductPrice,
+    SalesChannel, Modifier, ModifierGroup, Product, ProductModifierGroup, ProductPrice,
 )
-from app.models.channel import SalesChannel
-from app.models.identity import Store
+from app.models.identity import Register, Store
 from app.models.order import (
     Order, OrderCommand, OrderFulfillmentEnum, OrderItem, OrderItemStatusEnum,
     OrderOriginEnum, OrderStatusEnum, ProductionStateEnum,
 )
-from app.models.payment import Register
 from app.models.sale import Customer, Sale
 from app.models.table_service import ServiceTable, TableSession, TableSessionStatusEnum
 from app.models.assortment import Assortment, SalesContextEnum

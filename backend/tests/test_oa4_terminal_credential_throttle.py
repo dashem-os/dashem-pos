@@ -28,10 +28,9 @@ from app.core.database import engine
 from app.core.tenancy import set_platform_db_context, set_tenant_db_context
 from app.models.device import OperationalDevice, OperationalDeviceTypeEnum
 from app.models.identity import (
-    Employee, Membership, MembershipStatusEnum, OperationalCredential,
+    Register, Employee, Membership, MembershipStatusEnum, OperationalCredential,
     RoleEnum, Store, Tenant, TenantStatusEnum, User,
 )
-from app.models.payment import Register
 from app.services import operational_access_service
 
 

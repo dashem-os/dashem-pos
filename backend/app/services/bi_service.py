@@ -11,8 +11,8 @@ from app.core.context import TenantContext, resolve_actor, scope_tenant_query
 from app.models.bi import BiDailyFact, BiFactScopeEnum, BiProjectionState
 from app.models.catalog import InventoryBalance, Product
 from app.models.channel_catalog import MarketplaceSettlement
-from app.models.identity import Membership, MembershipStatusEnum
-from app.models.payment import CashSession, CashSessionStatusEnum, Payment, PaymentMethodEnum, PaymentStatusEnum, Register
+from app.models.identity import Register, Membership, MembershipStatusEnum
+from app.models.payment import CashSession, CashSessionStatusEnum, Payment, PaymentMethodEnum, PaymentStatusEnum
 from app.models.production import ProductionTicket
 from app.models.receivable import Receivable, ReceivableReceipt, ReceivableReceiptStatusEnum
 from app.models.reconciliation import PaymentRefund

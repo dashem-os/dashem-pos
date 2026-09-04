@@ -14,11 +14,10 @@ from app.core.context import TenantContext
 from app.core.tenancy import set_tenant_db_context
 from app.models.device import OperationalDevice, OperationalDeviceStatusEnum, OperationalDeviceTypeEnum
 from app.models.identity import (
-    Employee, EmployeeStatusEnum, Membership, MembershipStatusEnum,
+    Register, Employee, EmployeeStatusEnum, Membership, MembershipStatusEnum,
     OperationalCredential, OperationalSession, OperationalSessionStatusEnum,
     RoleEnum, Store, Tenant, User,
 )
-from app.models.payment import Register
 from app.services import reliability_service
 from app.services.operational_session_service import mark_expired
 

@@ -18,7 +18,7 @@ from app.core.database import engine
 from app.core.tenancy import set_platform_db_context, set_tenant_db_context
 from app.models.device import OperationalDevice, OperationalDeviceTypeEnum
 from app.models.identity import (
-    AuthIdentity,
+    Register, AuthIdentity,
     Employee,
     Membership,
     MembershipStatusEnum,
@@ -28,7 +28,6 @@ from app.models.identity import (
     TenantStatusEnum,
     User,
 )
-from app.models.payment import Register
 from app.models.platform import TenantCapability
 
 

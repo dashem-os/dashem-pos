@@ -14,9 +14,9 @@ from app.core.config import settings
 from app.core.context import TenantContext, resolve_actor, scope_tenant_query
 from app.core.tenancy import set_tenant_db_context
 from app.models.negotiation import PaymentIntent, PaymentIntentStatusEnum
-from app.models.payment import PaymentMethodEnum, Register
+from app.models.identity import OperationalSession, OperationalSessionStatusEnum, RoleEnum, Register
+from app.models.payment import PaymentMethodEnum
 from app.models.device import OperationalDevice, OperationalDeviceStatusEnum, OperationalDeviceTypeEnum
-from app.models.identity import OperationalSession, OperationalSessionStatusEnum, RoleEnum
 from app.models.provider import (
     BridgeTerminalStatusEnum, PaymentProviderConfiguration,
     PaymentDeviceBinding, PaymentDeviceBindingStatusEnum, PaymentDeviceExecutionModeEnum,

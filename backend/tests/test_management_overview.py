@@ -8,8 +8,8 @@ from app.core.context import TenantContext
 from app.core.database import engine
 from app.core.tenancy import set_platform_db_context, set_tenant_db_context
 from app.models.catalog import Product
-from app.models.identity import Membership, MembershipStatusEnum, RoleEnum, Store, Tenant, TenantStatusEnum, User
-from app.models.payment import CashSession, Payment, PaymentMethodEnum, PaymentStatusEnum, Register
+from app.models.identity import Register, Membership, MembershipStatusEnum, RoleEnum, Store, Tenant, TenantStatusEnum, User
+from app.models.payment import CashSession, Payment, PaymentMethodEnum, PaymentStatusEnum
 from app.models.sale import Customer, Sale, SaleStatusEnum
 
 

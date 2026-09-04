@@ -13,8 +13,7 @@ from sqlmodel import Session, select
 from app.core.config import settings
 from app.core.context import TenantContext, resolve_actor, scope_tenant_query
 from app.core.tenancy import set_tenant_db_context
-from app.models.catalog import Product, ProductPrice
-from app.models.channel import SalesChannel, SalesChannelTypeEnum
+from app.models.catalog import SalesChannel, SalesChannelTypeEnum, Product, ProductPrice
 from app.models.channel_hub import (
     ChannelInboxEvent, ChannelInboxStatusEnum, ChannelOutboundMessage,
     ExternalOrderMapping, MerchantConnection, MerchantConnectionStatusEnum,
