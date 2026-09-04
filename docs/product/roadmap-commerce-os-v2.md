@@ -1666,21 +1666,31 @@ colaborador, com fórmulas
 publicadas, watermark e reconstrução integral a partir dos fatos. Testes
 negativos atravessam tenant, unidade, dispositivo e sessão.
 
-Estado: **desbloqueado em 04/09/2026, aguardando auditoria própria.** O que o
-impedia era o Gate C, agora `PASSED`. A implementação aparenta estar completa —
-a migração `044_gate_d_payment_audit` cria trigger de imutabilidade e executa
-`REVOKE UPDATE, DELETE` sobre as trilhas para o papel de runtime, de modo que a
-proibição vale fora do ORM; `OperationalProductivityProjection` é projeção
-persistida por sessão operacional; `payment_audit_service.rebuild_productivity`
-reconstrói a partir dos fatos e `productivity_summary` devolve watermark; e
-`test_gate_d_payment_audit.py` cobre escopo imutável e produtividade
-reconstruível.
+Estado: **PASSED em 4 de setembro de 2026**, depois da leitura própria que o
+Gate C não substituiu.
 
-**Não promovido junto com o Gate C, de propósito.** Promover por semelhança é o
-atalho que a auditoria de confronto existiu para desfazer. O ADR-023 exige
-também fórmulas publicadas e testes negativos atravessando tenant, unidade,
-dispositivo e sessão; nada disso foi conferido linha a linha. O gate espera uma
-leitura tão detalhada quanto a que fechou o Gate C.
+O que já estava provado por `test_gate_d_payment_audit.py`: os quatro estágios
+como fatos distintos e ordenados, os três gatilhos de imutabilidade recusando
+`UPDATE` e `DELETE` fora do ORM, uma unidade irmã sem enxergar evento algum, e a
+produtividade persistida, reconstruível e publicada com fórmulas.
+
+O que faltava, agora em `tests/test_gate_d_audit_completeness.py`:
+
+- **critério 2** é uma verificação de seis partes e o teste antigo variava
+  quatro. Vínculo do caixa vizinho e caixa divergente do vínculo passam a ser
+  recusados com 403 antes do primeiro evento, e nada é escrito por nenhuma das
+  duas recusas — são justamente os dois elementos que um chamador erra sem
+  má-fé;
+- **critério 3**: o bridge reporta o resultado sob o próprio principal, e o
+  evento preserva operador, turno e dispositivo de origem. Autoria humana e
+  autoria de serviço ficam lado a lado, nunca fundidas;
+- **critério 4**: `UNKNOWN` repetido não vira dois fatos, `UNKNOWN → CONFIRMED`
+  acrescenta um fato novo em vez de reescrever o antigo, `CONFIRMED` repetido não
+  duplica, e `EXECUTED` é escrito uma única vez por mais resultados que cheguem.
+
+Fórmulas publicadas em `PRODUCTIVITY_FORMULAS`, com watermark e versão no
+endpoint, consumidas por `DashboardBI` — a interface não reduz transação no
+navegador.
 
 ## 12. Próximo passo autorizado por este roadmap
 
