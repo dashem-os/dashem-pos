@@ -106,23 +106,28 @@ export const PosLayout: React.FC = () => {
             {/*
               Narrow screens sacrifice context, never authorship. The terminal is
               shared and every sale is attributed to whoever is on shift, so the
-              one line that must survive a phone is the one naming that person.
-              The unit and the register are the same all day and give way first.
+              one fact that must survive a phone is the name of that person. The
+              unit and the register are the same all day and give way first.
+
+              One node, not one per breakpoint: duplicating the name would read
+              it twice to a screen reader and would make "the identity appears
+              exactly once" — which the acceptance suite checks — false.
             */}
             <div className="flex items-center space-x-2 truncate text-xs font-medium text-slate-400 mt-0.5">
-              <span className="flex items-center space-x-1 truncate text-slate-600 sm:hidden">
+              <span className="flex items-center space-x-1 truncate text-slate-600">
                 <UserRound className="w-3 h-3 text-brand-ink shrink-0" />
-                <span className="truncate">{operatorName || 'Colaborador'}{roleLabel ? ` · ${roleLabel}` : ''}</span>
+                <span className="max-w-[240px] truncate">
+                  {operatorName || 'Colaborador'}{roleLabel ? ` · ${roleLabel}` : ''}
+                </span>
               </span>
+              <span className="hidden sm:inline">•</span>
               <span className="hidden items-center space-x-1 truncate text-slate-600 sm:flex">
                 <StoreIcon className="w-3 h-3 text-brand-ink shrink-0" />
                 <span className="truncate">{store?.name || 'Unidade não selecionada'}</span>
               </span>
               <span className="hidden sm:inline">•</span>
-              <span className="hidden sm:inline text-slate-600">{register?.name || 'Terminal não selecionado'}</span>
-              <span className="hidden sm:inline">•</span>
-              <span className="hidden max-w-[240px] truncate text-slate-500 sm:inline">
-                {operatorName || 'Colaborador'}{roleLabel ? ` · ${roleLabel}` : ''}
+              <span className="hidden truncate text-slate-500 sm:inline">
+                {register?.name || 'Terminal não selecionado'}
               </span>
             </div>
           </div>

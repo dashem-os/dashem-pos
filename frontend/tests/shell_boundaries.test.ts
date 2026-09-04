@@ -272,14 +272,22 @@ test('offers retry on the operational entry only when there is something to retr
   assert.match(entry, /\{terminalToken && <button onClick=\{\(\) => setTerminalCheck/)
 })
 
-test('a narrow POS still names who is on shift', async () => {
+test('the POS header still names who is on shift, exactly once', async () => {
   // The terminal is shared and every sale is attributed to a person. Hiding the
   // identity behind a breakpoint left a phone showing the unit — which is the
   // same all day — while dropping the one fact that changes with each shift.
+  // One node, not one per breakpoint: a second copy would be read twice by a
+  // screen reader and would break the acceptance suite's count of the identity.
   const layout = await source('../src/layouts/PosLayout.tsx')
-  const belowSmallScreens = /sm:hidden[\s\S]{0,400}?operatorName/
-  assert.ok(
-    belowSmallScreens.test(layout),
-    'O PDV precisa nomear o colaborador do turno também abaixo de sm.',
+  const header = layout.slice(layout.indexOf('<header'), layout.indexOf('</header>'))
+  assert.ok(header.length > 0, 'cabeçalho do PDV não localizado')
+  const rendered = [...header.matchAll(/operatorName \|\| 'Colaborador'/g)]
+  const alwaysVisible = rendered.filter((match) => {
+    const enclosing = header.slice(Math.max(0, match.index - 300), match.index)
+    return !/hidden/.test(enclosing)
+  })
+  assert.equal(
+    alwaysVisible.length, 1,
+    'O cabeçalho do PDV precisa nomear o colaborador do turno em exatamente um nó sempre visível.',
   )
 })
