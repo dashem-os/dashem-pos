@@ -75,6 +75,7 @@ interface PosContextType {
   closeFiscalModal: () => void
   processPayment: (method: api.Payment['method'], amount: number, tenderedAmount?: number) => Promise<boolean>
   issueFiscal: (simulateStatus?: string) => Promise<void>
+  retryFiscal: () => Promise<void>
   openCash: (openingBalance: number) => Promise<void>
   closeCash: (closingBalance: number) => Promise<void>
   addCashMovement: (type: 'BLEED' | 'REINFORCEMENT', amount: number, notes?: string) => Promise<void>
@@ -590,6 +591,34 @@ export const PosProvider: React.FC<{
     }
   }
 
+  /**
+   * Reprocessa o documento fiscal existente pelo endpoint próprio de retentativa.
+   * Emitir de novo pela rota de emissão até funciona — o documento é reaproveitado
+   * enquanto não está autorizado —, mas registra a retomada como se fosse a
+   * primeira emissão, sem `RETRY_REQUESTED` nem `fiscal.retry_requested` na trilha.
+   */
+  const retryFiscal = async () => {
+    if (!fiscalDoc) return
+    try {
+      setActionLoading(true)
+      const updated = await api.retryFiscalDocument(getHeaders(), fiscalDoc.id, operatorId)
+      setFiscalDoc(updated)
+      if (updated.status === 'AUTHORIZED') {
+        setCurrentSale((prev) => (prev ? { ...prev, status: 'COMPLETED' } : null))
+        showToast('success', '✓ Documento transmitido e autorizado.')
+      } else if (updated.status === 'REJECTED') {
+        showToast('error', `Rejeição SEFAZ [${updated.rejection_code}]: ${updated.rejection_reason}`)
+      } else {
+        showToast('info', 'Sem resposta da SEFAZ. O documento continua em contingência.')
+      }
+      refreshData()
+    } catch (err: unknown) {
+      showToast('error', err instanceof Error ? err.message : 'Erro ao reprocessar documento fiscal')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
   const openCash = async (openingBalance: number) => {
     if (!store || !register) return
     if (!permissions.includes('cash.open')) {
@@ -755,6 +784,7 @@ export const PosProvider: React.FC<{
         closeFiscalModal,
         processPayment,
         issueFiscal,
+        retryFiscal,
         openCash,
         closeCash,
         addCashMovement,
