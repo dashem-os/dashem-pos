@@ -45,7 +45,7 @@ no CI e no deploy.
 | OA-1 | contexto exclusivo de terminal + `OperationalSession`; `/login`, `/operate`, `/pos` e `/manage` separados | backend, contrato API, testes de fronteira e build | concluída no código |
 | OA-2 | ativação temporária; PIN criado pelo colaborador; reativação revoga sessões | migration 045, testes de domínio e contrato | concluída no código |
 | OA-3 | portão operacional clean, toque, teclado físico, contexto validado sem exposição visual, contraste corrigido e estado offline preservando autoridade | testes estáticos, typecheck e build; achado de campo ilegível corrigido em 03/09/2026 no commit `3480cdb` | corrigida no código; screenshots de estados e deploy pendentes |
-| OA-4 | matriz, fixture isolado, suíte Playwright e job de CI | CI verde no commit `a6cab8e`; execução assistida no deploy cobriu 5 cenários não credenciados em 03/09/2026 ([evidência](../quality/oa4-deploy-acceptance-2026-09-03.md)) | repetir em produção os 14 cenários credenciados e submeter ao Gate B |
+| OA-4 | matriz, fixture isolado, suíte Playwright e job de CI | CI verde; execução assistida no deploy concluída em 04/09/2026 com **14/14 cenários** ([rodada não credenciada](../quality/oa4-deploy-acceptance-2026-09-03.md), [rodada credenciada](../quality/oa4-credentialed-acceptance-2026-09-03.md)). O cenário 14 foi reescrito durante a execução por decisão do dono do SaaS | recomendação de promover o Gate B para `PASSED` registrada; a decisão é do dono do SaaS |
 
 Validação automatizada desta revisão:
 
