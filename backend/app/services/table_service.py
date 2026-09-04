@@ -461,7 +461,7 @@ def list_service_tables(session: Session, context: TenantContext) -> list[dict[s
     orders = list(session.exec(scope_tenant_query(select(Order).where(
         Order.table_session_id.in_(session_ids),
     ), Order, context)).all()) if session_ids else []
-    order_ids = [order.id for order in orders]
+    order_ids = [order.id for order in orders if order.status in {OrderStatusEnum.OPEN, OrderStatusEnum.SUBMITTED}]
     items = list(session.exec(select(OrderItem).where(
         OrderItem.tenant_id == context.tenant_id,
         OrderItem.order_id.in_(order_ids),
@@ -478,7 +478,8 @@ def list_service_tables(session: Session, context: TenantContext) -> list[dict[s
         active = sessions_by_table.get(table.id)
         reservation = reservations_by_table.get(table.id)
         session_orders = orders_by_session.get(active.id, []) if active else []
-        session_items = [item for order in session_orders for item in items_by_order.get(order.id, [])]
+        active_orders = [order for order in session_orders if order.status in {OrderStatusEnum.OPEN, OrderStatusEnum.SUBMITTED}]
+        session_items = [item for order in active_orders for item in items_by_order.get(order.id, [])]
         total = sum((Decimal(str(item.unit_price)) * Decimal(str(item.quantity)) for item in session_items), Decimal("0"))
         projected_status = table.status
         if (projected_status == ServiceTableStatusEnum.AVAILABLE and reservation
@@ -520,7 +521,7 @@ def session_projection(session: Session, context: TenantContext, table_session_i
     orders = list(session.exec(scope_tenant_query(select(Order).where(
         Order.table_session_id == table_session.id,
     ), Order, context).order_by(Order.created_at)).all())
-    order_ids = [order.id for order in orders]
+    order_ids = [order.id for order in orders if order.status in {OrderStatusEnum.OPEN, OrderStatusEnum.SUBMITTED}]
     items = list(session.exec(select(OrderItem).where(
         OrderItem.tenant_id == context.tenant_id,
         OrderItem.order_id.in_(order_ids),
@@ -534,7 +535,7 @@ def session_projection(session: Session, context: TenantContext, table_session_i
     for order in orders:
         order_items = items_by_order.get(order.id, [])
         for item in order_items:
-            if item.status == OrderItemStatusEnum.ACTIVE:
+            if order.status in {OrderStatusEnum.OPEN, OrderStatusEnum.SUBMITTED} and item.status == OrderItemStatusEnum.ACTIVE:
                 consolidated_total += Decimal(str(item.unit_price)) * Decimal(str(item.quantity))
                 active_item_count += 1
         order_payloads.append({**order.model_dump(), "items": [item.model_dump() for item in order_items]})
@@ -563,7 +564,7 @@ def list_active_sessions(session: Session, context: TenantContext) -> list[dict[
     orders = list(session.exec(scope_tenant_query(select(Order).where(
         Order.table_session_id.in_(session_ids),
     ), Order, context)).all())
-    order_ids = [order.id for order in orders]
+    order_ids = [order.id for order in orders if order.status in {OrderStatusEnum.OPEN, OrderStatusEnum.SUBMITTED}]
     items = list(session.exec(select(OrderItem).where(
         OrderItem.tenant_id == context.tenant_id,
         OrderItem.order_id.in_(order_ids),
@@ -578,7 +579,8 @@ def list_active_sessions(session: Session, context: TenantContext) -> list[dict[
     result: list[dict[str, Any]] = []
     for table_session in sessions:
         session_orders = orders_by_session.get(table_session.id, [])
-        session_items = [item for order in session_orders for item in items_by_order.get(order.id, [])]
+        active_orders = [order for order in session_orders if order.status in {OrderStatusEnum.OPEN, OrderStatusEnum.SUBMITTED}]
+        session_items = [item for order in active_orders for item in items_by_order.get(order.id, [])]
         total = sum((Decimal(str(item.unit_price)) * Decimal(str(item.quantity)) for item in session_items), Decimal("0"))
         result.append({
             "id": table_session.id,
@@ -862,10 +864,11 @@ def close_empty_session(
         Order.tenant_id == context.tenant_id,
         Order.table_session_id == table_session.id,
     )).all())
-    active_items = session.exec(select(OrderItem.id).where(
+    active_items = session.exec(select(OrderItem.id).join(Order, Order.id == OrderItem.order_id).where(
         OrderItem.tenant_id == context.tenant_id,
         OrderItem.order_id.in_(order_ids),
         OrderItem.status == OrderItemStatusEnum.ACTIVE,
+        Order.status.in_([OrderStatusEnum.OPEN, OrderStatusEnum.SUBMITTED]),
     )).first() if order_ids else None
     if active_items:
         raise HTTPException(status_code=409, detail="Sessão possui consumo ativo; o fechamento financeiro será realizado pelo Payment Engine.")

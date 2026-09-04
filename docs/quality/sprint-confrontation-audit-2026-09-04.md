@@ -17,11 +17,11 @@ entre o que a auditoria encontrou e o que se supunha.
 
 | Sprint | Modelos | Serviço | Endpoint | Testes | Tela | Estado apurado |
 |---|---|---|---|---|---|---|
-| S8 — Checkout Negotiation | 5 | sim | `/negotiations` | `test_s8_checkout_negotiation.py` | só no fluxo de mesa | **PARCIAL** |
+| S8 — Checkout Negotiation | 5 | sim | `/negotiations` | `test_s8_checkout_negotiation.py` | mesa e pagamento por comanda | **PARCIAL** |
 | S9 — Providers e TEF Bridge | 7 | sim | `/providers` | `test_s9_payment_providers.py` | **nenhuma de cadastro** | **PARCIAL** |
 | S10 — Channel Hub | 4 | sim | `/channels` | `test_s10_channel_hub.py` | `ChannelHubWorkspace` | **entregue no gate interno** |
 | S11 — Production e KDS | 6 | sim | `/production` | `test_s11_production_kds.py` | `KdsShell`, `DeviceManager`, `CatalogManager` | **entregue no gate interno** |
-| S12 — Transferências | 1 + eventos | sim | `/transfers` | `test_s12_transfers.py` | só transferência de item | **PARCIAL** |
+| S12 — Transferências | 1 + eventos | sim | `/transfers` | `test_s12_transfers.py` | item, comanda, sessão, mesclagem e linhagem | **entregue no gate interno** |
 | S13 — Channel Catalog | 6 | sim | `/channel-catalog` | `test_s13_channel_catalog_reconciliation.py` | `ChannelHubWorkspace`, só leitura | **PARCIAL** |
 | S17 — BI V1 | 2 | sim | `/management` | `test_s17_business_intelligence.py` | `DashboardBI` | **entregue no gate interno** |
 
@@ -77,7 +77,7 @@ consumindo. O gate externo de certificação de canal permanece independente.
 real e roteamento configurável no catálogo e nos dispositivos. O fallback de
 impressão depende do Print Bridge, que continua no S21.1.
 
-### S12 — Transferências e Comandas Avançadas · PARCIAL
+### S12 — Transferências e Comandas Avançadas · ENTREGUE NO GATE INTERNO
 
 **Correção de registro.** Em 4/9/2026 este agente afirmou duas vezes que a
 transferência de comanda não existia — primeiro que não estava no roadmap,
@@ -92,23 +92,18 @@ física. Como `TableSessionKindEnum.INDIVIDUAL_TAB` é uma sessão sem mesa, a
 junção também é o caminho de "descer para o balcão". Tudo com `TransferRecord`
 imutável, versão esperada, idempotência, evento por sessão, auditoria e outbox.
 
-Falta, confrontado com as entregas declaradas:
-
-- **comanda → comanda**: mover uma `Order` inteira entre sessões sem mesclar as
-  sessões não tem operação própria;
-- **separação de sessões**: o roadmap pede "junção e separação"; só a junção
-  existe;
-- **tela**: a junção de mesas só acontece por API, o que na prática significa
-  que o garçom não tem como juntar duas mesas.
+Atualização de fechamento em 04/09: os três pontos foram implementados. A
+operação move `Order` inteira entre sessões, separa uma comanda diretamente para
+mesa livre, muda uma sessão inteira de mesa e mescla sessões. A tela mostra os
+comandos e a linhagem, e o checkout por Order permite pagar uma pessoa ou grupo
+sem encerrar os demais.
 
 **Segunda correção de registro, 04/09, no confronto com a auditoria do Codex.**
 A frase original deste item dizia que "`mergeSessions` não é chamado por nenhum
 componente". O mecanismo estava **errado**: não existe `mergeSessions` no
-cliente da API. Das três rotas de `/transfers`, só `POST /transfers/items`
-chegou ao cliente; `POST /transfers/merge` e o `GET` de linhagem não têm função
-alguma. Não é uma função órfã à espera de tela — é uma rota que o navegador
-nunca soube chamar. A conclusão de estado não muda; a descrição do que falta,
-sim, e com ela o tamanho do trabalho.
+cliente da API. Naquele momento, das três rotas de `/transfers`, só
+`POST /transfers/items` tinha chegado ao cliente. O fechamento posterior tornou
+mesclagem e linhagem alcançáveis e acrescentou as operações que faltavam.
 
 ### S13 — Channel Catalog e Marketplace Reconciliation · PARCIAL
 

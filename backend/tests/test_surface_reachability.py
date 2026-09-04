@@ -100,11 +100,8 @@ UNREACHABLE = {
     "POST /api/v1/catalog/modifiers",
     "POST /api/v1/catalog/products/{product_id}/modifier-groups",
     "DELETE /api/v1/catalog/products/{product_id}",
-    # operation — S12: joining two tables and reading transfer lineage happen
-    # only by API. Only /transfers/items reached the client.
+    # operation — production dispatch remains server-only.
     "POST /api/v1/production/orders/{order_id}/dispatch",
-    "GET /api/v1/transfers",
-    "POST /api/v1/transfers/merge",
     # finance — S16: the two-phase close and the tenant refund are proven by
     # tests and unreachable from the product. The fiscal retry left this list on
     # 4 September 2026, when the contingency modal started calling it.

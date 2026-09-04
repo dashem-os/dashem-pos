@@ -1,6 +1,6 @@
 # Plano de hardening — Acesso Operacional do Colaborador
 
-Status: **OA-1–OA-3 implementados; OA-4 com CI verde e execução parcial no deploy — pré-piloto bloqueado até os cenários credenciados serem repetidos em produção**
+Status: **OA-1–OA-4 concluídos; matriz credenciada `14/14` no deploy e Gate B `PASSED` em 04/09/2026**
 Data: 26 de agosto de 2026
 Autoridade arquitetural: [ADR-024](../architecture/adr-024-operational-employee-access.md)
 
@@ -20,8 +20,7 @@ gestor entra na Gestão
   → cada operação mantém autoria até o encerramento
 ```
 
-Nenhuma funcionalidade operacional nova entra em execução até esse fluxo passar
-no CI e no deploy.
+Essa condição foi cumprida em 04/09/2026 no CI e no deploy.
 
 ## Estado de partida
 
@@ -54,12 +53,13 @@ Validação automatizada desta revisão:
   `alembic check`: sem divergência;
 - frontend: `58 passed`;
 - typecheck e build de produção: aprovados;
-- a execução OA-4 anterior (`14/14`) cobria o contrato visual substituído e não
-  promove esta revisão; a matriz atualizada precisa ser executada novamente.
+- a matriz atualizada foi repetida com credenciais no deploy em 04/09/2026 e
+  fechou `14/14`.
 
-Esses verdes comprovam a implementação e a jornada no CI. A repetição assistida
-no deploy público, com evidências sanitizadas, continua obrigatória. O Gate B
-foi promovido a `PASSED` em 04/09/2026; o piloto permanece `NO-GO` por Gate C, Gate D e homologações externas.
+Esses verdes, somados à repetição assistida credenciada no deploy público,
+comprovam a implementação e a jornada. O Gate B foi promovido a `PASSED` em
+04/09/2026; o piloto permanece `NO-GO` por Gate C, Gate D e homologações
+externas.
 
 ## Execução assistida no deploy em 03/09/2026
 
@@ -71,10 +71,11 @@ navegador sem autorização não recebe formulário de código + PIN; entrada
 operacional sem rolagem horizontal de 360 a 1366 px; indicador de foco presente
 com 21,00:1; título da entrada com 20,17:1.
 
-Não executados: os catorze cenários que exigem terminal autorizado, código
+Naquela primeira rodada, não foram executados os catorze cenários que exigem terminal autorizado, código
 ativado e PIN pessoal. Eles passam no job de CI contra pilha efêmera, mas o
 plano exige repetição no deploy, e o executor não possui credencial de produção.
-Nenhum deles é presumido aprovado.
+Nenhum deles foi presumido aprovado; a rodada credenciada posterior os executou
+e fechou `14/14` em 04/09/2026.
 
 Consequência histórica, resolvida em 04/09/2026 com a promoção do Gate B: a promoção dependia de criar em
 produção um terminal e um colaborador de homologação, repetir os catorze

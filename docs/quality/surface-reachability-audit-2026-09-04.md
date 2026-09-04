@@ -49,9 +49,9 @@ próprio documento:
 - **S13 — "nenhuma tela consome".** `ChannelHubWorkspace` consome as duas rotas
   de leitura. O correto é que as **seis rotas de escrita** não têm função no
   cliente.
-- **S12 — "`mergeSessions` não é chamado por componente nenhum".** Não existe
-  `mergeSessions` no cliente. `POST /transfers/merge` e o `GET` de linhagem
-  nunca chegaram lá.
+- **S12 — atualização posterior em 04/09.** A mesclagem e o `GET` de linhagem
+  chegaram ao cliente junto dos comandos de comanda inteira, separação para
+  mesa livre e mudança do atendimento inteiro. Essas rotas saíram do baseline.
 
 E uma terceira, sobre o próprio confronto: este agente ia contestar o veredito
 do Codex sobre S17.1/S17.2 alegando contradição substantiva no plano OA. **Não
@@ -83,17 +83,17 @@ reprova build nenhuma.
 
 | Medida | Número |
 |---|---|
-| Rotas `/api/v1` | 254 |
-| Rotas que nenhuma função do cliente alcança | **62** |
+| Rotas `/api/v1` | 257 |
+| Rotas que nenhuma função do cliente alcança | **60** |
 | Dessas, superfície de máquina (webhook, bridge) | 4 |
-| Dívida | **58** |
-| Funções exportadas do cliente | 193 |
+| Dívida | **56** |
+| Funções exportadas do cliente | 198 |
 | Sem nenhum consumidor no produto | **28** |
 
-Estes são os números **no fim desta rodada**. A medição inicial com verbo + forma
-deu 63 sem chamada do cliente, 59 de dívida; fechou em 62 e 58 porque a correção
-do item 3 alcançou `POST /fiscal/documents/{id}/retry` e o teste de obsolescência
-exigiu a remoção da linha — que é como o baseline deve encolher.
+Estes são os números após o fechamento do S12. A medição inicial com verbo +
+forma deu 63 sem chamada do cliente, 59 de dívida; caiu primeiro para 62 e 58
+com o retry fiscal e depois para 60 e 56 quando mesclagem e linhagem chegaram ao
+produto. As três rotas novas do S12 já nasceram alcançáveis.
 
 A dívida por módulo, no vocabulário do [ADR-029](../architecture/adr-029-module-boundaries-and-owner-layer.md):
 
@@ -104,7 +104,7 @@ A dívida por módulo, no vocabulário do [ADR-029](../architecture/adr-029-modu
 | `channels` | 7 | S13: toda a escrita de publicação e repasse, inclusive abrir o repasse |
 | `identity` | 5 | inclui o heartbeat de dispositivo, que **ninguém envia** — e a tela de Gestão exibe "Presentes agora · heartbeat nos últimos 90 segundos" |
 | `catalog` | 5 | combos e modificadores são modelados e não podem ser cadastrados; produto se edita e não se remove |
-| `operation` | 3 | S12: junção de mesas e linhagem de transferência |
+| `operation` | 1 | dispatch explícito de produção ainda sem comando no cliente |
 | `insight` | 1 | fórmulas do BI |
 
 ## 3. O que foi construído
@@ -310,17 +310,11 @@ CI e não é coberto pelo portão local.
 
 ## 5. O que continua pendente, e é decisão do dono
 
-Nada aqui promove ou rebaixa sprint. Continuam abertos, por serem ato de
-autoridade:
-
-1. linha de Estado para **S13.1** e **S16**;
-2. reconciliar as três afirmações sobre o Gate B na seção 12 do roadmap;
-3. o `Status:` do cabeçalho do plano OA e o bullet histórico da matriz;
-4. a linha de dívida do S12 na seção 9, que ainda descreve mal o que falta.
+As decisões posteriores do dono fecharam S13.1, OA-4 e Gate B. O S12 foi
+implementado e saiu do baseline. Continua aberta a correção operacional do S16.
 
 E, no produto, os achados que este trabalho nomeou e não resolveu:
 
-- a mesa não pode ser editada nem ordenada pela Gestão;
 - o "Presentes agora" da tela de dispositivos mede um heartbeat que ninguém envia;
 - o S13 mostra publicação e repasse sem deixar publicar nem conciliar;
 - **oito pontos de contraste pré-existentes** abaixo do AA no hover, dois deles

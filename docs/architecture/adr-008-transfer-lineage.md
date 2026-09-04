@@ -8,7 +8,11 @@ um item derivado, com o mesmo snapshot de preço e vínculo imutável no
 quantidade ativa da origem; transferência integral a cancela com motivo. Sessões
 são bloqueadas em ordem estável e exigem versões esperadas.
 
-Itens cobertos por pagamento, materializados em venda, prontos ou entregues são
-bloqueados. Produção anterior ainda não pronta sinaliza compensação e incrementa
-a versão do item. Junções são comandos explícitos, fecham a origem, preservam o
-registro e nunca criam duas sessões ativas para uma mesa.
+Transferir quantidade cria um item derivado; por isso itens cobertos por
+pagamento, materializados em venda, prontos ou entregues são bloqueados e a
+produção anterior ainda não pronta sinaliza compensação. Mover uma comanda
+inteira ou uma sessão conserva os mesmos IDs de Order e OrderItem e mantém os
+tickets de produção vinculados, portanto não exige recriar nem estornar o item.
+Junções são comandos explícitos, fecham a origem, preservam o registro e nunca
+criam duas sessões ativas para uma mesa. Separar uma comanda para mesa livre
+cria a sessão de destino na mesma transação.

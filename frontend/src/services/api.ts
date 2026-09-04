@@ -425,9 +425,10 @@ export interface TableSessionSummary {
 }
 
 export interface TransferRecord {
-  id: string; transfer_type: 'ITEM' | 'SESSION_MERGE'; source_session_id: string; destination_session_id: string
+  id: string; transfer_type: 'ITEM' | 'ORDER' | 'SESSION_MOVE' | 'SESSION_MERGE'; source_session_id: string; destination_session_id: string
+  source_order_id?: string; destination_order_id?: string
   source_order_item_id?: string; derived_order_item_id?: string; quantity?: number; unit_price_snapshot?: number
-  source_version_before: number; destination_version_before: number; reason: string
+  source_version_before: number; destination_version_before: number; actor_id: string; reason: string
   production_compensation_required: boolean; created_at: string
 }
 
@@ -3131,6 +3132,49 @@ export async function transferOrderItem(headers: Record<string, string>, idempot
 }): Promise<TransferRecord> {
   const res=await fetch(`${API_BASE_URL}/api/v1/transfers/items`,{method:'POST',headers:{...headers,'Content-Type':'application/json','Idempotency-Key':idempotencyKey},body:JSON.stringify(data)})
   if(!res.ok)throw await apiError(res,'Não foi possível transferir o item.')
+  return res.json()
+}
+
+export async function transferOrder(headers: Record<string, string>, idempotencyKey: string, data: {
+  source_session_id: string; destination_session_id: string; order_id: string
+  expected_source_version: number; expected_destination_version: number; reason: string; actor_id: string
+}): Promise<TransferRecord> {
+  const res=await fetch(`${API_BASE_URL}/api/v1/transfers/orders`,{method:'POST',headers:{...headers,'Content-Type':'application/json','Idempotency-Key':idempotencyKey},body:JSON.stringify(data)})
+  if(!res.ok)throw await apiError(res,'Não foi possível transferir o grupo.')
+  return res.json()
+}
+
+export async function transferOrderToTable(headers: Record<string, string>, idempotencyKey: string, data: {
+  source_session_id: string; destination_table_id: string; order_id: string
+  expected_source_version: number; expected_table_version: number; reason: string; actor_id: string
+}): Promise<TransferRecord> {
+  const res=await fetch(`${API_BASE_URL}/api/v1/transfers/orders/to-table`,{method:'POST',headers:{...headers,'Content-Type':'application/json','Idempotency-Key':idempotencyKey},body:JSON.stringify(data)})
+  if(!res.ok)throw await apiError(res,'Não foi possível mover o grupo para a mesa livre.')
+  return res.json()
+}
+
+export async function moveTableSession(headers: Record<string, string>, idempotencyKey: string, data: {
+  source_session_id: string; destination_table_id: string
+  expected_source_version: number; expected_table_version: number; reason: string; actor_id: string
+}): Promise<TransferRecord> {
+  const res=await fetch(`${API_BASE_URL}/api/v1/transfers/sessions/to-table`,{method:'POST',headers:{...headers,'Content-Type':'application/json','Idempotency-Key':idempotencyKey},body:JSON.stringify(data)})
+  if(!res.ok)throw await apiError(res,'Não foi possível mudar o atendimento de mesa.')
+  return res.json()
+}
+
+export async function mergeTableSessions(headers: Record<string, string>, idempotencyKey: string, data: {
+  source_session_id: string; destination_session_id: string
+  expected_source_version: number; expected_destination_version: number; reason: string; actor_id: string
+}): Promise<TransferRecord> {
+  const res=await fetch(`${API_BASE_URL}/api/v1/transfers/merge`,{method:'POST',headers:{...headers,'Content-Type':'application/json','Idempotency-Key':idempotencyKey},body:JSON.stringify(data)})
+  if(!res.ok)throw await apiError(res,'Não foi possível juntar os atendimentos.')
+  return res.json()
+}
+
+export async function fetchTransfers(headers: Record<string, string>, tableSessionId: string): Promise<TransferRecord[]> {
+  const params=new URLSearchParams({table_session_id:tableSessionId})
+  const res=await fetch(`${API_BASE_URL}/api/v1/transfers?${params}`,{headers})
+  if(!res.ok)throw await apiError(res,'Não foi possível carregar o histórico de movimentações.')
   return res.json()
 }
 

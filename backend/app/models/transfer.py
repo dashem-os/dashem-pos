@@ -9,6 +9,8 @@ from app.core.db_types import EnumString
 
 class TransferTypeEnum(str, Enum):
     ITEM = "ITEM"
+    ORDER = "ORDER"
+    SESSION_MOVE = "SESSION_MOVE"
     SESSION_MERGE = "SESSION_MERGE"
 
 class TransferRecord(SQLModel, table=True):

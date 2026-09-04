@@ -848,17 +848,12 @@ Gate:
 
 ### S12 — Transferências e Comandas Avançadas
 
-Estado: **PARCIAL** ([auditoria de confronto de 04/09/2026](../quality/sprint-confrontation-audit-2026-09-04.md)). `transfer_item` move item entre sessões com split de
-quantidade, recusando item coberto por pagamento ou já materializado em venda e
-sinalizando compensação de produção; `merge_sessions` reatribui todas as comandas
-da origem e encerra a sessão, o que serve inclusive para descer ao balcão via
-`INDIVIDUAL_TAB`. Tudo com `TransferRecord` imutável, versão esperada,
-idempotência, eventos, auditoria e outbox.
-
-Falta: mover uma comanda inteira entre sessões sem mesclar (**comanda → comanda**),
-a **separação** de sessões que a entrega declara ao lado da junção, e a tela —
-`mergeSessions` não é chamado por nenhum componente, de modo que juntar duas
-mesas hoje só acontece por API.
+Estado: **concluído no gate interno em 04/09/2026**. A operação move quantidade
+de item, comanda inteira ou atendimento inteiro; separa um grupo diretamente
+para mesa livre e une duas sessões ativas. A linhagem aparece na tela e conserva
+Order, OrderItem, produção, versões, ator, motivo, auditoria e outbox. O checkout
+por Order permite pagamento individual ou por grupo, inclusive em parcelas,
+sem encerrar as demais comandas da mesa.
 
 Objetivo: mover responsabilidade operacional sem apagar origem, consumo ou
 trajetória de produção/pagamento.
@@ -911,6 +906,11 @@ Gate:
 - diferenças de comissão/taxa são rastreáveis até documento do provider.
 
 ### S13.1 — Retaguarda Operacional do Tenant
+
+Estado: **concluído no gate interno em 04/09/2026**. A Gestão cria, edita,
+ordena e arquiva ambientes e mesas com motivo auditável; a identidade por código
+é preservada e a versão da mesa protege alterações concorrentes. A movimentação
+de clientes e comandas continua pertencendo ao fluxo operacional do S12.
 
 Objetivo: tornar o Dashem Gestão a superfície administrativa real do tenant e
 separar, por contrato e permission, configuração de operação cotidiana.
@@ -1527,10 +1527,10 @@ e aparece como `não configurada`, nunca como pronta.
 | Renegociação capaz de alterar documento original | S15 | acordo e ledger imutáveis | resolvido no S15 |
 | Caixa/fiscal/provider sem conciliação unificada | S16 | fatos vinculados sem reescrita | resolvido no S16 |
 | BI agregado ou inventado no browser | S17 | read models rastreáveis | resolvido e testado no S17 |
-| Login gerencial misturado com acesso operacional | OA-1–OA-4 | superfícies independentes, código + PIN pessoal e terminal autorizado | **reaberto: jornada real reprovada** |
-| Gestão define ou redefine o PIN definitivo | OA-2 | ativação temporária; colaborador define o próprio PIN | **bloqueador identificado** |
-| POS pede tenant/unidade/caixa depois do PIN | OA-1 | contexto derivado somente do terminal + sessão | **bloqueador identificado** |
-| CI valida componentes, mas não a jornada real | OA-4 | Playwright + evidência no deploy | **bloqueador identificado** |
+| Login gerencial misturado com acesso operacional | OA-1–OA-4 | superfícies independentes, código + PIN pessoal e terminal autorizado | resolvido e testado na matriz OA-4 `14/14` |
+| Gestão define ou redefine o PIN definitivo | OA-2 | ativação temporária; colaborador define o próprio PIN | resolvido e testado na matriz OA-4 |
+| POS pede tenant/unidade/caixa depois do PIN | OA-1 | contexto derivado somente do terminal + sessão | resolvido e testado na matriz OA-4 |
+| CI valida componentes, mas não a jornada real | OA-4 | Playwright + evidência no deploy | resolvido pelo CI e pela repetição credenciada `14/14` no deploy |
 | Impressora sem tela tratada como usuário ou referência suficiente | S21.1 | Print Bridge pareado e revogável | contrato definido; implementação/hardware pendentes |
 | Endpoint de identidade e saúde ainda amplos | S18 | routers e observabilidade por domínio | resolvido: router Control e instrumentação explícita |
 | Control expõe caixas, vendas, unidades em operação ou quadro de funcionários do tenant | S18.1 | somente contrato, cobrança SaaS e observabilidade técnica no Owner | **resolvido e protegido por testes no primeiro sprint** |
@@ -1541,8 +1541,8 @@ e aparece como `não configurada`, nunca como pronta.
 | Vocabulário do console assumindo alimentação para todo tenant | 5.4.4 | termo por atividade como dado extensível | **corrigido por condicional binário em 03/09; classe do problema em aberto** |
 | Conteúdo inicial por atividade em constante compilada | 5.4.4 | dado versionado e auditável, restrito a tenant interno ou de teste | **dívida aberta, criada em 03/09** |
 | Atividade ativa do PDV mantida apenas no cliente | 5.4.4 + Gate B | escolha persistida na sessão operacional e auditável | **dívida aberta, criada em 03/09** |
-| Junção de mesas existe no servidor e não na tela | S12 | `mergeSessions` alcançável pelo garçom, com linhagem visível | **corrigido o diagnóstico em 04/09**: duas afirmações anteriores deste agente — que a transferência não estava no roadmap, e depois que não estava construída — eram **falsas**. `transfer_item` e `merge_sessions` existem, testados, com `TransferRecord` imutável. O que falta é a tela: `mergeSessions` não é chamado por componente algum, então juntar duas mesas só acontece por API |
-| Conta não pode ser dividida por pessoa | S8 | rateio por consumidor sobre a `CheckoutNegotiation`, não só por valor | **dívida aberta, criada em 04/09 e confirmada pela auditoria**: o pagamento parcial existe e leva a sessão a `PARTIALLY_PAID`, mas é por valor. O split do S12 é de quantidade de item, não de responsabilidade de pagamento |
+| Junção de mesas existe no servidor e não na tela | S12 | mesclagem alcançável pelo garçom, com linhagem visível | resolvido e testado em 04/09: item, comanda, sessão, separação para mesa livre, mesclagem e histórico estão alcançáveis na operação |
+| Conta não pode ser dividida por pessoa | S8 + S12 | Order por pessoa/grupo e allocations na `CheckoutNegotiation` | resolvido e testado em 04/09: a negociação pode cobrir uma comanda em parcelas, finalizá-la e manter os demais grupos ativos |
 | SmartPOS existe só como meio de pagamento, não como superfície de operação | S22 proposto em 04/09 | execução local distinta de `TEF_BRIDGE`, com adapter homologado e sem login humano na maquininha | **lacuna levantada em 04/09**: `PaymentDeviceExecutionModeEnum.SMARTPOS` trata a maquininha como destino de cobrança. Um SmartPOS de campo roda o ponto de venda inteiro, e isso não está modelado em lugar nenhum |
 | Owner tratado como domínio e não como camada | [ADR-029](../architecture/adr-029-module-boundaries-and-owner-layer.md) | nenhum serviço de tenant lê tabela do Owner; direitos consultados por contrato | **regra dura estabelecida em 04/09**, sem baseline e sem exceção prevista. Verificada por `test_no_tenant_module_reaches_into_the_owner_layer`, hoje verde |
 | Cadastro de dispositivo não distingue ponto de operação, navegador e periférico | S21.1 | pareamento verificado por tipo, com credencial de dispositivo em vez de texto livre | **dívida aberta, criada em 04/09**: `operational_devices` guarda POS, KDS e PRINTER na mesma forma, e o periférico é declarado por uma string `configuration_ref` que ninguém valida. Na tela, cadastrar impressora ou terminal de produção pede um texto do tipo `bridge://cozinha/impressora-01` sem provar que o bridge existe. Maquininha não passa por aqui: vive em `PaymentDeviceBinding` (S9), em outro módulo, sem que a tela de terminais diga isso |
@@ -1698,7 +1698,8 @@ navegador.
 
 ## 12. Próximo passo autorizado por este roadmap
 
-O Gate B está reaberto e bloqueia o pré-piloto. O próximo ciclo autorizado é:
+O Gate B foi **fechado em 04/09/2026** e não bloqueia mais o pré-piloto. O ciclo
+que o fechou foi:
 
 ```text
 OA-1 autoridade/contexto
@@ -1719,10 +1720,15 @@ operacional sem rolagem horizontal de 360 a 1366 px, foco visível com 21,00:1 e
 título com 20,17:1. A evidência está em
 [`oa4-deploy-acceptance-2026-09-03.md`](../quality/oa4-deploy-acceptance-2026-09-03.md).
 
-Faltam os catorze cenários que exigem terminal autorizado, código ativado e PIN
-pessoal em produção. Eles passam no job de CI contra pilha efêmera, mas o plano
-exige repetição no deploy e CI verde não substitui essa prova. Enquanto isso, o
-Gate B foi promovido a `PASSED` em 04/09/2026.
+Os catorze cenários que exigem terminal autorizado, código ativado e PIN pessoal
+foram executados em produção em 04/09/2026, **14/14**, na rodada credenciada
+registrada em
+[`oa4-credentialed-acceptance-2026-09-03.md`](../quality/oa4-credentialed-acceptance-2026-09-03.md).
+Com isso o OA-4 está concluído e o Gate B foi promovido a `PASSED` em 04/09/2026,
+por decisão do dono do SaaS. Duas capturas de estado ficaram declaradas como
+lacuna na própria evidência: a de ativação inicial exibe código temporário e
+exige tarja, e o estado offline foi coberto pela suíte de aceitação em vez de
+captura manual.
 
 Trabalho executado fora desta sequência entre 02 e 03/09/2026 — atividade como
 dimensão do sortimento, publicação do conjunto por atividade, seletor de negócio
@@ -1730,9 +1736,12 @@ no PDV, vocabulário por nicho, imagem de produto, responsividade e correção d
 contraste — está registrado nos Gates 5.4.0, 5.4.1, 5.4.3 e 5.4.4 da trilha
 corretiva e nas linhas de dívida da seção 9. Nada disso promove gate por si só.
 
-S0–S17, S18–S20 e o Gate A preservam suas implementações internas. S17.1–S17.3,
-S21.1 e o Gate B estão reabertos na integração operacional; S21 permanece
-`NO-GO`. O S13 introduziu o ADR-009,
+S0–S17, S18–S20 e o Gate A preservam suas implementações internas. S17.1–S17.3 e
+o Gate B foram **fechados em 04/09/2026** pela jornada real, com os catorze
+cenários credenciados executados no deploy; S21.1 continua aberto pela metade dos
+periféricos — protocolo do Print Bridge e pareamento verificado de dispositivo —
+e S21 permanece `NO-GO`, por homologação de provider e certificação de canal, que
+são contrato, credencial e hardware de terceiros. O S13 introduziu o ADR-009,
 mapeamentos por merchant, ofertas versionadas, publicação item a item e documentos
 de repasse independentes do Order. Falha parcial e diferença financeira ficam
 observáveis. O S13.1 completa a primeira retaguarda operacional do tenant e fixa
@@ -1746,7 +1755,7 @@ sem apagar histórico. O ADR-024 corrige a ida ao PDV: a sessão gerencial
 autoriza a infraestrutura, mas cada operação humana exige colaborador, função,
 código + PIN pessoal e sessão. O S18 conclui os contratos próprios do Control sem invadir a
 equipe cotidiana do tenant. S19–S21 consolidam profiles, hardening e prontidão
-interna. C e D preservam migrations, testes negativos e CI verde, mas sua
-aceitação operacional fica bloqueada pelo Gate B. Homologações TEF, SmartPOS e
+interna. C e D preservam migrations, testes negativos e CI verde; o Gate B já
+possui a prova operacional exigida. Homologações TEF, SmartPOS e
 Print Bridge continuam gates próprios posteriores e não são simuladas pelo
 produto.

@@ -149,12 +149,10 @@ O estado exato, as evidências e o próximo passo para retomar o desenvolvimento
 em outra sessão estão em
 [`docs/product/owner-financeiro-saas-checkpoint.md`](docs/product/owner-financeiro-saas-checkpoint.md).
 
-Estado atual em 26/08/2026: **Integration Hardening / Operational Acceptance —
-pré-piloto bloqueado**. O Gate B foi reaberto após reprovação da jornada no
-deploy. A revisão OA-1–OA-4 já passou localmente `14/14` cenários em Chromium,
-mas ainda depende do novo job verde no CI e da repetição no deploy publicado.
-Gates C e D preservam sua implementação interna, mas não liberam o piloto antes
-dessa evidência.
+Estado atual em 04/09/2026: **Gate B `PASSED` e OA-4 concluído**. A jornada
+credenciada fechou `14/14` cenários no deploy publicado, após o job verde no CI.
+O pré-piloto permanece `NO-GO` pelos gates e homologações externas ainda
+declarados no roadmap, sem atribuir esse bloqueio ao acesso operacional.
 
 Os gates **S0–S13.1** consolidaram contratos, shells, autorização, catálogo,
 Frente de Caixa, `Order Foundation` e Mesas & Comandas. `ServiceTable`,

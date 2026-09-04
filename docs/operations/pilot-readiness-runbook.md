@@ -1,11 +1,11 @@
 # Runbook — hardening e prontidão do piloto
 
-Status em 26/08/2026: **NO-GO — Gate B reaberto**. OA-1 e OA-2 estão
-implementadas e verdes; OA-3 e a matriz OA-4 passaram localmente em Chromium,
-mas o novo job ainda precisa passar no CI e a revisão ainda precisa ser
-publicada e repetida no deploy. Nenhuma validação comercial
-começa antes da aprovação integral do
-[`ADR-024`](../architecture/adr-024-operational-employee-access.md) e do
+Status em 04/09/2026: **NO-GO por gates e homologações externas; Gate B
+`PASSED`**. OA-1–OA-4 estão concluídos, o job passou no CI e a jornada
+credenciada fechou `14/14` no deploy. A validação comercial continua condicionada
+aos gates restantes do roadmap e às homologações de terceiros. O contrato de
+acesso aprovado está no
+[`ADR-024`](../architecture/adr-024-operational-employee-access.md) e no
 [`plano OA-1–OA-4`](../product/operational-access-hardening-plan.md).
 
 ## Objetivos de recuperação
