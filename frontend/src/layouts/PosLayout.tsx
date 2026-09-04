@@ -13,6 +13,7 @@ import {
   WifiOff,
   UtensilsCrossed,
   LayoutDashboard,
+  UserRound,
 } from 'lucide-react'
 import { usePos } from '../context/PosContext'
 import { useAuth } from '../context/AuthContext'
@@ -102,15 +103,25 @@ export const PosLayout: React.FC = () => {
                 Frente de Caixa
               </span>
             </div>
-            <div className="flex items-center space-x-2 truncate text-xs text-slate-400 font-medium mt-0.5">
-              <span className="flex items-center space-x-1 truncate text-slate-600">
+            {/*
+              Narrow screens sacrifice context, never authorship. The terminal is
+              shared and every sale is attributed to whoever is on shift, so the
+              one line that must survive a phone is the one naming that person.
+              The unit and the register are the same all day and give way first.
+            */}
+            <div className="flex items-center space-x-2 truncate text-xs font-medium text-slate-400 mt-0.5">
+              <span className="flex items-center space-x-1 truncate text-slate-600 sm:hidden">
+                <UserRound className="w-3 h-3 text-brand-ink shrink-0" />
+                <span className="truncate">{operatorName || 'Colaborador'}{roleLabel ? ` · ${roleLabel}` : ''}</span>
+              </span>
+              <span className="hidden items-center space-x-1 truncate text-slate-600 sm:flex">
                 <StoreIcon className="w-3 h-3 text-brand-ink shrink-0" />
                 <span className="truncate">{store?.name || 'Unidade não selecionada'}</span>
               </span>
               <span className="hidden sm:inline">•</span>
               <span className="hidden sm:inline text-slate-600">{register?.name || 'Terminal não selecionado'}</span>
-              <span className="hidden md:inline">•</span>
-              <span className="hidden md:inline max-w-[240px] truncate text-slate-500">
+              <span className="hidden sm:inline">•</span>
+              <span className="hidden max-w-[240px] truncate text-slate-500 sm:inline">
                 {operatorName || 'Colaborador'}{roleLabel ? ` · ${roleLabel}` : ''}
               </span>
             </div>

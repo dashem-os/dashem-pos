@@ -271,3 +271,15 @@ test('offers retry on the operational entry only when there is something to retr
   const entry = await source('../src/components/auth/OperationalEntryScreen.tsx')
   assert.match(entry, /\{terminalToken && <button onClick=\{\(\) => setTerminalCheck/)
 })
+
+test('a narrow POS still names who is on shift', async () => {
+  // The terminal is shared and every sale is attributed to a person. Hiding the
+  // identity behind a breakpoint left a phone showing the unit — which is the
+  // same all day — while dropping the one fact that changes with each shift.
+  const layout = await source('../src/layouts/PosLayout.tsx')
+  const belowSmallScreens = /sm:hidden[\s\S]{0,400}?operatorName/
+  assert.ok(
+    belowSmallScreens.test(layout),
+    'O PDV precisa nomear o colaborador do turno também abaixo de sm.',
+  )
+})
