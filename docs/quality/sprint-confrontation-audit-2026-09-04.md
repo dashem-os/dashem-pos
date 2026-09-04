@@ -22,7 +22,7 @@ entre o que a auditoria encontrou e o que se supunha.
 | S10 — Channel Hub | 4 | sim | `/channels` | `test_s10_channel_hub.py` | `ChannelHubWorkspace` | **entregue no gate interno** |
 | S11 — Production e KDS | 6 | sim | `/production` | `test_s11_production_kds.py` | `KdsShell`, `DeviceManager`, `CatalogManager` | **entregue no gate interno** |
 | S12 — Transferências | 1 + eventos | sim | `/transfers` | `test_s12_transfers.py` | só transferência de item | **PARCIAL** |
-| S13 — Channel Catalog | 6 | sim | `/channel-catalog` | `test_s13_channel_catalog_reconciliation.py` | **nenhuma** | **PARCIAL** |
+| S13 — Channel Catalog | 6 | sim | `/channel-catalog` | `test_s13_channel_catalog_reconciliation.py` | `ChannelHubWorkspace`, só leitura | **PARCIAL** |
 | S17 — BI V1 | 2 | sim | `/management` | `test_s17_business_intelligence.py` | `DashboardBI` | **entregue no gate interno** |
 
 ## Detalhe por sprint
@@ -98,15 +98,33 @@ Falta, confrontado com as entregas declaradas:
   sessões não tem operação própria;
 - **separação de sessões**: o roadmap pede "junção e separação"; só a junção
   existe;
-- **tela**: `mergeSessions` não é chamado por nenhum componente. A junção de
-  mesas só acontece por API, o que na prática significa que o garçom não tem
-  como juntar duas mesas.
+- **tela**: a junção de mesas só acontece por API, o que na prática significa
+  que o garçom não tem como juntar duas mesas.
+
+**Segunda correção de registro, 04/09, no confronto com a auditoria do Codex.**
+A frase original deste item dizia que "`mergeSessions` não é chamado por nenhum
+componente". O mecanismo estava **errado**: não existe `mergeSessions` no
+cliente da API. Das três rotas de `/transfers`, só `POST /transfers/items`
+chegou ao cliente; `POST /transfers/merge` e o `GET` de linhagem não têm função
+alguma. Não é uma função órfã à espera de tela — é uma rota que o navegador
+nunca soube chamar. A conclusão de estado não muda; a descrição do que falta,
+sim, e com ela o tamanho do trabalho.
 
 ### S13 — Channel Catalog e Marketplace Reconciliation · PARCIAL
 
-Seis modelos, serviço, endpoint e teste existem. **Nenhuma tela consome.** A
-publicação de catálogo em canal e a conciliação de repasse de marketplace são
-hoje funcionalidades sem interface.
+Seis modelos, serviço, endpoint e teste existem.
+
+**Correção de 04/09, no confronto com a auditoria do Codex.** A frase original
+dizia "nenhuma tela consome". Era **falsa**: `ChannelHubWorkspace` carrega
+`fetchChannelCatalogState` e `fetchMarketplaceSettlements` na mesma chamada em
+que busca conexões e inbox.
+
+O que é verdade é mais específico e não melhor: a superfície é **somente de
+leitura**. Das oito rotas de `/channel-catalog`, o cliente da API expõe as duas
+`GET`. As seis de escrita — mapeamento por merchant, oferta, lote de publicação,
+resultado item a item, repasse e pagamento de repasse — não têm função no
+cliente. O lojista vê o estado da publicação e da conciliação, e não pode
+publicar nem conciliar. É uma janela sem maçaneta.
 
 ### S17 — Business Intelligence V1 · entregue no gate interno
 
