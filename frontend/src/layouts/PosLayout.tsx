@@ -68,10 +68,12 @@ export const PosLayout: React.FC = () => {
   const managementAvailable = canNavigateToManagement(Boolean(session), permissions, accessMode)
   const canReadCash = permissions.includes('cash.read')
   const managementValidation = accessMode === 'MANAGEMENT'
-  // Opening and closing a shift require an operational session. Offering the
-  // control to a management identity would be offering a refusal.
-  const canOpenCash = permissions.includes('cash.open') && !managementValidation
-  const canCloseCash = permissions.includes('cash.close') && !managementValidation
+  // Who may open or close a shift is the permission matrix, nothing else. The
+  // titular of the business working alone opens her own till from her own
+  // session; on a shared counter terminal the code and PIN are what identify
+  // the person, because that surface only offers the operational gate.
+  const canOpenCash = permissions.includes('cash.open')
+  const canCloseCash = permissions.includes('cash.close')
   const roleLabel = operationalRoleLabel(operatorRole)
 
   const handleOpenCash = async (e: React.FormEvent) => {
@@ -349,10 +351,36 @@ export const PosLayout: React.FC = () => {
                 Você está vendo o PDV como ele chega ao operador. Catálogo, preços,
                 ambientes e permissões são os reais desta unidade.
               </p>
-              <p className="text-xs font-bold leading-5 text-slate-700">
-                A venda começa quando um Caixa ou Supervisor assumir o turno com
-                código e PIN neste terminal.
-              </p>
+              {canOpenCash
+                ? <p className="text-xs font-bold leading-5 text-slate-700">
+                    Abra o caixa abaixo para vender por aqui, sob a sua identidade.
+                  </p>
+                : <p className="text-xs font-bold leading-5 text-slate-700">
+                    A venda começa quando alguém com autorização de caixa abrir o
+                    turno neste terminal.
+                  </p>}
+              {canOpenCash && <form onSubmit={handleOpenCash} className="space-y-3 pt-1 text-left">
+                <label className="block text-xs font-bold text-slate-700">Fundo de Troco / Saldo Inicial (R$)</label>
+                <div className="flex h-12 w-full items-center rounded-xl border-2 border-slate-300 bg-slate-50 px-4 focus-within:border-brand">
+                  <span className="mr-2 text-lg font-black text-slate-400">R$</span>
+                  <input
+                    inputMode="numeric"
+                    required
+                    value={openingBalanceInput}
+                    onChange={(e) => setOpeningBalanceInput(maskCurrencyInput(e.target.value))}
+                    placeholder="0,00"
+                    className="h-full min-w-0 flex-1 bg-transparent text-lg font-black text-slate-900 outline-none placeholder:text-slate-400"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={actionLoading || !openingBalanceInput}
+                  className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-brand text-sm font-black text-brand-contrast shadow-md active:scale-95 disabled:opacity-40"
+                >
+                  <Unlock className="h-4 w-4" />
+                  <span>ABRIR CAIXA E INICIAR VENDAS</span>
+                </button>
+              </form>}
             </div>}
           </div>
         </main>

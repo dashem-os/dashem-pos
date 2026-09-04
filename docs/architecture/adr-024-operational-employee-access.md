@@ -67,6 +67,7 @@ colaborador e emite uma sessão restrita à interseção dessas autoridades.
 - `/operate` é uma superfície dedicada de terminal e só apresenta código + PIN
   quando existe autorização válida para aquele navegador;
 - `/pos` aceita mutações humanas somente com `OperationalSession` válida;
+  (revisto em 4/9/2026 — ver a revisão ao final)
 - uma identidade administrativa pode autorizar o navegador e abrir a superfície
   do PDV, mas não substitui a assunção operacional;
 - se um administrador ou gerente também trabalhar na operação, deve possuir
@@ -184,3 +185,54 @@ oferecer seletor de tenant, unidade, caixa, dispositivo ou função.
 - testes que exigem “Entrar como operador” no login público protegem uma
   regressão e devem ser substituídos;
 - o piloto comercial permanece `NO-GO`.
+
+## Revisão de 4 de setembro de 2026 — a fronteira é a superfície, não a pessoa
+
+Decisão do dono do SaaS, depois da homologação OA-4 de 3 de setembro.
+
+### O que estava errado
+
+A redação original tratava a **assunção operacional** como condição de qualquer
+mutação humana no PDV, e exigia que um administrador que também trabalhe na
+operação tivesse código e PIN próprios para tudo. Duas consequências:
+
+1. Contradizia a matriz de permissões da migração `017_permission_engine`, que
+   concede `cash.open` e `cash.close` a OWNER, TENANT_OWNER, ADMIN e MANAGER
+   desde sempre. A implementação que exigia sessão operacional para abrir caixa
+   não seguia a matriz: criava uma regra nova.
+2. Contradizia o ADR-028, aceito no dia seguinte, que autoriza mutação real sob
+   autoria gerencial conforme as permissões do perfil.
+
+E quebrava o caso que define o produto: a revendedora que trabalha sozinha, sem
+supervisor, sem operadora. Obrigá-la a criar uma ficha de funcionária de si
+mesma e digitar um PIN no próprio navegador para vender a própria mercadoria é
+cerimônia que não produz informação nenhuma — a autoria já era inequívoca.
+
+### O que passa a valer
+
+**A fronteira é a superfície onde o turno é assumido, não a identidade de quem
+o assume.**
+
+| Onde | Como o turno é identificado |
+|---|---|
+| Sessão web do próprio titular ou gestor, entrando por **Validar no PDV** | A própria sessão autenticada por e-mail. Abrir e fechar o caixa fica rastreado e metrificado no perfil dele |
+| Terminal de balcão compartilhado (`/operate`) | Código do colaborador e PIN pessoal, para qualquer pessoa — inclusive o gestor, que para isso recebe também credencial operacional própria |
+
+O gestor que atua em terminais **continua precisando** de `Employee`, função
+operacional e código + PIN próprios, como a redação original já dizia. O que
+muda é que isso deixa de ser condição para ele operar no próprio navegador.
+
+### Invariantes que sobrevivem
+
+- **Todo turno responde a uma pessoa nomeada.** `cash_service.require_named_shift_authority`
+  recusa uma mutação de caixa sem principal autenticado.
+- **Ninguém opera sob identidade alheia.** `resolve_actor` aceita apenas a
+  identidade autenticada; um ator declarado diferente é recusado. É o Gate A e
+  não foi afrouxado.
+- **Quem pode é a matriz.** `cash.open` e `cash.close` continuam exigidos por
+  rota em `app/core/permissions.py`. Um ATENDENTE segue sem abrir caixa,
+  qualquer que seja a superfície.
+- **Produtividade por colaborador continua vindo de sessões PIN.** Uma operação
+  gerencial é atribuída ao gestor, nunca a um colaborador.
+
+Coberto por `backend/tests/test_cash_shift_authority.py`.

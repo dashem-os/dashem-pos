@@ -63,6 +63,18 @@ Com o caixa fechado, a identidade administrativa recebe o PDV completo em modo
 de conferência, com a coluna de venda substituída pela explicação do estado.
 Coberto por `frontend/tests/shell_boundaries.test.ts`.
 
+## Nota de 4 de setembro de 2026 — a contradição com o ADR-024 foi resolvida
+
+Esta ADR autoriza mutação real sob autoria gerencial conforme as permissões do
+perfil; o ADR-024 exigia assunção operacional para qualquer mutação humana no
+PDV. Os dois foram aceitos com um dia de diferença e brigavam. A revisão do
+ADR-024 de 4/9/2026 resolve a favor desta: a fronteira é a superfície, não a
+pessoa. Na validação a partir da própria sessão web, o gestor abre e fecha o
+caixa sob a própria identidade, rastreado e metrificado no perfil dele.
+
+Em consequência, com o caixa fechado a coluna de conferência gerencial passa a
+oferecer o campo de fundo de troco e a abertura, para quem tem `cash.open`.
+
 ## Fora desta decisão
 
 - separar ou corrigir catálogos associados à atividade comercial errada;

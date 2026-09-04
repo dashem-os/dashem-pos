@@ -255,15 +255,6 @@ test('never traps a person on the operational context gate', async () => {
   assert.doesNotMatch(gate, /openCash|abrirCaixa/)
 })
 
-test('does not offer shift controls to a management identity', async () => {
-  // Opening and closing a shift require an operational session. A control that
-  // is always refused is worse than no control: it reads as a broken product.
-  const pos = await source('../src/layouts/PosLayout.tsx')
-  assert.match(pos, /permissions\.includes\('cash\.open'\) && !managementValidation/)
-  assert.match(pos, /permissions\.includes\('cash\.close'\) && !managementValidation/)
-  assert.match(pos, /O turno pertence a quem o assume/)
-})
-
 test('offers retry on the operational entry only when there is something to retry', async () => {
   // Resolving the terminal reads the stored authorisation. With none stored the
   // effect returns immediately, so the button could only ever do nothing — which
@@ -294,9 +285,8 @@ test('the POS header still names who is on shift, exactly once', async () => {
 
 test('managerial validation reaches the POS workspace with the till closed', async () => {
   // ADR-028 exists so the administrator can check the catalogue, the prices and
-  // the environments as they reach the operator. Opening a till now requires a
-  // personal PIN, so gating the workspace on an open till left that entrance
-  // showing nothing at all — the decision was undone by a side effect.
+  // the environments as they reach the operator. Gating the workspace on an open
+  // till once left that entrance showing nothing at all.
   const layout = await source('../src/layouts/PosLayout.tsx')
   assert.match(
     layout,
@@ -306,4 +296,22 @@ test('managerial validation reaches the POS workspace with the till closed', asy
   // And nothing may be sold from it: a sale needs a till, whoever is looking.
   const grid = await source('../src/components/pos/QuickProductGrid.tsx')
   assert.match(grid, /canSell =[^\n]*cashSession\?\.status === 'OPEN'/)
+})
+
+test('the permission matrix alone decides the cash controls', async () => {
+  // ADR-024, revised on 4/9/2026: the boundary is the surface where the shift is
+  // assumed, not who assumes it. Denying the control to a management identity
+  // contradicted the matrix, which grants cash.open to OWNER, TENANT_OWNER,
+  // ADMIN and MANAGER, and made a merchant working alone invent a second
+  // identity of herself to sell her own goods.
+  const layout = await source('../src/layouts/PosLayout.tsx')
+  const rules = layout.match(/const can(?:Open|Close)Cash = .*/g) ?? []
+  assert.equal(rules.length, 2, 'as duas regras de caixa precisam existir')
+  for (const rule of rules) {
+    assert.ok(rule.includes('permissions.includes'), rule)
+    assert.ok(
+      !rule.includes('managementValidation'),
+      `A matriz decide sozinha quem abre e fecha caixa: ${rule}`,
+    )
+  }
 })

@@ -75,27 +75,34 @@ def update_register(
     session.add(register); session.commit(); session.refresh(register)
     return register
 
-def require_operational_shift(context: TenantContext, action: str) -> None:
-    """Opening and closing a shift belong to whoever is holding it.
+def require_named_shift_authority(context: TenantContext, action: str) -> None:
+    """A shift is a financial fact and must answer to a named person.
 
-    A management session authorises the infrastructure — it creates the terminal,
-    configures the unit and opens the surface for validation — but the shift is a
-    financial fact attributed to an operator. Without this, a manager could open
-    or close a drawer under an identity that never assumed the shift, and the
-    productivity and closing figures would answer to nobody.
+    Who may open or close one is decided by the permission matrix — `cash.open`
+    and `cash.close`, already enforced per route — and the authorship is decided
+    by `resolve_actor`, which only ever accepts the authenticated principal. This
+    guard adds the one thing neither of those covers: that a principal exists at
+    all, so a shift can never be attributed to nobody.
+
+    It deliberately does *not* ask which kind of session is holding it. Requiring
+    an operational session here meant a merchant working alone had to invent a
+    second identity of herself, ask an imaginary supervisor for a PIN, and type
+    it into her own browser to sell her own goods. The matrix always granted
+    `cash.open` to OWNER, TENANT_OWNER, ADMIN and MANAGER; the earlier version of
+    this guard contradicted it.
+
+    Where the shift is held on a *shared* counter terminal, the code and PIN are
+    still what identifies the person — not because of a rule written here, but
+    because that surface only ever offers the operational gate.
     """
     # The disabled-auth subject is the explicit development and test boundary the
-    # codebase already uses for authority checks; production runs with auth
-    # required, where this exemption never applies.
+    # codebase already uses for authority checks.
     if context.auth_subject == "local-auth-bypass":
         return
-    if context.auth_provider != "operational" or not context.operational_session_id:
+    if not context.user_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=(
-                f"{action} exige uma sessão operacional. "
-                "Assuma o turno com código e PIN pessoal no terminal autorizado."
-            ),
+            detail=f"{action} exige uma identidade autenticada.",
         )
 
 
@@ -107,7 +114,7 @@ def open_cash_session(
     operator_id: uuid.UUID,
     opening_balance: Decimal
 ) -> CashSession:
-    require_operational_shift(context, "Abrir o caixa")
+    require_named_shift_authority(context, "Abrir o caixa")
     operator_id = resolve_actor(context, operator_id)
     # Pessimistic Lock on Register to prevent concurrent OPEN sessions
     reg_query = select(Register).where(
@@ -215,7 +222,7 @@ def begin_cash_close(
     session: Session, context: TenantContext, session_id: uuid.UUID, *,
     operator_id: uuid.UUID, expected_version: Optional[int], blind_count: bool,
 ) -> CashSession:
-    require_operational_shift(context, "Fechar o caixa")
+    require_named_shift_authority(context, "Fechar o caixa")
     operator_id = resolve_actor(context, operator_id)
     query = select(CashSession).where(CashSession.id == session_id).with_for_update()
     query = scope_tenant_query(query, CashSession, context)
