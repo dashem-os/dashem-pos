@@ -3214,6 +3214,53 @@ export async function fetchPaymentProviderConfigurations(headers: Record<string,
   return res.json()
 }
 
+export async function configurePaymentProvider(
+  headers: Record<string, string>, idempotencyKey: string,
+  data: { store_id: string; provider_code: string; credentials_ref: string; timeout_seconds: number },
+): Promise<PaymentProviderConfiguration> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/providers/configurations`, {
+    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(data),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível configurar o provedor.')
+  return res.json()
+}
+
+export async function pairTefBridgeTerminal(
+  headers: Record<string, string>, idempotencyKey: string,
+  data: { store_id: string; register_id: string; provider_configuration_id: string; terminal_code: string },
+): Promise<{ terminal: TefBridgeTerminal; pairing_code: string }> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/providers/bridge/terminals`, {
+    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(data),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível parear o terminal de bridge.')
+  return res.json()
+}
+
+export async function createPaymentDeviceBinding(
+  headers: Record<string, string>, idempotencyKey: string,
+  data: {
+    store_id: string; register_id: string; operational_device_id: string; provider_configuration_id: string;
+    execution_mode: PaymentDeviceBinding['execution_mode']; tef_bridge_terminal_id?: string; external_device_reference?: string;
+  },
+): Promise<PaymentDeviceBinding> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/providers/device-bindings`, {
+    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(data),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível vincular a maquininha.')
+  return res.json()
+}
+
+export async function updatePaymentDeviceBinding(
+  headers: Record<string, string>, bindingId: string,
+  data: { status: PaymentDeviceBinding['status']; reason: string },
+): Promise<PaymentDeviceBinding> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/providers/device-bindings/${bindingId}`, {
+    method: 'PATCH', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível atualizar o vínculo de pagamento.')
+  return res.json()
+}
+
 export async function fetchTefBridgeTerminals(headers: Record<string, string>, registerId?: string): Promise<TefBridgeTerminal[]> {
   const suffix = registerId ? `?register_id=${registerId}` : ''
   const res = await fetch(`${API_BASE_URL}/api/v1/providers/bridge/terminals${suffix}`, { headers })

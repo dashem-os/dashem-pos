@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react'
 import {
   BadgeDollarSign, Banknote, Boxes, ChefHat, FileCheck2, FileText, Home, Layers, LogOut, Menu, Monitor,
-  Package, Plug, ShoppingCart, Store as StoreIcon, Tags, Users, X,
+  CreditCard, Package, Plug, ShoppingCart, Store as StoreIcon, Tags, Users, X,
 } from 'lucide-react'
 import { usePos } from '../context/PosContext'
 import { useAuth } from '../context/AuthContext'
@@ -16,6 +16,7 @@ import { TeamManager } from '../components/management/TeamManager'
 import { ChannelHubWorkspace } from '../components/management/ChannelHubWorkspace'
 import { ServiceSetupManager } from '../components/management/ServiceSetupManager'
 import { DeviceManager } from '../components/management/DeviceManager'
+import { PaymentProviderManager } from '../components/management/PaymentProviderManager'
 import { CategoryManager } from '../components/management/CategoryManager'
 import { InventoryManager } from '../components/management/InventoryManager'
 import { ReceivablesManager } from '../components/management/ReceivablesManager'
@@ -23,7 +24,7 @@ import { CustomerManager } from '../components/management/CustomerManager'
 import { TenantPlanWorkspace } from '../components/management/TenantPlanWorkspace'
 import { navigateTo } from '../utils/navigation'
 
-type ModuleId = 'overview' | 'sales' | 'tables' | 'channels' | 'cash' | 'receivables' | 'products' | 'assortments' | 'categories' | 'inventory' | 'customers' | 'team' | 'devices' | 'subscription'
+type ModuleId = 'overview' | 'sales' | 'tables' | 'channels' | 'cash' | 'receivables' | 'products' | 'assortments' | 'categories' | 'inventory' | 'customers' | 'team' | 'devices' | 'subscription' | 'payment_providers'
 
 interface NavigationItem {
   id: ModuleId
@@ -36,6 +37,7 @@ const MODULE_ICONS: Record<ModuleId, React.ComponentType<{ className?: string }>
   receivables: BadgeDollarSign, products: Package, assortments: Layers, categories: Tags,
   inventory: Boxes, customers: Users, tables: ChefHat, devices: Monitor, team: Users,
   subscription: FileCheck2,
+  payment_providers: CreditCard,
 }
 const MODULE_IDS = new Set<ModuleId>(Object.keys(MODULE_ICONS) as ModuleId[])
 
@@ -114,6 +116,7 @@ export const ManagementLayout: React.FC = () => {
       case 'receivables': return <ReceivablesManager />
       case 'tables': return <ServiceSetupManager />
       case 'devices': return <DeviceManager />
+      case 'payment_providers': return <PaymentProviderManager />
       case 'channels': return <ChannelHubWorkspace />
       case 'team': return <TeamManager />
       case 'subscription': return <TenantPlanWorkspace />
