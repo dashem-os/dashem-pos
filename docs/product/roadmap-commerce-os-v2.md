@@ -728,6 +728,12 @@ Gate:
 
 ### S8 — Checkout Negotiation e Payment Orchestrator
 
+Estado: **PARCIAL** ([auditoria de confronto de 04/09/2026](../quality/sprint-confrontation-audit-2026-09-04.md)). Negociação, intents, allocations e parcial levando a
+sessão a `PARTIALLY_PAID` estão construídos, mas só o fluxo de **mesa** consome:
+o fechamento de balcão segue no caminho antigo de `Sale`, coexistência que o
+roadmap previa e cuja migração não foi concluída nem datada. Dividir a conta por
+pessoa não é representável — o parcial é por valor, não por consumidor.
+
 Objetivo: criar a autoridade única da conta e incorporar o motor financeiro já
 existente sem confundir consumo, cobertura financeira e encerramento da mesa.
 
@@ -763,6 +769,12 @@ Gate:
 - UI não calcula o saldo autoritativo e não cria pagamento apenas para simular fluxo.
 
 ### S9 — Payment Providers e Dashem TEF Bridge
+
+Estado: **PARCIAL** ([auditoria de confronto de 04/09/2026](../quality/sprint-confrontation-audit-2026-09-04.md)). Núcleo construído: configuração de provider, terminal
+de bridge, vínculo de dispositivo, transação, eventos de execução e projeção de
+produtividade. Falta a **tela de cadastro** — nenhum componente consome
+`fetchProviderConfigurations`, então provider, bridge e vínculo de maquininha só
+existem por API — e falta a prova do Gate C.
 
 Objetivo: executar parcelas por providers intercambiáveis sem colocar SDK nativo
 ou indisponibilidade externa dentro da regra de venda.
@@ -801,6 +813,8 @@ Gate externo para ativação produtiva de cada provider:
 
 ### S10 — Dashem Channel Hub e External Order Inbox
 
+Estado: **concluído no gate interno** ([auditoria de confronto de 04/09/2026](../quality/sprint-confrontation-audit-2026-09-04.md)). Modelos, serviço, endpoint, teste e `ChannelHubWorkspace` consumindo. O gate externo de certificação de canal permanece independente.
+
 Objetivo: receber origens externas no mesmo Order Engine sem criar uma segunda
 lógica de pedidos ou colocar marketplace no caminho crítico local.
 
@@ -838,6 +852,8 @@ Gate externo por canal:
 
 ### S11 — Production Routing e KDS
 
+Estado: **concluído no gate interno** ([auditoria de confronto de 04/09/2026](../quality/sprint-confrontation-audit-2026-09-04.md)). `/kds` real, roteamento configurável e dispatch idempotente. O fallback de impressão depende do Print Bridge, ainda no S21.1.
+
 Objetivo: encaminhar cada item confirmado pelo Order Engine ao ponto correto de
 produção, sem duplicação e sem acoplar cozinha ao fechamento financeiro.
 
@@ -866,6 +882,18 @@ Gate:
 
 ### S12 — Transferências e Comandas Avançadas
 
+Estado: **PARCIAL** ([auditoria de confronto de 04/09/2026](../quality/sprint-confrontation-audit-2026-09-04.md)). `transfer_item` move item entre sessões com split de
+quantidade, recusando item coberto por pagamento ou já materializado em venda e
+sinalizando compensação de produção; `merge_sessions` reatribui todas as comandas
+da origem e encerra a sessão, o que serve inclusive para descer ao balcão via
+`INDIVIDUAL_TAB`. Tudo com `TransferRecord` imutável, versão esperada,
+idempotência, eventos, auditoria e outbox.
+
+Falta: mover uma comanda inteira entre sessões sem mesclar (**comanda → comanda**),
+a **separação** de sessões que a entrega declara ao lado da junção, e a tela —
+`mergeSessions` não é chamado por nenhum componente, de modo que juntar duas
+mesas hoje só acontece por API.
+
 Objetivo: mover responsabilidade operacional sem apagar origem, consumo ou
 trajetória de produção/pagamento.
 
@@ -890,6 +918,8 @@ Gate:
 - isolamento tenant/store e permissions são testados negativamente.
 
 ### S13 — Channel Catalog e Marketplace Reconciliation
+
+Estado: **PARCIAL** ([auditoria de confronto de 04/09/2026](../quality/sprint-confrontation-audit-2026-09-04.md)). Seis modelos, serviço, endpoint e teste existem; **nenhuma tela consome**. Publicação em canal e conciliação de repasse são hoje funcionalidades sem interface.
 
 Objetivo: manter um catálogo canônico e tratar venda de marketplace separada do
 repasse financeiro do marketplace.
@@ -1034,6 +1064,8 @@ Gate:
 - conciliação aponta diferença, mas não reescreve fato financeiro confirmado.
 
 ### S17 — Business Intelligence V1
+
+Estado: **concluído no gate interno** ([auditoria de confronto de 04/09/2026](../quality/sprint-confrontation-audit-2026-09-04.md)). `BiDailyFact` e `BiProjectionState` com `DashboardBI` consumindo; estado vazio real observado em produção em 04/09.
 
 Objetivo: transformar fatos e eventos persistidos em gestão multi-site.
 
@@ -1539,13 +1571,14 @@ e aparece como `não configurada`, nunca como pronta.
 | Vocabulário do console assumindo alimentação para todo tenant | 5.4.4 | termo por atividade como dado extensível | **corrigido por condicional binário em 03/09; classe do problema em aberto** |
 | Conteúdo inicial por atividade em constante compilada | 5.4.4 | dado versionado e auditável, restrito a tenant interno ou de teste | **dívida aberta, criada em 03/09** |
 | Atividade ativa do PDV mantida apenas no cliente | 5.4.4 + Gate B | escolha persistida na sessão operacional e auditável | **dívida aberta, criada em 03/09** |
-| Comanda não pode ser transferida de mesa nem entre mesa e balcão | **S12, já escopado e não implementado** | transferência mesa→mesa, comanda→comanda e item→comanda, junção e separação de sessões, com `TransferRecord` imutável | **pendente de execução, não é dívida nova.** Correção de 04/09: o registro criado mais cedo neste dia afirmava que a transferência não estava no roadmap. Estava — o S12 a escopa por inteiro. Hoje o grupo que muda de mesa ou desce para o balcão obriga a fechar de um lado e refazer o consumo do outro. A fundação existe: `TableSessionCommand` dá idempotência, `TableSessionEvent` registra ator e `TableSessionKindEnum.INDIVIDUAL_TAB` já é a forma do balcão |
-| Conta não pode ser dividida por pessoa | S8 + S12 | rateio por consumidor sobre a `CheckoutNegotiation`, não só por valor | **dívida aberta, criada em 04/09**: o pagamento parcial existe e leva a sessão a `PARTIALLY_PAID`, mas é por valor. O S12 escopa split de quantidade de item; dividir "a parte de cada um" no pagamento não é representável em nenhum dos dois |
+| Junção de mesas existe no servidor e não na tela | S12 | `mergeSessions` alcançável pelo garçom, com linhagem visível | **corrigido o diagnóstico em 04/09**: duas afirmações anteriores deste agente — que a transferência não estava no roadmap, e depois que não estava construída — eram **falsas**. `transfer_item` e `merge_sessions` existem, testados, com `TransferRecord` imutável. O que falta é a tela: `mergeSessions` não é chamado por componente algum, então juntar duas mesas só acontece por API |
+| Conta não pode ser dividida por pessoa | S8 | rateio por consumidor sobre a `CheckoutNegotiation`, não só por valor | **dívida aberta, criada em 04/09 e confirmada pela auditoria**: o pagamento parcial existe e leva a sessão a `PARTIALLY_PAID`, mas é por valor. O split do S12 é de quantidade de item, não de responsabilidade de pagamento |
 | SmartPOS existe só como meio de pagamento, não como superfície de operação | S22 proposto em 04/09 | execução local distinta de `TEF_BRIDGE`, com adapter homologado e sem login humano na maquininha | **lacuna levantada em 04/09**: `PaymentDeviceExecutionModeEnum.SMARTPOS` trata a maquininha como destino de cobrança. Um SmartPOS de campo roda o ponto de venda inteiro, e isso não está modelado em lugar nenhum |
 | Cadastro de dispositivo não distingue ponto de operação, navegador e periférico | S21.1 | pareamento verificado por tipo, com credencial de dispositivo em vez de texto livre | **dívida aberta, criada em 04/09**: `operational_devices` guarda POS, KDS e PRINTER na mesma forma, e o periférico é declarado por uma string `configuration_ref` que ninguém valida. Na tela, cadastrar impressora ou terminal de produção pede um texto do tipo `bridge://cozinha/impressora-01` sem provar que o bridge existe. Maquininha não passa por aqui: vive em `PaymentDeviceBinding` (S9), em outro módulo, sem que a tela de terminais diga isso |
 | Totem e autoatendimento não existem em nenhum lugar | **S22 proposto em 04/09, não autorizado** | superfície própria, com identidade de dispositivo, sem sessão humana e com autoria de serviço | **lacuna real, levantada em 04/09**: nem modelo, nem ADR. Escrita como S22 depois do Gate C e do piloto S21, porque um totem que não cobra não serve e não se lança autoatendimento antes de o balcão ser validado em campo |
 | Reativar um terminal não devolve a autorização do navegador | S21.1 + Gate B | pausa reversível que preserve o pareamento, distinta da revogação | **decisão pendente, levantada em 04/09**: qualquer troca de status zera `authorization_version`, `authorized_at` e `authorization_expires_at` em `device_service`. Pausar equivale, na prática, a desparear, e exige alguém no balcão entrando por e-mail para reautorizar |
 | Mesa e comanda operam sem turno de caixa | a decidir | política explícita entre salão livre e turno obrigatório | **decisão pendente, levantada em 04/09**: `table_service` não referencia caixa em ponto algum, então consumo é lançado com o caixa fechado e fica sem turno a que pertencer. Recomendação registrada: manter o lançamento livre e exigir turno aberto para **pagar**, nunca para consumir |
+| Modularização iniciada e abandonada | transversal, todos os sprints | fronteira de módulo por domínio, com dono declarado de cada tabela | **dívida transversal, apurada em 04/09**: `app/modules/` contém apenas `capabilities` e `governance`; negociação, provider, produção, transferência, recebíveis, fiscal e conciliação vivem em 37 serviços e 25 modelos planos, sem fronteira. A obrigação de modularizar é do próprio roadmap e vale "imediatamente" desde a seção 4.2 |
 | Segurança/confiabilidade deixadas para o fim | contínuo + S20 | gate por sprint e prova combinada | política corrigida |
 | Cliente capaz de escolher o autor de uma mutação | Gate A | ator derivado do principal ou service actor emitido pelo servidor | resolvido e testado; retirada dos campos legados fica para evolução de contrato |
 
