@@ -51,8 +51,8 @@ Executada em 3 de setembro de 2026, entre 21:10 e 21:18.
 |---|---|---|
 | Teto do terminal | Errando com matrículas diferentes (`HH-8888` entre elas), o portão passou a recusar com "Terminal temporariamente bloqueado após tentativas inválidas. Aguarde um instante e tente de novo.", mensagem distinta da recusa de identidade e que não fala de nenhuma pessoa | PASS |
 | Limpeza por ociosidade | O portão apagou sozinho matrícula, PIN e mensagem após um minuto parado, voltando ao estado inicial | PASS |
-| Recusa uniforme | Não exercitado nesta rodada: o teto do terminal foi atingido antes da comparação entre matrícula inexistente, existente sem PIN ativado e suspensa. Coberto por teste automatizado em `tests/test_oa4_terminal_credential_throttle.py` | a observar |
-| Bloqueio da credencial e liberação pela Gestão | Não alcançado: o Atendente OP permaneceu `Ativo` e a ação **Liberar bloqueio** não apareceu | ver nota |
+| Recusa uniforme | Não exercitado nesta rodada. Coberto por teste automatizado em `tests/test_oa4_terminal_credential_throttle.py` | a observar |
+| Bloqueio da credencial e liberação pela Gestão | Na segunda tentativa, com a janela do terminal já limpa, cinco erros seguidos em `AT-0040` bloquearam o acesso: o PDV passou a recusar com "Acesso temporariamente bloqueado após tentativas inválidas" e a Gestão passou a mostrar `Bloqueado até` em âmbar, com a ação **Liberar bloqueio**. Liberado, o colaborador entrou no PDV com o **mesmo PIN anterior** e chegou a `/pos` com "Identidade reconhecida: Atendente OP · Operador" | PASS |
 
 **Nota sobre a ordem das travas.** A verificação do teto do terminal acontece
 antes da busca da credencial, então enquanto o terminal está em ritmo limitado
@@ -62,7 +62,19 @@ desnecessária —, mas significa que as cinco falhas de PIN sobre a mesma
 matrícula precisam caber abaixo do teto para bloquear o acesso. A janela de dez
 minutos zera o contador do terminal na falha seguinte, então a sequência
 correta é aguardar a janela e então errar cinco vezes seguidas na mesma
-matrícula.
+matrícula. Foi assim que o bloco foi concluído com sucesso na segunda tentativa.
+
+**Defeito encontrado na própria evidência.** O distintivo do bloqueio anunciou
+"Bloqueado até 00:48" às 21:34, o que se lê como três horas de castigo por cinco
+erros de digitação. A trava é de quinze minutos; o que estava errado era a
+exibição. A API serializa UTC ingênuo, sem fuso — `2026-09-04T00:48:00` — e
+`new Date` sobre uma string sem fuso é interpretada como hora local, deslocando
+todo carimbo de tempo vindo do servidor. O mesmo defeito mantinha um terminal
+visto há um segundo fora do indicador "online agora" (janela de 90 segundos
+comparada contra um instante três horas no passado) e antecipava o vencimento de
+títulos com `due_at` na madrugada UTC. Corrigido em toda a interface pelos
+auxiliares `parseApiDate`/`formatApiDateTime`, com regra de repositório em
+`tests/api_timestamps.test.ts`.
 
 ## Evidência de estados (exigida pelo gate do OA-3)
 

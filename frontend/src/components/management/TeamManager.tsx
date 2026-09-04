@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { Ban, Briefcase, KeyRound, Loader2, Mail, Pencil, Plus, RefreshCw as RotateCcwKey, Search, ShieldCheck, Unlock, UserRoundCog, X } from 'lucide-react'
 import { usePos } from '../../context/PosContext'
 import * as api from '../../services/api'
+import { formatApiDateTime } from '../../utils/format'
 import { DataTable } from '../common/DataTable'
 import { Modal as SharedModal } from '../common/Modal'
 
@@ -265,7 +266,7 @@ function AccessTable({ members, loading, saving, canManage, changeStatus, issueA
     { key: 'role', header: 'Função', cell: (member) => <span className="text-sm font-bold text-dashem-muted">{roleLabel[member.role] || member.role}</span> },
     { key: 'store', header: 'Unidade', cell: (member) => <span className="text-sm text-dashem-muted">{member.store_name || 'Tenant inteiro'}</span> },
     { key: 'state', header: 'Estado', cell: (member) => member.locked_until
-      ? <span className="rounded-full bg-amber-100 px-2 py-1 text-xs font-black text-amber-900">Bloqueado até {new Date(member.locked_until).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+      ? <span className="rounded-full bg-amber-100 px-2 py-1 text-xs font-black text-amber-900">Bloqueado até {formatApiDateTime(member.locked_until, 'time')}</span>
       : <span className="rounded-full bg-dashem-bg px-2 py-1 text-xs font-black text-dashem-muted">{member.status !== 'ACTIVE' ? (member.status === 'SUSPENDED' ? 'Suspenso' : member.status) : member.credential_state === 'PENDING_ACTIVATION' ? 'Aguardando ativação' : 'Ativo'}</span> },
     { key: 'actions', header: 'Ações', actions: true, cell: (member) => <div className="flex flex-wrap gap-2">{canManage && <Action onClick={() => editAccess(member)} tone="neutral"><Pencil className="h-4 w-4" />Editar acesso</Action>}{canManage && member.locked_until && <Action onClick={() => void releaseLock(member)} disabled={saving} tone="emerald"><Unlock className="h-4 w-4" />Liberar bloqueio</Action>}{canManage && member.access_mode === 'PIN' && <Action onClick={() => issueActivation(member)} disabled={saving} tone="violet"><RotateCcwKey className="h-4 w-4" />Nova ativação</Action>}{canManage && (member.status === 'ACTIVE' ? <Action onClick={() => void changeStatus(member, 'SUSPENDED')} disabled={saving} tone="amber"><Ban className="h-4 w-4" />Suspender</Action> : <Action onClick={() => void changeStatus(member, 'ACTIVE')} disabled={saving} tone="emerald"><ShieldCheck className="h-4 w-4" />Reativar</Action>)}</div> },
   ]}

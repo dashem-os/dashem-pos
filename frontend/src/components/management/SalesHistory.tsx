@@ -3,6 +3,7 @@ import { FileText, Search, ChevronDown, ChevronUp, CheckCircle2, Ban, Clock, Sca
 import { usePos } from '../../context/PosContext'
 import { Sale } from '../../services/api'
 import * as api from '../../services/api'
+import { formatApiDateTime } from '../../utils/format'
 
 export const SalesHistory: React.FC = () => {
   const { salesHistory, tenant, store, operatorId, permissions, showToast } = usePos()
@@ -151,7 +152,7 @@ export const SalesHistory: React.FC = () => {
                         {getStatusBadge(sale.status)}
                       </div>
                       <span className="text-xs text-dashem-muted block mt-0.5">
-                        {new Date(sale.created_at).toLocaleString()} • {sale.items.length} itens registrados
+                        {formatApiDateTime(sale.created_at)} • {sale.items.length} itens registrados
                       </span>
                     </div>
                   </div>

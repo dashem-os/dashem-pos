@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { OperationalContextGate, OperationalSelection } from '../components/context/OperationalContextGate'
 import { requireAuthenticatedActor } from '../domain/operationalRules'
 import * as api from '../services/api'
+import { parseApiDate } from '../utils/format'
 
 export default function KdsShell() {
   return <OperationalContextGate requireTerminal={false}>{(selection) => <SelectedKdsShell selection={selection} />}</OperationalContextGate>
@@ -117,7 +118,7 @@ function SelectedKdsShell({ selection }: { selection: OperationalSelection }) {
               </div>
 
               <p className="mt-3 flex items-center gap-1 text-xs text-slate-500">
-                <Clock3 className="h-3.5 w-3.5" />{new Date(projection.ticket.created_at).toLocaleTimeString('pt-BR')}
+                <Clock3 className="h-3.5 w-3.5" />{(parseApiDate(projection.ticket.created_at) ?? new Date()).toLocaleTimeString('pt-BR')}
               </p>
 
               <div className="mt-4 space-y-3">

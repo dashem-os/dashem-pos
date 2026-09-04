@@ -82,3 +82,45 @@ export function parseCurrencyInput(masked: string): number {
   const digits = masked.replace(/\D/g, '')
   return digits ? Number(digits) / 100 : 0
 }
+
+/**
+ * A timestamp coming from the API, read as the UTC instant it is.
+ *
+ * The backend stores and serializes naive UTC — `2026-09-04T00:48:00`, with no
+ * offset — and `new Date` on a string without an offset is parsed as *local*
+ * time. Every server timestamp rendered that way was therefore shifted by the
+ * browser's offset: a fifteen minute lock announced itself three hours away, a
+ * terminal seen a second ago never counted as online, and a due date falling in
+ * the small hours of UTC showed the day before.
+ *
+ * Only fields the server produced go through here. A value the person typed
+ * into the browser is already local and must not be reinterpreted.
+ */
+export function parseApiDate(value: string | null | undefined): Date | null {
+  if (!value) return null
+  const hasZone = /(?:Z|[+-]\d{2}:?\d{2})$/.test(value)
+  const parsed = new Date(hasZone ? value : `${value}Z`)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
+/** Milliseconds elapsed since a server timestamp, or null when there is none. */
+export function millisecondsSince(value: string | null | undefined): number | null {
+  const parsed = parseApiDate(value)
+  return parsed ? Date.now() - parsed.getTime() : null
+}
+
+/**
+ * A server timestamp rendered for a Brazilian reader. Absent or unparseable
+ * values print the fallback instead of "Invalid Date".
+ */
+export function formatApiDateTime(
+  value: string | null | undefined,
+  style: 'datetime' | 'date' | 'time' = 'datetime',
+  fallback = '—',
+): string {
+  const parsed = parseApiDate(value)
+  if (!parsed) return fallback
+  if (style === 'date') return parsed.toLocaleDateString('pt-BR')
+  if (style === 'time') return parsed.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+  return parsed.toLocaleString('pt-BR')
+}

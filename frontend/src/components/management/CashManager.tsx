@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { Banknote, ArrowDownRight, ArrowUpRight, Lock, Unlock, Clock, FileSpreadsheet, CheckCircle2 } from 'lucide-react'
 import { usePos } from '../../context/PosContext'
 import * as api from '../../services/api'
+import { formatApiDateTime } from '../../utils/format'
 
 export const CashManager: React.FC = () => {
   const { tenant, store, register, cashSession, openCash, closeCash, addCashMovement, actionLoading } = usePos()
@@ -95,7 +96,7 @@ export const CashManager: React.FC = () => {
             </div>
             <span className="text-xs text-dashem-muted font-medium block mt-0.5">
               {isCashOpen
-                ? `Aberto em ${new Date(cashSession?.opened_at || '').toLocaleTimeString()} com saldo inicial de R$ ${Number(cashSession?.opening_balance || 0).toFixed(2)}`
+                ? `Aberto em ${formatApiDateTime(cashSession?.opened_at, 'time')} com saldo inicial de R$ ${Number(cashSession?.opening_balance || 0).toFixed(2)}`
                 : 'Abra o caixa informando o valor de abertura para iniciar as operações do PDV.'}
             </span>
           </div>
@@ -294,7 +295,7 @@ export const CashManager: React.FC = () => {
                       {isPositive ? '+' : '-'} R$ {Number(m.amount).toFixed(2)}
                     </span>
                     <span className="text-xs text-dashem-muted block">
-                      {new Date(m.created_at).toLocaleTimeString()}
+                      {formatApiDateTime(m.created_at, 'time')}
                     </span>
                   </div>
                 </div>

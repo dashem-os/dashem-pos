@@ -3,6 +3,7 @@ import { Mail, Pencil, Phone, Plus, Search, ShoppingBag, UserRound, X } from 'lu
 import { usePos } from '../../context/PosContext'
 import * as api from '../../services/api'
 import { DataTable } from '../common/DataTable'
+import { formatApiDateTime } from '../../utils/format'
 
 const blank = { name: '', cpf_cnpj: '', phone: '', email: '' }
 
@@ -73,7 +74,7 @@ export function CustomerManager() {
         { key: 'customer', header: 'Cliente', primary: true, cell: (customer) => <div className="flex items-center gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-dashem-bg text-brand-ink"><UserRound className="h-5 w-5" /></div><div className="min-w-0"><p className="font-black text-dashem-strong">{customer.name}</p><p className="mt-1 font-mono text-xs text-dashem-muted">{customer.cpf_cnpj || 'Documento não informado'}</p></div></div> },
         { key: 'contact', header: 'Contato', cell: (customer) => <div className="text-xs text-dashem-muted"><p className="flex items-center gap-2"><Phone className="h-3.5 w-3.5" />{customer.phone || 'Não informado'}</p><p className="mt-2 flex items-center gap-2"><Mail className="h-3.5 w-3.5" />{customer.email || 'Não informado'}</p></div> },
         { key: 'purchases', header: 'Compras', cell: (customer) => <div><p className="font-black text-dashem-strong">{purchaseCount(customer.id)} vendas</p><p className="mt-1 text-xs text-emerald-700">{totalRevenue(customer.id).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p></div> },
-        { key: 'since', header: 'Relacionamento', cell: (customer) => <span className="text-xs text-dashem-muted">Desde {new Date(customer.created_at).toLocaleDateString('pt-BR')}</span> },
+        { key: 'since', header: 'Relacionamento', cell: (customer) => <span className="text-xs text-dashem-muted">Desde {formatApiDateTime(customer.created_at, 'date')}</span> },
         { key: 'action', header: 'Ação', actions: true, cell: (customer) => canManage ? <button onClick={() => startEdit(customer)} className="flex min-h-11 items-center gap-2 rounded-lg border border-dashem-border px-3 text-xs font-black text-dashem-muted"><Pencil className="h-3.5 w-3.5" />Editar</button> : null },
       ]}
     /></section>
