@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react'
 import { Package, Plus, Star } from 'lucide-react'
 import { usePos } from '../../context/PosContext'
 import { formatCurrency, formatStock } from '../../utils/format'
+import { ProductShowcase } from './ProductShowcase'
 
 export const QuickProductGrid: React.FC = () => {
   const { products, categories, prices, balances, addItemToCart, actionLoading, permissions, connectionState, cashSession } = usePos()
@@ -36,6 +37,11 @@ export const QuickProductGrid: React.FC = () => {
 
   return (
     <div className="w-full flex flex-col space-y-3">
+      {/* What the house sells, first: the unit's window and the person's own
+          band, before the alphabetical catalogue. Search below is for the long
+          tail that does not earn a place on the first screen. */}
+      <ProductShowcase onPick={(product) => void addItemToCart(product.id)} disabled={!canSell} />
+
       {/* Navigation Pills: Acesso Rápido, Todos, and Real Categories */}
       <div className="flex items-center space-x-2 overflow-x-auto pb-1 scrollbar-none select-none">
         {/* Acesso Rápido (Favoritos) Tab */}

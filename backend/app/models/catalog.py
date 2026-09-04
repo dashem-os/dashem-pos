@@ -162,12 +162,86 @@ class InventoryBalance(SQLModel, table=True):
     product: Optional[Product] = Relationship(back_populates="balances")
 
 
+SALES_CONTEXT_VALUES = "('COUNTER', 'TAKEAWAY', 'TABLE', 'DELIVERY', 'ECOMMERCE')"
+# `ALL` is a sentinel, not an activity: it means the arrangement serves every
+# contracted activity. It exists because a NULL never collides in a unique
+# constraint, and the position constraint below has to actually constrain.
+BUSINESS_ACTIVITY_VALUES = "('FOOD_SERVICE', 'RETAIL', 'BEAUTY_RESELLER', 'ALL')"
+
+
+class StoreCatalogLayout(SQLModel, table=True):
+    """The arrangement that belongs to the unit, not to the person.
+
+    Versioned in the header so a reorder is one transaction with an expected
+    version, instead of a sequence of position writes that cannot be applied
+    atomically.
+    """
+
+    __tablename__ = "store_catalog_layouts"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "store_id", "sales_context", "business_activity",
+            name="uq_store_catalog_layout_scope",
+        ),
+        CheckConstraint(f"sales_context IN {SALES_CONTEXT_VALUES}", name="ck_store_catalog_layout_context"),
+        CheckConstraint(f"business_activity IN {BUSINESS_ACTIVITY_VALUES}", name="ck_store_catalog_layout_activity"),
+        CheckConstraint("version > 0", name="ck_store_catalog_layout_version"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(foreign_key="tenants.id", index=True)
+    store_id: uuid.UUID = Field(foreign_key="stores.id", index=True)
+    sales_context: str = Field(max_length=40)
+    business_activity: str = Field(default="ALL", max_length=40)
+    version: int = Field(default=1, ge=1)
+    updated_by: Optional[uuid.UUID] = Field(default=None)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class StoreCatalogLayoutItem(SQLModel, table=True):
+    __tablename__ = "store_catalog_layout_items"
+    __table_args__ = (
+        UniqueConstraint("layout_id", "product_id", name="uq_store_catalog_layout_product"),
+        # Deferred on purpose: PostgreSQL checks a non-deferred unique during the
+        # statement, so permuting positions violates it halfway through even in a
+        # single transaction. Dragging is impossible without this.
+        UniqueConstraint(
+            "layout_id", "position", name="uq_store_catalog_layout_position",
+            deferrable=True, initially="DEFERRED",
+        ),
+        CheckConstraint("position BETWEEN 1 AND 99", name="ck_store_catalog_layout_position"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(foreign_key="tenants.id", index=True)
+    layout_id: uuid.UUID = Field(foreign_key="store_catalog_layouts.id", ondelete="CASCADE", index=True)
+    product_id: uuid.UUID = Field(foreign_key="products.id", ondelete="CASCADE")
+    position: int = Field(ge=1, le=99)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class QuickAccessProduct(SQLModel, table=True):
+    """One person's shortcuts — never the unit's arrangement.
+
+    Scoped by sales context and activity because someone who works the counter
+    and the takeaway had ambiguous positions while this table pretended to be
+    the whole story.
+    """
+
     __tablename__ = "quick_access_products"
     __table_args__ = (
-        UniqueConstraint("tenant_id", "store_id", "membership_id", "product_id", name="uq_quick_access_product"),
-        UniqueConstraint("tenant_id", "store_id", "membership_id", "position", name="uq_quick_access_position"),
+        UniqueConstraint(
+            "tenant_id", "store_id", "membership_id", "sales_context", "business_activity", "product_id",
+            name="uq_quick_access_product",
+        ),
+        UniqueConstraint(
+            "tenant_id", "store_id", "membership_id", "sales_context", "business_activity", "position",
+            name="uq_quick_access_position", deferrable=True, initially="DEFERRED",
+        ),
         CheckConstraint("position BETWEEN 1 AND 99", name="ck_quick_access_position"),
+        CheckConstraint(f"sales_context IN {SALES_CONTEXT_VALUES}", name="ck_quick_access_context"),
+        CheckConstraint(f"business_activity IN {BUSINESS_ACTIVITY_VALUES}", name="ck_quick_access_activity"),
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
@@ -175,6 +249,8 @@ class QuickAccessProduct(SQLModel, table=True):
     store_id: uuid.UUID = Field(foreign_key="stores.id", index=True)
     membership_id: uuid.UUID = Field(foreign_key="memberships.id", ondelete="CASCADE", index=True)
     product_id: uuid.UUID = Field(foreign_key="products.id", ondelete="CASCADE", index=True)
+    sales_context: str = Field(default="COUNTER", max_length=40)
+    business_activity: str = Field(default="ALL", max_length=40)
     position: int = Field(ge=1, le=99)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

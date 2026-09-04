@@ -109,6 +109,29 @@ class QuickAccessDTO(BaseModel):
     position: int = Field(ge=1, le=99)
 
 
+class LayoutScopeDTO(BaseModel):
+    """The arrangement belongs to a context and an activity, never to "the store".
+
+    Someone who works the counter and the takeaway had ambiguous positions while
+    the arrangement ignored both.
+    """
+
+    sales_context: Optional[str] = None
+    business_activity: Optional[str] = None
+
+
+class StoreLayoutReorderDTO(LayoutScopeDTO):
+    product_ids: List[uuid.UUID]
+    # 0 means "this window does not exist yet". Sending the version the caller
+    # was looking at is what makes two managers reordering it a 409 instead of a
+    # silent overwrite.
+    expected_version: int = Field(ge=0)
+
+
+class QuickAccessReorderDTO(LayoutScopeDTO):
+    product_ids: List[uuid.UUID]
+
+
 class ModifierGroupCreateDTO(BaseModel):
     name: str = Field(min_length=2, max_length=160)
     minimum_choices: int = Field(default=0, ge=0)
@@ -222,6 +245,31 @@ def upsert_product_price_endpoint(data: ProductPriceCreateDTO, context: TenantCo
 @router.get("/prices", response_model=List[ProductPrice])
 def list_product_prices_endpoint(store_id: Optional[uuid.UUID] = None, product_id: Optional[uuid.UUID] = None, context: TenantContext = Depends(get_tenant_context), session: Session = Depends(get_session)):
     return catalog_service.list_prices(session, context, store_id, product_id)
+
+
+@router.get("/layout")
+def get_store_layout_endpoint(sales_context: Optional[str] = None, business_activity: Optional[str] = None, context: TenantContext = Depends(get_tenant_context), session: Session = Depends(get_session)):
+    return catalog_service.get_store_layout(session, context, sales_context, business_activity)
+
+
+@router.put("/layout")
+def reorder_store_layout_endpoint(data: StoreLayoutReorderDTO, context: TenantContext = Depends(get_tenant_context), session: Session = Depends(get_session)):
+    return catalog_service.reorder_store_layout(
+        session, context, data.product_ids, data.expected_version,
+        data.sales_context, data.business_activity,
+    )
+
+
+@router.get("/quick-access", response_model=List[QuickAccessProduct])
+def list_quick_access_endpoint(sales_context: Optional[str] = None, business_activity: Optional[str] = None, context: TenantContext = Depends(get_tenant_context), session: Session = Depends(get_session)):
+    return catalog_service.list_quick_access(session, context, sales_context, business_activity)
+
+
+@router.put("/quick-access", response_model=List[QuickAccessProduct])
+def reorder_quick_access_endpoint(data: QuickAccessReorderDTO, context: TenantContext = Depends(get_tenant_context), session: Session = Depends(get_session)):
+    return catalog_service.reorder_quick_access(
+        session, context, data.product_ids, data.sales_context, data.business_activity,
+    )
 
 
 @router.put("/quick-access/{product_id}", response_model=QuickAccessProduct)

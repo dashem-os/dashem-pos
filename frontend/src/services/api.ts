@@ -2714,6 +2714,72 @@ export async function deleteAssortment(
   }
 }
 
+export interface StoreCatalogLayout {
+  sales_context: string
+  business_activity: string
+  /** 0 means the unit has no arrangement yet, which is what a first reorder sends back. */
+  version: number
+  product_ids: string[]
+  updated_at?: string | null
+}
+
+export async function fetchStoreLayout(
+  headers: Record<string, string>, salesContext?: string, businessActivity?: string,
+): Promise<StoreCatalogLayout> {
+  const params = new URLSearchParams()
+  if (salesContext) params.set('sales_context', salesContext)
+  if (businessActivity) params.set('business_activity', businessActivity)
+  const res = await fetch(`${API_BASE_URL}/api/v1/catalog/layout?${params.toString()}`, { headers })
+  if (!res.ok) throw await apiError(res, 'Não foi possível carregar a vitrine da unidade.')
+  return res.json()
+}
+
+/**
+ * The whole arrangement in one call, with the version the caller was looking at.
+ * Position-by-position writes cannot express a drag: the server would see a
+ * half-applied order, and two managers would overwrite each other in silence.
+ */
+export async function reorderStoreLayout(
+  headers: Record<string, string>,
+  input: { product_ids: string[]; expected_version: number; sales_context?: string; business_activity?: string },
+): Promise<StoreCatalogLayout> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/catalog/layout`, {
+    method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível salvar a ordem da vitrine.')
+  return res.json()
+}
+
+export async function fetchQuickAccess(
+  headers: Record<string, string>, salesContext?: string, businessActivity?: string,
+): Promise<QuickAccessEntry[]> {
+  const params = new URLSearchParams()
+  if (salesContext) params.set('sales_context', salesContext)
+  if (businessActivity) params.set('business_activity', businessActivity)
+  const res = await fetch(`${API_BASE_URL}/api/v1/catalog/quick-access?${params.toString()}`, { headers })
+  if (!res.ok) return []
+  return res.json()
+}
+
+export async function reorderQuickAccess(
+  headers: Record<string, string>,
+  input: { product_ids: string[]; sales_context?: string; business_activity?: string },
+): Promise<QuickAccessEntry[]> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/catalog/quick-access`, {
+    method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível salvar seus atalhos.')
+  return res.json()
+}
+
+export interface QuickAccessEntry {
+  id: string
+  product_id: string
+  position: number
+  sales_context: string
+  business_activity: string
+}
+
 export async function setQuickAccess(headers: Record<string, string>, productId: string, position: number): Promise<void> {
   const res = await fetch(`${API_BASE_URL}/api/v1/catalog/quick-access/${productId}`, {
     method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ position })

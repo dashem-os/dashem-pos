@@ -5,6 +5,7 @@ from typing import Any, List, Optional
 
 from fastapi import HTTPException
 from sqlalchemy import and_, case, func, or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import aliased
 from sqlmodel import Session, select
 
@@ -12,7 +13,7 @@ from app.core.context import TenantContext, resolve_actor, scope_tenant_query
 from app.models.catalog import (
     Category, Combo, ComboItem, InventoryBalance, ItemTypeEnum, Modifier,
     ModifierGroup, Product, ProductModifierGroup, ProductPrice,
-    QuickAccessProduct,
+    QuickAccessProduct, StoreCatalogLayout, StoreCatalogLayoutItem,
 )
 from app.models.assortment import SalesContextEnum
 from app.services.assortment_service import resolve_effective_product_ids
@@ -290,6 +291,235 @@ def set_quick_access(session: Session, context: TenantContext, product_id: uuid.
     _event(session, context, "catalog.quick_access.upserted", "product", product_id, {"position": position})
     session.commit(); session.refresh(quick)
     return quick
+
+
+ALL_ACTIVITIES = "ALL"
+
+
+def _normalised_scope(sales_context: Optional[str], activity: Optional[str]) -> tuple[str, str]:
+    """`ALL` is the sentinel for "serves every contracted activity".
+
+    It is a value and not a NULL because a NULL never collides in a unique
+    constraint, and the position constraint has to actually constrain.
+    """
+    return (sales_context or SalesContextEnum.COUNTER.value), (activity or ALL_ACTIVITIES)
+
+
+def _sellable_products(session: Session, context: TenantContext, product_ids: list[uuid.UUID]) -> dict[uuid.UUID, Product]:
+    """Every id must name a live product of this tenant, or the whole call fails.
+
+    An arrangement that quietly drops an unknown id would renumber the rest and
+    leave the manager staring at positions they did not choose.
+    """
+    if not product_ids:
+        return {}
+    found = {
+        product.id: product
+        for product in session.exec(
+            scope_tenant_query(select(Product).where(Product.id.in_(product_ids)), Product, context)
+        ).all()
+    }
+    missing = [str(pid) for pid in product_ids if pid not in found]
+    if missing:
+        raise HTTPException(status_code=404, detail=f"Produto não encontrado neste tenant: {', '.join(missing)}")
+    archived = [str(p.id) for p in found.values() if not p.is_active or not p.available_for_sale]
+    if archived:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Produto arquivado ou indisponível não entra na vitrine: {', '.join(archived)}",
+        )
+    return found
+
+
+def _load_layout(
+    session: Session, context: TenantContext, sales_context: str, activity: str, *, lock: bool
+) -> Optional[StoreCatalogLayout]:
+    query = select(StoreCatalogLayout).where(
+        StoreCatalogLayout.tenant_id == context.tenant_id,
+        StoreCatalogLayout.store_id == context.store_id,
+        StoreCatalogLayout.sales_context == sales_context,
+        StoreCatalogLayout.business_activity == activity,
+    )
+    if lock:
+        query = query.with_for_update()
+    return session.exec(query).first()
+
+
+def get_store_layout(
+    session: Session, context: TenantContext,
+    sales_context: Optional[str] = None, activity: Optional[str] = None,
+) -> dict[str, Any]:
+    """The unit's arrangement, in order, without archived items."""
+    if not context.store_id:
+        raise HTTPException(status_code=400, detail="X-Store-ID é obrigatório para a vitrine da unidade.")
+    scope_context, scope_activity = _normalised_scope(sales_context, activity)
+    layout = _load_layout(session, context, scope_context, scope_activity, lock=False)
+    if not layout:
+        return {
+            "sales_context": scope_context, "business_activity": scope_activity,
+            "version": 0, "product_ids": [], "updated_at": None,
+        }
+    rows = session.exec(
+        select(StoreCatalogLayoutItem, Product)
+        .join(Product, Product.id == StoreCatalogLayoutItem.product_id)
+        .where(StoreCatalogLayoutItem.layout_id == layout.id)
+        .order_by(StoreCatalogLayoutItem.position)
+    ).all()
+    return {
+        "sales_context": layout.sales_context,
+        "business_activity": layout.business_activity,
+        "version": layout.version,
+        # An archived product keeps its row — the manager did choose it — but it
+        # never reaches the screen, so a dead button cannot appear on the window.
+        "product_ids": [str(item.product_id) for item, product in rows if product.is_active and product.available_for_sale],
+        "updated_at": layout.updated_at,
+    }
+
+
+def reorder_store_layout(
+    session: Session, context: TenantContext, product_ids: List[uuid.UUID], expected_version: int,
+    sales_context: Optional[str] = None, activity: Optional[str] = None,
+) -> dict[str, Any]:
+    """Apply the whole arrangement in one transaction.
+
+    The header is locked and its version checked, so two managers reordering the
+    same window cannot interleave: one wins, the other is told which version it
+    was working from. The items are replaced wholesale rather than permuted in
+    place — with the position unique deferred, either shape is atomic, and
+    replacement keeps the code honest about what the caller sent.
+    """
+    if not context.store_id:
+        raise HTTPException(status_code=400, detail="X-Store-ID é obrigatório para a vitrine da unidade.")
+    if len(set(product_ids)) != len(product_ids):
+        raise HTTPException(status_code=400, detail="A vitrine não aceita o mesmo produto duas vezes.")
+    if len(product_ids) > 99:
+        raise HTTPException(status_code=400, detail="A vitrine comporta no máximo 99 posições.")
+    scope_context, scope_activity = _normalised_scope(sales_context, activity)
+    _sellable_products(session, context, product_ids)
+
+    layout = _load_layout(session, context, scope_context, scope_activity, lock=True)
+    created = layout is None
+    if created:
+        if expected_version not in (0, None):
+            raise HTTPException(status_code=409, detail="A vitrine ainda não existe; esperava versão 0.")
+        # A persisted layout always carries version 1 or greater; version 0 is
+        # how the read side says "this window does not exist yet".
+        layout = StoreCatalogLayout(
+            tenant_id=context.tenant_id, store_id=context.store_id,
+            sales_context=scope_context, business_activity=scope_activity, version=1,
+        )
+        session.add(layout)
+        session.flush()
+    elif layout.version != expected_version:
+        raise HTTPException(
+            status_code=409,
+            detail=f"A vitrine mudou: versão atual {layout.version}, recebida {expected_version}.",
+        )
+
+    for item in session.exec(
+        select(StoreCatalogLayoutItem).where(StoreCatalogLayoutItem.layout_id == layout.id)
+    ).all():
+        session.delete(item)
+    session.flush()
+    for position, product_id in enumerate(product_ids, start=1):
+        session.add(StoreCatalogLayoutItem(
+            tenant_id=context.tenant_id, layout_id=layout.id,
+            product_id=product_id, position=position,
+        ))
+
+    if not created:
+        layout.version += 1
+    layout.updated_by = _actor(context)
+    layout.updated_at = datetime.utcnow()
+    session.add(layout)
+    _event(session, context, "catalog.layout.reordered", "store_catalog_layout", layout.id, {
+        "sales_context": scope_context, "business_activity": scope_activity,
+        "version": layout.version, "positions": len(product_ids),
+    })
+    _commit_positions(session)
+    session.refresh(layout)
+    return get_store_layout(session, context, scope_context, scope_activity)
+
+
+def reorder_quick_access(
+    session: Session, context: TenantContext, product_ids: List[uuid.UUID],
+    sales_context: Optional[str] = None, activity: Optional[str] = None,
+) -> List[QuickAccessProduct]:
+    """The person's own band, replaced whole, in the same single transaction."""
+    if not context.store_id or not context.membership_id:
+        raise HTTPException(status_code=400, detail="Contexto de unidade e membro obrigatório.")
+    if len(set(product_ids)) != len(product_ids):
+        raise HTTPException(status_code=400, detail="Um atalho não pode repetir o mesmo produto.")
+    if len(product_ids) > 99:
+        raise HTTPException(status_code=400, detail="A faixa pessoal comporta no máximo 99 atalhos.")
+    scope_context, scope_activity = _normalised_scope(sales_context, activity)
+    _sellable_products(session, context, product_ids)
+
+    existing = session.exec(select(QuickAccessProduct).where(
+        QuickAccessProduct.tenant_id == context.tenant_id,
+        QuickAccessProduct.store_id == context.store_id,
+        QuickAccessProduct.membership_id == context.membership_id,
+        QuickAccessProduct.sales_context == scope_context,
+        QuickAccessProduct.business_activity == scope_activity,
+    ).with_for_update()).all()
+    for row in existing:
+        session.delete(row)
+    session.flush()
+    for position, product_id in enumerate(product_ids, start=1):
+        session.add(QuickAccessProduct(
+            tenant_id=context.tenant_id, store_id=context.store_id,
+            membership_id=context.membership_id, product_id=product_id,
+            sales_context=scope_context, business_activity=scope_activity, position=position,
+        ))
+    _event(session, context, "catalog.quick_access.reordered", "membership", context.membership_id, {
+        "sales_context": scope_context, "business_activity": scope_activity, "positions": len(product_ids),
+    })
+    _commit_positions(session)
+    return list_quick_access(session, context, scope_context, scope_activity)
+
+
+def list_quick_access(
+    session: Session, context: TenantContext,
+    sales_context: Optional[str] = None, activity: Optional[str] = None,
+) -> List[QuickAccessProduct]:
+    if not context.store_id or not context.membership_id:
+        return []
+    scope_context, scope_activity = _normalised_scope(sales_context, activity)
+    return list(session.exec(select(QuickAccessProduct).where(
+        QuickAccessProduct.tenant_id == context.tenant_id,
+        QuickAccessProduct.store_id == context.store_id,
+        QuickAccessProduct.membership_id == context.membership_id,
+        QuickAccessProduct.sales_context == scope_context,
+        QuickAccessProduct.business_activity == scope_activity,
+    ).order_by(QuickAccessProduct.position)).all())
+
+
+def _commit_positions(session: Session) -> None:
+    """Commit work guarded by a deferred unique, and speak 409 instead of 500.
+
+    The position constraints are DEFERRABLE INITIALLY DEFERRED, which is what
+    makes a permutation possible at all — a non-deferred unique is checked
+    during the statement and a swap violates it halfway through. The cost is
+    that a genuine collision now surfaces at COMMIT rather than at the offending
+    statement, and an uncaught IntegrityError there reaches the operator as a
+    500. It is a conflict, and it says so.
+    """
+    try:
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        # Only a unique violation on a position constraint is a conflict. Any
+        # other IntegrityError is a defect, and dressing it as a friendly 409
+        # would hide it — which is exactly how a check violation on `version`
+        # first reached this code disguised as contention.
+        code = getattr(getattr(exc, "orig", None), "pgcode", None)
+        constraint = str(getattr(exc, "orig", "")).lower()
+        if code == "23505" and "position" in constraint:
+            raise HTTPException(
+                status_code=409,
+                detail="Conflito de posições ao gravar a ordenação. Recarregue e tente de novo.",
+            ) from exc
+        raise
 
 
 def remove_quick_access(session: Session, context: TenantContext, product_id: uuid.UUID) -> None:

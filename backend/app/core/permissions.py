@@ -53,6 +53,13 @@ def route_requirement(method: str, path: str) -> RouteRequirement:
     if path.startswith("/api/v1/storage"):
         return RouteRequirement("management.read" if method == "GET" else "team.manage")
     if path.startswith("/api/v1/catalog"):
+        # Arranging buttons is not administering the catalogue. A cashier who
+        # keeps their own shortcuts should not need power over products and
+        # prices to do it, and an operator must never reorder the unit's window.
+        if path.startswith("/api/v1/catalog/layout"):
+            return RouteRequirement("catalog.read" if method == "GET" else "catalog.layout.manage")
+        if path.startswith("/api/v1/catalog/quick-access"):
+            return RouteRequirement("catalog.read" if method == "GET" else "catalog.layout.personalize")
         return RouteRequirement("catalog.read" if method == "GET" else "catalog.update")
     if path.startswith("/api/v1/inventory"):
         return RouteRequirement("inventory.read" if method == "GET" else "inventory.adjust")
