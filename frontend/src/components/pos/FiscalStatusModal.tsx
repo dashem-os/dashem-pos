@@ -4,7 +4,7 @@ import { usePos } from '../../context/PosContext'
 import { CheckCircle2, AlertTriangle, AlertCircle, Printer, PlusCircle, RefreshCw } from 'lucide-react'
 
 export const FiscalStatusModal: React.FC = () => {
-  const { isFiscalModalOpen, closeFiscalModal, fiscalDoc, startNewSale, issueFiscal, actionLoading } = usePos()
+  const { isFiscalModalOpen, closeFiscalModal, fiscalDoc, startNewSale, retryFiscal, actionLoading } = usePos()
 
   if (!fiscalDoc) return null
 
@@ -13,8 +13,12 @@ export const FiscalStatusModal: React.FC = () => {
     await startNewSale()
   }
 
+  // Rejeição e contingência são o mesmo caso: um documento que já existe e será
+  // tentado de novo. Passam por /retry para que a trilha registre
+  // RETRY_REQUESTED, fiscal.retry_requested e a ação de auditoria fiscal.retry,
+  // em vez de parecerem a primeira emissão.
   const handleRetry = async () => {
-    await issueFiscal()
+    await retryFiscal()
   }
 
   const isAuthorized = fiscalDoc.status === 'AUTHORIZED' || fiscalDoc.status === 'NOT_REQUIRED'
@@ -85,7 +89,8 @@ export const FiscalStatusModal: React.FC = () => {
             <div>
               <h3 className="text-lg font-black text-slate-900">Emitido em Contingência Offline</h3>
               <p className="text-xs text-amber-800 font-semibold mt-0.5">
-                Cupom gerado offline. Será transmitido automaticamente na retomada da conexão com a SEFAZ.
+                Cupom gerado offline e ainda não transmitido à SEFAZ. A transmissão não acontece
+                sozinha: comande o envio quando a conexão voltar.
               </p>
             </div>
 
@@ -97,6 +102,16 @@ export const FiscalStatusModal: React.FC = () => {
                 <span className="text-xs font-mono font-bold text-slate-800 break-all">{fiscalDoc.access_key}</span>
               </div>
             )}
+
+            <button
+              type="button"
+              onClick={handleRetry}
+              disabled={actionLoading}
+              className="w-full h-12 mt-2 rounded-xl bg-amber-700 hover:bg-amber-800 text-white text-xs font-black flex items-center justify-center space-x-1.5 transition-all shadow-sm active:scale-95 disabled:opacity-40"
+            >
+              <RefreshCw className={`w-4 h-4 ${actionLoading ? 'animate-spin' : ''}`} />
+              <span>Tentar transmitir novamente</span>
+            </button>
           </div>
         )}
 

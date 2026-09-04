@@ -275,29 +275,45 @@ def retry_fiscal_document(
     document_id = existing.id
     sale_id = existing.sale_id
     document_type = existing.document_type
-    doc, _sale, _already = issue_fiscal_document(
+    from_status = existing.status
+    attempt = existing.attempt_count + 1
+
+    # A trilha específica da retentativa é gravada ANTES da tentativa, para
+    # entrar no mesmo commit que `issue_fiscal_document` executa. Escrita depois,
+    # ela ficava em um segundo commit: uma falha entre os dois deixava a
+    # tentativa concluída e sem `RETRY_REQUESTED`, que é justamente o que
+    # distingue uma retomada de uma primeira emissão. `write_audit_and_outbox`
+    # apenas adiciona à sessão, então a ordem é o que decide a atomicidade.
+    session.add(FiscalEvent(
+        tenant_id=context.tenant_id, store_id=existing.store_id,
+        fiscal_document_id=document_id, actor_id=actor_id,
+        event_type=FiscalEventTypeEnum.RETRY_REQUESTED,
+        details=f"Reprocessamento da tentativa {attempt}, a partir de {from_status.value}",
+    ))
+    reliability_service.write_audit_and_outbox(
+        session=session, tenant_id=context.tenant_id, store_id=existing.store_id,
+        actor_id=actor_id, action="fiscal.retry", target=f"FISCAL-{document_id}",
+        audit_payload={"attempt_count": attempt, "from_status": from_status.value},
+        aggregate_type="fiscal_document", aggregate_id=str(document_id),
+        event_type="fiscal.retry_requested",
+        outbox_payload={"fiscal_document_id": str(document_id), "attempt_count": attempt},
+        correlation_id=correlation_id,
+    )
+
+    doc, _sale, already = issue_fiscal_document(
         session, context, sale_id=sale_id, actor_id=actor_id,
         document_type=document_type, simulate_status=simulate_status,
         correlation_id=correlation_id,
     )
+    if already:
+        # O documento virou terminal entre a checagem e o lock: `issue_fiscal_document`
+        # retorna sem commit, e nenhuma tentativa aconteceu. Recusar aqui devolve o
+        # mesmo 409 da checagem e descarta a trilha pendente, em vez de registrar
+        # uma retomada que não ocorreu.
+        session.rollback()
+        raise HTTPException(status_code=409, detail="Documento fiscal não admite reprocessamento neste estado.")
     if doc.id != document_id:
         raise HTTPException(status_code=500, detail="Contrato fiscal violado: reprocessamento criou outro documento.")
-    session.add(FiscalEvent(
-        tenant_id=context.tenant_id, store_id=doc.store_id,
-        fiscal_document_id=doc.id, actor_id=actor_id,
-        event_type=FiscalEventTypeEnum.RETRY_REQUESTED,
-        details=f"Reprocessamento da tentativa {doc.attempt_count}",
-    ))
-    reliability_service.write_audit_and_outbox(
-        session=session, tenant_id=context.tenant_id, store_id=doc.store_id,
-        actor_id=actor_id, action="fiscal.retry", target=f"FISCAL-{doc.id}",
-        audit_payload={"attempt_count": doc.attempt_count, "status": doc.status.value},
-        aggregate_type="fiscal_document", aggregate_id=str(doc.id),
-        event_type="fiscal.retry_requested",
-        outbox_payload={"fiscal_document_id": str(doc.id), "attempt_count": doc.attempt_count},
-        correlation_id=correlation_id,
-    )
-    session.commit(); session.refresh(doc)
     return doc
 
 def cancel_fiscal_document(

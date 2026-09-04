@@ -3670,6 +3670,23 @@ export async function cancelFiscalDocument(
   return res.json()
 }
 
+export async function retryFiscalDocument(
+  headers: Record<string, string>,
+  fiscalDocumentId: string,
+  actorId: string
+): Promise<FiscalDocument> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/fiscal/documents/${fiscalDocumentId}/retry`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actor_id: actorId })
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || 'Erro ao reprocessar documento fiscal')
+  }
+  return res.json()
+}
+
 export async function getFiscalDocument(headers: Record<string, string>, fiscalDocumentId: string): Promise<FiscalDocument> {
   const res = await fetch(`${API_BASE_URL}/api/v1/fiscal/documents/${fiscalDocumentId}`, { headers })
   if (!res.ok) throw new Error('Documento fiscal não encontrado')
