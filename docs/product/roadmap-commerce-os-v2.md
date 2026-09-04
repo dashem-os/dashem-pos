@@ -1635,15 +1635,25 @@ como pareamento, mas permanece não executável até existir adapter homologado 
 nunca simulado como uma cobrança real. Pausa e revogação do vínculo impedem
 novas execuções, sem alterar transações já registradas.
 
-Estado: **OPEN — é o próximo gate corretivo.** `PaymentDeviceBinding` existe e é
-persistido com a cadeia completa tenant → unidade → caixa → POS → provider →
-meio de execução, e o S9 entregou o contrato de adapter, o `ProviderTransaction`
-e o protocolo do bridge. O que **falta é a prova**: em 04/09/2026 não existe
-teste dedicado ao Gate C. `PaymentDeviceBinding` só é exercitado de passagem por
-`test_gate_d_payment_audit.py` e `test_operational_pin_identity.py`, e os
-negativos que o gate exige — bridge de outro caixa, sessão operacional
-executando em vínculo alheio, vínculo pausado ainda executando — não são
-verificados em lugar nenhum.
+Estado: **PASSED em 4 de setembro de 2026.** A implementação já existia inteira
+em `provider_service._resolve_execution_binding`, que reconstrói a cadeia na
+mesma transação: tenant e unidade, caixa e POS ativos do vínculo, configuração
+de provider ativa da mesma unidade, modo de execução e, para TEF, o bridge
+pareado àquele caixa e provider. O que faltava era a prova, e a auditoria estava
+parcialmente errada sobre ela: o teste do S9 já cobria três dos oito critérios do
+ADR-022 — payload legado recusado, bridge offline sem bloquear outros meios, e
+SmartPOS recusado explicitamente.
+
+A matriz de cruzamento que faltava está em `tests/test_gate_c_payment_device_binding.py`:
+vínculo do tenant vizinho recusado nos dois sentidos com intent próprio de cada
+lado; vínculo pausado que deixa de executar e volta a executar ao ser reativado;
+POS revogado que órfã o vínculo ainda existente; e — no nível de serviço, porque
+a suíte HTTP roda sob `AUTH_MODE=disabled` e nunca entra no ramo — um turno PIN
+que só executa pelo seu próprio POS, com dois terminais no mesmo caixa
+compartilhando o bridge que pertence ao caixa.
+
+O gate externo de homologação de cada provider e do SmartPOS permanece
+independente e continua aberto.
 
 ### Gate D — auditoria imutável e projeções de produtividade
 
@@ -1656,13 +1666,21 @@ colaborador, com fórmulas
 publicadas, watermark e reconstrução integral a partir dos fatos. Testes
 negativos atravessam tenant, unidade, dispositivo e sessão.
 
-Estado: **implementado, aguardando o Gate C para ser declarado.** A migração
-`044_gate_d_payment_audit` cria trigger de imutabilidade e executa
+Estado: **desbloqueado em 04/09/2026, aguardando auditoria própria.** O que o
+impedia era o Gate C, agora `PASSED`. A implementação aparenta estar completa —
+a migração `044_gate_d_payment_audit` cria trigger de imutabilidade e executa
 `REVOKE UPDATE, DELETE` sobre as trilhas para o papel de runtime, de modo que a
-proibição vale fora do ORM; `OperationalProductivityProjection` existe como
-projeção persistida; `test_gate_d_payment_audit.py` cobre o conjunto. Não faz
-sentido declarar este gate antes do Gate C, porque a auditoria que ele torna
-imutável descreve execuções cuja cadeia o Gate C ainda não provou.
+proibição vale fora do ORM; `OperationalProductivityProjection` é projeção
+persistida por sessão operacional; `payment_audit_service.rebuild_productivity`
+reconstrói a partir dos fatos e `productivity_summary` devolve watermark; e
+`test_gate_d_payment_audit.py` cobre escopo imutável e produtividade
+reconstruível.
+
+**Não promovido junto com o Gate C, de propósito.** Promover por semelhança é o
+atalho que a auditoria de confronto existiu para desfazer. O ADR-023 exige
+também fórmulas publicadas e testes negativos atravessando tenant, unidade,
+dispositivo e sessão; nada disso foi conferido linha a linha. O gate espera uma
+leitura tão detalhada quanto a que fechou o Gate C.
 
 ## 12. Próximo passo autorizado por este roadmap
 

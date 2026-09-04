@@ -55,9 +55,14 @@ só por API. Isso explica a percepção registrada em 04/09 de que a tela de
 Terminais e dispositivos parece genérica: a metade do assunto que trata de
 pagamento não está lá.
 
-Falta também a prova do **Gate C**: não há teste dedicado à cadeia
-tenant → unidade → caixa → POS → provider → execução, nem aos negativos que o
-gate exige.
+**Correção de 04/09, mais tarde no mesmo dia.** A frase original dizia que não
+havia teste dedicado ao Gate C nem aos negativos que ele exige. Isso era
+**parcialmente falso**: `test_s9_payment_providers.py` já cobria três dos oito
+critérios do ADR-022 — o 1 (payload legado escolhendo provider e terminal é
+recusado com 422), o 4 (bridge offline não bloqueia dinheiro, PIX nem outra
+parcela) e o 5 (SmartPOS recusado com 409 explícito). O que faltava de fato era
+a **matriz de cruzamento**, critérios 2, 3 e 7, agora em
+`tests/test_gate_c_payment_device_binding.py`.
 
 ### S10 — Dashem Channel Hub · entregue no gate interno
 
