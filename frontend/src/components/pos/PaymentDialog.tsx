@@ -74,7 +74,7 @@ export const PaymentDialog: React.FC = () => {
     >
       <div className="flex flex-col space-y-4">
         {/* Financial Summary Card */}
-        <div className="grid grid-cols-3 gap-2 p-3 bg-slate-50 rounded-2xl border border-slate-200 text-center select-none">
+        <div className="grid grid-cols-1 min-[400px]:grid-cols-3 gap-2 p-3 bg-slate-50 rounded-2xl border border-slate-200 text-center select-none">
           <div>
             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Total da Venda</span>
             <span className="text-base sm:text-lg font-black text-slate-900">{formatCurrency(netTotal)}</span>

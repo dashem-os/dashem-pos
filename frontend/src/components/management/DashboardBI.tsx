@@ -1,3 +1,4 @@
+import { ResponsiveTable } from '../common/DataTable'
 import React, { useEffect, useMemo, useState } from 'react'
 import {
   AlertTriangle, ArrowRight, Banknote, Boxes, CheckCircle2, ChefHat, CircleDollarSign, Database,
@@ -282,7 +283,7 @@ export const DashboardBI: React.FC<{
             description="Assim que a equipe finalizar vendas com sessão autenticada, a produtividade aparece aqui."
           />
         : <div className="mt-5 overflow-x-auto">
-            <table className="w-full min-w-[760px] text-left text-xs">
+            <ResponsiveTable className="w-full min-w-[760px] text-left text-xs">
               <thead className="text-[10px] font-black uppercase tracking-wide text-dashem-muted">
                 <tr>
                   <th className="pb-3">Operador</th><th className="pb-3">Turnos</th><th className="pb-3">Solicitados</th>
@@ -304,7 +305,7 @@ export const DashboardBI: React.FC<{
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </ResponsiveTable>
           </div>}
     </Card>
 

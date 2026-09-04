@@ -42,7 +42,7 @@ export const CartItem: React.FC<CartItemProps> = ({ item, index }) => {
             <h4 className="text-xs sm:text-sm font-bold text-slate-900 leading-snug line-clamp-2">
               {item.product_name}
             </h4>
-            <div className="text-xs text-slate-400 font-mono flex items-center space-x-2 mt-0.5">
+            <div className="text-xs text-slate-400 font-mono flex flex-wrap items-center gap-x-2 mt-0.5">
               <span>{item.sku}</span>
               <span>•</span>
               <span className="text-slate-600 font-semibold">{formatCurrency(unitPrice)} / un</span>
@@ -62,7 +62,7 @@ export const CartItem: React.FC<CartItemProps> = ({ item, index }) => {
       </div>
 
       {/* Bottom Row: Touch Quantity Stepper & Line Subtotal */}
-      <div className="flex items-center justify-between pt-1.5 border-t border-slate-100">
+      <div className="flex flex-wrap gap-2 items-center justify-between pt-1.5 border-t border-slate-100">
         {/* Quantity Controls (Touch Targets >= 44x44px) */}
         <div className="flex items-center space-x-1 bg-slate-100 p-0.5 rounded-xl border border-slate-200">
           <button

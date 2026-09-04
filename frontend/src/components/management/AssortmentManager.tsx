@@ -1,3 +1,4 @@
+import { ResponsiveTable } from '../common/DataTable'
 import React, { useState, useEffect, useCallback } from 'react'
 import {
   Layers, Plus, Search, RefreshCw, AlertCircle,
@@ -448,7 +449,7 @@ export const AssortmentManager: React.FC = () => {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
+            <ResponsiveTable className="w-full text-left text-xs">
               <thead className="bg-dashem-surface-elevated text-dashem-muted font-extrabold uppercase tracking-wider text-[10px] border-b border-dashem-border">
                 <tr>
                   <th className="px-5 py-3.5">Código / Nome</th>
@@ -530,7 +531,7 @@ export const AssortmentManager: React.FC = () => {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </ResponsiveTable>
           </div>
         )}
       </div>
@@ -538,7 +539,7 @@ export const AssortmentManager: React.FC = () => {
       {/* Modal: Create Assortment */}
       {isCreateOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="w-full max-w-lg bg-dashem-surface border border-dashem-border rounded-3xl p-6 shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto">
+          <div className="responsive-dialog w-full max-w-lg bg-dashem-surface border border-dashem-border rounded-3xl p-6 shadow-2xl space-y-5 max-h-[calc(100dvh-2rem)] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-dashem-border pb-4">
               <h2 className="text-base font-black text-dashem-strong">Criar Novo Sortimento</h2>
               <button onClick={() => setIsCreateOpen(false)} className="text-dashem-muted hover:text-dashem-strong">
@@ -600,7 +601,7 @@ export const AssortmentManager: React.FC = () => {
               <div>
                 <label className="block text-[11px] font-bold text-dashem-muted uppercase tracking-wider mb-1">Contextos Operacionais Habilitados</label>
                 <p className="text-xs text-dashem-muted mb-2">Selecione as jornadas em que este sortimento será publicado na unidade ativa:</p>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {AVAILABLE_CONTEXTS.map((item) => {
                     const ctx = item.key
                     const scope = store ? formScopes.find(s => s.store_id === store.id && s.sales_context === ctx) : null
@@ -660,7 +661,7 @@ export const AssortmentManager: React.FC = () => {
       {/* Modal: Edit Assortment */}
       {editingAssortment && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="w-full max-w-lg bg-dashem-surface border border-dashem-border rounded-3xl p-6 shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto">
+          <div className="responsive-dialog w-full max-w-lg bg-dashem-surface border border-dashem-border rounded-3xl p-6 shadow-2xl space-y-5 max-h-[calc(100dvh-2rem)] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-dashem-border pb-4">
               <div>
                 <h2 className="text-base font-black text-dashem-strong">Editar Sortimento</h2>
@@ -733,7 +734,7 @@ export const AssortmentManager: React.FC = () => {
 
               <div>
                 <label className="block text-[11px] font-bold text-dashem-muted uppercase tracking-wider mb-1">Contextos Operacionais Habilitados</label>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {AVAILABLE_CONTEXTS.map((item) => {
                     const ctx = item.key
                     const scope = store ? formScopes.find(s => s.store_id === store.id && s.sales_context === ctx) : null
@@ -793,7 +794,7 @@ export const AssortmentManager: React.FC = () => {
       {/* Modal: Manage Products */}
       {managingProductsAssortment && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="w-full max-w-2xl bg-dashem-surface border border-dashem-border rounded-3xl p-6 shadow-2xl space-y-5 max-h-[90vh] flex flex-col">
+          <div className="responsive-dialog w-full max-w-2xl bg-dashem-surface border border-dashem-border rounded-3xl p-6 shadow-2xl space-y-5 max-h-[calc(100dvh-2rem)] flex flex-col">
             <div className="flex items-center justify-between border-b border-dashem-border pb-4">
               <div>
                 <h2 className="text-base font-black text-dashem-strong">Produtos do Sortimento</h2>
@@ -844,7 +845,7 @@ export const AssortmentManager: React.FC = () => {
                   Nenhum produto vinculado a este sortimento. Utilize o seletor acima para adicionar produtos.
                 </div>
               ) : (
-                <table className="w-full min-w-[32rem] text-left text-xs">
+                <ResponsiveTable className="w-full min-w-[32rem] text-left text-xs">
                   <thead className="bg-dashem-surface-elevated text-dashem-muted font-bold text-[10px] uppercase border-b border-dashem-border">
                     <tr>
                       <th className="px-4 py-2.5">Produto</th>
@@ -873,7 +874,7 @@ export const AssortmentManager: React.FC = () => {
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                </ResponsiveTable>
               )}
             </div>
 

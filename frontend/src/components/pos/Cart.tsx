@@ -22,7 +22,7 @@ export const Cart: React.FC = () => {
   }
 
   return (
-    <div className="flex-1 overflow-y-auto pr-0.5 space-y-2 my-2 scrollbar-thin">
+    <div className="min-h-24 flex-1 overflow-y-auto pr-0.5 space-y-2 my-2 scrollbar-thin">
       {items.map((item, index) => (
         <CartItem key={item.id} item={item} index={index} />
       ))}

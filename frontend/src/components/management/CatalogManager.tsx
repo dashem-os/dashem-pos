@@ -362,7 +362,7 @@ export const CatalogManager: React.FC = () => {
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-dashem-strong block">SKU / Código</label>
               <input
@@ -411,7 +411,7 @@ export const CatalogManager: React.FC = () => {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-dashem-strong block">Tipo</label>
               <select
@@ -533,7 +533,7 @@ export const CatalogManager: React.FC = () => {
         </form>
       </Modal>
 
-      <Modal isOpen={Boolean(productToArchive)} onClose={() => setProductToArchive(null)} title="Arquivar item do catálogo" subtitle="O item deixa o PDV sem apagar seu histórico."><div className="space-y-4"><p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-700">{productToArchive?.name} será retirado da venda e do acesso rápido. Vendas, estoque e auditoria permanecem preservados.</p><div className="grid grid-cols-2 gap-3"><button onClick={() => setProductToArchive(null)} className="h-11 rounded-xl border border-dashem-border font-black text-dashem-strong">Cancelar</button><button disabled={actionLoading} onClick={() => void archiveProduct()} className="h-11 rounded-xl bg-amber-600 font-black text-white disabled:opacity-40">Arquivar item</button></div></div></Modal>
+      <Modal isOpen={Boolean(productToArchive)} onClose={() => setProductToArchive(null)} title="Arquivar item do catálogo" subtitle="O item deixa o PDV sem apagar seu histórico."><div className="space-y-4"><p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-700">{productToArchive?.name} será retirado da venda e do acesso rápido. Vendas, estoque e auditoria permanecem preservados.</p><div className="grid grid-cols-1 sm:grid-cols-2 gap-3"><button onClick={() => setProductToArchive(null)} className="h-11 rounded-xl border border-dashem-border font-black text-dashem-strong">Cancelar</button><button disabled={actionLoading} onClick={() => void archiveProduct()} className="h-11 rounded-xl bg-amber-600 font-black text-white disabled:opacity-40">Arquivar item</button></div></div></Modal>
     </div>
   )
 }

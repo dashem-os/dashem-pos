@@ -123,7 +123,7 @@ export const ManagementLayout: React.FC = () => {
 
   return (
     <div className="flex min-h-screen bg-dashem-bg font-sans text-dashem-strong">
-      <aside className="sticky top-0 hidden h-screen w-72 shrink-0 flex-col border-r border-dashem-border bg-dashem-surface p-6 md:flex">
+      <aside className="sticky top-0 hidden h-dvh w-72 shrink-0 flex-col border-r border-dashem-border bg-dashem-surface p-6 lg:flex">
         <Brand />
         <div className="mt-8 flex-1 overflow-y-auto pr-2">{navigation}</div>
         <div className="mt-5 rounded-2xl border border-dashem-border bg-dashem-surface-elevated p-4">
@@ -133,7 +133,7 @@ export const ManagementLayout: React.FC = () => {
       </aside>
 
       {mobileNavigationOpen && (
-        <div className="fixed inset-0 z-50 md:hidden">
+        <div className="fixed inset-0 z-50 lg:hidden">
           <button aria-label="Fechar menu" className="absolute inset-0 bg-slate-950/50" onClick={() => setMobileNavigationOpen(false)} />
           <aside className="relative h-full w-[min(90vw,22rem)] overflow-y-auto bg-dashem-surface p-5 shadow-2xl">
             <div className="flex items-center justify-between">
@@ -148,7 +148,7 @@ export const ManagementLayout: React.FC = () => {
       <div className="min-w-0 flex-1">
         <header className="sticky top-0 z-30 flex h-[72px] items-center justify-between gap-3 border-b border-dashem-border bg-dashem-surface/95 px-4 backdrop-blur sm:px-7">
           <div className="flex min-w-0 items-center gap-3">
-            <Button variant="secondary" icon={Menu} onClick={() => setMobileNavigationOpen(true)} aria-label="Abrir menu" className="px-3 md:hidden" />
+            <Button variant="secondary" icon={Menu} onClick={() => setMobileNavigationOpen(true)} aria-label="Abrir menu" className="px-3 lg:hidden" />
             <StoreIcon className="hidden h-5 w-5 shrink-0 text-brand-ink sm:block" />
             <div className="min-w-0">
               <p className="truncate text-sm font-black text-dashem-strong">{selected?.label || 'Gestão'}</p>
@@ -156,10 +156,10 @@ export const ManagementLayout: React.FC = () => {
             </div>
           </div>
           <div className="flex shrink-0 gap-2">
-            <Button icon={ShoppingCart} onClick={() => navigateTo('/pos?access=management')}>
+            <Button icon={ShoppingCart} aria-label="Validar no PDV" onClick={() => navigateTo('/pos?access=management')}>
               <span className="hidden sm:inline">Validar no PDV</span>
             </Button>
-            <Button variant="secondary" icon={LogOut} onClick={signOut}>
+            <Button variant="secondary" icon={LogOut} aria-label="Sair" onClick={signOut}>
               <span className="hidden xl:inline">Sair</span>
             </Button>
           </div>

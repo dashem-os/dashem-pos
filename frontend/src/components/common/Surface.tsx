@@ -18,7 +18,7 @@ const PADDINGS = { none: '', sm: 'p-4', md: 'p-5', lg: 'p-6' }
 export const Card: React.FC<CardProps> = ({
   as: Tag = 'section', tone = 'plain', padding = 'md', className = '', children, ...rest
 }) => (
-  <Tag className={`rounded-2xl ${TONES[tone]} ${PADDINGS[padding]} ${className}`} {...rest}>
+  <Tag className={`min-w-0 rounded-2xl ${TONES[tone]} ${PADDINGS[padding]} ${className}`} {...rest}>
     {children}
   </Tag>
 )
@@ -34,7 +34,7 @@ export interface SectionHeaderProps {
 }
 
 export const SectionHeader: React.FC<SectionHeaderProps> = ({ eyebrow, title, description, actions, className = '' }) => (
-  <div className={`flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between ${className}`}>
+  <div className={`flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between ${className}`}>
     <div className="min-w-0">
       {eyebrow && <p className="text-[11px] font-extrabold uppercase tracking-[.16em] text-brand-ink">{eyebrow}</p>}
       <h2 className="mt-1 text-lg font-black tracking-tight text-dashem-strong">{title}</h2>

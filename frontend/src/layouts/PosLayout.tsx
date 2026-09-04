@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import {
   Store as StoreIcon,
   ShoppingBag,
@@ -76,6 +76,23 @@ export const PosLayout: React.FC = () => {
   const canCloseCash = permissions.includes('cash.close')
   const roleLabel = operationalRoleLabel(operatorRole)
 
+  /**
+   * The float is counted at the start of the shift it belongs to.
+   *
+   * Both amounts survived their own operation, so after closing a till the
+   * opening field came back already filled with the previous shift's figure and
+   * the button came back enabled. Confirming a number nobody counted is a money
+   * defect, not a cosmetic one: the difference only surfaces at the next close,
+   * with no trace of where it came from.
+   *
+   * Clearing on the session itself — rather than inside the handlers — keeps a
+   * failed attempt intact, so a refused opening does not make anyone retype.
+   */
+  useEffect(() => {
+    setOpeningBalanceInput('')
+    setClosingBalanceInput('')
+  }, [cashSession?.id, cashSession?.status])
+
   const handleOpenCash = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!canOpenCash) return
@@ -86,18 +103,18 @@ export const PosLayout: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900 flex flex-col font-sans selection:bg-brand selection:text-brand-contrast pb-20 lg:pb-0">
+    <div className="min-h-screen bg-slate-100 text-slate-900 flex flex-col font-sans selection:bg-brand selection:text-brand-contrast pb-[calc(9rem+env(safe-area-inset-bottom))] sm:pb-[calc(6rem+env(safe-area-inset-bottom))] lg:pb-0">
       {/* ========================================================================= */}
       {/* COMPACT OPERATIONAL HEADER (56px)                                         */}
       {/* ========================================================================= */}
-      <header className="h-14 gap-2 px-3 sm:px-6 bg-white border-b border-slate-200 flex items-center justify-between shrink-0 z-30 select-none shadow-xs">
+      <header className="min-h-14 flex-wrap gap-2 py-2 px-3 sm:px-6 bg-white border-b border-slate-200 flex items-center justify-between shrink-0 z-30 select-none shadow-xs">
         {/* Brand & Instance Identification */}
         <div className="flex min-w-0 items-center space-x-3">
-          <div className="w-8 h-8 rounded-xl bg-brand flex items-center justify-center font-black text-brand-contrast text-base shadow-sm">
+          <div className="w-8 h-8 shrink-0 rounded-xl bg-brand flex items-center justify-center font-black text-brand-contrast text-base shadow-sm">
             D
           </div>
-          <div>
-            <div className="flex items-center space-x-2">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="font-black text-sm sm:text-base leading-none tracking-tight text-slate-900">
                 DASHEM <span className="text-brand-ink">PDV</span>
               </span>
@@ -136,7 +153,7 @@ export const PosLayout: React.FC = () => {
         </div>
 
         {/* Right Status Pill & Navigation */}
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex max-w-full flex-wrap items-center gap-2">
           <div className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold border ${
             connectionState === 'ONLINE' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-800 border-amber-200'
           }`}>
@@ -397,7 +414,7 @@ export const PosLayout: React.FC = () => {
       {/* FIXED BOTTOM BAR (Active for viewports < 1024px, e.g. 846x870, Tablets)   */}
       {/* ========================================================================= */}
       {isCashOpen && (
-        <div className="lg:hidden fixed bottom-0 left-0 right-0 p-3 bg-white border-t border-slate-200 shadow-2xl z-30 flex items-center justify-between">
+        <div className="lg:hidden fixed bottom-0 left-0 right-0 gap-2 flex-wrap p-3 pb-[max(.75rem,env(safe-area-inset-bottom))] bg-white border-t border-slate-200 shadow-2xl z-30 flex items-center justify-between">
           <button
             type="button"
             onClick={() => setIsMobileCartOpen(true)}
@@ -452,7 +469,7 @@ export const PosLayout: React.FC = () => {
       {/* Cart Drawer for Viewports < 1024px */}
       {isMobileCartOpen && (
         <div className="lg:hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex flex-col justify-end animate-in fade-in">
-          <div className="bg-white border-t border-slate-200 rounded-t-3xl p-4 max-h-[85vh] flex flex-col space-y-3 shadow-2xl animate-in slide-in-from-bottom duration-200">
+          <div className="bg-white border-t border-slate-200 rounded-t-3xl p-4 max-h-[calc(100dvh-1rem)] overflow-y-auto overscroll-contain pb-[max(1rem,env(safe-area-inset-bottom))] flex flex-col space-y-3 shadow-2xl animate-in slide-in-from-bottom duration-200">
             <div className="flex items-center justify-between pb-2 border-b border-slate-100">
               <h3 className="text-sm font-black text-slate-900 flex items-center space-x-2">
                 <ShoppingBag className="w-4 h-4 text-brand-ink" />

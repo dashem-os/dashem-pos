@@ -34,7 +34,7 @@ export function DataTable<Row>({ columns, rows, rowKey, empty, className = '' }:
   const details = columns.filter((column) => column !== primary && !column.actions)
 
   return (
-    <div className={className}>
+    <div className={`min-w-0 ${className}`}>
       {/* Wide: the table proper. */}
       <div className="hidden overflow-x-auto md:block">
         <table className="w-full text-left text-sm">
@@ -66,7 +66,7 @@ export function DataTable<Row>({ columns, rows, rowKey, empty, className = '' }:
         {rows.map((row) => (
           <li key={rowKey(row)} className="rounded-2xl border border-dashem-border bg-dashem-surface p-4">
             <div className="text-sm font-black text-dashem-strong">{primary.cell(row)}</div>
-            <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3">
+            <dl className="mt-3 grid grid-cols-1 min-[400px]:grid-cols-2 gap-x-4 gap-y-3">
               {details.filter((column) => !column.wideOnly).map((column) => (
                 <div key={column.key} className="min-w-0">
                   <dt className="text-xs font-black uppercase tracking-wide text-dashem-muted">{column.header}</dt>
@@ -84,4 +84,40 @@ export function DataTable<Row>({ columns, rows, rowKey, empty, className = '' }:
       </ul>
     </div>
   )
+}
+
+/** Preserve one set of rows and actions while stacking legacy tables on phones.
+ * Column labels come from the existing header, so mobile cannot drift from it.
+ * Explicit roles preserve table semantics when CSS changes the display mode.
+ */
+export function ResponsiveTable({ children, className = '', ...props }: React.TableHTMLAttributes<HTMLTableElement>) {
+  const sections = React.Children.toArray(children)
+  const labels: React.ReactNode[] = []
+  for (const section of sections) {
+    if (!React.isValidElement<{ children?: React.ReactNode }>(section) || section.type !== 'thead') continue
+    React.Children.forEach(section.props.children, row => {
+      if (!React.isValidElement<{ children?: React.ReactNode }>(row)) return
+      React.Children.forEach(row.props.children, cell => {
+        if (React.isValidElement<{ children?: React.ReactNode }>(cell)) labels.push(cell.props.children)
+      })
+    })
+  }
+  return <table {...props} role="table" className={`responsive-table ${className}`}>
+    {sections.map(section => {
+      if (!React.isValidElement<{ children?: React.ReactNode; role?: string }>(section)
+        || !['thead', 'tbody', 'tfoot'].includes(String(section.type))) return section
+      return React.cloneElement(section, { role: 'rowgroup' }, React.Children.map(section.props.children, row => {
+        if (!React.isValidElement<{ children?: React.ReactNode; role?: string }>(row)) return row
+        return React.cloneElement(row, { role: 'row' }, React.Children.map(row.props.children, (cell, index) => {
+          if (!React.isValidElement<React.TdHTMLAttributes<HTMLTableCellElement>>(cell)) return cell
+          if (cell.type === 'th') return React.cloneElement(cell, { scope: 'col', role: 'columnheader' })
+          if (cell.type !== 'td') return cell
+          return React.cloneElement(cell, { role: 'cell' }, <>
+            {!cell.props.colSpan && labels[index] && <span aria-hidden="true" className="responsive-table-label">{labels[index]}</span>}
+            {cell.props.children}
+          </>)
+        }))
+      }))
+    })}
+  </table>
 }

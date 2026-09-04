@@ -331,3 +331,14 @@ test('opening a till is never hidden behind a breakpoint', async () => {
   const forms = layout.match(/<form onSubmit=\{handleOpenCash\}/g) ?? []
   assert.equal(forms.length, 2, 'uma abertura no cartão bloqueante, outra na conferência')
 })
+
+test('cash amounts never carry from one shift into the next', async () => {
+  // After closing a till, the opening field came back holding the previous
+  // shift's float and the button came back enabled. Confirming a figure nobody
+  // counted is a money defect: the difference only surfaces at the next close.
+  const layout = await source('../src/layouts/PosLayout.tsx')
+  const effect = layout.match(/useEffect\(\(\) => \{[^}]*setOpeningBalanceInput\(''\)[^}]*\}, \[[^\]]*\]\)/)
+  assert.ok(effect, 'Os valores de caixa precisam ser zerados quando a sessão muda.')
+  assert.match(effect[0], /setClosingBalanceInput\(''\)/)
+  assert.match(effect[0], /cashSession\?\.(id|status)/)
+})

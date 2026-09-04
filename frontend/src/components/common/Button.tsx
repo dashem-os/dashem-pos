@@ -37,12 +37,12 @@ export const Button: React.FC<ButtonProps> = ({
   variant = 'primary', size = 'md', loading = false, icon: Icon, iconRight: IconRight,
   block = false, className = '', children, disabled, type = 'button', ...rest
 }) => {
-  const iconClass = ICON_SIZES[size]
+  const iconClass = `${ICON_SIZES[size]} shrink-0`
   return (
     <button
       type={type}
       disabled={disabled || loading}
-      className={`inline-flex items-center justify-center font-bold tracking-tight transition
+      className={`inline-flex max-w-full items-center justify-center font-bold tracking-tight transition
         disabled:cursor-not-allowed disabled:opacity-50
         ${VARIANTS[variant]} ${SIZES[size]} ${block ? 'w-full' : ''} ${className}`}
       {...rest}

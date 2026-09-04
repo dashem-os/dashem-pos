@@ -61,6 +61,17 @@
 @layer base {
   body {
     @apply min-h-screen bg-dashem-bg font-sans text-dashem-strong antialiased selection:bg-brand selection:text-brand-contrast;
+    overflow-wrap: anywhere;
+  }
+
+  /* Let content shrink inside grids and flex rows, including long names/IDs. */
+  :where(.flex, .inline-flex, .grid) > * {
+    min-width: 0;
+  }
+
+  input, select, textarea {
+    min-width: 0;
+    max-width: 100%;
   }
 
   /*
@@ -79,6 +90,57 @@
   summary:focus-visible,
   [role='button']:focus-visible {
     @apply outline-none ring-2 ring-brand-ink ring-offset-2 ring-offset-dashem-surface;
+  }
+}
+
+/* Shared sizing for bespoke dialogs; typography and colors stay with callers. */
+.responsive-dialog {
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.responsive-table-label {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  .responsive-table,
+  .responsive-table tbody,
+  .responsive-table tfoot {
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .responsive-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .responsive-table tbody > tr,
+  .responsive-table tfoot > tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    padding: .5rem;
+  }
+
+  .responsive-table td {
+    display: block;
+    min-width: 0;
+    padding: .5rem .75rem;
+    text-align: start;
+    white-space: normal;
+  }
+
+  .responsive-table-label {
+    display: block;
+    margin-bottom: .25rem;
   }
 }
 
