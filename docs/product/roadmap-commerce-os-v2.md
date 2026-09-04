@@ -728,53 +728,19 @@ Gate:
 
 ### S8 — Checkout Negotiation e Payment Orchestrator
 
-Estado: **PARCIAL** ([auditoria de confronto de 04/09/2026](../quality/sprint-confrontation-audit-2026-09-04.md)). Negociação, intents, allocations e parcial levando a
-sessão a `PARTIALLY_PAID` estão construídos, mas só o fluxo de **mesa** consome:
-o fechamento de balcão segue no caminho antigo de `Sale`, coexistência que o
-roadmap previa e cuja migração não foi concluída nem datada. Dividir a conta por
-pessoa não é representável — o parcial é por valor, não por consumidor.
+Estado: **concluído no gate interno em 04/09/2026** ([auditoria de confronto](../quality/sprint-confrontation-audit-2026-09-04.md)).
+O núcleo já existia; a metade que faltava — a tela — foi entregue no mesmo dia.
+`PaymentProviderManager` cadastra e reconfigura provedores, pareia bridge com
+telemetria, vincula maquininha a um caixa e pausa, reativa ou revoga o vínculo,
+com SmartPOS explicitamente marcado como cadastro sem execução. Navegação por
+contribuição sob a capability `tef` e `provider.read`, escritas sob
+`provider.configure` (migração `072`).
 
-Objetivo: criar a autoridade única da conta e incorporar o motor financeiro já
-existente sem confundir consumo, cobertura financeira e encerramento da mesa.
-
-Entregas:
-
-- `CheckoutNegotiation` vinculada a uma `TableSession` ou a um ou mais Orders;
-- snapshot server-side de subtotal, taxas, descontos, acréscimos e total devido;
-- uma negociação ativa por escopo de fechamento, com versão e lock;
-- `PaymentIntent`, `PaymentAllocation` e saldo restante autoritativo;
-- incorporação dos pagamentos atuais de dinheiro, PIX e cartão manual ao
-  orchestrator, preservando idempotência, split, parcial e troco;
-- split por valor, pessoa ou seleção de itens quando aplicável, com allocations
-  rastreáveis até a obrigação coberta;
-- parcelas independentes: falha posterior não desfaz confirmação anterior;
-- projeção única para POS: total, pago confirmado, em processamento, falhou e
-  falta pagar;
-- transição de `TableSession` para `PARTIALLY_PAID` sem alterar o estado físico
-  da mesa;
-- finalização explícita, com Sale e snapshots consistentes, somente após
-  cobertura integral e gates aplicáveis.
-
-Gate:
-
-- conta de R$ 64,90 aceita R$ 10 em dinheiro + R$ 20 em outro meio e permanece
-  aberta com R$ 34,90 de saldo;
-- falha na terceira parcela preserva as duas primeiras e permite retomada;
-- dois pagamentos concorrentes não ultrapassam o devido;
-- retry não duplica intent, confirmação, allocation, movimento de caixa ou Sale;
-- alteração do consumo invalida ou versiona negociação ainda não finalizada,
-  sem recalcular silenciosamente uma conta observada anteriormente;
-- saldo zero isolado não libera mesa e finalização rejeita impedimento operacional;
-- tenant/store diferente não lê nem altera negociação ou pagamento;
-- UI não calcula o saldo autoritativo e não cria pagamento apenas para simular fluxo.
-
-### S9 — Payment Providers e Dashem TEF Bridge
-
-Estado: **PARCIAL** ([auditoria de confronto de 04/09/2026](../quality/sprint-confrontation-audit-2026-09-04.md)). Núcleo construído: configuração de provider, terminal
-de bridge, vínculo de dispositivo, transação, eventos de execução e projeção de
-produtividade. Falta a **tela de cadastro** — nenhum componente consome
-`fetchProviderConfigurations`, então provider, bridge e vínculo de maquininha só
-existem por API — e falta a prova do Gate C.
+Duas ressalvas: o **Gate C continua `OPEN`** — entregar a tela não prova a
+cadeia de execução —, e a aceitação de interface
+(`frontend/e2e/payment_providers/`) **roda apenas à mão**, contra a API local.
+Ela provou a entrega e não é protegida pelo CI: se a tela regredir, nada avisa.
+O gate externo de homologação de cada provider permanece independente.
 
 Objetivo: executar parcelas por providers intercambiáveis sem colocar SDK nativo
 ou indisponibilidade externa dentro da regra de venda.
