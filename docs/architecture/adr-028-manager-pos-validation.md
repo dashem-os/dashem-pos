@@ -42,6 +42,27 @@ validados pelo backend.
 - colaboradores continuam sem acesso à Gestão e não podem transformar uma
   sessão comum em sessão gerencial pela URL.
 
+## Nota de 3 de setembro de 2026 — invariante que foi violado
+
+A decisão do dono do SaaS de exigir sessão operacional para **abrir e fechar
+caixa** (matriz de OA-4, cenário 14) foi implementada retirando esses controles
+da identidade administrativa. O efeito colateral desfez esta ADR: como a área
+operacional do PDV só era desenhada com o caixa aberto, e o gestor deixou de
+poder abrir o caixa, **Validar no PDV** passou a exibir apenas um cartão de
+caixa fechado. A entrada continuou existindo e parou de servir para o que
+existe.
+
+Fica explícito o invariante, para que possa ser verificado:
+
+> A conferência gerencial nunca depende do estado do caixa. O que a matriz
+> restringe são **mutações** — abrir e fechar caixa, e vender, que exige caixa
+> aberto para qualquer perfil. Ver catálogo, preços, ambientes, mesas e
+> permissões é a finalidade da entrada e não é restringível por turno.
+
+Com o caixa fechado, a identidade administrativa recebe o PDV completo em modo
+de conferência, com a coluna de venda substituída pela explicação do estado.
+Coberto por `frontend/tests/shell_boundaries.test.ts`.
+
 ## Fora desta decisão
 
 - separar ou corrigir catálogos associados à atividade comercial errada;

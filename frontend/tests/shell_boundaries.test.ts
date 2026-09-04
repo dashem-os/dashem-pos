@@ -291,3 +291,19 @@ test('the POS header still names who is on shift, exactly once', async () => {
     'O cabeçalho do PDV precisa nomear o colaborador do turno em exatamente um nó sempre visível.',
   )
 })
+
+test('managerial validation reaches the POS workspace with the till closed', async () => {
+  // ADR-028 exists so the administrator can check the catalogue, the prices and
+  // the environments as they reach the operator. Opening a till now requires a
+  // personal PIN, so gating the workspace on an open till left that entrance
+  // showing nothing at all — the decision was undone by a side effect.
+  const layout = await source('../src/layouts/PosLayout.tsx')
+  assert.match(
+    layout,
+    /\{!isCashOpen && !managementValidation \?/,
+    'A conferência gerencial não pode depender de um caixa aberto.',
+  )
+  // And nothing may be sold from it: a sale needs a till, whoever is looking.
+  const grid = await source('../src/components/pos/QuickProductGrid.tsx')
+  assert.match(grid, /canSell =[^\n]*cashSession\?\.status === 'OPEN'/)
+})

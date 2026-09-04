@@ -4,8 +4,11 @@ import { usePos } from '../../context/PosContext'
 import { formatCurrency, formatStock } from '../../utils/format'
 
 export const QuickProductGrid: React.FC = () => {
-  const { products, categories, prices, balances, addItemToCart, actionLoading, permissions, connectionState } = usePos()
-  const canSell = permissions.includes('sale.create') && connectionState === 'ONLINE'
+  const { products, categories, prices, balances, addItemToCart, actionLoading, permissions, connectionState, cashSession } = usePos()
+  // A sale needs an open till, the same rule the search field already applied.
+  // The grid only got away without it because it was never drawn on a closed
+  // till — until managerial validation started reaching this screen.
+  const canSell = permissions.includes('sale.create') && connectionState === 'ONLINE' && cashSession?.status === 'OPEN'
   const [activeTab, setActiveTab] = useState<string>('ALL')
 
   // Per-member, per-store quick access persisted by the backend.

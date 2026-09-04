@@ -217,8 +217,14 @@ export const PosLayout: React.FC = () => {
 
       {/* ========================================================================= */}
       {/* CASH CLOSED BLOCKING STATE                                                */}
+      {/*                                                                           */}
+      {/* It blocks whoever came to sell. ADR-028 exists so the administrator can    */}
+      {/* check the catalogue, the prices and the environments as they reach the     */}
+      {/* operator, and that check cannot depend on someone having opened a till —   */}
+      {/* opening one now requires a personal PIN, so the manager would be left      */}
+      {/* with an entrance that shows nothing.                                      */}
       {/* ========================================================================= */}
-      {!isCashOpen ? (
+      {!isCashOpen && !managementValidation ? (
         <main className="flex-1 flex items-center justify-center p-4">
           <div className="w-full max-w-md bg-white border border-slate-200 rounded-3xl p-8 shadow-xl text-center flex flex-col items-center space-y-4 animate-in fade-in zoom-in-95 duration-200">
             <div className="w-16 h-16 rounded-2xl bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center shadow-xs">
@@ -318,21 +324,36 @@ export const PosLayout: React.FC = () => {
           {/* RIGHT COLUMN (DESKTOP >= 1024px): "Venda atual" + Items + Totals.
               Fluid width: a hard 380px squeezed the product grid between 1024 and 1150px. */}
           <div className="hidden lg:flex flex-col w-[clamp(20rem,30vw,27rem)] shrink-0 bg-white border border-slate-200 rounded-3xl p-4 overflow-hidden shadow-sm justify-between">
-            <div className="flex items-center justify-between pb-2.5 border-b border-slate-100 shrink-0">
-              <h2 className="text-sm font-black text-slate-900 flex items-center space-x-2">
-                <ShoppingBag className="w-4 h-4 text-brand-ink" />
-                <span>Venda Atual</span>
-              </h2>
-              <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
-                {items.length} {items.length === 1 ? 'item' : 'itens'}
-              </span>
-            </div>
+            {isCashOpen ? <>
+              <div className="flex items-center justify-between pb-2.5 border-b border-slate-100 shrink-0">
+                <h2 className="text-sm font-black text-slate-900 flex items-center space-x-2">
+                  <ShoppingBag className="w-4 h-4 text-brand-ink" />
+                  <span>Venda Atual</span>
+                </h2>
+                <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
+                  {items.length} {items.length === 1 ? 'item' : 'itens'}
+                </span>
+              </div>
 
-            {/* Scrollable Cart Items */}
-            <Cart />
+              {/* Scrollable Cart Items */}
+              <Cart />
 
-            {/* Fixed Totals & Receber Action Button */}
-            <SaleTotals />
+              {/* Fixed Totals & Receber Action Button */}
+              <SaleTotals />
+            </> : <div className="flex flex-1 flex-col justify-center space-y-3 text-center">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-rose-200 bg-rose-50 text-rose-600">
+                <Lock className="h-7 w-7" />
+              </div>
+              <h2 className="text-sm font-black text-slate-900">Conferência gerencial</h2>
+              <p className="text-xs font-medium leading-5 text-slate-500">
+                Você está vendo o PDV como ele chega ao operador. Catálogo, preços,
+                ambientes e permissões são os reais desta unidade.
+              </p>
+              <p className="text-xs font-bold leading-5 text-slate-700">
+                A venda começa quando um Caixa ou Supervisor assumir o turno com
+                código e PIN neste terminal.
+              </p>
+            </div>}
           </div>
         </main>
       )}
