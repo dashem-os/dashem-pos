@@ -23,6 +23,8 @@
 | Item, desconto, cancelamento e split | `test_pos5_operational_flows.py` |
 | Rotas críticas frontend/FastAPI permanecem alinhadas | `test_frontend_api_contract.py` |
 | Login, rota, contexto único, carrinho, split e caixa | `frontend/tests/*.test.ts` |
+| Rota do backend que nenhuma tela alcança não cresce; função do cliente sem consumidor não cresce | `test_surface_reachability.py` |
+| Guard de timestamp conhece todo campo de data do contrato, não só os sufixos `_at`/`_until` | `test_frontend_api_contract.py`, `frontend/tests/api_timestamps.test.ts` |
 
 ## Lacunas bloqueadoras reabertas em 25/08/2026
 
