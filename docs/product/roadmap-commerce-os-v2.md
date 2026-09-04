@@ -1363,8 +1363,12 @@ Gate:
 - ausência de contrato/hardware externo não é mascarada por integração fake;
 - incidente crítico bloqueia expansão até correção e novo gate verde.
 
-Estado: **NO-GO; bloqueado pelo Gate B reaberto**. A instrumentação interna está
-implementada, mas a validação comercial em campo não pode começar. O Control
+Estado: **NO-GO, mas o motivo mudou em 04/09/2026**. Nenhum gate corretivo
+nosso barra mais o piloto: A, B, C e D estão `PASSED`. O que resta é externo —
+homologação de provider e certificação de canal, que dependem de contrato,
+credencial e hardware de terceiros — somado ao que este próprio sprint exige
+abaixo. A instrumentação interna está implementada, mas a validação comercial em
+campo não pode começar. O Control
 persiste escopo, release de hardening, observações por
 tarefa e gates de incidente. O dossiê só inicia após hardening `PASSED` e profile
 `FOOD_SERVICE` ativo. TEF sem homologação e canal sem certificação são recusados.
