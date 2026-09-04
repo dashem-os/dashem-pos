@@ -70,5 +70,5 @@ token ou código de colaborador.
 2. Registrar a evidência sanitizada de cada um neste mesmo formato.
 3. Submeter a decisão do Gate B com base nas duas execuções somadas.
 
-Enquanto isso não ocorrer, o Gate B permanece `REOPENED` e o piloto permanece
+*(Cumprido em 04/09/2026: a rodada credenciada fechou `14/14` e o Gate B foi promovido a `PASSED`.)* Até ali, o Gate B permanecia `REOPENED` e o piloto permanecia
 `NO-GO`.

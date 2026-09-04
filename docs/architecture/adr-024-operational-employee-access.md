@@ -175,7 +175,7 @@ oferecer seletor de tenant, unidade, caixa, dispositivo ou função.
 
 ## Consequências
 
-- o Gate B volta a `REOPENED` até backend, frontend, E2E e deploy obedecerem a
+- o Gate B volta a `REOPENED` — *ocorreu, e foi promovido a `PASSED` em 04/09/2026* — até backend, frontend, E2E e deploy obedecerem a
   este contrato;
 - Gates C e D preservam sua implementação, mas ficam bloqueados para aceitação
   operacional enquanto o Gate B estiver aberto;

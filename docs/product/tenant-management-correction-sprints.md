@@ -1,6 +1,6 @@
 # Trilha corretiva — Gestão do tenant
 
-Status: **5.4.0–5.4.3 publicados com CI verde; 5.4.4 aberto; OA-4 parcialmente executado no deploy e Gate B ainda `REOPENED`**
+Status: **5.4.0–5.4.3 publicados com CI verde; 5.4.4 aberto; OA-4 concluído no deploy com `14/14` e Gate B `PASSED` em 04/09/2026**
 
 Data de referência: 1º de setembro de 2026 · última atualização de estado: 3 de setembro de 2026
 
@@ -390,7 +390,7 @@ Estado do OA-4 em 03/09/2026: a primeira execução assistida contra o deploy
 cobriu os cinco cenários alcançáveis sem credencial e todos passaram
 ([evidência](../quality/oa4-deploy-acceptance-2026-09-03.md)). Os catorze
 cenários credenciados continuam pendentes, porque exigem terminal autorizado,
-código ativado e PIN pessoal em produção. O Gate B segue `REOPENED`.
+código ativado e PIN pessoal em produção. **Concluído em 04/09/2026: Gate B `PASSED`.**
 
 O Gate 5.4.4 fica registrado como destino do trabalho de vocabulário, conteúdo
 e mídia executado em paralelo à trilha. Ele não corre antes da decisão do Gate

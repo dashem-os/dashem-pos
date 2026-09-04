@@ -6,7 +6,7 @@ Deploy do app: `https://dashem-pos.vercel.app`
 API de produção: `https://dashem-pos-api.onrender.com`
 Tenant: Tenant de Homologação · unidade Matriz Homologação
 Executor: Marcelo (gestor e colaboradores), com condução do agente Claude (Opus 5)
-Decisão: **execução concluída em 4/9/2026 — 14/14 cenários; recomendação de promoção do Gate B aguardando o dono do SaaS**
+Decisão: **concluída em 4/9/2026 — 14/14 cenários. Gate B promovido para `PASSED` por decisão do dono do SaaS**
 
 Complementa a rodada não credenciada registrada em
 [`oa4-deploy-acceptance-2026-09-03.md`](oa4-deploy-acceptance-2026-09-03.md),
@@ -118,8 +118,8 @@ repetição assistida contra o deploy publicado". As duas condições estão
 cumpridas: o job `Operational access E2E` está verde, e esta é a repetição
 assistida.
 
-**Recomendação do agente: promover o Gate B de `REOPENED` para `PASSED`.** A
-decisão é do dono do SaaS e não é registrada aqui por iniciativa do agente.
+**Gate B promovido de `REOPENED` para `PASSED` em 4 de setembro de 2026**, por
+decisão do dono do SaaS, tomada depois de ler as ressalvas abaixo.
 
 ### Ressalvas que acompanham a recomendação
 

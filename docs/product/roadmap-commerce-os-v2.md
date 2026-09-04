@@ -2,8 +2,9 @@
 
 Status: **diretriz canônica para a próxima fase de construção**  
 Data: 23 de agosto de 2026  
-Revisão: **Gate B reaberto — Integration Hardening / Operational Acceptance;
-pré-piloto bloqueado em 25/08/2026**
+Revisão: **Gate B `PASSED` em 04/09/2026 — Operational Acceptance concluída com
+OA-4 `14/14` contra o deploy publicado. O pré-piloto S21 permanece `NO-GO`,
+agora por Gate C, Gate D e homologações externas, não mais por Gate B.**
 Substitui como referência de execução qualquer sequência anterior que conflite com este documento.
 
 Atualização corretiva de 1º de setembro de 2026: o Dashem Control está
@@ -14,11 +15,19 @@ detalhada nos Sprints corretivos 5.2–5.4 de
 Essa trilha não renumera nem substitui os Sprints canônicos abaixo; o pré-piloto,
 storage comercial e homologações externas preservam seus próprios gates.
 
+Atualização de estado de 4 de setembro de 2026: o **Gate B foi promovido para
+`PASSED`** após a matriz OA-4 fechar `14/14` contra o deploy publicado, com o
+cenário 14 reescrito durante a execução por decisão do dono do SaaS. A seção 9
+recebeu os achados da homologação — cadastro de dispositivo genérico, totem
+inexistente, reativação que não devolve o navegador e mesa sem turno — e o S21.1
+foi corrigido pela nova regra de autoridade. A responsividade e o UI/UX seguem
+em redesenho por outro agente.
+
 Atualização de estado de 3 de setembro de 2026: os Gates 5.4.0–5.4.3 estão
 publicados com CI verde; o Gate 5.4.4 foi aberto para vocabulário, conteúdo e
 mídia por atividade; o OA-4 teve a primeira execução assistida no deploy, com
 cinco cenários não credenciados aprovados e catorze credenciados ainda
-pendentes. O Gate B continua `REOPENED` e o S21 continua `NO-GO`. As seções 4 e
+pendentes. *(Superado pela atualização de 4 de setembro acima.)* As seções 4 e
 9 abaixo receberam marcação de entregue, a refatorar e pendente; o texto da
 seção 4 ainda descreve a leitura feita logo após o S7 e não foi reescrito.
 
@@ -1376,8 +1385,10 @@ Entregas:
   atalho para `/operate`;
 - código e PIN restritos à superfície `/operate` de um terminal previamente
   autorizado, sem seleção de tenant ou unidade pelo colaborador;
-- administrador e gerente autorizam e abrem a superfície do PDV, mas mutações
-  humanas exigem sessão operacional do colaborador;
+- administrador e gerente autorizam e abrem a superfície do PDV; **revisto em
+  04/09/2026** — na própria sessão web autenticada eles operam sob a própria
+  identidade, e é no terminal de balcão compartilhado que código e PIN
+  identificam quem assume o turno (ver a revisão do ADR-024);
 - cadastro de **Clientes** na Gestão, com histórico comercial real;
 - **Funcionários e acessos** como módulos visíveis e distintos: ficha funcional
   separada de convite por e-mail ou credencial operacional;
@@ -1391,18 +1402,24 @@ Gate:
 
 - `/login` não contém entrada por PIN nem navega para `/operate`;
 - `/operate` recusa código/PIN sem credencial válida de terminal;
-- gestor autenticado pode abrir a superfície do POS, mas mutações humanas exigem
-  sessão operacional do colaborador;
+- gestor autenticado abre a superfície do POS e, na própria sessão web, opera
+  sob a própria identidade, rastreado e metrificado no seu perfil; no terminal
+  compartilhado a assunção por código e PIN continua obrigatória para todos;
 - ausência de `kitchen_routing` não quebra a gestão de terminais;
 - Clientes e Funcionários aparecem somente por contribution, capability e
   permission efetivas;
 - impressora não é declarada operacional antes do Print Bridge e do teste em
   hardware real.
 
-Estado: **implementação corretiva em andamento**. Login, navegação gerencial,
-cadastros e autorização possuem partes implementadas, mas a jornada real foi
-reprovada em 25/08/2026 e migrou para o plano OA-1–OA-4. O protocolo seguro do
-Print Bridge e a homologação externa de TEF continuam pendentes e independentes.
+Estado: **jornada de acesso concluída; identidade de periférico ainda não**.
+Login, navegação gerencial, cadastros e autorização foram corrigidos pelo plano
+OA-1–OA-4, cuja matriz fechou `14/14` contra o deploy publicado em 04/09/2026.
+O que continua aberto nesta sprint é a metade dos **periféricos**: o protocolo
+seguro do Print Bridge, a homologação externa de TEF e — levantado em 04/09 — o
+fato de o cadastro de dispositivos ainda não distinguir ponto de operação,
+navegador autorizado e periférico físico, declarando este último por texto livre
+em vez de pareamento verificado. Totem e autoatendimento não pertencem a esta
+sprint nem a nenhuma outra e precisam de decisão.
 
 ## 8. Dependências e ordem de execução
 
@@ -1486,8 +1503,11 @@ e aparece como `não configurada`, nunca como pronta.
 | Vocabulário do console assumindo alimentação para todo tenant | 5.4.4 | termo por atividade como dado extensível | **corrigido por condicional binário em 03/09; classe do problema em aberto** |
 | Conteúdo inicial por atividade em constante compilada | 5.4.4 | dado versionado e auditável, restrito a tenant interno ou de teste | **dívida aberta, criada em 03/09** |
 | Atividade ativa do PDV mantida apenas no cliente | 5.4.4 + Gate B | escolha persistida na sessão operacional e auditável | **dívida aberta, criada em 03/09** |
-| Comanda não pode ser transferida de mesa nem entre mesa e balcão | S7 (não escopado) | comando versionado e auditado que reatribui `Order.table_session_id`, com a origem encerrada quando esvaziar | **dívida aberta, criada em 04/09**: hoje o grupo que muda de mesa ou desce para o balcão obriga a fechar de um lado e refazer o consumo do outro, perdendo histórico e autoria. A fundação existe — `TableSessionCommand` dá idempotência, `TableSessionEvent` registra ator e `TableSessionKindEnum.INDIVIDUAL_TAB` já é a forma do balcão |
-| Conta não pode ser dividida por pessoa | S8 | rateio por consumidor sobre a `CheckoutNegotiation`, não só por valor | **dívida aberta, criada em 04/09**: o pagamento parcial existe e leva a sessão a `PARTIALLY_PAID`, mas é por valor. Dividir "a parte de cada um" não é representável |
+| Comanda não pode ser transferida de mesa nem entre mesa e balcão | **S12, já escopado e não implementado** | transferência mesa→mesa, comanda→comanda e item→comanda, junção e separação de sessões, com `TransferRecord` imutável | **pendente de execução, não é dívida nova.** Correção de 04/09: o registro criado mais cedo neste dia afirmava que a transferência não estava no roadmap. Estava — o S12 a escopa por inteiro. Hoje o grupo que muda de mesa ou desce para o balcão obriga a fechar de um lado e refazer o consumo do outro. A fundação existe: `TableSessionCommand` dá idempotência, `TableSessionEvent` registra ator e `TableSessionKindEnum.INDIVIDUAL_TAB` já é a forma do balcão |
+| Conta não pode ser dividida por pessoa | S8 + S12 | rateio por consumidor sobre a `CheckoutNegotiation`, não só por valor | **dívida aberta, criada em 04/09**: o pagamento parcial existe e leva a sessão a `PARTIALLY_PAID`, mas é por valor. O S12 escopa split de quantidade de item; dividir "a parte de cada um" no pagamento não é representável em nenhum dos dois |
+| Cadastro de dispositivo não distingue ponto de operação, navegador e periférico | S21.1 | pareamento verificado por tipo, com credencial de dispositivo em vez de texto livre | **dívida aberta, criada em 04/09**: `operational_devices` guarda POS, KDS e PRINTER na mesma forma, e o periférico é declarado por uma string `configuration_ref` que ninguém valida. Na tela, cadastrar impressora ou terminal de produção pede um texto do tipo `bridge://cozinha/impressora-01` sem provar que o bridge existe. Maquininha não passa por aqui: vive em `PaymentDeviceBinding` (S9), em outro módulo, sem que a tela de terminais diga isso |
+| Totem e autoatendimento não existem em nenhum lugar | **sem sprint** | superfície própria, com identidade de dispositivo, sem sessão humana e com autoria de serviço | **lacuna real, levantada em 04/09**: nem modelo, nem roadmap, nem ADR. Diferente de impressora e TEF, que o S21.1 e o S9 já escopam. Precisa de decisão antes de virar entrega |
+| Reativar um terminal não devolve a autorização do navegador | S21.1 + Gate B | pausa reversível que preserve o pareamento, distinta da revogação | **decisão pendente, levantada em 04/09**: qualquer troca de status zera `authorization_version`, `authorized_at` e `authorization_expires_at` em `device_service`. Pausar equivale, na prática, a desparear, e exige alguém no balcão entrando por e-mail para reautorizar |
 | Mesa e comanda operam sem turno de caixa | a decidir | política explícita entre salão livre e turno obrigatório | **decisão pendente, levantada em 04/09**: `table_service` não referencia caixa em ponto algum, então consumo é lançado com o caixa fechado e fica sem turno a que pertencer. Recomendação registrada: manter o lançamento livre e exigir turno aberto para **pagar**, nunca para consumir |
 | Segurança/confiabilidade deixadas para o fim | contínuo + S20 | gate por sprint e prova combinada | política corrigida |
 | Cliente capaz de escolher o autor de uma mutação | Gate A | ator derivado do principal ou service actor emitido pelo servidor | resolvido e testado; retirada dos campos legados fica para evolução de contrato |
@@ -1547,11 +1567,23 @@ Bridge continuam identidades independentes. Os dez critérios de aceite do
 ADR-021 permanecem obrigatórios, acrescidos do contrato de acesso do colaborador
 e da prova ponta a ponta do ADR-024.
 
-Estado: **REOPENED**. O núcleo persistido, heartbeat, expiração e revogação estão
-implementados. OA-1–OA-3 corrigiram localmente a separação das superfícies, o
-PIN sob controle do colaborador e o contexto exclusivo da sessão operacional;
-a matriz OA-4 passou `14/14` cenários em Chromium local. A promoção ainda depende
-do novo job verde no CI e da repetição assistida contra o deploy publicado.
+Estado: **PASSED em 4 de setembro de 2026**, por decisão do dono do SaaS. O
+núcleo persistido, heartbeat, expiração e revogação estão implementados.
+OA-1–OA-3 corrigiram a separação das superfícies, o PIN sob controle do
+colaborador e o contexto exclusivo da sessão operacional. As duas condições que
+faltavam foram cumpridas: o job `Operational access E2E` está verde no CI, e a
+matriz OA-4 fechou `14/14` na repetição assistida contra o deploy publicado
+([dossiê](../quality/oa4-credentialed-acceptance-2026-09-03.md)).
+
+Ressalva que acompanha a promoção: o **cenário 14 foi reescrito durante a
+execução**, também por decisão do dono do SaaS, porque o critério original
+contradizia a matriz de permissões da migração 017 e inviabilizava o
+comerciante que trabalha sozinho. O gate foi avaliado pelo critério revisado —
+turno responde a pessoa nomeada, ninguém opera sob identidade alheia, permissão
+exigida por rota — e não pelo original. A revisão está no ADR-024.
+
+O que **não** foi promovido junto: a identidade de periférico do S21.1
+permanece aberta, e o Print Bridge e a homologação de TEF seguem independentes.
 
 ### Gate C — execução de pagamentos vinculada ao dispositivo
 
@@ -1601,7 +1633,7 @@ título com 20,17:1. A evidência está em
 Faltam os catorze cenários que exigem terminal autorizado, código ativado e PIN
 pessoal em produção. Eles passam no job de CI contra pilha efêmera, mas o plano
 exige repetição no deploy e CI verde não substitui essa prova. Enquanto isso, o
-Gate B permanece `REOPENED`.
+Gate B foi promovido a `PASSED` em 04/09/2026.
 
 Trabalho executado fora desta sequência entre 02 e 03/09/2026 — atividade como
 dimensão do sortimento, publicação do conjunto por atividade, seletor de negócio

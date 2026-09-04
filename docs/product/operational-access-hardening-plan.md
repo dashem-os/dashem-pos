@@ -35,7 +35,7 @@ no CI e no deploy.
 | Definição do PIN | reprovada: Gestão conhece o PIN definitivo |
 | Interface operacional | parcialmente implementada; aceite visual pendente |
 | Teste E2E da jornada | inexistente |
-| Gate B | `REOPENED` |
+| Gate B | `PASSED` em 04/09/2026 |
 | Piloto | `NO-GO` |
 
 ## Estado da execução em 26/08/2026
@@ -45,7 +45,7 @@ no CI e no deploy.
 | OA-1 | contexto exclusivo de terminal + `OperationalSession`; `/login`, `/operate`, `/pos` e `/manage` separados | backend, contrato API, testes de fronteira e build | concluída no código |
 | OA-2 | ativação temporária; PIN criado pelo colaborador; reativação revoga sessões | migration 045, testes de domínio e contrato | concluída no código |
 | OA-3 | portão operacional clean, toque, teclado físico, contexto validado sem exposição visual, contraste corrigido e estado offline preservando autoridade | testes estáticos, typecheck e build; achado de campo ilegível corrigido em 03/09/2026 no commit `3480cdb` | corrigida no código; screenshots de estados e deploy pendentes |
-| OA-4 | matriz, fixture isolado, suíte Playwright e job de CI | CI verde; execução assistida no deploy concluída em 04/09/2026 com **14/14 cenários** ([rodada não credenciada](../quality/oa4-deploy-acceptance-2026-09-03.md), [rodada credenciada](../quality/oa4-credentialed-acceptance-2026-09-03.md)). O cenário 14 foi reescrito durante a execução por decisão do dono do SaaS | recomendação de promover o Gate B para `PASSED` registrada; a decisão é do dono do SaaS |
+| OA-4 | matriz, fixture isolado, suíte Playwright e job de CI | CI verde; execução assistida no deploy concluída em 04/09/2026 com **14/14 cenários** ([rodada não credenciada](../quality/oa4-deploy-acceptance-2026-09-03.md), [rodada credenciada](../quality/oa4-credentialed-acceptance-2026-09-03.md)). O cenário 14 foi reescrito durante a execução por decisão do dono do SaaS | **concluído**. Gate B promovido para `PASSED` em 04/09/2026 por decisão do dono do SaaS |
 
 Validação automatizada desta revisão:
 
@@ -59,7 +59,7 @@ Validação automatizada desta revisão:
 
 Esses verdes comprovam a implementação e a jornada no CI. A repetição assistida
 no deploy público, com evidências sanitizadas, continua obrigatória. O Gate B
-permanece `REOPENED` e o piloto permanece `NO-GO` até essa decisão.
+foi promovido a `PASSED` em 04/09/2026; o piloto permanece `NO-GO` por Gate C, Gate D e homologações externas.
 
 ## Execução assistida no deploy em 03/09/2026
 
@@ -76,7 +76,7 @@ ativado e PIN pessoal. Eles passam no job de CI contra pilha efêmera, mas o
 plano exige repetição no deploy, e o executor não possui credencial de produção.
 Nenhum deles é presumido aprovado.
 
-Consequência: o Gate B continua `REOPENED`. A promoção depende de criar em
+Consequência histórica, resolvida em 04/09/2026 com a promoção do Gate B: a promoção dependia de criar em
 produção um terminal e um colaborador de homologação, repetir os catorze
 cenários e anexar a evidência sanitizada no mesmo formato.
 
@@ -215,7 +215,7 @@ Gate:
 - jornada principal repetida em navegador novo, retorno de sessão e troca de
   operador, sem intervenção técnica;
 - nenhuma evidência contém PIN, token ou dado pessoal sensível;
-- somente então o Gate B muda de `REOPENED` para `ACCEPTED`.
+- somente então o Gate B muda de `REOPENED` para aceito. **Cumprido em 04/09/2026: `PASSED`.**
 
 ## Matriz mínima de aceitação
 
