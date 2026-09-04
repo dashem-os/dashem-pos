@@ -1459,6 +1459,127 @@ Dependências e por que não é agora:
 - a decisão sobre mesa e comanda sem turno de caixa (seção 9) precisa estar
   tomada, porque um totem opera exatamente nessa fronteira.
 
+### S23 — Vitrine operacional e seleção de produto compartilhada
+
+Proposto em 4 de setembro de 2026, ainda **não autorizado**. Existe para que a
+tela inicial da operação seja o que a casa realmente vende, arrumado por quem
+conhece o movimento, e para que lançar um item seja um toque em vez de uma
+busca.
+
+Contexto. O acesso rápido existe, e é **só pessoal**: `QuickAccessProduct` tem
+chave em `(tenant, store, membership, product)`, sem nenhuma ordem padrão da
+unidade. O PDV abre em "Todos", não na vitrine. A mutação exige `catalog.update`,
+de modo que um caixa só ordena os próprios botões se receber poder sobre o
+catálogo inteiro. A rota grava **uma posição por vez** e recusa posição ocupada,
+o que torna o arraste impossível de aplicar atomicamente. E a ordenação não
+distingue contexto de venda nem atividade, então quem opera balcão e retirada
+acumula posições ambíguas.
+
+Entregas previstas:
+
+- layout padrão da unidade com escopo `tenant + store + sales_context +
+  business_activity`, cabeçalho versionado e ordenação exclusiva da gerência;
+- `quick_access_products` passa a representar **somente** atalhos pessoais e
+  ganha contexto de venda e atividade no escopo, com backfill declarado —
+  `COUNTER` e a atividade primária da unidade para as linhas existentes — e
+  downgrade que restaura o escopo anterior;
+- permissions próprias `catalog.layout.manage` e `catalog.layout.personalize`,
+  removendo a exigência de `catalog.update` para ordenar botões;
+- reorder atômico que recebe o array inteiro de posições, com versão esperada,
+  `SELECT FOR UPDATE` no cabeçalho, idempotência e auditoria; as uniques de
+  **posição** das duas tabelas passam a `DEFERRABLE INITIALLY DEFERRED`,
+  enquanto a unique de produto dentro do layout permanece imediata;
+- renderização em duas faixas — "Meus atalhos" acima, "Vitrine da unidade"
+  abaixo — sem repetir item que já está na vitrine;
+- modo explícito "Personalizar vitrine" para o arraste, separado do toque de
+  venda e da rolagem, dimensionado para toque;
+- seletor visual de produto compartilhado entre PDV e comanda: vitrine, imagem,
+  categorias e busca comuns, com o comando transacional específico de cada
+  jornada — `addSaleItem` no balcão, `addOrderItem` na mesa;
+- a faixa pessoal aparece somente enquanto a sessão operacional daquela pessoa
+  estiver ativa; encerrada ou expirada, o catálogo pessoal e o cache
+  correspondente são descartados junto do token.
+
+Gate:
+
+- operador comum ordena os próprios atalhos sem `catalog.update` e não consegue
+  reordenar a vitrine da unidade;
+- dois gerentes reordenando a mesma vitrine: um vence, o outro recebe **409**
+  com a versão esperada, **nunca 500** — inclusive quando a unique deferida
+  estoura no `COMMIT` em vez do statement;
+- o arraste aplica a lista inteira em uma transação; falha no meio não deixa
+  posição parcial nem furo de ordenação;
+- terminal sem operador não exibe faixa pessoal alguma; encerrada a sessão, a
+  faixa e o cache somem antes da próxima identificação, e a mesma pessoa
+  reentrando reencontra a própria faixa;
+- produto arquivado ou indisponível não aparece em nenhuma das duas faixas;
+- personalizar não desloca a vitrine: as posições da unidade permanecem as
+  mesmas para quem tem atalhos e para quem não tem;
+- um clique lança no balcão e na comanda pelo mesmo componente, com comando
+  distinto por jornada;
+- migration com upgrade, downgrade e backfill declarado; frontend, backend e
+  drift check verdes.
+
+Não depende do Storage: entrega com a `image_url` já cadastrada quando houver e
+com o fallback pela inicial quando não houver. O seletor compartilhado é também
+o que o SmartPOS do S22 poderá consumir sem reescrever catálogo.
+
+### S24 — Mídia de produto e biblioteca DASHEM
+
+Proposto em 4 de setembro de 2026, ainda **não autorizado**. Fecha a dívida de
+imagem que o S4 declarou como entrega e nunca levou à interface, hoje carregada
+na trilha corretiva 5.4.4.
+
+Contexto. Em 03/09 o cadastro passou a aceitar o **endereço** da imagem, e é só
+isso que existe: um campo de texto, duplicado na tela. O upload do tenant está
+construído no servidor — namespace por tenant, validação de tipo, reserva de
+quota e URL assinada — e nunca chegou a tela alguma; as três funções de storage
+do cliente sequer enviam `X-Tenant-ID`, então falhariam com 400 se alguém as
+chamasse. A biblioteca da plataforma está prevista formalmente e não existe. A
+assinatura vale 60 segundos para tudo, o que serve a documento e não a vitrine.
+
+Entregas previstas:
+
+- `primary_media_asset_id` no produto, com `image_url` preservada como
+  compatibilidade e nunca reescrita nem apagada;
+- resolvedor determinístico: asset persistido → `image_url` legada → fallback
+  pela inicial;
+- projeção `sellable-products` entregando `image` com origem, URL assinada e
+  `expires_at`, resolvida e agrupada no servidor — nunca uma assinatura por
+  cartão;
+- TTL por propósito, configurado no servidor e nunca escolhido pelo cliente:
+  documento privado em 60 s, exportação entre 5 e 15 minutos, mídia de tenant em
+  6 h por `CATALOG_MEDIA_SIGNED_URL_TTL_SECONDS=21600`, biblioteca DASHEM em 24 h
+  ou cache por versão;
+- biblioteca DASHEM versionada e pesquisável, com atividades sugeridas,
+  categorias e tags semânticas, coleção genérica, escrita exclusiva da
+  plataforma e leitura comum pelo resolvedor;
+- upload privado integrado ao cadastro, substituindo o campo de endereço e
+  removendo o campo duplicado, com as três funções de storage do cliente
+  corrigidas para enviar contexto de tenant;
+- padrão de storage como valor explícito do plano, copiado para o contrato no
+  provisionamento — nunca fallback invisível no momento do upload; tenants
+  antigos sem quota recebem nova versão contratual pelo Owner.
+
+Gate:
+
+- tenant A nunca lê asset de tenant B, provado por teste que reprova se
+  conseguir;
+- produto sem mídia própria cai na biblioteca e depois na inicial, nessa ordem,
+  sem tela vazia e sem inventar imagem;
+- endereço cadastrado antes de 04/09 continua exibindo, e a migração para asset
+  é gradual e reversível;
+- a projeção resolve N imagens em uma chamada e o cartão não dispara assinatura
+  própria; `expires_at` viaja em UTC sem offset, respeitando o guard de
+  timestamp;
+- upload recusado por ausência de contrato de storage responde com o motivo
+  real, e a vitrine do S23 continua funcionando sem ele;
+- homologação real com dois tenants, quota declarada e expiração observada;
+- migration com upgrade, downgrade e drift check verdes.
+
+O primeiro marco é a biblioteca, não o upload: ela dá foto a todo tenant sem
+depender de entitlement comercial nem de arquivo do lojista.
+
 ## 8. Dependências e ordem de execução
 
 ```text
@@ -1535,7 +1656,9 @@ e aparece como `não configurada`, nunca como pronta.
 | Endpoint de identidade e saúde ainda amplos | S18 | routers e observabilidade por domínio | resolvido: router Control e instrumentação explícita |
 | Control expõe caixas, vendas, unidades em operação ou quadro de funcionários do tenant | S18.1 | somente contrato, cobrança SaaS e observabilidade técnica no Owner | **resolvido e protegido por testes no primeiro sprint** |
 | Cobrança SaaS limitada a campos editáveis da assinatura | S18.1 | faturas, recebimentos, inadimplência e métricas SaaS rastreáveis | **planejado** |
-| Imagem do produto listada no S4 e nunca entregue na interface | S4 → 5.4.4 | cadastro, listagem e PDV exibindo mídia persistida | endereço de imagem entregue em 03/09; biblioteca, upload e isolamento pendentes |
+| Imagem do produto listada no S4 e nunca entregue na interface | S4 → 5.4.4 → **S24** | cadastro, listagem e PDV exibindo mídia persistida | endereço de imagem entregue em 03/09. Em 04/09 o destino passou a ser o **S24**, porque o que falta — modelo de mídia, resolvedor compatível, biblioteca da plataforma, upload privado e TTL por propósito — é contrato novo, não correção. O upload existe no servidor e nunca chegou a tela alguma; as três funções de storage do cliente não enviam `X-Tenant-ID` e falhariam com 400 se fossem chamadas |
+| Ordenar o próprio botão exige poder sobre o catálogo inteiro | S23 | permission de layout separada da permission de catálogo | **dívida apurada em 04/09**: a rota de acesso rápido exige `catalog.update`, então um caixa só organiza os próprios atalhos se receber autoridade para editar produtos e preços. O S23 separa em `catalog.layout.manage` e `catalog.layout.personalize` |
+| Acesso rápido grava uma posição por vez e recusa posição ocupada | S23 | reorder atômico do array inteiro, com versão e auditoria | **dívida apurada em 04/09**: além de a rota ser posição a posição, `uq_quick_access_position` não é deferível, então permutar posições viola a unique durante o statement. Arrastar é impossível de aplicar atomicamente sem mudar o esquema |
 | Atividade contratada sem efeito sobre o conteúdo publicado | 5.4.0 + 5.4.1 | atividade como dimensão do sortimento, resolvida no servidor | resolvido em 03/09: `assortments.business_activity`, migration 070, recusa 403 para atividade não contratada |
 | Conjunto legado publicando conteúdo de outro nicho no PDV | 5.4.0 | decisão administrativa explícita para reclassificar ou aposentar | resolvido em 03/09: ação de Gestão publica o conjunto da atividade e aposenta o não classificado, sem apagar nada |
 | Vocabulário do console assumindo alimentação para todo tenant | 5.4.4 | termo por atividade como dado extensível | **corrigido por condicional binário em 03/09; classe do problema em aberto** |
