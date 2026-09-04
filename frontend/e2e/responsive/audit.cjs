@@ -26,6 +26,8 @@ cases.push({ name: 'operate-activation', screen: 'operate', steps: [click('Prime
 for (const name of ['Ver Itens', 'RECEBER'])
     cases.push({ name: `pos-${name}`, screen: 'pos', steps: [click(name)], modal: true });
 cases.push({ name: 'tables-tab', screen: 'tables', steps: [click('Comanda individual')], modal: true });
+for (const tab of ['Plano e cobrança', 'Modelos de negócio', 'Capabilities', 'Limites'])
+    cases.push({ name: `contract-editor-${tab}`, screen: 'owner', steps: [tenant, click('Contrato'), click('Editar contrato'), click(tab)] });
 const sizes = [[320, 568], [390, 844], [768, 1024], [1024, 768], [1366, 768], [1920, 1080], [844, 390]];
 const out = path.resolve('../.tmp/responsive-audit');
 fs.mkdirSync(out, { recursive: true });

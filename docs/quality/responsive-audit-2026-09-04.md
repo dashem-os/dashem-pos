@@ -35,8 +35,9 @@ npm run test:e2e:responsive
   flexibilizado. Contraste, foco, identidade operacional, caixa e carimbos UTC
   continuam cobertos pelas suítes existentes.
 - Compilação TypeScript e bundle de produção concluídos.
-- Auditoria de layout em Chromium: 58 cenários em 7 tamanhos, abrangendo os
-  14 módulos da Gestão, áreas do Owner, abas de cliente e financeiro, cadastros,
+- Auditoria de layout em Chromium: 62 cenários em 7 tamanhos, com 434
+  verificações sem falhas. Abrange os 14 módulos da Gestão, áreas do Owner,
+  abas de cliente e financeiro, cadastros, as quatro áreas do editor de contrato,
   cobrança, PIN, PDV, carrinho, pagamento, Mesas e KDS.
 - Tamanhos: 320×568, 390×844, 768×1024, 1024×768, 1366×768, 1920×1080 e 844×390.
 - A auditoria verifica largura da página, texto cortado em botões, limites de
@@ -55,4 +56,5 @@ O runner inicia e encerra seu próprio servidor isolado. As instruções estão 
 `frontend/e2e/responsive/README.md`; resultados JSON e PNGs ficam em
 `.tmp/responsive-audit/`. A entrada de teste não integra o bundle de produção.
 
-As alterações desta entrega permanecem locais, sem publicação.
+A validação descrita neste registro foi realizada localmente antes do envio
+  das alterações ao GitHub.
