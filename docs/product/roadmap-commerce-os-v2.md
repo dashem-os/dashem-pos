@@ -1421,6 +1421,42 @@ navegador autorizado e periférico físico, declarando este último por texto li
 em vez de pareamento verificado. Totem e autoatendimento não pertencem a esta
 sprint nem a nenhuma outra e precisam de decisão.
 
+### S22 — Autoatendimento: totem e SmartPOS como superfície de operação
+
+Proposto em 4 de setembro de 2026, ainda **não autorizado**. Existe para separar
+duas coisas que hoje se confundem: o SmartPOS como *meio de execução de
+pagamento* e o SmartPOS como *superfície onde a operação acontece*.
+
+Contexto. `PaymentDeviceExecutionModeEnum.SMARTPOS` já existe e é, por decisão
+do Gate C, apenas um modo de **cadastro**: a maquininha é o destino de uma
+cobrança. Mas um SmartPOS de campo roda o próprio ponto de venda — catálogo,
+comanda, fechamento — e um totem atende sem nenhuma pessoa da casa presente.
+Nenhuma das duas é um "POS com tela menor": a primeira executa o pagamento
+localmente em vez de atravessar um bridge; a segunda **não tem sessão humana**,
+o que a coloca fora de todo o modelo de autoridade construído até o Gate B.
+
+Entregas previstas:
+
+- SmartPOS como `OperationalDevice` do tipo POS com execução **local**, distinta
+  de `TEF_BRIDGE`, sem login humano na maquininha e com adapter homologado;
+- superfície de autoatendimento sem sessão operacional, cuja autoria é um
+  **service actor** persistido pelo servidor, no mesmo contrato do Gate A;
+- capability própria, para que um tenant sem autoatendimento contratado não veja
+  a superfície nem os pontos de operação correspondentes;
+- fluxo de pedido self-service produzindo `Order` sem operador humano, com
+  pagamento obrigatório antes do envio à produção;
+- conciliação entre o pedido do totem, a execução de pagamento e o ticket de
+  produção, sem inventar um colaborador para carregar a autoria.
+
+Dependências e por que não é agora:
+
+- **Gate C** é pré-requisito duro. Um totem que não cobra não serve, e cobrar
+  exige a cadeia de execução vinculada ao dispositivo provada;
+- o S21 (piloto comercial) deve rodar antes: não se lança autoatendimento em um
+  cliente cujo balcão ainda não foi validado em campo;
+- a decisão sobre mesa e comanda sem turno de caixa (seção 9) precisa estar
+  tomada, porque um totem opera exatamente nessa fronteira.
+
 ## 8. Dependências e ordem de execução
 
 ```text
@@ -1505,8 +1541,9 @@ e aparece como `não configurada`, nunca como pronta.
 | Atividade ativa do PDV mantida apenas no cliente | 5.4.4 + Gate B | escolha persistida na sessão operacional e auditável | **dívida aberta, criada em 03/09** |
 | Comanda não pode ser transferida de mesa nem entre mesa e balcão | **S12, já escopado e não implementado** | transferência mesa→mesa, comanda→comanda e item→comanda, junção e separação de sessões, com `TransferRecord` imutável | **pendente de execução, não é dívida nova.** Correção de 04/09: o registro criado mais cedo neste dia afirmava que a transferência não estava no roadmap. Estava — o S12 a escopa por inteiro. Hoje o grupo que muda de mesa ou desce para o balcão obriga a fechar de um lado e refazer o consumo do outro. A fundação existe: `TableSessionCommand` dá idempotência, `TableSessionEvent` registra ator e `TableSessionKindEnum.INDIVIDUAL_TAB` já é a forma do balcão |
 | Conta não pode ser dividida por pessoa | S8 + S12 | rateio por consumidor sobre a `CheckoutNegotiation`, não só por valor | **dívida aberta, criada em 04/09**: o pagamento parcial existe e leva a sessão a `PARTIALLY_PAID`, mas é por valor. O S12 escopa split de quantidade de item; dividir "a parte de cada um" no pagamento não é representável em nenhum dos dois |
+| SmartPOS existe só como meio de pagamento, não como superfície de operação | S22 proposto em 04/09 | execução local distinta de `TEF_BRIDGE`, com adapter homologado e sem login humano na maquininha | **lacuna levantada em 04/09**: `PaymentDeviceExecutionModeEnum.SMARTPOS` trata a maquininha como destino de cobrança. Um SmartPOS de campo roda o ponto de venda inteiro, e isso não está modelado em lugar nenhum |
 | Cadastro de dispositivo não distingue ponto de operação, navegador e periférico | S21.1 | pareamento verificado por tipo, com credencial de dispositivo em vez de texto livre | **dívida aberta, criada em 04/09**: `operational_devices` guarda POS, KDS e PRINTER na mesma forma, e o periférico é declarado por uma string `configuration_ref` que ninguém valida. Na tela, cadastrar impressora ou terminal de produção pede um texto do tipo `bridge://cozinha/impressora-01` sem provar que o bridge existe. Maquininha não passa por aqui: vive em `PaymentDeviceBinding` (S9), em outro módulo, sem que a tela de terminais diga isso |
-| Totem e autoatendimento não existem em nenhum lugar | **sem sprint** | superfície própria, com identidade de dispositivo, sem sessão humana e com autoria de serviço | **lacuna real, levantada em 04/09**: nem modelo, nem roadmap, nem ADR. Diferente de impressora e TEF, que o S21.1 e o S9 já escopam. Precisa de decisão antes de virar entrega |
+| Totem e autoatendimento não existem em nenhum lugar | **S22 proposto em 04/09, não autorizado** | superfície própria, com identidade de dispositivo, sem sessão humana e com autoria de serviço | **lacuna real, levantada em 04/09**: nem modelo, nem ADR. Escrita como S22 depois do Gate C e do piloto S21, porque um totem que não cobra não serve e não se lança autoatendimento antes de o balcão ser validado em campo |
 | Reativar um terminal não devolve a autorização do navegador | S21.1 + Gate B | pausa reversível que preserve o pareamento, distinta da revogação | **decisão pendente, levantada em 04/09**: qualquer troca de status zera `authorization_version`, `authorized_at` e `authorization_expires_at` em `device_service`. Pausar equivale, na prática, a desparear, e exige alguém no balcão entrando por e-mail para reautorizar |
 | Mesa e comanda operam sem turno de caixa | a decidir | política explícita entre salão livre e turno obrigatório | **decisão pendente, levantada em 04/09**: `table_service` não referencia caixa em ponto algum, então consumo é lançado com o caixa fechado e fica sem turno a que pertencer. Recomendação registrada: manter o lançamento livre e exigir turno aberto para **pagar**, nunca para consumir |
 | Segurança/confiabilidade deixadas para o fim | contínuo + S20 | gate por sprint e prova combinada | política corrigida |
@@ -1596,6 +1633,16 @@ como pareamento, mas permanece não executável até existir adapter homologado 
 nunca simulado como uma cobrança real. Pausa e revogação do vínculo impedem
 novas execuções, sem alterar transações já registradas.
 
+Estado: **OPEN — é o próximo gate corretivo.** `PaymentDeviceBinding` existe e é
+persistido com a cadeia completa tenant → unidade → caixa → POS → provider →
+meio de execução, e o S9 entregou o contrato de adapter, o `ProviderTransaction`
+e o protocolo do bridge. O que **falta é a prova**: em 04/09/2026 não existe
+teste dedicado ao Gate C. `PaymentDeviceBinding` só é exercitado de passagem por
+`test_gate_d_payment_audit.py` e `test_operational_pin_identity.py`, e os
+negativos que o gate exige — bridge de outro caixa, sessão operacional
+executando em vínculo alheio, vínculo pausado ainda executando — não são
+verificados em lugar nenhum.
+
 ### Gate D — auditoria imutável e projeções de produtividade
 
 Conclui o ADR-023. Solicitação, autorização, execução e resultado de pagamento
@@ -1606,6 +1653,14 @@ produtividade operacional é uma projeção persistida por sessão operacional d
 colaborador, com fórmulas
 publicadas, watermark e reconstrução integral a partir dos fatos. Testes
 negativos atravessam tenant, unidade, dispositivo e sessão.
+
+Estado: **implementado, aguardando o Gate C para ser declarado.** A migração
+`044_gate_d_payment_audit` cria trigger de imutabilidade e executa
+`REVOKE UPDATE, DELETE` sobre as trilhas para o papel de runtime, de modo que a
+proibição vale fora do ORM; `OperationalProductivityProjection` existe como
+projeção persistida; `test_gate_d_payment_audit.py` cobre o conjunto. Não faz
+sentido declarar este gate antes do Gate C, porque a auditoria que ele torna
+imutável descreve execuções cuja cadeia o Gate C ainda não provou.
 
 ## 12. Próximo passo autorizado por este roadmap
 
