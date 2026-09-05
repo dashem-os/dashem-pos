@@ -85,6 +85,25 @@ class PaymentAllocationDTO(BaseModel):
     amount: Decimal
 
 
+class ItemSettlementDTO(BaseModel):
+    """What one item of the account still owes, resolved by the server.
+
+    ``available_amount`` is what a next payer may still take; it is the number
+    the screen must obey, because a whisky someone is paying for right now reads
+    as unavailable long before the card comes back."""
+    model_config = ConfigDict(from_attributes=True)
+    order_item_id: uuid.UUID
+    order_id: uuid.UUID
+    product_name: str
+    quantity: Decimal
+    unit_price: Decimal
+    item_total: Decimal
+    settled_amount: Decimal
+    reserved_amount: Decimal
+    available_amount: Decimal
+    is_paid: bool
+
+
 class NegotiationProjectionDTO(BaseModel):
     id: uuid.UUID
     tenant_id: uuid.UUID
@@ -110,6 +129,9 @@ class NegotiationProjectionDTO(BaseModel):
     orders: List[NegotiationOrderDTO]
     intents: List[PaymentIntentDTO]
     allocations: List[PaymentAllocationDTO]
+    item_settlements: List[ItemSettlementDTO]
+    unassigned_settled_amount: Decimal
+    unassigned_reserved_amount: Decimal
 
 
 @router.post("", response_model=NegotiationProjectionDTO)

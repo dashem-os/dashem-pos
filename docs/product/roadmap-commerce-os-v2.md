@@ -1746,7 +1746,22 @@ depender de entitlement comercial nem de arquivo do lojista.
 
 ### S25 — Liquidação progressiva da comanda (Live Settlement)
 
-Contratado com o dono do SaaS em 5 de setembro de 2026, **não iniciado**. Nasce
+Estado em 05/09/2026: **contratos 2 e 3 entregues no gate interno; 1, 4 e 5
+abertos.** A ordem foi deliberada e é do dono: 2 e 3 são aditivos — não mudam
+comportamento existente e já fecham a porta da dupla alocação —, enquanto o 1
+muda a semântica da negociação e vem depois. Entregue: `item_settlement` resolve
+`item_total`, `settled_amount`, `reserved_amount`, `available_amount` e
+`is_paid` por `OrderItem`, somando alocações de **todas** as negociações que
+tocaram o item, e não só da corrente; a projeção da negociação passou a carregar
+`item_settlements` mais o que foi pago sem nomear item; e `create_intent`
+recusa, com `409 ITEM_SETTLEMENT_UNAVAILABLE`, qualquer alocação acima do
+disponível do item, decidindo sobre uma leitura `FOR UPDATE` feita dentro da
+transação que já trava a negociação. Isso cobre por antecipação a metade de
+concorrência do contrato 5 que depende do item; o que resta lá é a coexistência
+de duas negociações sobre os mesmos itens. Nada disso chegou à tela ainda, por
+desenho: os três modos da UX vêm depois dos cinco contratos.
+
+Contratado com o dono do SaaS em 5 de setembro de 2026. Nasce
 de uma leitura do dono sobre a proposta errada deste agente: a de separar itens
 em uma "comanda irmã" para permitir que cada pessoa pagasse a sua parte. A
 correção é a origem desta sprint e vale registrar, porque muda o que se

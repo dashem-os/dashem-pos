@@ -481,6 +481,31 @@ export interface CheckoutNegotiation {
   orders: Array<{ id: string; order_id: string; amount_snapshot: number }>
   intents: NegotiationPaymentIntent[]
   allocations: Array<{ id: string; payment_intent_id: string; order_id?: string; order_item_id?: string; amount: number }>
+  /** What each item of the account still owes, resolved by the server. */
+  item_settlements: ItemSettlement[]
+  /** Money paid against the bill without naming an item. */
+  unassigned_settled_amount: number
+  unassigned_reserved_amount: number
+}
+
+/** One line of the bill, seen financially.
+ *
+ *  `available_amount` is the only number a payer may take: an item somebody is
+ *  paying for right now reads as unavailable long before the card comes back,
+ *  and a failed parcel gives it straight back. Quantity is never allocated —
+ *  money is the single truth, so "1 de 4 cervejas" is `amount / unit_price`
+ *  read at the screen, not a second fact in the ledger. */
+export interface ItemSettlement {
+  order_item_id: string
+  order_id: string
+  product_name: string
+  quantity: number
+  unit_price: number
+  item_total: number
+  settled_amount: number
+  reserved_amount: number
+  available_amount: number
+  is_paid: boolean
 }
 
 export interface PaymentProviderConfiguration {

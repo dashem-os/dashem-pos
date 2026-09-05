@@ -117,6 +117,82 @@ def _order_amount(session: Session, order: Order) -> Decimal:
     return _money(sum((_money(item.unit_price) * _money(item.quantity) for item in items), Decimal("0")))
 
 
+# An allocation held by an intent in one of these states is money already taken
+# from the item: settled if the intent confirmed, reserved while it is still in
+# flight. A failed or cancelled intent releases what it held.
+SETTLED_INTENTS = {PaymentIntentStatusEnum.CONFIRMED}
+RESERVED_INTENTS = {PaymentIntentStatusEnum.PENDING, PaymentIntentStatusEnum.PROCESSING}
+
+
+def item_settlement(
+    session: Session, negotiation: CheckoutNegotiation, *,
+    item_ids: Optional[Iterable[uuid.UUID]] = None, lock: bool = False,
+) -> dict[uuid.UUID, dict]:
+    """How much of each item of this account is owed, settled and reserved.
+
+    Money is the only financial truth here. An allocation carries an amount and
+    never a quantity, because two canonical sources can disagree and half a
+    pizza has no whole number of units; "one of four beers" is a reading the
+    screen derives from ``amount / unit_price``, not a second fact in the ledger.
+
+    The sums deliberately span *every* negotiation that touched the item, not
+    only this one. What an item owes is a property of the item: while a bill
+    scoped to the table and a bill scoped to one of its comandas can both exist,
+    neither may spend the same whisky twice.
+
+    ``lock`` takes the item rows FOR UPDATE, so a caller that is about to
+    allocate decides against a state no concurrent transaction can move under it.
+    """
+    orders = _orders_for_negotiation(session, negotiation)
+    if not orders:
+        return {}
+    query = select(OrderItem).where(
+        OrderItem.tenant_id == negotiation.tenant_id,
+        OrderItem.order_id.in_([order.id for order in orders]),
+        OrderItem.status == OrderItemStatusEnum.ACTIVE,
+    )
+    if item_ids is not None:
+        wanted = list(item_ids)
+        if not wanted:
+            return {}
+        query = query.where(OrderItem.id.in_(wanted))
+    if lock:
+        query = query.with_for_update()
+    items = list(session.exec(query.order_by(OrderItem.created_at)).all())
+    if not items:
+        return {}
+    taken: dict[uuid.UUID, dict] = {}
+    rows = session.exec(
+        select(PaymentAllocation.order_item_id, PaymentIntent.status, func.sum(PaymentAllocation.amount))
+        .join(PaymentIntent, PaymentIntent.id == PaymentAllocation.payment_intent_id)
+        .where(
+            PaymentAllocation.tenant_id == negotiation.tenant_id,
+            PaymentAllocation.order_item_id.in_([item.id for item in items]),
+        )
+        .group_by(PaymentAllocation.order_item_id, PaymentIntent.status)
+    ).all()
+    for item_id, intent_status, total in rows:
+        bucket = taken.setdefault(item_id, {"settled": Decimal("0"), "reserved": Decimal("0")})
+        if intent_status in SETTLED_INTENTS:
+            bucket["settled"] += _money(total or 0)
+        elif intent_status in RESERVED_INTENTS:
+            bucket["reserved"] += _money(total or 0)
+    settlement = {}
+    for item in items:
+        bucket = taken.get(item.id, {"settled": Decimal("0"), "reserved": Decimal("0")})
+        item_total = _money(_money(item.unit_price) * _money(item.quantity))
+        settled, reserved = _money(bucket["settled"]), _money(bucket["reserved"])
+        settlement[item.id] = {
+            "order_item_id": item.id, "order_id": item.order_id,
+            "product_name": item.product_name, "quantity": item.quantity,
+            "unit_price": item.unit_price, "item_total": item_total,
+            "settled_amount": settled, "reserved_amount": reserved,
+            "available_amount": max(Decimal("0"), _money(item_total - settled - reserved)),
+            "is_paid": item_total > 0 and settled >= item_total,
+        }
+    return settlement
+
+
 def _validate_source(session: Session, negotiation: CheckoutNegotiation) -> list[Order]:
     orders = _orders_for_negotiation(session, negotiation, lock=True)
     table_session = None
@@ -185,7 +261,17 @@ def projection(session: Session, context: TenantContext, negotiation_id: uuid.UU
         PaymentAllocation.tenant_id == context.tenant_id,
         PaymentAllocation.negotiation_id == negotiation.id,
     )).all())
+    # What each item still owes, so the screen can offer "pay these" and grey out
+    # what someone else is already paying, without arithmetic in the browser.
+    settlement = item_settlement(session, negotiation)
+    assigned_settled = _money(sum((row["settled_amount"] for row in settlement.values()), Decimal("0")))
+    assigned_reserved = _money(sum((row["reserved_amount"] for row in settlement.values()), Decimal("0")))
     return {
+        "item_settlements": list(settlement.values()),
+        # Money paid against the account without naming an item: whoever settled
+        # the whole bill rather than their own share.
+        "unassigned_settled_amount": max(Decimal("0"), _money(totals["confirmed_amount"] - assigned_settled)),
+        "unassigned_reserved_amount": max(Decimal("0"), _money(totals["processing_amount"] - assigned_reserved)),
         "id": negotiation.id, "tenant_id": negotiation.tenant_id,
         "store_id": negotiation.store_id, "table_session_id": negotiation.table_session_id,
         "sale_id": negotiation.sale_id, "status": negotiation.status,
@@ -336,6 +422,30 @@ def create_intent(
         allocation_total = _money(sum((_money(item["amount"]) for item in allocations), Decimal("0")))
         if allocation_total != normalized_amount:
             raise HTTPException(status_code=422, detail="A soma das allocations deve ser igual à parcela.")
+    # The item invariant, decided here and not after the intent exists: nothing
+    # may settle or reserve above what the item still has available. The read is
+    # FOR UPDATE inside the transaction that already holds the negotiation, so
+    # two terminals cannot both see the whisky as free and both take it.
+    requested_by_item: dict[uuid.UUID, Decimal] = {}
+    for allocation in allocations:
+        if not allocation.get("order_item_id"):
+            continue
+        item_id = uuid.UUID(str(allocation["order_item_id"]))
+        requested_by_item[item_id] = _money(requested_by_item.get(item_id, Decimal("0")) + _money(allocation["amount"]))
+    item_state = item_settlement(session, negotiation, item_ids=requested_by_item, lock=True) if requested_by_item else {}
+    for item_id, requested in requested_by_item.items():
+        state = item_state.get(item_id)
+        if not state:
+            raise HTTPException(status_code=422, detail="Allocation aponta para item fora da negociação.")
+        if requested > state["available_amount"]:
+            raise HTTPException(status_code=409, detail={
+                "code": "ITEM_SETTLEMENT_UNAVAILABLE",
+                "order_item_id": str(item_id),
+                "requested": str(requested),
+                "available": str(state["available_amount"]),
+                "settled": str(state["settled_amount"]),
+                "reserved": str(state["reserved_amount"]),
+            })
     intent = PaymentIntent(
         tenant_id=context.tenant_id, store_id=negotiation.store_id,
         negotiation_id=negotiation.id, cash_session_id=cash_session_id,
@@ -354,13 +464,9 @@ def create_intent(
         if order_id and order_id not in linked_orders:
             raise HTTPException(status_code=422, detail="Allocation aponta para Order fora da negociação.")
         if item_id:
-            item = session.exec(select(OrderItem).where(
-                OrderItem.id == item_id, OrderItem.tenant_id == context.tenant_id,
-                OrderItem.order_id.in_(list(linked_orders)),
-            )).first()
-            if not item:
-                raise HTTPException(status_code=422, detail="Allocation aponta para item fora da negociação.")
-            order_id = item.order_id
+            # Already resolved, locked and checked above; the item carries its
+            # own Order so an allocation cannot be filed under the wrong one.
+            order_id = item_state[item_id]["order_id"]
         session.add(PaymentAllocation(
             tenant_id=context.tenant_id, negotiation_id=negotiation.id,
             payment_intent_id=intent.id, order_id=order_id, order_item_id=item_id,
