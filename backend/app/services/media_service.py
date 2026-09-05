@@ -27,7 +27,12 @@ from sqlmodel import Session, select
 from app.core.config import settings
 from app.core.context import TenantContext, scope_tenant_query
 from app.models.catalog import MediaAsset, MediaAssetSourceEnum
-from app.services.supabase_storage import SupabaseStorageClient, SupabaseStorageUnavailable
+from app.services.supabase_storage import (
+    PLATFORM_LIBRARY_BUCKET,
+    SupabaseStorageClient,
+    SupabaseStorageUnavailable,
+    tenant_object_path,
+)
 
 # A signature is reused while it still has more than this left to live, so a
 # picture never blanks out in the middle of somebody's shift.
@@ -51,7 +56,12 @@ def _sign(bucket_id: str, object_path: str) -> Optional[tuple[str, datetime]]:
         return cached
     ttl = _ttl_for(bucket_id)
     try:
-        url = SupabaseStorageClient().signed_download_url(bucket_id, object_path, expires_in=ttl)
+        client = SupabaseStorageClient()
+        url = (
+            client.signed_library_download_url(bucket_id, object_path, expires_in=ttl)
+            if bucket_id == PLATFORM_LIBRARY_BUCKET
+            else client.signed_download_url(bucket_id, object_path, expires_in=ttl)
+        )
     except (SupabaseStorageUnavailable, Exception):
         # A provider that is down must not empty the catalogue. The card falls
         # back to the initial for this request and tries again on the next one.
@@ -118,6 +128,18 @@ def register_tenant_upload(
     original_filename: Optional[str], actor_id: Optional[uuid.UUID],
 ) -> MediaAsset:
     """Record a file the shopkeeper uploaded into their own namespace."""
+    if bucket_id != "tenant-assets":
+        raise ValueError("Imagem própria deve usar o bucket privado tenant-assets.")
+    expected_prefix = f"{context.tenant_id}/"
+    if not object_path.startswith(expected_prefix):
+        raise ValueError("A imagem não pertence ao namespace deste tenant.")
+    relative_path = object_path[len(expected_prefix):]
+    if tenant_object_path(context.tenant_id, relative_path) != object_path:
+        raise ValueError("Caminho de imagem do tenant inválido.")
+    if content_type not in {"image/jpeg", "image/png", "image/webp"}:
+        raise ValueError("Tipo de imagem não permitido.")
+    if size_bytes < 1:
+        raise ValueError("O arquivo de imagem está vazio.")
     existing = session.exec(scope_tenant_query(
         select(MediaAsset).where(
             MediaAsset.bucket_id == bucket_id, MediaAsset.object_path == object_path,

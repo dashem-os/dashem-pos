@@ -7,7 +7,7 @@ const cases = [...modules.map(module => ({ name: `manage-${module}`, screen: 'ma
 const click = name => async (page) => page.getByRole('button', { name, exact: true }).click();
 const owner = name => async (page) => { await click('Abrir menu')(page); await click(name)(page); };
 const tenant = async (page) => { await owner('Organizações')(page); await click('Abrir')(page); await page.getByRole('button', { name: 'Cadastro', exact: true }).waitFor(); };
-for (const name of ['Organizações', 'Planos comerciais', 'Financeiro SaaS', 'Operações do Control', 'Saúde da plataforma'])
+for (const name of ['Organizações', 'Planos comerciais', 'Financeiro SaaS', 'Biblioteca de imagens', 'Operações do Control', 'Saúde da plataforma'])
     cases.push({ name: `owner-${name}`, screen: 'owner', steps: [owner(name)] });
 for (const tab of ['Resumo contratual', 'Cadastro', 'Conta de cobrança', 'Contrato', 'Administrador inicial'])
     cases.push({ name: `tenant-${tab}`, screen: 'owner', steps: [tenant, click(tab)] });

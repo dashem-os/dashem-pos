@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react'
-import { Archive, Package, Plus, Search, ArrowUpDown, CheckCircle2, Star, AlertCircle } from 'lucide-react'
+import React, { useEffect, useMemo, useState } from 'react'
+import { Archive, Package, Plus, Search, ArrowUpDown, CheckCircle2, Star, AlertCircle, Layers, Store } from 'lucide-react'
 import { usePos } from '../../context/PosContext'
 import { Modal } from '../common/Modal'
 import * as api from '../../services/api'
@@ -22,7 +22,10 @@ function ProductThumb({ name, imageUrl }: { name: string; imageUrl?: string | nu
 
 export const CatalogManager: React.FC = () => {
   const { tenant, store, products, prices, balances, createNewProduct, adjustStock, refreshData, actionLoading, activeActivity, showToast } = usePos()
-  const mediaHeaders = tenant && store ? { 'X-Tenant-ID': tenant.id, 'X-Store-ID': store.id } : null
+  const mediaHeaders = useMemo(
+    () => tenant && store ? { 'X-Tenant-ID': tenant.id, 'X-Store-ID': store.id } : null,
+    [tenant?.id, store?.id],
+  )
   const [searchQuery, setSearchQuery] = useState('')
   const [catalogItems, setCatalogItems] = useState<api.SellableProduct[]>([])
   const [total, setTotal] = useState(0)
@@ -31,6 +34,8 @@ export const CatalogManager: React.FC = () => {
   const [isStockModalOpen, setIsStockModalOpen] = useState(false)
   const [selectedProductForStock, setSelectedProductForStock] = useState<string | null>(null)
   const [productToArchive, setProductToArchive] = useState<api.SellableProduct | null>(null)
+  const [activeAssortments, setActiveAssortments] = useState<api.Assortment[]>([])
+  const [publishAssortmentId, setPublishAssortmentId] = useState('')
 
   // New Product Form
   const [name, setName] = useState('')
@@ -78,6 +83,20 @@ export const CatalogManager: React.FC = () => {
     return () => window.clearTimeout(timer)
   }, [tenant, store, page, searchQuery, viewMode, salesContext, reloadKey])
 
+  useEffect(() => {
+    if (!isAddModalOpen || !mediaHeaders) return
+    let alive = true
+    void api.fetchAssortments(mediaHeaders, { status: 'ACTIVE', storeId: store?.id, pageSize: 100 })
+      .then((result) => { if (alive) setActiveAssortments(result.items) })
+      .catch(() => { if (alive) setActiveAssortments([]) })
+    return () => { alive = false }
+  }, [isAddModalOpen, mediaHeaders, store?.id])
+
+  const openAddProduct = () => {
+    setPublishAssortmentId('')
+    setIsAddModalOpen(true)
+  }
+
   const handleCreateProduct = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!name || !sku || !priceInput) return
@@ -87,6 +106,7 @@ export const CatalogManager: React.FC = () => {
       parseFloat(priceInput),
       itemType === 'PRODUCT' ? parseInt(stockInput || '0', 10) : 0
     )
+    if (!created) return
 
     // The picture is attached after the product exists. A failure here leaves a
     // product without a photo, which is a state the catalogue already handles —
@@ -104,6 +124,28 @@ export const CatalogManager: React.FC = () => {
         showToast('error', reason instanceof Error ? reason.message : 'Produto criado, mas a foto não foi vinculada.')
       }
     }
+
+    if (publishAssortmentId && mediaHeaders) {
+      const target = activeAssortments.find((assortment) => assortment.id === publishAssortmentId)
+      if (target) {
+        try {
+          await api.linkAssortmentProducts(
+            mediaHeaders, target.id, [created.id], target.version,
+            `publish-new-product-${created.id}-${target.id}`,
+          )
+          showToast('success', `Produto publicado em “${target.name}” e disponível nos contextos desse sortimento.`)
+        } catch (reason) {
+          showToast('error', reason instanceof Error
+            ? `Produto cadastrado, mas não foi publicado: ${reason.message}`
+            : 'Produto cadastrado, mas não foi possível publicá-lo no sortimento.')
+        }
+      }
+    } else {
+      showToast('info', 'Produto cadastrado no acervo. Para aparecer no PDV, publique-o em um sortimento ativo.')
+    }
+
+    await refreshData()
+    setReloadKey((key) => key + 1)
 
     setName('')
     setSku('')
@@ -165,21 +207,36 @@ export const CatalogManager: React.FC = () => {
         <div>
           <h2 className="text-xl font-black text-dashem-strong tracking-tight flex items-center space-x-2">
             <Package className="w-5 h-5 text-dashem-red" />
-            <span>Catálogo de Produtos & Estoque</span>
+            <span>Produtos, preços e estoque</span>
           </h2>
           <p className="text-xs text-dashem-muted font-medium mt-0.5">
-            Gerenciamento de produtos, serviços, preços de venda e saldos de inventário.
+            Cadastre o que o negócio comercializa. A publicação no PDV é definida nos sortimentos.
           </p>
         </div>
 
         <button
-          onClick={() => setIsAddModalOpen(true)}
+          onClick={openAddProduct}
           className="h-11 px-5 rounded-2xl bg-dashem-red hover:bg-dashem-red-light text-brand-contrast text-xs font-black flex items-center justify-center space-x-2 transition-all shadow-md shadow-dashem-red/30 active:scale-95 shrink-0"
         >
           <Plus className="w-4 h-4" />
           <span>Cadastrar Novo Produto</span>
         </button>
       </div>
+
+      <section className="grid gap-2 rounded-2xl border border-dashem-border bg-dashem-surface p-3 sm:grid-cols-3" aria-label="Como um produto chega ao PDV">
+        <div className="flex items-start gap-3 rounded-xl bg-dashem-surface-elevated p-3">
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-dashem-red text-xs font-black text-brand-contrast">1</span>
+          <div><p className="text-xs font-black text-dashem-strong">Cadastre o produto</p><p className="mt-1 text-xs leading-5 text-dashem-muted">Nome, foto, preço e estoque pertencem ao acervo do negócio.</p></div>
+        </div>
+        <div className="flex items-start gap-3 rounded-xl bg-dashem-surface-elevated p-3">
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-dashem-red text-xs font-black text-brand-contrast">2</span>
+          <div><p className="text-xs font-black text-dashem-strong">Publique em um sortimento</p><p className="mt-1 text-xs leading-5 text-dashem-muted">Escolha em quais unidades e jornadas ele será vendido.</p></div>
+        </div>
+        <div className="flex items-start gap-3 rounded-xl bg-dashem-surface-elevated p-3">
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-dashem-red text-xs font-black text-brand-contrast">3</span>
+          <div><p className="text-xs font-black text-dashem-strong">Venda no PDV</p><p className="mt-1 text-xs leading-5 text-dashem-muted">O item aparece apenas nos contextos onde foi publicado.</p></div>
+        </div>
+      </section>
 
       {/* View Mode Switcher: Master Catalog vs Operational Projection */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-dashem-border pb-3">
@@ -193,7 +250,7 @@ export const CatalogManager: React.FC = () => {
                 : 'bg-dashem-surface border border-dashem-border text-dashem-muted hover:text-dashem-strong'
             }`}
           >
-            Catálogo Mestre ({viewMode === 'MASTER' ? total : products.length})
+            Todos os produtos ({viewMode === 'MASTER' ? total : products.length})
           </button>
           <button
             type="button"
@@ -204,7 +261,7 @@ export const CatalogManager: React.FC = () => {
                 : 'bg-dashem-surface border border-dashem-border text-dashem-muted hover:text-dashem-strong'
             }`}
           >
-            Projeção Vendável por Contexto
+            Publicados por contexto
           </button>
         </div>
 
@@ -241,6 +298,12 @@ export const CatalogManager: React.FC = () => {
           </div>
         )}
       </div>
+
+      <p className="-mt-3 text-xs leading-5 text-dashem-muted">
+        {viewMode === 'MASTER'
+          ? 'Acervo completo deste tenant. Estar aqui não significa que o item já aparece no PDV.'
+          : 'Prévia exata do que está publicado e pode ser vendido no contexto selecionado.'}
+      </p>
 
       {/* Explicit Error Banner & Retry */}
       {contextError && (
@@ -282,7 +345,7 @@ export const CatalogManager: React.FC = () => {
               key: 'name', header: 'Produto', primary: true,
               cell: (prod) => (
                 <div className="flex items-center gap-3">
-                  <ProductThumb name={prod.name} imageUrl={prod.image_url} />
+                  <ProductThumb name={prod.name} imageUrl={prod.image?.url || prod.image_url} />
                   <div className="min-w-0">
                     <span className="block font-bold text-dashem-strong">{prod.name}</span>
                     {prod.description && <span className="text-xs text-dashem-muted">{prod.description}</span>}
@@ -366,7 +429,8 @@ export const CatalogManager: React.FC = () => {
         isOpen={isAddModalOpen}
         onClose={() => setIsAddModalOpen(false)}
         title="Cadastrar Novo Produto"
-        subtitle="Adiciona um novo item ao catálogo e define o preço"
+        subtitle="Cadastre os dados e decida se o item já deve ser publicado no PDV"
+        maxWidth="2xl"
       >
         <form onSubmit={handleCreateProduct} className="space-y-4">
           <div className="space-y-1.5">
@@ -453,6 +517,37 @@ export const CatalogManager: React.FC = () => {
             </div>
           )}
 
+          <section className="space-y-2 rounded-2xl border border-dashem-border bg-dashem-surface-elevated/40 p-4">
+            <div className="flex items-start gap-2">
+              <Layers className="mt-0.5 h-4 w-4 shrink-0 text-dashem-red" />
+              <div>
+                <h4 className="text-sm font-black text-dashem-strong">Publicação no PDV</h4>
+                <p className="mt-1 text-xs leading-5 text-dashem-muted">
+                  Produto é o cadastro. Sortimento define onde ele aparece e pode ser vendido.
+                </p>
+              </div>
+            </div>
+            <label className="block text-xs font-bold text-dashem-strong" htmlFor="new-product-assortment">Publicar agora em</label>
+            <select
+              id="new-product-assortment"
+              value={publishAssortmentId}
+              onChange={(event) => setPublishAssortmentId(event.target.value)}
+              className="h-11 w-full rounded-xl border border-dashem-border bg-dashem-surface px-3.5 text-xs font-semibold text-dashem-strong outline-none focus:border-dashem-red"
+            >
+              <option value="">Não publicar agora — manter somente em Todos os produtos</option>
+              {activeAssortments.map((assortment) => (
+                <option key={assortment.id} value={assortment.id}>
+                  {assortment.name} · {assortment.scopes.map((scope) => ({ COUNTER: 'Balcão', TAKEAWAY: 'Retirada', TABLE: 'Mesa', DELIVERY: 'Delivery', ECOMMERCE: 'E-commerce' }[scope.sales_context])).filter(Boolean).join(', ') || 'sem contexto'}
+                </option>
+              ))}
+            </select>
+            {activeAssortments.length === 0 && (
+              <p className="flex items-center gap-1.5 text-xs font-semibold text-amber-800">
+                <Store className="h-3.5 w-3.5" /> Crie primeiro um sortimento ativo para publicar este item no PDV.
+              </p>
+            )}
+          </section>
+
           <div className="pt-3">
             <button
               type="submit"
@@ -460,7 +555,7 @@ export const CatalogManager: React.FC = () => {
               className="w-full h-12 rounded-2xl bg-dashem-red hover:bg-dashem-red-light text-brand-contrast text-xs font-black flex items-center justify-center space-x-2 transition-all shadow-lg active:scale-95 disabled:opacity-40"
             >
               <Plus className="w-4 h-4" />
-              <span>Salvar Produto no Catálogo</span>
+              <span>{publishAssortmentId ? 'Cadastrar e publicar produto' : 'Cadastrar produto'}</span>
             </button>
           </div>
         </form>

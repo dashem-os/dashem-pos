@@ -8,7 +8,7 @@ from pathlib import Path
 from app.core.config import settings
 from app.services.supabase_credentials import SupabaseCredentialError, supabase_server_headers
 from app.services.supabase_storage import (
-    SupabaseStorageClient, SupabaseStorageUnavailable, managed_bucket, tenant_object_path,
+    PLATFORM_LIBRARY_BUCKET, SupabaseStorageClient, SupabaseStorageUnavailable, managed_bucket, tenant_object_path,
     validate_content_signature, validate_filename_content_type,
 )
 
@@ -35,6 +35,44 @@ def test_only_declared_managed_buckets_are_accepted(configured_storage):
     assert managed_bucket("tenant-assets") == "tenant-assets"
     with pytest.raises(ValueError, match="gerenciado"):
         managed_bucket("public-assets")
+
+
+def test_platform_library_can_be_signed_without_becoming_a_tenant_managed_bucket(configured_storage):
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={"signedURL": "/object/sign/library"})
+
+    client = SupabaseStorageClient(httpx.Client(transport=httpx.MockTransport(handler)))
+    url = client.signed_library_download_url(
+        PLATFORM_LIBRARY_BUCKET, "food/burger.webp", expires_in=86400,
+    )
+    assert url.endswith("/storage/v1/object/sign/library")
+    assert "/dashem-library/food/burger.webp" in requests[0].url.path
+    with pytest.raises(ValueError, match="biblioteca"):
+        client.signed_library_download_url("tenant-assets", "food/burger.webp", expires_in=86400)
+    with pytest.raises(ValueError, match="gerenciado"):
+        managed_bucket(PLATFORM_LIBRARY_BUCKET)
+
+
+def test_platform_library_bootstrap_and_upload_are_separate_from_tenant_buckets(configured_storage):
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.method == "GET":
+            return httpx.Response(200, json=[])
+        if request.url.path.endswith("/bucket"):
+            return httpx.Response(200, json={"name": PLATFORM_LIBRARY_BUCKET})
+        return httpx.Response(200, json={"Key": f"{PLATFORM_LIBRARY_BUCKET}/catalog/item.webp"})
+
+    client = SupabaseStorageClient(httpx.Client(transport=httpx.MockTransport(handler)))
+    assert client.ensure_platform_library_bucket() == PLATFORM_LIBRARY_BUCKET
+    stored = client.upload_library("catalog/item.webp", b"webp", "image/webp")
+    assert stored.bucket_id == PLATFORM_LIBRARY_BUCKET
+    assert stored.object_path == "catalog/item.webp"
+    assert any(f"/object/{PLATFORM_LIBRARY_BUCKET}/catalog/item.webp" in request.url.path for request in requests)
 
 
 def test_private_bucket_bootstrap_and_upload_never_expose_service_key(configured_storage):
@@ -149,3 +187,12 @@ def test_supabase_migration_blocks_every_direct_operation_on_managed_buckets():
         assert f"for {operation}" in sql.lower()
     for bucket in settings.supabase_storage_buckets:
         assert f"'{bucket}'" in sql
+
+
+def test_platform_library_migration_blocks_direct_browser_access():
+    sql = (Path(__file__).parents[2] / "supabase" / "migrations" /
+           "20260905120000_lock_platform_media_library.sql").read_text(encoding="utf-8")
+    assert "'dashem-library'" in sql
+    assert "as restrictive" in sql.lower()
+    for operation in ("select", "insert", "update", "delete"):
+        assert f"for {operation}" in sql.lower()

@@ -2241,6 +2241,35 @@ export async function fetchMediaLibrary(
   return res.json()
 }
 
+export async function fetchPlatformMediaLibrary(search?: string): Promise<LibraryImage[]> {
+  const params = new URLSearchParams()
+  if (search) params.set('search', search)
+  const res = await fetch(`${API_BASE_URL}/api/v1/catalog/platform/media-library?${params}`)
+  if (!res.ok) throw await apiError(res, 'Não foi possível carregar a biblioteca DASHEM.')
+  return res.json()
+}
+
+export async function uploadPlatformMediaLibrary(
+  input: { code: string; name: string; collection?: string; tags?: string[]; activities?: string[] },
+  file: File,
+): Promise<LibraryImage> {
+  const params = new URLSearchParams({
+    code: input.code,
+    name: input.name,
+    filename: file.name,
+    collection: input.collection || 'GENERIC',
+    tags: (input.tags || []).join(','),
+    activities: (input.activities || []).join(','),
+  })
+  const res = await fetch(`${API_BASE_URL}/api/v1/catalog/platform/media-library?${params}`, {
+    method: 'POST',
+    headers: { 'Content-Type': file.type },
+    body: file,
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível adicionar a imagem à biblioteca DASHEM.')
+  return res.json()
+}
+
 export async function setProductMedia(
   headers: Record<string, string>, productId: string,
   input: { bucket_id?: string; object_path?: string; content_type?: string; size_bytes?: number; original_filename?: string; library_asset_id?: string },

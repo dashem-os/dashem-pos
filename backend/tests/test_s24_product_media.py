@@ -166,3 +166,30 @@ def test_s24_signed_url_lifetime_follows_the_purpose_not_the_caller():
     # loaded window finished requesting its own pictures.
     assert settings.CATALOG_MEDIA_SIGNED_URL_TTL_SECONDS == 21600
     assert settings.DOCUMENT_SIGNED_URL_TTL_SECONDS == 60
+
+
+def test_s24_a_forged_locator_cannot_point_at_another_tenants_private_file():
+    mine, neighbour = uuid.uuid4(), uuid.uuid4()
+    context = TenantContext(tenant_id=mine, auth_subject="local-auth-bypass")
+
+    with pytest.raises(ValueError, match="namespace deste tenant"):
+        media_service.register_tenant_upload(
+            None, context,
+            bucket_id="tenant-assets",
+            object_path=f"{neighbour}/catalog/segredo.png",
+            content_type="image/png",
+            size_bytes=100,
+            original_filename="segredo.png",
+            actor_id=None,
+        )
+
+    with pytest.raises(ValueError, match="bucket privado"):
+        media_service.register_tenant_upload(
+            None, context,
+            bucket_id="dashem-library",
+            object_path=f"{mine}/catalog/falsa.png",
+            content_type="image/png",
+            size_bytes=100,
+            original_filename="falsa.png",
+            actor_id=None,
+        )

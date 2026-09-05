@@ -102,78 +102,103 @@ export const ProductMediaPicker: React.FC<Props> = ({ headers, activity, current
   }
 
   return (
-    <div className="space-y-2">
-      <label className="block text-xs font-bold text-dashem-strong">Foto do produto</label>
-
-      <div className="flex items-center gap-2">
-        <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-dashem-border bg-dashem-surface-elevated">
-          {preview
-            ? <img src={preview} alt="" className="h-full w-full object-cover" />
-            : <ImageIcon className="h-5 w-5 text-dashem-muted" />}
-        </div>
-
-        <label
-          title={uploadBlocked || 'Enviar uma foto do seu computador'}
-          className={`flex h-10 shrink-0 items-center gap-1.5 rounded-xl border border-dashem-border px-3 text-xs font-black ${
-            uploadBlocked || busy
-              ? 'cursor-not-allowed bg-dashem-bg text-dashem-muted'
-              : 'cursor-pointer bg-dashem-surface-elevated text-dashem-strong'
-          }`}
-        >
-          <Upload className="h-4 w-4" />
-          <span className="whitespace-nowrap">{busy ? 'Enviando' : 'Enviar'}</span>
-          <input
-            type="file" accept={ACCEPTED} className="hidden" disabled={busy || !!uploadBlocked}
-            onChange={(event) => {
-              const file = event.target.files?.[0]
-              if (file) void upload(file)
-              event.target.value = ''
-            }}
-          />
-        </label>
-
-        <button type="button" onClick={() => setBrowsing(!browsing)}
-          className="flex h-10 shrink-0 items-center gap-1.5 rounded-xl border border-dashem-border bg-dashem-surface-elevated px-3 text-xs font-black text-dashem-strong">
-          <Library className="h-4 w-4" />
-          <span className="whitespace-nowrap">Biblioteca</span>
-        </button>
-
-        {preview && (
-          <button type="button" onClick={() => { setPreview(null); onChange({ kind: 'CLEAR' }) }}
-            title="Remover a foto" aria-label="Remover a foto"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-dashem-border text-dashem-muted">
-            <Trash2 className="h-4 w-4" />
-          </button>
-        )}
+    <section className="space-y-3 rounded-2xl border border-dashem-border bg-dashem-surface-elevated/40 p-4">
+      <div>
+        <h4 className="text-sm font-black text-dashem-strong">Imagem do produto</h4>
+        <p className="mt-1 text-xs leading-5 text-dashem-muted">
+          Envie uma foto exclusiva deste negócio ou escolha uma imagem da biblioteca DASHEM.
+        </p>
       </div>
 
-      <p className="text-xs text-dashem-muted">Sem foto, o PDV usa a inicial do nome.</p>
-      {uploadBlocked && <p className="text-xs font-semibold text-amber-700">{uploadBlocked}</p>}
-      {error && <p className="text-xs font-semibold text-red-700">{error}</p>}
+      <div className="grid gap-3 sm:grid-cols-[6rem_minmax(0,1fr)] sm:items-start">
+        <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-2xl border border-dashem-border bg-dashem-surface">
+          {preview
+            ? <img src={preview} alt="" className="h-full w-full object-cover" />
+            : <ImageIcon className="h-7 w-7 text-dashem-muted" />}
+        </div>
+
+        <div className="min-w-0 space-y-2">
+          <div className="flex flex-wrap gap-2">
+            <label
+              title={uploadBlocked || 'Enviar uma foto do seu computador'}
+              className={`flex h-10 items-center gap-1.5 rounded-xl border border-dashem-border px-3 text-xs font-black ${
+                uploadBlocked || busy
+                  ? 'cursor-not-allowed bg-dashem-bg text-dashem-muted'
+                  : 'cursor-pointer bg-dashem-surface text-dashem-strong hover:border-dashem-red'
+              }`}
+            >
+              <Upload className="h-4 w-4" />
+              <span>{busy ? 'Enviando...' : 'Enviar minha foto'}</span>
+              <input
+                type="file" accept={ACCEPTED} className="hidden" disabled={busy || !!uploadBlocked}
+                onChange={(event) => {
+                  const file = event.target.files?.[0]
+                  if (file) void upload(file)
+                  event.target.value = ''
+                }}
+              />
+            </label>
+
+            <button type="button" onClick={() => setBrowsing(!browsing)}
+              className="flex h-10 items-center gap-1.5 rounded-xl border border-dashem-border bg-dashem-surface px-3 text-xs font-black text-dashem-strong hover:border-dashem-red">
+              <Library className="h-4 w-4" />
+              <span>{browsing ? 'Fechar biblioteca' : 'Escolher da biblioteca'}</span>
+            </button>
+
+            {preview && (
+              <button type="button" onClick={() => { setPreview(null); onChange({ kind: 'CLEAR' }) }}
+                title="Remover a foto" aria-label="Remover a foto"
+                className="flex h-10 w-10 items-center justify-center rounded-xl border border-dashem-border bg-dashem-surface text-dashem-muted hover:text-red-700">
+                <Trash2 className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+          <p className="text-xs leading-5 text-dashem-muted">
+            Sua foto fica privada para este tenant e pode ser usada em todas as suas unidades e dispositivos.
+            A biblioteca DASHEM é compartilhada somente para escolha e não consome a sua cota.
+          </p>
+        </div>
+      </div>
+
+      {uploadBlocked && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold leading-5 text-amber-800">
+          {uploadBlocked} Você ainda pode escolher uma imagem da biblioteca DASHEM.
+        </div>
+      )}
+      {error && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold leading-5 text-red-700">
+          {error}
+        </div>
+      )}
 
       {browsing && (
-        <div className="rounded-xl border border-dashem-border bg-dashem-surface p-2">
+        <div className="rounded-xl border border-dashem-border bg-dashem-surface p-3">
+          <div className="mb-3">
+            <p className="text-xs font-black text-dashem-strong">Biblioteca DASHEM</p>
+            <p className="mt-0.5 text-xs text-dashem-muted">Imagens disponibilizadas pela plataforma em modo somente leitura.</p>
+          </div>
           <input
             value={search} onChange={(event) => setSearch(event.target.value)}
-            placeholder="Buscar imagem..."
-            className="mb-2 h-10 w-full rounded-xl border border-dashem-border bg-dashem-surface-elevated px-3 text-xs text-dashem-strong"
+            placeholder="Buscar por produto, categoria ou tema..."
+            className="mb-3 h-10 w-full rounded-xl border border-dashem-border bg-dashem-surface-elevated px-3 text-xs text-dashem-strong"
           />
           {library.length === 0 ? (
-            <p className="p-3 text-center text-xs text-dashem-muted">Biblioteca ainda sem imagens.</p>
+            <p className="rounded-xl bg-dashem-surface-elevated p-4 text-center text-xs text-dashem-muted">Nenhuma imagem encontrada na biblioteca.</p>
           ) : (
-            <div className="grid max-h-48 grid-cols-4 gap-2 overflow-y-auto">
+            <div className="grid max-h-56 grid-cols-2 gap-2 overflow-y-auto sm:grid-cols-4">
               {library.map((asset) => (
                 <button key={asset.id} type="button" onClick={() => chooseFromLibrary(asset)} title={asset.name}
-                  className="overflow-hidden rounded-lg border border-dashem-border transition hover:border-brand">
+                  className="overflow-hidden rounded-xl border border-dashem-border bg-dashem-surface text-left transition hover:border-dashem-red">
                   {asset.url
-                    ? <img src={asset.url} alt={asset.name} loading="lazy" className="h-14 w-full object-cover" />
-                    : <div className="flex h-14 items-center justify-center bg-dashem-surface-elevated px-1 text-[10px] leading-tight text-dashem-muted">{asset.name}</div>}
+                    ? <img src={asset.url} alt={asset.name} loading="lazy" className="h-20 w-full object-cover" />
+                    : <div className="flex h-20 items-center justify-center bg-dashem-surface-elevated px-2 text-center text-[10px] leading-tight text-dashem-muted">Prévia indisponível</div>}
+                  <span className="block truncate px-2 py-1.5 text-[10px] font-bold text-dashem-strong">{asset.name}</span>
                 </button>
               ))}
             </div>
           )}
         </div>
       )}
-    </div>
+    </section>
   )
 }

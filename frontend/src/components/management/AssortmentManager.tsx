@@ -318,7 +318,7 @@ export const AssortmentManager: React.FC = () => {
             <h1 className="text-xl font-black text-dashem-strong">{setsLabel}</h1>
           </div>
           <p className="text-xs text-dashem-muted font-medium mt-1">
-            Fonte canônica de sortimento por contexto operacional. Cada jornada possui escopo explícito sem fallback global.
+            Publique os produtos certos em cada unidade e contexto de venda.
           </p>
         </div>
 
@@ -332,6 +332,13 @@ export const AssortmentManager: React.FC = () => {
           </button>
         )}
       </div>
+
+      <section className="rounded-2xl border border-dashem-border bg-dashem-surface p-4">
+        <p className="text-sm font-black text-dashem-strong">Aqui você organiza a publicação, não o cadastro do produto.</p>
+        <p className="mt-1 text-xs leading-5 text-dashem-muted">
+          Produtos, fotos, preços e estoque são mantidos em “Produtos e preços”. Neste módulo, um sortimento reúne esses produtos e define em quais unidades, atividades e jornadas eles aparecem.
+        </p>
+      </section>
 
       {/* Error alert */}
       {error && (
@@ -539,7 +546,7 @@ export const AssortmentManager: React.FC = () => {
       {/* Modal: Create Assortment */}
       {isCreateOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="responsive-dialog w-full max-w-lg bg-dashem-surface border border-dashem-border rounded-3xl p-6 shadow-2xl space-y-5 max-h-[calc(100dvh-2rem)] overflow-y-auto">
+          <div className="responsive-dialog w-full max-w-2xl bg-dashem-surface border border-dashem-border rounded-3xl p-6 shadow-2xl space-y-5 max-h-[calc(100dvh-2rem)] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-dashem-border pb-4">
               <h2 className="text-base font-black text-dashem-strong">Criar Novo Sortimento</h2>
               <button onClick={() => setIsCreateOpen(false)} className="text-dashem-muted hover:text-dashem-strong">
@@ -548,28 +555,30 @@ export const AssortmentManager: React.FC = () => {
             </div>
 
             <form onSubmit={handleSaveCreate} className="space-y-4">
-              <div>
-                <label className="block text-[11px] font-bold text-dashem-muted uppercase tracking-wider mb-1">Código único</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="EX: CARDAPIO-BALCAO"
-                  value={formCode}
-                  onChange={(e) => setFormCode(e.target.value.toUpperCase())}
-                  className="w-full h-10 px-3 rounded-xl bg-dashem-bg border border-dashem-border text-dashem-strong text-xs font-mono font-bold focus:border-dashem-red outline-none"
-                />
-              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="block text-[11px] font-bold text-dashem-muted uppercase tracking-wider mb-1">Código único</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="EX: CARDAPIO-BALCAO"
+                    value={formCode}
+                    onChange={(e) => setFormCode(e.target.value.toUpperCase())}
+                    className="w-full h-10 px-3 rounded-xl bg-dashem-bg border border-dashem-border text-dashem-strong text-xs font-mono font-bold focus:border-dashem-red outline-none"
+                  />
+                </div>
 
-              <div>
-                <label className="block text-[11px] font-bold text-dashem-muted uppercase tracking-wider mb-1">Nome</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Ex: Cardápio Principal do Balcão"
-                  value={formName}
-                  onChange={(e) => setFormName(e.target.value)}
-                  className="w-full h-10 px-3 rounded-xl bg-dashem-bg border border-dashem-border text-dashem-strong text-xs font-bold focus:border-dashem-red outline-none"
-                />
+                <div>
+                  <label className="block text-[11px] font-bold text-dashem-muted uppercase tracking-wider mb-1">Nome</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ex: Cardápio Principal do Balcão"
+                    value={formName}
+                    onChange={(e) => setFormName(e.target.value)}
+                    className="w-full h-10 px-3 rounded-xl bg-dashem-bg border border-dashem-border text-dashem-strong text-xs font-bold focus:border-dashem-red outline-none"
+                  />
+                </div>
               </div>
 
               <div>
@@ -599,8 +608,8 @@ export const AssortmentManager: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-[11px] font-bold text-dashem-muted uppercase tracking-wider mb-1">Contextos Operacionais Habilitados</label>
-                <p className="text-xs text-dashem-muted mb-2">Selecione as jornadas em que este sortimento será publicado na unidade ativa:</p>
+                <label className="block text-[11px] font-bold text-dashem-muted uppercase tracking-wider mb-1">Onde este sortimento aparece</label>
+                <p className="text-xs text-dashem-muted mb-2">Selecione as jornadas em que os produtos deste conjunto serão publicados na unidade ativa:</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {AVAILABLE_CONTEXTS.map((item) => {
                     const ctx = item.key

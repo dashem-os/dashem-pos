@@ -2,7 +2,7 @@ import { ResponsiveTable } from '../common/DataTable'
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Activity, AlertTriangle, ArrowRight, Building2, CheckCircle2, CircleDollarSign, FileWarning,
-  HeartPulse, LayoutGrid, Loader2, LogOut, Menu, Plus, RefreshCw, Search,
+  HeartPulse, Images, LayoutGrid, Loader2, LogOut, Menu, Plus, RefreshCw, Search,
   ShieldCheck, Users, WalletCards, Workflow, X,
 } from 'lucide-react'
 
@@ -17,8 +17,9 @@ import { CreateTenantPanel } from './CreateTenantPanel'
 import { ServicePlansView } from './ServicePlansView'
 import { FinanceSaasView } from './FinanceSaasView'
 import { TenantWorkspace } from './TenantWorkspace'
+import { MediaLibraryView } from './MediaLibraryView'
 
-type View = 'overview' | 'organizations' | 'plans' | 'finance' | 'operations' | 'health' | 'tenant'
+type View = 'overview' | 'organizations' | 'plans' | 'finance' | 'media' | 'operations' | 'health' | 'tenant'
 type OrganizationFilter = 'ALL' | 'ACTIVE' | 'IMPLEMENTATION' | 'ATTENTION'
 
 const statusLabel: Record<string, string> = {
@@ -70,7 +71,7 @@ export function OwnerConsoleShell({ me }: { me: AuthMe }) {
       setError(reason instanceof Error ? reason.message : 'Não foi possível verificar os planos comerciais.')
     } finally { setCheckingPlans(false) }
   }
-  const title = view === 'overview' ? 'Visão geral da plataforma' : view === 'organizations' ? 'Clientes e organizações' : view === 'plans' ? 'Planos comerciais' : view === 'finance' ? 'Financeiro SaaS' : view === 'operations' ? 'Operações do Control' : view === 'health' ? 'Saúde da plataforma' : selected?.name || 'Cliente'
+  const title = view === 'overview' ? 'Visão geral da plataforma' : view === 'organizations' ? 'Clientes e organizações' : view === 'plans' ? 'Planos comerciais' : view === 'finance' ? 'Financeiro SaaS' : view === 'media' ? 'Biblioteca de imagens' : view === 'operations' ? 'Operações do Control' : view === 'health' ? 'Saúde da plataforma' : selected?.name || 'Cliente'
 
   return <div className="min-h-screen bg-[#f4f6f9] text-[#022444] lg:grid lg:h-dvh lg:grid-cols-[260px_minmax(0,1fr)] lg:overflow-hidden">
     <aside className={`${mobileNav ? 'flex' : 'hidden'} fixed inset-y-0 left-0 z-40 w-[min(90vw,280px)] flex-col overflow-y-auto bg-[#022444] p-5 text-white shadow-2xl lg:static lg:flex lg:h-dvh lg:w-auto lg:shadow-none`}>
@@ -80,6 +81,7 @@ export function OwnerConsoleShell({ me }: { me: AuthMe }) {
         <NavButton active={view === 'organizations' || view === 'tenant'} icon={Building2} label="Organizações" onClick={() => navigate('organizations')} />
         <NavButton active={view === 'plans'} icon={WalletCards} label="Planos comerciais" onClick={() => navigate('plans')} />
         <NavButton active={view === 'finance'} icon={CircleDollarSign} label="Financeiro SaaS" onClick={() => navigate('finance')} />
+        <NavButton active={view === 'media'} icon={Images} label="Biblioteca de imagens" onClick={() => navigate('media')} />
         <NavButton active={view === 'operations'} icon={Workflow} label="Operações do Control" onClick={() => navigate('operations')} />
         <NavButton active={view === 'health'} icon={HeartPulse} label="Saúde da plataforma" onClick={() => navigate('health')} />
       </nav>
@@ -94,6 +96,7 @@ export function OwnerConsoleShell({ me }: { me: AuthMe }) {
       {view === 'organizations' && <OrganizationsView overview={overview} filter={filter} onFilter={setFilter} onTenant={openTenant} />}
       {view === 'plans' && <ServicePlansView onOrganizations={() => navigate('organizations')} />}
       {view === 'finance' && <FinanceSaasView onTenant={openTenantById} onOrganizations={() => navigate('organizations')} onPlans={() => navigate('plans')} />}
+      {view === 'media' && <MediaLibraryView />}
       {view === 'operations' && <ControlOperationsView />}
       {view === 'health' && <SystemHealthView health={health} storageCapacity={storageCapacity} onRefresh={load} onOrganizations={() => navigate('organizations')} />}
       {view === 'tenant' && selected && <TenantWorkspace tenant={selected} onBack={() => navigate('organizations')} onManagePlans={() => navigate('plans')} onFinance={() => navigate('finance')} onCapacity={() => navigate('health')} onChanged={load} />}

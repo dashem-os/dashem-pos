@@ -24,6 +24,9 @@ class SupabaseStorageRejected(SupabaseStorageUnavailable):
     pass
 
 
+PLATFORM_LIBRARY_BUCKET = "dashem-library"
+
+
 @dataclass(frozen=True)
 class StoredObject:
     bucket_id: str
@@ -57,6 +60,20 @@ def tenant_object_path(tenant_id: uuid.UUID, relative_path: str) -> str:
     if not all(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._ -]*", segment) for segment in segments):
         raise ValueError("O caminho contém caracteres não permitidos.")
     return f"{tenant_id}/{value}"
+
+
+def platform_library_object_path(relative_path: str) -> str:
+    """Validate a platform-owned locator without ever accepting a tenant prefix."""
+
+    value = relative_path.strip().strip("/")
+    if not value or len(value) > 430 or "\\" in value:
+        raise ValueError("Caminho de objeto da biblioteca inválido.")
+    segments = value.split("/")
+    if any(segment in {"", ".", ".."} for segment in segments):
+        raise ValueError("Caminho de objeto da biblioteca inválido.")
+    if not all(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._ -]*", segment) for segment in segments):
+        raise ValueError("O caminho da biblioteca contém caracteres não permitidos.")
+    return value
 
 
 def validate_content_signature(content: bytes, content_type: str) -> None:
@@ -138,6 +155,28 @@ class SupabaseStorageClient:
                 raise SupabaseStorageUnavailable(f"O bucket {bucket_id} é público e foi recusado.")
             ready.append(bucket_id)
         return ready
+
+    def ensure_platform_library_bucket(self) -> str:
+        """Create the platform shelf as private, without adding it to tenant routes."""
+
+        response = self._client.get(f"{self._base}/bucket", headers=self._headers)
+        existing = {str(item["id"]): item for item in self._json(response, "Falha ao listar buckets.")}
+        current = existing.get(PLATFORM_LIBRARY_BUCKET)
+        if current is None:
+            created = self._client.post(
+                f"{self._base}/bucket",
+                headers={**self._headers, "Content-Type": "application/json"},
+                json={
+                    "id": PLATFORM_LIBRARY_BUCKET,
+                    "name": PLATFORM_LIBRARY_BUCKET,
+                    "public": False,
+                    "file_size_limit": settings.STORAGE_MAX_UPLOAD_BYTES,
+                },
+            )
+            self._json(created, "Falha ao criar a biblioteca DASHEM.")
+        elif current.get("public") is True:
+            raise SupabaseStorageUnavailable("O bucket da biblioteca DASHEM é público e foi recusado.")
+        return PLATFORM_LIBRARY_BUCKET
 
     def _list_buckets(self) -> list[dict[str, Any]]:
         response = self._client.get(f"{self._base}/bucket", headers=self._headers)
@@ -228,6 +267,17 @@ class SupabaseStorageClient:
 
     def upload(self, bucket_id: str, object_path: str, content: bytes, content_type: str) -> StoredObject:
         bucket = managed_bucket(bucket_id)
+        return self._upload(bucket, object_path, content, content_type)
+
+    def upload_library(self, object_path: str, content: bytes, content_type: str) -> StoredObject:
+        return self._upload(
+            PLATFORM_LIBRARY_BUCKET,
+            platform_library_object_path(object_path),
+            content,
+            content_type,
+        )
+
+    def _upload(self, bucket: str, object_path: str, content: bytes, content_type: str) -> StoredObject:
         encoded = quote(object_path, safe="/")
         response = self._client.post(
             f"{self._base}/object/{bucket}/{encoded}",
@@ -249,6 +299,17 @@ class SupabaseStorageClient:
 
     def signed_download_url(self, bucket_id: str, object_path: str, expires_in: int = 60) -> str:
         bucket = managed_bucket(bucket_id)
+        return self._signed_download_url(bucket, object_path, expires_in)
+
+    def signed_library_download_url(self, bucket_id: str, object_path: str, expires_in: int) -> str:
+        """Sign only the platform shelf; tenant object routes never accept it."""
+
+        bucket = bucket_id.strip()
+        if bucket != PLATFORM_LIBRARY_BUCKET:
+            raise ValueError("Bucket não pertence à biblioteca DASHEM.")
+        return self._signed_download_url(bucket, object_path, expires_in)
+
+    def _signed_download_url(self, bucket: str, object_path: str, expires_in: int) -> str:
         encoded = quote(object_path, safe="/")
         response = self._client.post(
             f"{self._base}/object/sign/{bucket}/{encoded}",

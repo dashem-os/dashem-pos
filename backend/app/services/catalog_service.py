@@ -330,11 +330,14 @@ def set_product_media(
     else:
         if not bucket_id or not object_path or not content_type:
             raise HTTPException(status_code=400, detail="Informe o arquivo enviado ou uma imagem da biblioteca.")
-        asset = media_service.register_tenant_upload(
-            session, context, bucket_id=bucket_id, object_path=object_path,
-            content_type=content_type, size_bytes=size_bytes,
-            original_filename=original_filename, actor_id=_actor(context),
-        )
+        try:
+            asset = media_service.register_tenant_upload(
+                session, context, bucket_id=bucket_id, object_path=object_path,
+                content_type=content_type, size_bytes=size_bytes,
+                original_filename=original_filename, actor_id=_actor(context),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
     product.primary_media_asset_id = asset.id
     product.updated_at = datetime.utcnow()
     session.add(product)
@@ -347,7 +350,7 @@ def set_product_media(
 
 
 def search_media_library(
-    session: Session, context: TenantContext,
+    session: Session,
     search: Optional[str] = None, activity: Optional[str] = None, limit: int = 60,
 ) -> list[dict[str, Any]]:
     """The DASHEM shelf. Activity ranks, it never filters something out.

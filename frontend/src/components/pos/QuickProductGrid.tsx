@@ -23,17 +23,11 @@ export const QuickProductGrid: React.FC = () => {
     return products.filter((p) => p.category_id === activeTab)
   }, [products, favoriteProducts, activeTab])
 
-  if (products.length === 0) {
-    return (
-      <div className="w-full py-12 px-6 flex flex-col items-center justify-center bg-white border border-slate-200 rounded-2xl text-center shadow-sm">
-        <Package className="w-10 h-10 text-slate-300 mb-3" />
-        <h3 className="text-base font-bold text-slate-800">Catálogo de Produtos Vazio</h3>
-        <p className="text-xs text-slate-500 max-w-sm mt-1 mb-4">
-          Nenhum produto cadastrado. Cadastre ou importe o catálogo real no Dashem Gestão.
-        </p>
-      </div>
-    )
-  }
+  // The empty state is a state of this screen, not a replacement for it. It used
+  // to return early, above the window — so the arrangement the shop had built
+  // was unreachable in exactly the situation where the operator most needs to
+  // know what is going on.
+  const emptyCatalogue = products.length === 0
 
   return (
     <div className="w-full flex flex-col space-y-3">
@@ -42,6 +36,19 @@ export const QuickProductGrid: React.FC = () => {
           tail that does not earn a place on the first screen. */}
       <ProductShowcase onPick={(product) => void addItemToCart(product.id)} disabled={!canSell} />
 
+      {emptyCatalogue && (
+        <div className="w-full py-10 px-6 flex flex-col items-center justify-center bg-white border border-slate-200 rounded-2xl text-center shadow-sm">
+          <Package className="w-10 h-10 text-slate-300 mb-3" />
+          <h3 className="text-base font-bold text-slate-800">Nenhum produto neste contexto</h3>
+          <p className="text-xs text-slate-500 max-w-md mt-1">
+            O catálogo pode ter itens sem estarem publicados neste contexto de venda.
+            Publique-os em Sortimentos e cardápios, no Dashem Gestão, para que apareçam aqui.
+          </p>
+        </div>
+      )}
+
+      {!emptyCatalogue && (
+      <>
       {/* Navigation Pills: Acesso Rápido, Todos, and Real Categories */}
       <div className="flex items-center space-x-2 overflow-x-auto pb-1 scrollbar-none select-none">
         {/* Acesso Rápido (Favoritos) Tab */}
@@ -170,6 +177,8 @@ export const QuickProductGrid: React.FC = () => {
           )
         })}
       </div>
+      </>
+      )}
     </div>
   )
 }

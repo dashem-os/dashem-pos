@@ -1,20 +1,29 @@
 import uuid
+import re
 from decimal import Decimal
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field
-from sqlmodel import Session
+from sqlmodel import Session, select
 
+from app.api.v1.endpoints.identity import PLATFORM_MANAGERS
+from app.core.access import require_platform_role
 from app.core.context import TenantContext, get_tenant_context
+from app.core.config import settings
 from app.core.database import get_session
+from app.core.security import AuthPrincipal, get_current_principal
 from app.models.catalog import (
     Category, Combo, ItemTypeEnum, Modifier, ModifierGroup, Product,
-    ProductModifierGroup, ProductPrice, QuickAccessProduct,
+    PlatformMediaAsset, ProductModifierGroup, ProductPrice, QuickAccessProduct,
 )
 from app.models.assortment import SalesContextEnum
 from app.api.v1.endpoints import assortments
-from app.services import catalog_service, starter_catalog_service
+from app.services import catalog_service, media_service, starter_catalog_service
+from app.services.supabase_storage import (
+    PLATFORM_LIBRARY_BUCKET, SupabaseStorageClient, SupabaseStorageRejected,
+    SupabaseStorageUnavailable, validate_content_signature, validate_filename_content_type,
+)
 
 router = APIRouter()
 router.include_router(assortments.router, prefix="/assortments", tags=["Assortments & Menus"])
@@ -260,7 +269,92 @@ class ProductMediaDTO(BaseModel):
 
 @router.get("/media-library")
 def search_media_library_endpoint(search: Optional[str] = None, activity: Optional[str] = None, context: TenantContext = Depends(get_tenant_context), session: Session = Depends(get_session)):
-    return catalog_service.search_media_library(session, context, search, activity)
+    return catalog_service.search_media_library(session, search, activity)
+
+
+@router.get("/platform/media-library")
+def list_platform_media_library_endpoint(
+    search: Optional[str] = None,
+    principal: AuthPrincipal = Depends(get_current_principal),
+    session: Session = Depends(get_session),
+):
+    require_platform_role(session, principal, PLATFORM_MANAGERS, require_aal2=True)
+    return catalog_service.search_media_library(session, search=search, limit=100)
+
+
+@router.post("/platform/media-library", status_code=201)
+async def upload_platform_media_library_endpoint(
+    request: Request,
+    code: str = Query(min_length=2, max_length=80),
+    name: str = Query(min_length=2, max_length=160),
+    filename: str = Query(min_length=3, max_length=160),
+    collection: str = Query(default="GENERIC", max_length=80),
+    tags: str = Query(default="", max_length=500),
+    activities: str = Query(default="", max_length=300),
+    principal: AuthPrincipal = Depends(get_current_principal),
+    session: Session = Depends(get_session),
+):
+    """Owner-only ingress for the shared shelf; it never touches media_assets."""
+
+    require_platform_role(session, principal, PLATFORM_MANAGERS, require_aal2=True)
+    normalized_code = code.strip().upper()
+    if not re.fullmatch(r"[A-Z0-9][A-Z0-9._-]+", normalized_code):
+        raise HTTPException(status_code=422, detail="Código da imagem inválido.")
+    if session.exec(select(PlatformMediaAsset.id).where(PlatformMediaAsset.code == normalized_code)).first():
+        raise HTTPException(status_code=409, detail="Já existe uma imagem com este código na biblioteca DASHEM.")
+
+    content_type = request.headers.get("content-type", "").split(";", 1)[0].lower()
+    if content_type not in {"image/jpeg", "image/png", "image/webp"}:
+        raise HTTPException(status_code=415, detail="A biblioteca aceita JPEG, PNG ou WebP.")
+    safe_filename = re.sub(r"[^A-Za-z0-9._-]+", "-", filename.strip()).strip("-.")[-100:]
+    object_path = f"catalog/{uuid.uuid4()}-{safe_filename}"
+    try:
+        validate_filename_content_type(object_path, content_type)
+    except ValueError as exc:
+        raise HTTPException(status_code=415, detail=str(exc)) from exc
+
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > settings.STORAGE_MAX_UPLOAD_BYTES:
+            raise HTTPException(status_code=413, detail="Imagem excede o limite individual permitido.")
+        chunks.append(chunk)
+    content = b"".join(chunks)
+    if not content:
+        raise HTTPException(status_code=400, detail="Arquivo vazio.")
+    try:
+        validate_content_signature(content, content_type)
+        storage = SupabaseStorageClient()
+        storage.ensure_platform_library_bucket()
+        stored = storage.upload_library(object_path, content, content_type)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except SupabaseStorageRejected as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except SupabaseStorageUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    asset = PlatformMediaAsset(
+        code=normalized_code,
+        name=name.strip(),
+        bucket_id=PLATFORM_LIBRARY_BUCKET,
+        object_path=stored.object_path,
+        content_type=content_type,
+        suggested_activities=[item.strip().upper() for item in activities.split(",") if item.strip()],
+        tags=[item.strip().lower() for item in tags.split(",") if item.strip()],
+        collection=collection.strip().upper() or "GENERIC",
+    )
+    session.add(asset)
+    session.commit()
+    session.refresh(asset)
+    signed = media_service.sign_library_asset(asset)
+    return {
+        "id": str(asset.id), "code": asset.code, "name": asset.name,
+        "collection": asset.collection, "tags": asset.tags,
+        "suggested_activities": asset.suggested_activities,
+        "url": signed[0] if signed else None,
+    }
 
 
 @router.put("/products/{product_id}/media", response_model=Product)
