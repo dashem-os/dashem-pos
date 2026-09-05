@@ -403,17 +403,16 @@ export const CatalogManager: React.FC = () => {
                 placeholder="Ex: 789123456789"
                 className="w-full h-11 px-3.5 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-dashem-strong text-xs font-semibold focus:border-dashem-red outline-none"
               />
-  
+            </div>
           </div>
 
-            {mediaHeaders && (
-              <ProductMediaPicker
-                headers={mediaHeaders}
-                activity={activeActivity}
-                onChange={setPendingMedia}
-              />
-            )}
-          </div>
+          {mediaHeaders && (
+            <ProductMediaPicker
+              headers={mediaHeaders}
+              activity={activeActivity}
+              onChange={setPendingMedia}
+            />
+          )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
