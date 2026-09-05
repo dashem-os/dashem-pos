@@ -577,9 +577,15 @@ export interface ChannelInboxEvent {
   processed_at?: string
 }
 
-export interface ChannelCatalogOffer { id:string; merchant_connection_id:string; product_id:string; price:number; available:boolean; stock_quantity?:number; desired_version:number; published_version:number; last_publication_status:'PENDING'|'SUCCEEDED'|'FAILED'; updated_at:string }
-export interface ChannelPublicationBatch { id:string; merchant_connection_id:string; status:'PENDING'|'PROCESSING'|'PARTIAL'|'SUCCEEDED'|'FAILED'; created_at:string; updated_at:string }
-export interface MarketplaceSettlement { id:string; merchant_connection_id:string; provider_document_ref:string; external_order_id?:string; order_id?:string; competence_date:string; gross_amount:number; commission_amount:number; fee_amount:number; promotion_amount:number; adjustment_amount:number; expected_net_amount:number; paid_amount:number; status:'PENDING'|'PARTIAL'|'PAID'|'DIVERGENT'; updated_at:string }
+/** The server resolves who the channel is and what the product is called, so a
+ *  row never renders a UUID and the browser never joins two lists to find a name. */
+export interface ChannelLabelled { provider_code?:string; merchant_external_id?:string; connection_status?:MerchantConnection['status'] }
+export interface ChannelCatalogOffer extends ChannelLabelled { id:string; merchant_connection_id:string; product_id:string; product_name:string|null; product_sku:string|null; price:number; available:boolean; stock_quantity?:number; desired_version:number; published_version:number; last_publication_status:'PENDING'|'SUCCEEDED'|'FAILED'; updated_at:string }
+export interface ChannelPublicationItem { id:string; batch_id:string; offer_id:string; product_name:string|null; product_sku:string|null; desired_version:number; status:'PENDING'|'SUCCEEDED'|'FAILED'; attempt_count:number; provider_result_ref?:string|null; error_code?:string|null; error_message?:string|null }
+export interface ChannelPublicationBatch extends ChannelLabelled { id:string; merchant_connection_id:string; status:'PENDING'|'PROCESSING'|'PARTIAL'|'SUCCEEDED'|'FAILED'; items:ChannelPublicationItem[]; created_at:string; updated_at:string }
+export interface ChannelCatalogMapping extends ChannelLabelled { id:string; merchant_connection_id:string; entity_type:'PRODUCT'|'CATEGORY'|'MODIFIER'|'OPTION'; internal_id:string; internal_name:string|null; external_id:string; updated_at:string }
+export interface MarketplaceSettlementPayment { id:string; settlement_id:string; provider_payment_ref:string; amount:number; paid_at:string }
+export interface MarketplaceSettlement extends ChannelLabelled { id:string; merchant_connection_id:string; provider_document_ref:string; external_order_id?:string; order_id?:string; competence_date:string; gross_amount:number; commission_amount:number; fee_amount:number; promotion_amount:number; adjustment_amount:number; expected_net_amount:number; paid_amount:number; status:'PENDING'|'PARTIAL'|'PAID'|'DIVERGENT'; payments:MarketplaceSettlementPayment[]; updated_at:string }
 
 export interface ProductionPoint {
   id: string
@@ -3521,7 +3527,36 @@ export async function fetchChannelInbox(headers: Record<string, string>): Promis
   return res.json()
 }
 
-export async function fetchChannelCatalogState(headers:Record<string,string>):Promise<{offers:ChannelCatalogOffer[];batches:ChannelPublicationBatch[]}>{const res=await fetch(`${API_BASE_URL}/api/v1/channel-catalog/catalog`,{headers});if(!res.ok)throw await apiError(res,'Não foi possível carregar o catálogo por canal.');return res.json()}
+export async function fetchChannelCatalogState(headers:Record<string,string>):Promise<{offers:ChannelCatalogOffer[];batches:ChannelPublicationBatch[];mappings:ChannelCatalogMapping[]}>{const res=await fetch(`${API_BASE_URL}/api/v1/channel-catalog/catalog`,{headers});if(!res.ok)throw await apiError(res,'Não foi possível carregar o catálogo por canal.');return res.json()}
+
+/** Publishing is a request, never a result: the six writes below say what the
+ *  shopkeeper wants and what the marketplace reported. Confirming a publication
+ *  item is the adapter's word and has no button here on purpose. */
+export async function mapChannelCatalogEntity(headers:Record<string,string>,idempotencyKey:string,data:{connection_id:string;entity_type:ChannelCatalogMapping['entity_type'];internal_id:string;external_id:string;actor_id?:string}):Promise<ChannelCatalogMapping>{
+  const res=await fetch(`${API_BASE_URL}/api/v1/channel-catalog/mappings`,{method:'POST',headers:{...headers,'Content-Type':'application/json','Idempotency-Key':idempotencyKey},body:JSON.stringify(data)})
+  if(!res.ok)throw await apiError(res,'Não foi possível vincular o item ao código do canal.')
+  return res.json()
+}
+export async function saveChannelCatalogOffer(headers:Record<string,string>,idempotencyKey:string,data:{connection_id:string;product_id:string;price:number;available:boolean;stock_quantity?:number|null;actor_id?:string}):Promise<ChannelCatalogOffer>{
+  const res=await fetch(`${API_BASE_URL}/api/v1/channel-catalog/offers`,{method:'POST',headers:{...headers,'Content-Type':'application/json','Idempotency-Key':idempotencyKey},body:JSON.stringify(data)})
+  if(!res.ok)throw await apiError(res,'Não foi possível salvar a oferta do canal.')
+  return res.json()
+}
+export async function publishChannelCatalogOffers(headers:Record<string,string>,idempotencyKey:string,data:{connection_id:string;offer_ids:string[];actor_id?:string}):Promise<{batch:ChannelPublicationBatch;items:ChannelPublicationItem[]}>{
+  const res=await fetch(`${API_BASE_URL}/api/v1/channel-catalog/publications`,{method:'POST',headers:{...headers,'Content-Type':'application/json','Idempotency-Key':idempotencyKey},body:JSON.stringify(data)})
+  if(!res.ok)throw await apiError(res,'Não foi possível enviar o lote de publicação.')
+  return res.json()
+}
+export async function importMarketplaceSettlement(headers:Record<string,string>,idempotencyKey:string,data:{connection_id:string;provider_document_ref:string;external_order_id?:string;order_id?:string;competence_date:string;gross_amount:number;commission_amount:number;fee_amount:number;promotion_amount:number;adjustment_amount:number;actor_id?:string}):Promise<MarketplaceSettlement>{
+  const res=await fetch(`${API_BASE_URL}/api/v1/channel-catalog/settlements`,{method:'POST',headers:{...headers,'Content-Type':'application/json','Idempotency-Key':idempotencyKey},body:JSON.stringify(data)})
+  if(!res.ok)throw await apiError(res,'Não foi possível registrar o documento de repasse.')
+  return res.json()
+}
+export async function recordMarketplaceSettlementPayment(headers:Record<string,string>,settlementId:string,data:{provider_payment_ref:string;amount:number;paid_at:string;actor_id?:string}):Promise<MarketplaceSettlement>{
+  const res=await fetch(`${API_BASE_URL}/api/v1/channel-catalog/settlements/${settlementId}/payments`,{method:'POST',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify(data)})
+  if(!res.ok)throw await apiError(res,'Não foi possível registrar o pagamento do repasse.')
+  return res.json()
+}
 export async function fetchMarketplaceSettlements(headers:Record<string,string>):Promise<MarketplaceSettlement[]>{const res=await fetch(`${API_BASE_URL}/api/v1/channel-catalog/settlements`,{headers});if(!res.ok)throw await apiError(res,'Não foi possível carregar os repasses.');return res.json()}
 
 export async function fetchProductionPoints(headers: Record<string, string>): Promise<ProductionPoint[]> {

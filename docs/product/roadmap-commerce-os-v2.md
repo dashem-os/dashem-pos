@@ -15,6 +15,18 @@ detalhada nos Sprints corretivos 5.2–5.4 de
 Essa trilha não renumera nem substitui os Sprints canônicos abaixo; o pré-piloto,
 storage comercial e homologações externas preservam seus próprios gates.
 
+Atualização de estado de 5 de setembro de 2026: **S23 e S24 foram contratados,
+construídos e dados por entregues no gate interno**, por decisão do dono do SaaS
+depois de ver as duas na tela — vitrine com estado vazio honesto, cartão com
+foto, um toque lançando no balcão, e o cadastro com upload próprio e biblioteca
+DASHEM. Ajustes de acabamento ficam para depois e não reabrem os gates. Duas
+correções de registro acompanham a promoção: o S23 entregou o balcão e **não** o
+seletor compartilhado com a comanda, agora registrado como dívida própria na
+seção 9; e o S9 deixou de ser `PARCIAL` por falta de tela — `PaymentProviderManager`
+existe, está montado na Gestão e cobre provider, bridge TEF e vínculo de
+maquininha. O S9 nunca foi o cadastro de produtos e sortimentos: esse é o S4,
+estendido pelo Gate 5.4.0.
+
 Atualização de estado de 4 de setembro de 2026: o **Gate B foi promovido para
 `PASSED`** após a matriz OA-4 fechar `14/14` contra o deploy publicado, com o
 cenário 14 reescrito durante a execução por decisão do dono do SaaS. A seção 9
@@ -880,7 +892,26 @@ Gate:
 
 ### S13 — Channel Catalog e Marketplace Reconciliation
 
-Estado: **PARCIAL** ([auditoria de confronto de 04/09/2026](../quality/sprint-confrontation-audit-2026-09-04.md)). Seis modelos, serviço, endpoint e teste existem; **nenhuma tela consome**. Publicação em canal e conciliação de repasse são hoje funcionalidades sem interface.
+Estado: **entregue no gate interno em 05/09/2026**, superando o `PARCIAL` da
+[auditoria de confronto de 04/09/2026](../quality/sprint-confrontation-audit-2026-09-04.md).
+A janela ganhou maçaneta: `ChannelHubWorkspace` cadastra oferta por canal,
+vincula o código do item no merchant, envia o lote de publicação, importa o
+documento de repasse e registra o pagamento recebido. A projeção passou a ser
+resolvida no servidor — nome e SKU do produto, provider e merchant da conexão,
+itens do lote e pagamentos do documento viajam com a linha, de modo que a tela
+nunca renderiza um identificador nem junta duas listas no navegador para achar
+um nome.
+
+Uma porta continua fechada **de propósito, e não por falta de tela**: o
+resultado item a item da publicação (`POST /publications/{batch_id}/results`) é
+a palavra do adapter. Um botão para ele deixaria uma pessoa assinar a resposta
+do marketplace, e todo lote leria verde sem o canal jamais ter sido chamado.
+Enquanto nenhum provider estiver homologado, o lote fica **pendente** e a tela
+diz isso com todas as letras. O mesmo vale para a mensagem outbound do canal,
+que pertence ao worker.
+
+O gate externo de certificação de canal permanece independente e continua
+aberto.
 
 Objetivo: manter um catálogo canônico e tratar venda de marketplace separada do
 repasse financeiro do marketplace.
@@ -1461,10 +1492,26 @@ Dependências e por que não é agora:
 
 ### S23 — Vitrine operacional e seleção de produto compartilhada
 
-Proposto em 4 de setembro de 2026, ainda **não autorizado**. Existe para que a
-tela inicial da operação seja o que a casa realmente vende, arrumado por quem
-conhece o movimento, e para que lançar um item seja um toque em vez de uma
-busca.
+Estado: **entregue no gate interno em 05/09/2026, com uma entrega da lista em
+aberto**. Contratado em 04/09 e construído em seguida: migração
+`073_store_catalog_layout`, rotas `GET`/`PUT /catalog/layout` e
+`/catalog/quick-access`, permissions `catalog.layout.manage` e
+`catalog.layout.personalize` semeadas nos perfis, `ProductShowcase` com as duas
+faixas e o modo explícito de personalizar, e `test_s23_store_catalog_layout.py`
+cobrindo reorder atômico, versão esperada com **409**, produto duplicado,
+produto arquivado e ordenação sem `catalog.update`. O dono observou a tela em
+05/09: vitrine vazia anuncia a si mesma — "a vitrine desta unidade ainda não foi
+montada" —, o cartão exibe a foto e um toque lança no balcão.
+
+**O que continua aberto:** o seletor visual compartilhado com a comanda.
+`ProductShowcase` é consumido apenas por `QuickProductGrid`, no PDV;
+`TableServiceWorkspace` ainda lança item por um campo de identificador de
+produto, chamando `addOrderItem` sem vitrine, foto nem busca. A metade "balcão"
+da entrega está feita; a metade "mesa" não.
+
+Existe para que a tela inicial da operação seja o que a casa realmente vende,
+arrumado por quem conhece o movimento, e para que lançar um item seja um toque
+em vez de uma busca.
 
 Contexto. O acesso rápido existe, e é **só pessoal**: `QuickAccessProduct` tem
 chave em `(tenant, store, membership, product)`, sem nenhuma ordem padrão da
@@ -1526,9 +1573,26 @@ o que o SmartPOS do S22 poderá consumir sem reescrever catálogo.
 
 ### S24 — Mídia de produto e biblioteca DASHEM
 
-Proposto em 4 de setembro de 2026, ainda **não autorizado**. Fecha a dívida de
-imagem que o S4 declarou como entrega e nunca levou à interface, hoje carregada
-na trilha corretiva 5.4.4.
+Estado: **entregue no gate interno em 05/09/2026**. Contratado em 04/09 e
+construído em seguida: migração `074_product_media` com
+`primary_media_asset_id`, `media_assets` e `platform_media_assets`;
+`media_service.resolve_product_images` resolvendo N imagens em uma chamada, com
+TTL por propósito (`CATALOG_MEDIA_SIGNED_URL_TTL_SECONDS=21600`); biblioteca
+DASHEM pesquisável e de escrita exclusiva da plataforma; upload privado
+integrado ao cadastro por `ProductMediaPicker`. Os testes de
+`test_s24_product_media.py` provam os quatro pontos duros do gate: foto de um
+tenant invisível ao vizinho **e à plataforma**, biblioteca como prateleira e
+nunca fallback, TTL escolhido pelo propósito e não pelo chamador, e localizador
+forjado que não alcança arquivo alheio. A política de RLS de `media_assets` foi
+escrita sem a cláusula `app.platform_access`, como o contrato exige.
+
+Observado pelo dono em 05/09: o cartão do PDV e o cadastro exibem a foto, e o
+editor oferece "Enviar minha foto", "Escolher da biblioteca" e remoção, com o
+aviso de que a biblioteca não consome cota. Ajustes pontuais de acabamento
+ficam para depois e não reabrem o gate.
+
+Fecha a dívida de imagem que o S4 declarou como entrega e nunca levou à
+interface, antes carregada na trilha corretiva 5.4.4.
 
 Contexto. Em 03/09 o cadastro passou a aceitar o **endereço** da imagem, e é só
 isso que existe: um campo de texto, duplicado na tela. O upload do tenant está
@@ -1675,9 +1739,10 @@ e aparece como `não configurada`, nunca como pronta.
 | Endpoint de identidade e saúde ainda amplos | S18 | routers e observabilidade por domínio | resolvido: router Control e instrumentação explícita |
 | Control expõe caixas, vendas, unidades em operação ou quadro de funcionários do tenant | S18.1 | somente contrato, cobrança SaaS e observabilidade técnica no Owner | **resolvido e protegido por testes no primeiro sprint** |
 | Cobrança SaaS limitada a campos editáveis da assinatura | S18.1 | faturas, recebimentos, inadimplência e métricas SaaS rastreáveis | **planejado** |
-| Imagem do produto listada no S4 e nunca entregue na interface | S4 → 5.4.4 → **S24** | cadastro, listagem e PDV exibindo mídia persistida | endereço de imagem entregue em 03/09. Em 04/09 o destino passou a ser o **S24**, porque o que falta — modelo de mídia, resolvedor compatível, biblioteca da plataforma, upload privado e TTL por propósito — é contrato novo, não correção. O upload existe no servidor e nunca chegou a tela alguma; as três funções de storage do cliente não enviam `X-Tenant-ID` e falhariam com 400 se fossem chamadas |
-| Ordenar o próprio botão exige poder sobre o catálogo inteiro | S23 | permission de layout separada da permission de catálogo | **dívida apurada em 04/09**: a rota de acesso rápido exige `catalog.update`, então um caixa só organiza os próprios atalhos se receber autoridade para editar produtos e preços. O S23 separa em `catalog.layout.manage` e `catalog.layout.personalize` |
-| Acesso rápido grava uma posição por vez e recusa posição ocupada | S23 | reorder atômico do array inteiro, com versão e auditoria | **dívida apurada em 04/09**: além de a rota ser posição a posição, `uq_quick_access_position` não é deferível, então permutar posições viola a unique durante o statement. Arrastar é impossível de aplicar atomicamente sem mudar o esquema |
+| Imagem do produto listada no S4 e nunca entregue na interface | S4 → 5.4.4 → **S24** | cadastro, listagem e PDV exibindo mídia persistida | **resolvido no S24, entregue em 05/09/2026**: `primary_media_asset_id`, resolvedor determinístico, projeção resolvendo N imagens em uma chamada, biblioteca DASHEM e upload privado integrado ao cadastro. `image_url` permanece como compatibilidade, nunca reescrita. Verificado na tela pelo dono em 05/09 |
+| Ordenar o próprio botão exige poder sobre o catálogo inteiro | S23 | permission de layout separada da permission de catálogo | **resolvido no S23, entregue em 05/09/2026**: `catalog.layout.manage` e `catalog.layout.personalize` criadas na migração `073`, semeadas nos perfis e exigidas pelas rotas de layout. Um caixa ordena os próprios atalhos sem receber poder sobre produtos e preços |
+| Acesso rápido grava uma posição por vez e recusa posição ocupada | S23 | reorder atômico do array inteiro, com versão e auditoria | **resolvido no S23, entregue em 05/09/2026**: o `PUT` recebe a lista inteira com versão esperada, e as uniques de posição das duas tabelas passaram a `DEFERRABLE INITIALLY DEFERRED`. Colisão real responde **409**, nunca 500 |
+| Comanda lança item por identificador, sem a vitrine que o balcão já tem | S23 (metade aberta) | um seletor visual compartilhado, com comando distinto por jornada | **dívida aberta, apurada em 05/09**: `ProductShowcase` é consumido só por `QuickProductGrid`. `TableServiceWorkspace` chama `addOrderItem` a partir de um campo de identificador de produto — sem foto, sem categoria e sem busca. O contrato do S23 previa o componente compartilhado; entregou-se o balcão |
 | Atividade contratada sem efeito sobre o conteúdo publicado | 5.4.0 + 5.4.1 | atividade como dimensão do sortimento, resolvida no servidor | resolvido em 03/09: `assortments.business_activity`, migration 070, recusa 403 para atividade não contratada |
 | Conjunto legado publicando conteúdo de outro nicho no PDV | 5.4.0 | decisão administrativa explícita para reclassificar ou aposentar | resolvido em 03/09: ação de Gestão publica o conjunto da atividade e aposenta o não classificado, sem apagar nada |
 | Vocabulário do console assumindo alimentação para todo tenant | 5.4.4 | termo por atividade como dado extensível | **corrigido por condicional binário em 03/09; classe do problema em aberto** |
@@ -1840,6 +1905,19 @@ navegador.
 
 ## 12. Próximo passo autorizado por este roadmap
 
+**Autorizado e executado em 05/09/2026: o S13.** Com S23 e S24 fechados no gate
+interno, o trabalho autorizado foi dar maçaneta à janela do Channel Catalog, e
+ele está feito: cinco das seis rotas de escrita — mapeamento por merchant,
+oferta, lote de publicação, repasse e pagamento de repasse — chegaram ao cliente
+e à tela. A sexta, o resultado item a item, ficou fora por decisão de desenho:
+é a resposta do adapter, e um botão para ela deixaria uma pessoa assinar a
+palavra do marketplace. A certificação de canal permanece um gate externo e
+independente: nada disso antecipa piloto comercial.
+
+**Próximo passo em aberto**, a decidir com o dono: o S8 (fechamento de balcão
+ainda no caminho antigo de `Sale`, e conta que não se divide por pessoa), a
+metade "comanda" do S23, ou os periféricos do S21.1.
+
 O Gate B foi **fechado em 04/09/2026** e não bloqueia mais o pré-piloto. O ciclo
 que o fechou foi:
 
@@ -1878,6 +1956,8 @@ no PDV, vocabulário por nicho, imagem de produto, responsividade e correção d
 contraste — está registrado nos Gates 5.4.0, 5.4.1, 5.4.3 e 5.4.4 da trilha
 corretiva e nas linhas de dívida da seção 9. Nada disso promove gate por si só.
 
+S23, S24 e o S13 foram fechados no gate interno em 05/09/2026, com a metade
+"comanda" do seletor compartilhado registrada como dívida na seção 9.
 S0–S17, S18–S20 e o Gate A preservam suas implementações internas. S17.1–S17.3 e
 o Gate B foram **fechados em 04/09/2026** pela jornada real, com os catorze
 cenários credenciados executados no deploy; S21.1 continua aberto pela metade dos

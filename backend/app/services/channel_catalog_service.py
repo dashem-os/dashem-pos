@@ -57,8 +57,38 @@ def apply_results(session,context,batch_id,results,actor_id):
   else:item.status=PublicationItemStatusEnum.FAILED;item.error_code=result.get("error_code") or "PROVIDER_REJECTED";item.error_message=result.get("error_message");offer.last_publication_status=PublicationItemStatusEnum.FAILED
  statuses=[i.status for i in items.values()];batch.status=PublicationStatusEnum.SUCCEEDED if all(s==PublicationItemStatusEnum.SUCCEEDED for s in statuses) else PublicationStatusEnum.FAILED if all(s==PublicationItemStatusEnum.FAILED for s in statuses) else PublicationStatusEnum.PARTIAL;batch.updated_at=datetime.utcnow()
  reliability_service.write_audit_and_outbox(session,context.tenant_id,batch.store_id,a,"channel.catalog.results",f"PUBLICATION-{batch.id}",{"status":batch.status.value},"channel_publication",str(batch.id),"channel.catalog.results",{"status":batch.status.value});session.commit();return batch_projection(session,batch)
+def channel_labels(session,context,connection_ids):
+ """Who the offer belongs to, resolved once for the whole page.
+
+ The screen shows a merchant, never a UUID, and it never learns the name by
+ asking again per row."""
+ ids=[cid for cid in connection_ids if cid]
+ if not ids:return {}
+ rows=session.exec(scope_tenant_query(select(MerchantConnection).where(MerchantConnection.id.in_(ids)),MerchantConnection,context)).all()
+ return {row.id:{"provider_code":row.provider_code,"merchant_external_id":row.merchant_external_id,"connection_status":row.status.value} for row in rows}
+def product_labels(session,context,product_ids):
+ """A product the tenant no longer has resolves to nothing, not to a guess."""
+ ids=[pid for pid in product_ids if pid]
+ if not ids:return {}
+ rows=session.exec(scope_tenant_query(select(Product).where(Product.id.in_(ids)),Product,context)).all()
+ return {row.id:{"product_name":row.name,"product_sku":row.sku} for row in rows}
+UNKNOWN_PRODUCT={"product_name":None,"product_sku":None}
 def list_catalog(session,context):
- offers=list(session.exec(scope_tenant_query(select(ChannelCatalogOffer).order_by(ChannelCatalogOffer.updated_at.desc()),ChannelCatalogOffer,context)).all());batches=list(session.exec(scope_tenant_query(select(ChannelPublicationBatch).order_by(ChannelPublicationBatch.created_at.desc()).limit(50),ChannelPublicationBatch,context)).all());return {"offers":offers,"batches":batches}
+ offers=list(session.exec(scope_tenant_query(select(ChannelCatalogOffer).order_by(ChannelCatalogOffer.updated_at.desc()),ChannelCatalogOffer,context)).all())
+ batches=list(session.exec(scope_tenant_query(select(ChannelPublicationBatch).order_by(ChannelPublicationBatch.created_at.desc()).limit(20),ChannelPublicationBatch,context)).all())
+ mappings=list(session.exec(scope_tenant_query(select(ChannelCatalogMapping).order_by(ChannelCatalogMapping.updated_at.desc()),ChannelCatalogMapping,context)).all())
+ items=list(session.exec(scope_tenant_query(select(ChannelPublicationItem).where(ChannelPublicationItem.batch_id.in_([row.id for row in batches])).order_by(ChannelPublicationItem.created_at),ChannelPublicationItem,context)).all()) if batches else []
+ labels=channel_labels(session,context,{row.merchant_connection_id for row in offers}|{row.merchant_connection_id for row in batches}|{row.merchant_connection_id for row in mappings})
+ named_products={row.product_id for row in offers}|{row.internal_id for row in mappings if row.entity_type==CatalogEntityTypeEnum.PRODUCT}
+ names=product_labels(session,context,named_products)
+ offer_product={row.id:row.product_id for row in offers}
+ grouped={}
+ for item in items:grouped.setdefault(item.batch_id,[]).append({**item.model_dump(),**names.get(offer_product.get(item.offer_id),UNKNOWN_PRODUCT)})
+ return {
+  "offers":[{**row.model_dump(),**names.get(row.product_id,UNKNOWN_PRODUCT),**labels.get(row.merchant_connection_id,{})} for row in offers],
+  "batches":[{**row.model_dump(),**labels.get(row.merchant_connection_id,{}),"items":grouped.get(row.id,[])} for row in batches],
+  "mappings":[{**row.model_dump(),**labels.get(row.merchant_connection_id,{}),"internal_name":names.get(row.internal_id,UNKNOWN_PRODUCT)["product_name"]} for row in mappings],
+ }
 def create_settlement(session,context,*,connection_id,provider_document_ref,external_order_id,order_id,competence_date,gross,commission,fee,promotion,adjustment,actor_id,idempotency_key):
  a=actor(context,actor_id);conn=connection(session,context,connection_id);expected=gross-commission-fee-promotion+adjustment;payload={"connection_id":str(connection_id),"provider_document_ref":provider_document_ref,"external_order_id":external_order_id,"order_id":str(order_id) if order_id else None,"competence_date":str(competence_date),"gross":str(gross),"commission":str(commission),"fee":str(fee),"promotion":str(promotion),"adjustment":str(adjustment)};digest=reliability_service.compute_request_hash(payload);existing=session.exec(select(MarketplaceSettlement).where(MarketplaceSettlement.tenant_id==context.tenant_id,MarketplaceSettlement.idempotency_key==idempotency_key)).first()
  if existing:
@@ -74,4 +104,10 @@ def record_payment(session,context,settlement_id,*,provider_payment_ref,amount,p
  existing=session.exec(select(MarketplaceSettlementPayment).where(MarketplaceSettlementPayment.settlement_id==row.id,MarketplaceSettlementPayment.provider_payment_ref==provider_payment_ref)).first()
  if existing:return row
  session.add(MarketplaceSettlementPayment(tenant_id=context.tenant_id,settlement_id=row.id,provider_payment_ref=provider_payment_ref,amount=amount,paid_at=paid_at));row.paid_amount+=amount;row.status=SettlementStatusEnum.PAID if row.paid_amount==row.expected_net_amount else SettlementStatusEnum.PARTIAL if row.paid_amount<row.expected_net_amount else SettlementStatusEnum.DIVERGENT;row.updated_at=datetime.utcnow();reliability_service.write_audit_and_outbox(session,context.tenant_id,row.store_id,a,"marketplace.settlement.paid",f"SETTLEMENT-{row.id}",{"provider_payment_ref":provider_payment_ref,"amount":str(amount),"status":row.status.value},"marketplace_settlement",str(row.id),"marketplace.settlement.paid",{"status":row.status.value});session.commit();session.refresh(row);return row
-def list_settlements(session,context):return list(session.exec(scope_tenant_query(select(MarketplaceSettlement).order_by(MarketplaceSettlement.competence_date.desc()),MarketplaceSettlement,context)).all())
+def list_settlements(session,context):
+ rows=list(session.exec(scope_tenant_query(select(MarketplaceSettlement).order_by(MarketplaceSettlement.competence_date.desc()),MarketplaceSettlement,context)).all())
+ if not rows:return []
+ labels=channel_labels(session,context,{row.merchant_connection_id for row in rows})
+ grouped={}
+ for row in session.exec(scope_tenant_query(select(MarketplaceSettlementPayment).where(MarketplaceSettlementPayment.settlement_id.in_([item.id for item in rows])).order_by(MarketplaceSettlementPayment.paid_at),MarketplaceSettlementPayment,context)).all():grouped.setdefault(row.settlement_id,[]).append(row.model_dump())
+ return [{**row.model_dump(),**labels.get(row.merchant_connection_id,{}),"payments":grouped.get(row.id,[])} for row in rows]

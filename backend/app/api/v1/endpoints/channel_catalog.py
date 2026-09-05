@@ -29,11 +29,10 @@ def batch(data:BatchIn,key:str=Header(alias='Idempotency-Key',min_length=8,max_l
 def results(batch_id:uuid.UUID,data:ResultsIn,context:TenantContext=Depends(get_tenant_context),session:Session=Depends(get_session)):
  value=service.apply_results(session,context,batch_id,[row.model_dump() for row in data.results],data.actor_id);return {'batch':value['batch'].model_dump(),'items':[row.model_dump() for row in value['items']]}
 @router.get('/catalog')
-def catalog(context:TenantContext=Depends(get_tenant_context),session:Session=Depends(get_session)):
- value=service.list_catalog(session,context);return {'offers':[row.model_dump() for row in value['offers']],'batches':[row.model_dump() for row in value['batches']]}
+def catalog(context:TenantContext=Depends(get_tenant_context),session:Session=Depends(get_session)):return service.list_catalog(session,context)
 @router.post('/settlements')
 def settlement(data:SettlementIn,key:str=Header(alias='Idempotency-Key',min_length=8,max_length=160),context:TenantContext=Depends(get_tenant_context),session:Session=Depends(get_session)):return service.create_settlement(session,context,connection_id=data.connection_id,provider_document_ref=data.provider_document_ref,external_order_id=data.external_order_id,order_id=data.order_id,competence_date=data.competence_date,gross=data.gross_amount,commission=data.commission_amount,fee=data.fee_amount,promotion=data.promotion_amount,adjustment=data.adjustment_amount,actor_id=data.actor_id,idempotency_key=key).model_dump()
 @router.post('/settlements/{settlement_id}/payments')
 def payment(settlement_id:uuid.UUID,data:PaymentIn,context:TenantContext=Depends(get_tenant_context),session:Session=Depends(get_session)):return service.record_payment(session,context,settlement_id,provider_payment_ref=data.provider_payment_ref,amount=data.amount,paid_at=data.paid_at,actor_id=data.actor_id).model_dump()
 @router.get('/settlements')
-def settlements(context:TenantContext=Depends(get_tenant_context),session:Session=Depends(get_session)):return [row.model_dump() for row in service.list_settlements(session,context)]
+def settlements(context:TenantContext=Depends(get_tenant_context),session:Session=Depends(get_session)):return service.list_settlements(session,context)

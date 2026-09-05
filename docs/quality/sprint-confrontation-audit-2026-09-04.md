@@ -18,11 +18,11 @@ entre o que a auditoria encontrou e o que se supunha.
 | Sprint | Modelos | Serviço | Endpoint | Testes | Tela | Estado apurado |
 |---|---|---|---|---|---|---|
 | S8 — Checkout Negotiation | 5 | sim | `/negotiations` | `test_s8_checkout_negotiation.py` | mesa e pagamento por comanda | **PARCIAL** |
-| S9 — Providers e TEF Bridge | 7 | sim | `/providers` | `test_s9_payment_providers.py` | **nenhuma de cadastro** | **PARCIAL** |
+| S9 — Providers e TEF Bridge | 7 | sim | `/providers` | `test_s9_payment_providers.py` | `PaymentProviderManager` (desde 05/09) | **entregue no gate interno** |
 | S10 — Channel Hub | 4 | sim | `/channels` | `test_s10_channel_hub.py` | `ChannelHubWorkspace` | **entregue no gate interno** |
 | S11 — Production e KDS | 6 | sim | `/production` | `test_s11_production_kds.py` | `KdsShell`, `DeviceManager`, `CatalogManager` | **entregue no gate interno** |
 | S12 — Transferências | 1 + eventos | sim | `/transfers` | `test_s12_transfers.py` | item, comanda, sessão, mesclagem e linhagem | **entregue no gate interno** |
-| S13 — Channel Catalog | 6 | sim | `/channel-catalog` | `test_s13_channel_catalog_reconciliation.py` | `ChannelHubWorkspace`, só leitura | **PARCIAL** |
+| S13 — Channel Catalog | 6 | sim | `/channel-catalog` | `test_s13_channel_catalog_reconciliation.py` | `ChannelHubWorkspace`, leitura e escrita (desde 05/09) | **entregue no gate interno** |
 | S17 — BI V1 | 2 | sim | `/management` | `test_s17_business_intelligence.py` | `DashboardBI` | **entregue no gate interno** |
 
 ## Detalhe por sprint
@@ -54,6 +54,20 @@ cadastrar provider, terminal de bridge ou vínculo de maquininha pela interface 
 só por API. Isso explica a percepção registrada em 04/09 de que a tela de
 Terminais e dispositivos parece genérica: a metade do assunto que trata de
 pagamento não está lá.
+
+**Atualização de 05/09/2026 — a tela existe e o S9 sai de `PARCIAL`.**
+`PaymentProviderManager` está montado no `ManagementLayout` sob o destino
+`payment_providers`, guardado pela capability `tef` e pela permission
+`provider.read`. Ele cadastra configuração de provider, pareia terminal de
+bridge TEF, cria vínculo de maquininha e muda status de vínculo, e traz na
+própria tela o aviso de que SmartPOS é somente cadastro enquanto não houver
+adapter homologado. O achado que fechava esta auditoria — "fechar o Gate C sobre
+uma funcionalidade que nenhum lojista consegue usar" — deixou de valer.
+
+Registro de vocabulário, porque a confusão apareceu: **o S9 não é o cadastro de
+produtos e sortimentos.** Aquilo é o S4, estendido pelo Gate 5.4.0 com a
+atividade como propriedade do conjunto curado. O S9 é provider de pagamento,
+bridge TEF e vínculo de dispositivo de cobrança.
 
 **Correção de 04/09, mais tarde no mesmo dia.** A frase original dizia que não
 havia teste dedicado ao Gate C nem aos negativos que ele exige. Isso era
@@ -114,12 +128,28 @@ dizia "nenhuma tela consome". Era **falsa**: `ChannelHubWorkspace` carrega
 `fetchChannelCatalogState` e `fetchMarketplaceSettlements` na mesma chamada em
 que busca conexões e inbox.
 
-O que é verdade é mais específico e não melhor: a superfície é **somente de
-leitura**. Das oito rotas de `/channel-catalog`, o cliente da API expõe as duas
-`GET`. As seis de escrita — mapeamento por merchant, oferta, lote de publicação,
-resultado item a item, repasse e pagamento de repasse — não têm função no
-cliente. O lojista vê o estado da publicação e da conciliação, e não pode
-publicar nem conciliar. É uma janela sem maçaneta.
+O que era verdade em 04/09 é mais específico e não melhor: a superfície era
+**somente de leitura**. Das oito rotas de `/channel-catalog`, o cliente da API
+expunha as duas `GET`. As seis de escrita — mapeamento por merchant, oferta,
+lote de publicação, resultado item a item, repasse e pagamento de repasse — não
+tinham função no cliente. O lojista via o estado da publicação e da conciliação,
+e não podia publicar nem conciliar. Era uma janela sem maçaneta.
+
+**Fechado em 05/09/2026.** Cinco das seis escritas chegaram à tela: oferta por
+canal, vínculo do código do item, lote de publicação, importação do documento de
+repasse e registro do pagamento. A projeção passou a resolver no servidor o nome
+e o SKU do produto, o provider e o merchant da conexão, os itens de cada lote e
+os pagamentos de cada documento — a tela deixou de exibir identificador e deixou
+de precisar juntar listas no navegador.
+
+A sexta escrita, `POST /publications/{batch_id}/results`, **continua sem botão
+por desenho**. Ela é o adapter reportando o que o canal respondeu; oferecê-la a
+uma pessoa seria deixá-la assinar a palavra do marketplace, e todo lote leria
+verde sem o canal ter sido chamado. Enquanto não houver provider homologado, o
+lote fica pendente e a tela diz isso. A mesma leitura vale para
+`POST /channels/orders/{order_id}/outbound`, que é do worker. As duas
+permanecem na linha de base de `test_surface_reachability.py`, agora com o
+motivo escrito.
 
 ### S17 — Business Intelligence V1 · entregue no gate interno
 
@@ -157,3 +187,8 @@ mas agora com um detalhe que não estava visível: **o S9, de que o Gate C
 depende, não tem tela de cadastro**. Fechar o Gate C provando a cadeia por teste,
 sem que exista forma de configurar um provider pela interface, entregaria um
 gate verde sobre uma funcionalidade que nenhum lojista consegue usar.
+
+**Superado em 05/09/2026.** A tela de cadastro do S9 foi entregue, o Gate C já
+havia sido promovido a `PASSED` em 04/09 e o próximo passo autorizado passou a
+ser o **S13**, pelo mesmo argumento que esta auditoria usou contra o Gate C:
+publicação em canal e conciliação de repasse são hoje uma janela sem maçaneta.

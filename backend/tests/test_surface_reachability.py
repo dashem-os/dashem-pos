@@ -115,17 +115,14 @@ UNREACHABLE = {
     "POST /api/v1/receivables/{receivable_id}/reverse",
     # an agreement can be created and cannot be read back: only POST reached the client
     "GET /api/v1/receivables/agreements",
-    # channels — S13: ChannelHubWorkspace reads offers and settlements. Every
-    # write — mapping, offer, publication, result, settlement payment — is API
-    # only, so the screen is a window with no handle.
-    "POST /api/v1/channel-catalog/mappings",
-    "POST /api/v1/channel-catalog/offers",
-    "POST /api/v1/channel-catalog/publications",
+    # channels — S13 gave the window its handles on 05/09/2026: mapping, offer,
+    # publication, settlement and settlement payment are reachable from
+    # ChannelHubWorkspace. Two doors stay closed on purpose, and neither is a
+    # missing screen: the publication result is the adapter reporting back, and
+    # a button for it would let a person sign the marketplace's answer; the
+    # outbound message belongs to the channel worker, not to a person.
     "POST /api/v1/channel-catalog/publications/{batch_id}/results",
-    "POST /api/v1/channel-catalog/settlements/{settlement_id}/payments",
     "POST /api/v1/channels/orders/{order_id}/outbound",
-    # the client reads settlements and cannot open one
-    "POST /api/v1/channel-catalog/settlements",
     # insight
     "GET /api/v1/management/bi/formulas",
     # owner — the Control plane carries most of the debt: pilots, incidents,

@@ -1,8 +1,8 @@
 # Trilha corretiva — Gestão do tenant
 
-Status: **5.4.0–5.4.3 publicados com CI verde; 5.4.4 aberto; OA-4 concluído no deploy com `14/14` e Gate B `PASSED` em 04/09/2026**
+Status: **5.4.0–5.4.3 publicados com CI verde; 5.4.4 parcial — a frente de mídia saiu no S24; OA-4 concluído no deploy com `14/14` e Gate B `PASSED` em 04/09/2026**
 
-Data de referência: 1º de setembro de 2026 · última atualização de estado: 3 de setembro de 2026
+Data de referência: 1º de setembro de 2026 · última atualização de estado: 5 de setembro de 2026
 
 ## Decisão de arquitetura
 
@@ -368,9 +368,28 @@ enquanto o contrato do tenant não declara limite de storage, respondendo
 "Limite contratual de storage não informado". Definir esse entitlement é
 decisão comercial no Dashem Control e antecede a entrega de upload.
 
-Estado: **aberto, não iniciado**. O que existe hoje das três frentes está
-registrado como dívida nos Gates 5.4.0, 5.4.1 e nas linhas correspondentes do
-roadmap canônico.
+Estado em 05/09/2026: **uma das três frentes entregue, duas abertas.**
+
+Entregue, pelo **S24** do roadmap canônico e não por esta trilha: biblioteca de
+mídia do sistema legível por qualquer tenant e não gravável por eles; upload
+próprio com quota, tipo permitido e caminho isolado; referência de mídia no
+produto apontando para objeto persistido, com fallback pela inicial; e o
+critério negativo entre inquilinos provado por teste. Nenhum registro de produto
+carrega binário embutido. O S24 endureceu o contrato além do que este gate
+pedia: a foto do tenant também não é visível à plataforma, e a biblioteca é
+camada de inspiração, nunca fallback automático.
+
+Continuam abertas as duas frentes que não são mídia:
+
+- **vocabulário por atividade como dado**, com chave, termo e origem, consumido
+  pela resolução de acesso efetivo e pelas telas, substituindo o condicional
+  binário entre alimentação e o resto e o texto fixo do cabeçalho. Acrescentar
+  um quarto nicho ainda cobra alteração de código de apresentação;
+- **conteúdo inicial por atividade** migrado da constante compilada para dado
+  versionado e auditável, mantendo a restrição a tenant interno ou de teste;
+- **atividade ativa do PDV persistida na sessão operacional** e registrada na
+  auditoria, encerrando a dívida do Gate 5.4.1. Ela ainda vive em estado de
+  cliente: não sobrevive a uma nova sessão nem é atribuível a um operador.
 
 ## Continuação após 5.4
 

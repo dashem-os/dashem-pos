@@ -51,6 +51,24 @@ cases.push({ name: 'products-assortment-shortcut', screen: 'manage', module: 'pr
     page => page.getByRole('button', { name: /2 Publique em um sortimento/ }).click(),
     async page => { assert.ok(await page.getByRole('button', { name: 'Novo Sortimento', exact: true }).isVisible()); },
 ] });
+// S13: the marketplace window has handles now, and each one opens a dialog a
+// person has to read on a counter tablet.
+for (const name of ['Nova oferta', 'Vincular código', 'Importar documento', 'Registrar pagamento'])
+    cases.push({ name: `dialog-channels-${name}`, screen: 'manage', module: 'channels', steps: [click(name)], modal: true });
+// A competence day is read as a day, in the order this country writes it, and
+// never shifted by the browser's offset.
+cases.push({ name: 'channels-competence-date', screen: 'manage', module: 'channels', steps: [async page => {
+    await page.getByText(/04\/09\/2026/).first().waitFor();
+}] });
+// Publishing is only offered for something actually chosen: the button stays
+// dead until a row is selected, so nobody sends an empty batch to a channel.
+cases.push({ name: 'channels-publish-selection', screen: 'manage', module: 'channels', steps: [async page => {
+    const publish = page.getByRole('button', { name: /^Publicar/ });
+    assert.equal(await publish.isDisabled(), true);
+    await page.getByRole('checkbox', { name: /^Selecionar / }).first().check();
+    assert.equal(await publish.isDisabled(), false);
+    assert.match(await publish.textContent(), /\(1\)/);
+}] });
 const out = path.resolve('../.tmp/responsive-audit');
 cases.push({ name: 'pos-search', screen: 'pos', steps: [async page => {
     await page.evaluate(() => {

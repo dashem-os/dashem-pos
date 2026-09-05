@@ -67,6 +67,15 @@ CONTRACTS = [
     ("GET", "/api/v1/management/overview", "/api/v1/management/overview`"),
     ("GET", "/api/v1/management/productivity", "/api/v1/management/productivity?"),
     ("POST", "/api/v1/management/productivity/rebuild", "/api/v1/management/productivity/rebuild`"),
+    # S13: the marketplace window has handles. Publication results stay out of
+    # this list on purpose — they are the adapter's word, not a client action.
+    ("GET", "/api/v1/channel-catalog/catalog", "/api/v1/channel-catalog/catalog`"),
+    ("POST", "/api/v1/channel-catalog/mappings", "/api/v1/channel-catalog/mappings`"),
+    ("POST", "/api/v1/channel-catalog/offers", "/api/v1/channel-catalog/offers`"),
+    ("POST", "/api/v1/channel-catalog/publications", "/api/v1/channel-catalog/publications`"),
+    ("GET", "/api/v1/channel-catalog/settlements", "/api/v1/channel-catalog/settlements`"),
+    ("POST", "/api/v1/channel-catalog/settlements", "/api/v1/channel-catalog/settlements`"),
+    ("POST", "/api/v1/channel-catalog/settlements/{settlement_id}/payments", "/api/v1/channel-catalog/settlements/${settlementId}/payments`"),
 ]
 
 
