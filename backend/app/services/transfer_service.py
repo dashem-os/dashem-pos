@@ -12,7 +12,15 @@ from app.models.transfer import TransferRecord, TransferTypeEnum
 from app.modules.settlement import contracts as settlement
 from app.services import reliability_service
 
-ACTIVE={TableSessionStatusEnum.OPEN,TableSessionStatusEnum.IN_SERVICE}
+# PARTIALLY_PAID joined this set in 05/09/2026, with S25. It used to mean "the
+# bill is frozen and closing", and refusing every transfer there was defensible.
+# Under live settlement it means the opposite: one person paid their share and
+# the table is still eating. Refusing to move an item because somebody already
+# paid for something would freeze a live table. What protects the money is no
+# longer the session's status but the economic boundary per item and per
+# comanda, asked of finance through the settlement port — a stronger rule than
+# the blanket refusal it replaces. CLOSING and CLOSED stay out.
+ACTIVE={TableSessionStatusEnum.OPEN,TableSessionStatusEnum.IN_SERVICE,TableSessionStatusEnum.PARTIALLY_PAID}
 
 def _money(value)->Decimal:
     return Decimal(str(value)).quantize(Decimal("0.0001"))
@@ -27,7 +35,7 @@ def _sessions(session: Session, context: TenantContext, source_id: uuid.UUID, de
     if len(rows)!=2: raise HTTPException(404,"Sessão de origem ou destino não encontrada.")
     by_id={row.id:row for row in rows}; source=by_id[source_id]; destination=by_id[destination_id]
     if source.store_id!=destination.store_id: raise HTTPException(403,"Transferência entre unidades não é permitida.")
-    if source.status not in ACTIVE or destination.status not in ACTIVE: raise HTTPException(409,"Sessões em pagamento, fechamento ou encerradas não aceitam transferência.")
+    if source.status not in ACTIVE or destination.status not in ACTIVE: raise HTTPException(409,"Sessões em fechamento ou encerradas não aceitam transferência.")
     return source,destination
 
 def _destination_order(session: Session, context: TenantContext, target: TableSession, actor: uuid.UUID)->Order:
@@ -123,7 +131,7 @@ def transfer_order_to_table(session:Session,context:TenantContext,*,source_sessi
         return existing
     source=session.exec(scope_tenant_query(select(TableSession).where(TableSession.id==source_session_id).with_for_update(),TableSession,context)).first()
     if not source:raise HTTPException(404,"Sessão de origem não encontrada.")
-    if source.status not in ACTIVE:raise HTTPException(409,"Sessão em pagamento, fechamento ou encerrada não aceita separação.")
+    if source.status not in ACTIVE:raise HTTPException(409,"Sessão em fechamento ou encerrada não aceita separação.")
     if source.version!=expected_source_version:raise HTTPException(409,detail={"code":"TRANSFER_VERSION_CONFLICT","source_version":source.version})
     table=session.exec(scope_tenant_query(select(ServiceTable).where(ServiceTable.id==destination_table_id,ServiceTable.is_active.is_(True)).with_for_update(),ServiceTable,context)).first()
     if not table or table.store_id!=source.store_id:raise HTTPException(404,"Mesa de destino não encontrada nesta unidade.")
@@ -150,7 +158,7 @@ def move_session_to_table(session:Session,context:TenantContext,*,source_session
         return existing
     source=session.exec(scope_tenant_query(select(TableSession).where(TableSession.id==source_session_id).with_for_update(),TableSession,context)).first()
     if not source:raise HTTPException(404,"Sessão de origem não encontrada.")
-    if source.status not in ACTIVE:raise HTTPException(409,"Sessão em pagamento, fechamento ou encerrada não pode mudar de mesa.")
+    if source.status not in ACTIVE:raise HTTPException(409,"Sessão em fechamento ou encerrada não pode mudar de mesa.")
     if source.version!=expected_source_version:raise HTTPException(409,detail={"code":"TRANSFER_VERSION_CONFLICT","source_version":source.version})
     table_ids=[destination_table_id]+([source.service_table_id] if source.service_table_id else [])
     locked_tables=list(session.exec(scope_tenant_query(select(ServiceTable).where(ServiceTable.id.in_(table_ids)).order_by(ServiceTable.id).with_for_update(),ServiceTable,context)).all())

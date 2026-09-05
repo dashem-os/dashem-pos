@@ -1768,6 +1768,28 @@ mesmo instante por `asyncio.gather`, com a conta ainda devendo R$145 para que s�
 o guarda de item possa ser o que recusou. Um recebe 200, o outro `409
 ITEM_SETTLEMENT_UNAVAILABLE`, e o item fica com um reservador só.
 
+Fechamento do gate em 05/09, por pergunta do dono — "só resta UI?". Quatro
+critérios do gate ainda eram só prosa e ganharam teste: produção intocada por
+pagamento, conta finalizada que não aceita nova alocação, e a fronteira
+econômica da transferência, que era **código alterado por esta sprint e sem
+teste algum**. Escrever esse último revelou um efeito colateral do contrato 1:
+`transfer_service` recusava toda transferência em sessão `PARTIALLY_PAID`. Fazia
+sentido quando esse estado significava "conta congelada, fechando"; sob
+liquidação progressiva ele significa o oposto — alguém pagou a parte dele e a
+mesa continua comendo. A recusa em bloco congelava mesa viva, e saiu.
+`PARTIALLY_PAID` entrou no conjunto ativo de transferência; `CLOSING` e `CLOSED`
+continuam fora. O que protege o dinheiro deixou de ser o estado da sessão e
+passou a ser a fronteira econômica por item e por comanda, perguntada ao módulo
+de finanças pela porta — regra mais forte do que a recusa que substituiu.
+
+Uma linha do gate permanece **parcialmente aspiracional e está registrada como
+tal**: "parcela que falha, é cancelada ou expira devolve o saldo do item".
+Falhar devolve, e isso está provado. Cancelar e expirar não existem —
+`PaymentIntentStatusEnum.CANCELED` não é escrito por nenhum comando e não há
+mecanismo de expiração. Enquanto não houver, uma parcela criada e nunca
+confirmada segura o saldo do item indefinidamente. Não é bloqueio para a
+interface, mas é dívida real e precisa de decisão antes do piloto.
+
 **O que falta do S25 é a interface**, e só ela: os três modos — pagar tudo,
 dividir por pessoa, pagar por itens — que são três formas de construir
 `PaymentAllocation` sobre o mesmo motor, não três funcionalidades. Nada do S25
@@ -2090,6 +2112,7 @@ e aparece como `não configurada`, nunca como pronta.
 | Parcela registra o operador e não o pagador | S25 | `payer_label` e `customer_id` opcional na parcela | **resolvido em 05/09/2026** pelo contrato 4, na migração `075_payment_intent_payer`, sem backfill: parcela antiga lê como pagador desconhecido em vez de receber um inventado |
 | `cancel_item` não consulta cobertura financeira | S25 | `item_total >= settled + reserved` como fronteira única | **resolvido em 05/09/2026**: `cancel_item`, `update_item` e `transfer_item` consultam a cobertura pela porta `app/modules/settlement`. Apurou-se de quebra que os dois primeiros nunca tocavam a sessão da mesa — só `add_item` tocava —, e a conta divergia do consumo em silêncio |
 | Conta da mesa e conta de uma comanda dela podem coexistir | S25 | mesmo item nunca alocado por duas negociações | **resolvido em 05/09/2026** pelo contrato 5: `open_negotiation` recusa com `409 ORDER_ALREADY_IN_NEGOTIATION` nos dois sentidos, sob o `FOR UPDATE` que já existia nos `Order`, e a absorção do contrato 1 pula comanda já paga em conta própria |
+| Parcela pendente segura o saldo do item para sempre | S25 (aberta) | cancelamento explícito e expiração de reserva | **dívida apurada em 05/09**: `fail` devolve o saldo e está provado, mas `PaymentIntentStatusEnum.CANCELED` não é escrito por comando algum e não existe expiração. Uma parcela criada e nunca confirmada bloqueia o item indefinidamente. Precisa de decisão antes do piloto |
 | SmartPOS existe só como meio de pagamento, não como superfície de operação | S22 proposto em 04/09 | execução local distinta de `TEF_BRIDGE`, com adapter homologado e sem login humano na maquininha | **lacuna levantada em 04/09**: `PaymentDeviceExecutionModeEnum.SMARTPOS` trata a maquininha como destino de cobrança. Um SmartPOS de campo roda o ponto de venda inteiro, e isso não está modelado em lugar nenhum |
 | Owner tratado como domínio e não como camada | [ADR-029](../architecture/adr-029-module-boundaries-and-owner-layer.md) | nenhum serviço de tenant lê tabela do Owner; direitos consultados por contrato | **regra dura estabelecida em 04/09**, sem baseline e sem exceção prevista. Verificada por `test_no_tenant_module_reaches_into_the_owner_layer`, hoje verde |
 | Cadastro de dispositivo não distingue ponto de operação, navegador e periférico | S21.1 | pareamento verificado por tipo, com credencial de dispositivo em vez de texto livre | **dívida aberta, criada em 04/09**: `operational_devices` guarda POS, KDS e PRINTER na mesma forma, e o periférico é declarado por uma string `configuration_ref` que ninguém valida. Na tela, cadastrar impressora ou terminal de produção pede um texto do tipo `bridge://cozinha/impressora-01` sem provar que o bridge existe. Maquininha não passa por aqui: vive em `PaymentDeviceBinding` (S9), em outro módulo, sem que a tela de terminais diga isso |
