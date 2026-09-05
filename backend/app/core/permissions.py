@@ -124,6 +124,10 @@ def route_requirement(method: str, path: str) -> RouteRequirement:
         if path.endswith("/finalize"):
             return RouteRequirement("checkout.finalize")
         if "/intents" in path:
+            # Giving money back is not the same authority as taking it: until
+            # S25.1 a release ran under the permission used to create a parcel.
+            if path.endswith("/cancel"):
+                return RouteRequirement("checkout.payment.cancel")
             return RouteRequirement("checkout.payment")
         return RouteRequirement("checkout.open")
     if path.startswith("/api/v1/providers"):

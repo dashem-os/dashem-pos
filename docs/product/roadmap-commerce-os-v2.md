@@ -1785,9 +1785,10 @@ implementado. O estado abaixo é único e substitui os anteriores.
   sobre a mesma chamada; item tomado não é selecionável; pagador em campo livre;
   códigos técnicos traduzidos. Seis casos no audit responsivo em sete tamanhos.
 
-**Pendente, e é funcional, não acabamento:** o ciclo de recuperação de pagamento
-abandonado ou incerto, delimitado no **S25.1** abaixo. O CI verde prova os
-cenários cobertos; não prova um ciclo ausente.
+**O ciclo de recuperação** de pagamento abandonado ou incerto foi delimitado no
+**S25.1** e implementado em 05/09/2026, com uma pendência declarada: estorno
+sobre parcela já confirmada. O CI verde prova os cenários cobertos; não prova
+homologação de provider nem aceite em ambiente publicado.
 
 Contratado com o dono do SaaS em 5 de setembro de 2026. Nasce
 de uma leitura do dono sobre a proposta errada deste agente: a de separar itens
@@ -1972,7 +1973,23 @@ registrada como **recusada** para que ninguém a reintroduza.
 
 ### S25.1 — Recuperação de pagamento abandonado ou incerto
 
-Contratado pelo dono do SaaS em 5 de setembro de 2026, **não iniciado**. Nasce
+Estado: **implementado no gate interno em 05/09/2026; homologação real de
+provider e aceite em ambiente publicado permanecem pendentes.** A matriz
+critério → implementação → teste → resultado está em
+[`s25-1-payment-recovery-acceptance.md`](../quality/s25-1-payment-recovery-acceptance.md),
+e ela distingue o que foi provado localmente do que não foi provado em lugar
+nenhum. Um bloqueio ficou **declarado e não improvisado**: estorno sobre parcela
+já confirmada não tem fluxo, porque `refund_payment` opera sobre `Payment` e
+`Payment` só nasce na finalização da venda — o fato é registrado como
+`REFUND_REQUIRES_REVERSAL`, o dinheiro fica onde está, e o escopo de desbloqueio
+está proposto na matriz.
+
+Ajuste de contrato pedido pelo dono antes da implementação e aplicado: **cancelar,
+falhar, expirar e estornar são quatro operações distintas.** `REFUNDED` não é
+cancelamento de reserva, e confirmação externa tardia é registrada e conciliada,
+nunca descartada.
+
+Contratado pelo dono do SaaS em 5 de setembro de 2026. Nasce
 de uma revisão dele sobre o S25 recém-entregue, e a frase que a resume é dele:
 **nunca liberar dinheiro apenas porque o relógio passou.**
 
@@ -2159,10 +2176,10 @@ e aparece como `não configurada`, nunca como pronta.
 | Parcela registra o operador e não o pagador | S25 | `payer_label` e `customer_id` opcional na parcela | **resolvido em 05/09/2026** pelo contrato 4, na migração `075_payment_intent_payer`, sem backfill: parcela antiga lê como pagador desconhecido em vez de receber um inventado |
 | `cancel_item` não consulta cobertura financeira | S25 | `item_total >= settled + reserved` como fronteira única | **resolvido em 05/09/2026**: `cancel_item`, `update_item` e `transfer_item` consultam a cobertura pela porta `app/modules/settlement`. Apurou-se de quebra que os dois primeiros nunca tocavam a sessão da mesa — só `add_item` tocava —, e a conta divergia do consumo em silêncio |
 | Conta da mesa e conta de uma comanda dela podem coexistir | S25 | mesmo item nunca alocado por duas negociações | **resolvido em 05/09/2026** pelo contrato 5: `open_negotiation` recusa com `409 ORDER_ALREADY_IN_NEGOTIATION` nos dois sentidos, sob o `FOR UPDATE` que já existia nos `Order`, e a absorção do contrato 1 pula comanda já paga em conta própria |
-| Parcela pendente segura o saldo do item para sempre | **S25.1** | cancelar, expirar com segurança e reconciliar o incerto | **reclassificada em 05/09 pelo dono, de acabamento para pendência funcional**: o S25 tornou a reserva por item real e, com isso, tornou o abandono caro — um whisky preso em `EM PAGAMENTO` não é pagável por mais ninguém. Pré-requisito do piloto |
-| `fail_intent` libera a reserva sem olhar a cobrança externa | S25.1 | cancelamento distinto de falha, recusado com transação não resolvida | **defeito apurado em 05/09**: verifica apenas que a parcela está `PENDING`/`PROCESSING` e nunca consulta a `ProviderTransaction`. E não existe na interface — nenhuma função do cliente chama `/negotiations/intents/{id}/fail`, então o operador não tem saída pela tela |
-| Provider que cancela ou estorna deixa a parcela presa | S25.1 | `CANCELED` e `REFUNDED` fecham a parcela e devolvem a reserva | **defeito apurado em 05/09**: `_apply_result` propaga só `CONFIRMED` e `FAILED`; os demais caem no `else` e apenas projetam. A transação externa fecha e o item continua bloqueado |
-| A tela cria a parcela antes de saber se o TEF executa | S25.1 | conferir meio e vínculo antes de reservar saldo | **defeito apurado em 05/09**: `addAndConfirmPayment` cria o intent e só depois checa vínculo e estado do bridge. TEF offline deixa parcela pendurada e item reservado |
+| Parcela pendente segura o saldo do item para sempre | S25.1 | cancelar, expirar com segurança e reconciliar o incerto | **resolvido em 05/09/2026**: cancelamento explícito com permission própria, expiração só com evidência de que nada foi cobrado, e consulta ao provider que mantém a reserva enquanto houver incerteza |
+| `fail_intent` libera a reserva sem olhar a cobrança externa | S25.1 | cancelamento distinto de falha, recusado com transação não resolvida | **resolvido em 05/09/2026**: `fail_intent` e `confirm_intent` recusam com `409 EXTERNAL_CHARGE_IN_FLIGHT`; a tela oferece "Consultar pagamento" e "Cancelar reserva", e **nunca** "marcar falha" como desbloqueio |
+| Provider que cancela ou estorna deixa a parcela presa | S25.1 | `CANCELED` fecha a parcela; `REFUNDED` é reversão | **resolvido em 05/09/2026 com bloqueio declarado**: `CANCELED` cancela a parcela e devolve a reserva; `REFUNDED` sobre parcela confirmada vira `REFUND_REQUIRES_REVERSAL` e espera um fluxo de estorno que não existe — escopo proposto na matriz de aceite |
+| A tela cria a parcela antes de saber se o TEF executa | S25.1 | conferir meio e vínculo antes de reservar saldo | **resolvido em 05/09/2026**: `create_intent` valida a cadeia do ADR-022 no servidor antes de reservar, então bridge offline não deixa parcela pendurada |
 | SmartPOS existe só como meio de pagamento, não como superfície de operação | S22 proposto em 04/09 | execução local distinta de `TEF_BRIDGE`, com adapter homologado e sem login humano na maquininha | **lacuna levantada em 04/09**: `PaymentDeviceExecutionModeEnum.SMARTPOS` trata a maquininha como destino de cobrança. Um SmartPOS de campo roda o ponto de venda inteiro, e isso não está modelado em lugar nenhum |
 | Owner tratado como domínio e não como camada | [ADR-029](../architecture/adr-029-module-boundaries-and-owner-layer.md) | nenhum serviço de tenant lê tabela do Owner; direitos consultados por contrato | **regra dura estabelecida em 04/09**, sem baseline e sem exceção prevista. Verificada por `test_no_tenant_module_reaches_into_the_owner_layer`, hoje verde |
 | Cadastro de dispositivo não distingue ponto de operação, navegador e periférico | S21.1 | pareamento verificado por tipo, com credencial de dispositivo em vez de texto livre | **dívida aberta, criada em 04/09**: `operational_devices` guarda POS, KDS e PRINTER na mesma forma, e o periférico é declarado por uma string `configuration_ref` que ninguém valida. Na tela, cadastrar impressora ou terminal de produção pede um texto do tipo `bridge://cozinha/impressora-01` sem provar que o bridge existe. Maquininha não passa por aqui: vive em `PaymentDeviceBinding` (S9), em outro módulo, sem que a tela de terminais diga isso |

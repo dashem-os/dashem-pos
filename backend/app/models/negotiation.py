@@ -121,6 +121,16 @@ class PaymentIntent(SQLModel, table=True):
     failure_request_hash: Optional[str] = Field(default=None, max_length=64)
     created_by: uuid.UUID = Field(index=True)
     confirmed_by: Optional[uuid.UUID] = Field(default=None, index=True)
+    # Cancelling is not failing. Nothing failed: the reserve was never sent and
+    # is being given back, so it carries its own author, reason and key.
+    canceled_by: Optional[uuid.UUID] = Field(default=None)
+    cancel_reason: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    cancel_idempotency_key: Optional[str] = Field(default=None, max_length=160)
+    cancel_request_hash: Optional[str] = Field(default=None, max_length=64)
+    canceled_at: Optional[datetime] = Field(default=None)
+    # When the server may take an abandoned reserve back on its own — and even
+    # then only if no provider transaction exists for it.
+    reserve_expires_at: Optional[datetime] = Field(default=None, index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     confirmed_at: Optional[datetime] = Field(default=None, index=True)
@@ -152,4 +162,56 @@ class NegotiationEvent(SQLModel, table=True):
     event_type: str = Field(max_length=80, index=True)
     actor_id: uuid.UUID = Field(index=True)
     payload: dict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
+    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+
+
+class SettlementDivergenceKindEnum(str, Enum):
+    """A provider answer that cannot be applied without a person deciding."""
+
+    LATE_CONFIRMATION = "LATE_CONFIRMATION"
+    LATE_FAILURE = "LATE_FAILURE"
+    EXTERNAL_CANCEL_AFTER_CONFIRM = "EXTERNAL_CANCEL_AFTER_CONFIRM"
+    REFUND_REQUIRES_REVERSAL = "REFUND_REQUIRES_REVERSAL"
+    UNEXPECTED_RESULT = "UNEXPECTED_RESULT"
+
+
+class PaymentSettlementDivergence(SQLModel, table=True):
+    """What the provider said, when the parcel could no longer hear it.
+
+    A card confirming after its reserve was cancelled, or a refund landing on a
+    parcel already settled, is money that moved in the world and did not move
+    here. Applying it silently would either double-charge a line somebody else
+    has since paid, or write a financial reversal with no reversal flow behind
+    it. Discarding it would lose the fact. So it is written down, once, and
+    waits for a person.
+    """
+
+    __tablename__ = "payment_settlement_divergences"
+    __table_args__ = (
+        UniqueConstraint(
+            "payment_intent_id", "kind", "provider_status",
+            name="uq_settlement_divergence_fact",
+        ),
+        CheckConstraint(
+            "kind IN ('LATE_CONFIRMATION', 'LATE_FAILURE', 'EXTERNAL_CANCEL_AFTER_CONFIRM', "
+            "'REFUND_REQUIRES_REVERSAL', 'UNEXPECTED_RESULT')",
+            name="ck_settlement_divergence_kind",
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(foreign_key="tenants.id", index=True)
+    store_id: uuid.UUID = Field(foreign_key="stores.id", index=True)
+    payment_intent_id: uuid.UUID = Field(foreign_key="payment_intents.id", index=True)
+    provider_transaction_id: Optional[uuid.UUID] = Field(default=None)
+    kind: SettlementDivergenceKindEnum = Field(
+        sa_column=Column(EnumString(SettlementDivergenceKindEnum), nullable=False, index=True),
+    )
+    intent_status: str = Field(max_length=24)
+    provider_status: str = Field(max_length=24)
+    amount: Decimal = Field(sa_column=Column(Numeric(14, 4), nullable=False))
+    detail: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    resolved_at: Optional[datetime] = Field(default=None)
+    resolved_by: Optional[uuid.UUID] = Field(default=None)
+    resolution_note: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)

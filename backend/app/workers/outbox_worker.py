@@ -34,6 +34,23 @@ def _record_heartbeat(*, status: str = "HEALTHY", error: str | None = None) -> N
         _heartbeat(session, status=status, error=error)
 
 
+def sweep_expired_reserves() -> int:
+    """Take back payment reserves the server can prove were never sent.
+
+    Only a parcel with no provider transaction at all is expired here. One that
+    reached a provider is left for reconciliation to query, because a lost
+    answer is not a lost charge — S25.1.
+    """
+    from app.services.negotiation_service import expire_abandoned_reserves
+
+    with Session(engine) as session:
+        set_platform_db_context(session)
+        expired = expire_abandoned_reserves(session)
+    if expired:
+        logger.info("Expired %s abandoned payment reserves", len(expired))
+    return len(expired)
+
+
 def process_one_event() -> bool:
     """Publish one leased outbox event and persist an immutable receipt."""
 
@@ -69,11 +86,17 @@ def process_one_event() -> bool:
 def process_outbox_events():
     logger.info("Starting Dashem POS Outbox Worker...")
     last_heartbeat_at = 0.0
+    last_sweep_at = 0.0
     while True:
         try:
             if time.monotonic() - last_heartbeat_at >= 10:
                 _record_heartbeat()
                 last_heartbeat_at = time.monotonic()
+            # The reserve sweep is cheap and indexed; once a minute is enough,
+            # and it survives a restart because it reads the clock from the row.
+            if time.monotonic() - last_sweep_at >= 60:
+                sweep_expired_reserves()
+                last_sweep_at = time.monotonic()
             if not process_one_event():
                 time.sleep(1.0)
         except Exception as e:

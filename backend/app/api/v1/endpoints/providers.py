@@ -13,6 +13,7 @@ from app.models.provider import (
     PaymentDeviceBindingStatusEnum, PaymentDeviceExecutionModeEnum,
     ProviderTransactionStatusEnum,
 )
+from app.api.v1.endpoints.negotiations import NegotiationProjectionDTO
 from app.services import provider_service
 
 
@@ -151,7 +152,10 @@ class ProviderTransactionDTO(BaseModel):
 
 class ProviderExecutionDTO(BaseModel):
     transaction: ProviderTransactionDTO
-    negotiation: dict
+    # Typed on purpose. As a bare `dict` this field silently flattened every
+    # ORM row of the projection into `{}`, so a caller reading the bill through
+    # a provider response saw empty orders, allocations and divergences.
+    negotiation: NegotiationProjectionDTO
 
 
 class ReconcileDTO(BaseModel):

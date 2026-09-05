@@ -95,6 +95,7 @@ fixtures.getTableSession = liveSession;
 fixtures.openTableSession = liveSession;
 fixtures.fetchActiveTableSessions = [{ ...interfaceSample('TableSessionSummary'), id: 'session-1', status: 'PARTIALLY_PAID', display_label: 'Mesa 01', kind: 'TABLE', version: 3 }];
 fixtures.fetchServiceTables = [{ ...interfaceSample('ServiceTableProjection'), id: 'table-1', name: 'Mesa 01', status: 'IN_SERVICE', active_session_id: 'session-1', active_session_status: 'PARTIALLY_PAID', active_session_label: 'Mesa 01', active_reservation: null, order_count: 1, item_count: 4, consolidated_total: 145 }];
+const minutesAgo = (minutes) => new Date(Date.now() - minutes * 60000).toISOString().replace('Z', '');
 const settlementLine = (id, name, price, settled, reserved, settledBy, reservedBy) => ({
     order_item_id: id, order_id: 'order-1', product_name: name, quantity: 1, unit_price: price,
     item_total: price, settled_amount: settled, reserved_amount: reserved,
@@ -106,8 +107,15 @@ fixtures.openCheckoutNegotiation = {
     table_session_id: 'session-1', subtotal: 145, total_due: 145, confirmed_amount: 35,
     processing_amount: 40, failed_amount: 0, remaining_amount: 110, discount_total: 0,
     surcharge_total: 0, tax_total: 0, orders: [{ id: 'no-1', order_id: 'order-1', amount_snapshot: 145 }],
-    intents: [{ ...interfaceSample('NegotiationPaymentIntent'), id: 'intent-1', method: 'PIX', status: 'CONFIRMED', amount: 35, payer_label: 'Marcelo' }],
+    intents: [
+        { ...interfaceSample('NegotiationPaymentIntent'), id: 'intent-1', method: 'PIX', status: 'CONFIRMED', amount: 35, payer_label: 'Marcelo', awaiting_provider: false, can_cancel: false, can_query_provider: false, reserve_expires_at: null, canceled_at: null, cancel_reason: null },
+        // A card that left and never answered: kept, queryable, not cancellable.
+        { ...interfaceSample('NegotiationPaymentIntent'), id: 'intent-2', method: 'CREDIT_CARD', status: 'PROCESSING', amount: 40, payer_label: 'Astra', created_at: minutesAgo(6), awaiting_provider: true, provider_status: 'UNKNOWN', can_cancel: false, can_query_provider: true, reserve_expires_at: null, canceled_at: null, cancel_reason: null },
+        // A reserve nobody sent: cancellable, and it says how long it has sat.
+        { ...interfaceSample('NegotiationPaymentIntent'), id: 'intent-3', method: 'PIX', status: 'PENDING', amount: 10, payer_label: 'Joao', created_at: minutesAgo(9), awaiting_provider: false, can_cancel: true, can_query_provider: false, reserve_expires_at: '2026-09-04T12:03:00Z', canceled_at: null, cancel_reason: null },
+    ],
     allocations: [], unassigned_settled_amount: 0, unassigned_reserved_amount: 0,
+    divergences: [{ id: 'div-1', payment_intent_id: 'intent-1', kind: 'REFUND_REQUIRES_REVERSAL', intent_status: 'CONFIRMED', provider_status: 'REFUNDED', amount: 35, detail: 'Estorno no provider sobre parcela confirmada; baixa financeira exige fluxo de estorno.', created_at: '2026-09-04T12:00:00Z' }],
     item_settlements: [
         settlementLine('item-1', 'Hambúrguer Artesanal Bacon', 35, 35, 0, ['Marcelo'], []),
         settlementLine('item-2', 'Coca-Cola', 10, 0, 0, [], []),
