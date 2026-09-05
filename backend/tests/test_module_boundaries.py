@@ -122,10 +122,9 @@ BASELINE = {
     "device -> production",
     # a venda antiga referencia o pagamento diretamente, herança do fluxo pré-S8
     "sale -> payment",
-    # a transferência recusa mover item já coberto por PaymentAllocation, que é
-    # regra legítima e deveria ser perguntada ao módulo de finanças, não lida
-    # direto da tabela dele
-    "transfer -> negotiation",
+    # "transfer -> negotiation" saiu em 05/09/2026: a regra continua, e passou a
+    # ser perguntada ao módulo de finanças pela porta app/modules/settlement,
+    # como este comentário pedia. É a primeira linha que a migração devolve.
 }
 
 

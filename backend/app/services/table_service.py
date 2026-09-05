@@ -929,7 +929,14 @@ def touch_session_activity(
     order: Order,
     actor_id: uuid.UUID,
     order_item_id: uuid.UUID,
+    event_type: str = "table_session.item_added",
 ) -> None:
+    """Consumption moved, so the session moved.
+
+    The version this bumps is what tells a live bill that the table changed.
+    Adding an item always called it; changing or cancelling one did not, and the
+    bill diverged from the consumption in silence.
+    """
     if not order.table_session_id:
         return
     table_session = session.exec(scope_tenant_query(select(TableSession).where(
@@ -942,6 +949,6 @@ def touch_session_activity(
         table_session.status = TableSessionStatusEnum.IN_SERVICE
     table_session.version += 1
     table_session.updated_at = datetime.utcnow()
-    _write_event(session, context, table_session, actor_id, "table_session.item_added", {
+    _write_event(session, context, table_session, actor_id, event_type, {
         "order_id": str(order.id), "order_item_id": str(order_item_id), "version": table_session.version,
     }, from_status=previous, to_status=table_session.status)

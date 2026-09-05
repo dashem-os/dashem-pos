@@ -191,7 +191,7 @@ async def test_s8_split_failure_retry_and_explicit_finalization_are_authoritativ
 
 
 @pytest.mark.asyncio
-async def test_s8_concurrent_intents_cannot_overbook_and_consumption_change_invalidates_snapshot():
+async def test_s8_concurrent_intents_cannot_overbook_and_new_consumption_is_absorbed():
     async with httpx.AsyncClient(base_url=BASE_URL) as client:
         _tenant, store, headers, actor, _table, table_session, order_id, _cash = await _context(client, "RacePay")
         opened = (await client.post("/api/v1/negotiations", headers={
@@ -222,9 +222,14 @@ async def test_s8_concurrent_intents_cannot_overbook_and_consumption_change_inva
             **headers, "Idempotency-Key": f"changed-{uuid.uuid4()}",
         }, json={"product_id": product["id"], "quantity": 1, "actor_id": actor})
         assert changed.status_code == 200
-        invalidated = await client.get(f"/api/v1/negotiations/{opened['id']}", headers=headers)
-        assert invalidated.status_code == 409
+        # Until S25 this answered 409 and left the bill INVALIDATED: a beer
+        # ordered after someone started paying forced the whole account to be
+        # reopened. The bill now follows the table.
+        reconciled = await client.get(f"/api/v1/negotiations/{opened['id']}", headers=headers)
+        assert reconciled.status_code == 200, reconciled.text
+        assert float(reconciled.json()["total_due"]) == 65.9
+        assert float(reconciled.json()["remaining_amount"]) == 65.9
 
     with Session(engine) as db:
         set_platform_db_context(db)
-        assert db.get(CheckoutNegotiation, uuid.UUID(opened["id"])).status.value == "INVALIDATED"
+        assert db.get(CheckoutNegotiation, uuid.UUID(opened["id"])).status.value != "INVALIDATED"

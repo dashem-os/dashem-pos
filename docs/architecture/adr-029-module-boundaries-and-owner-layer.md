@@ -40,6 +40,26 @@ enxerga tenant e loja, porque precisa nomeá-los, e nada além disso.
 O módulo `governance`, já existente, é o embrião dessa camada e sua descrição
 ("pure domain contracts for Owner governance") permanece válida.
 
+### 1.1 Quando a regra precisa olhar para cima, ela pergunta
+
+Acrescentado em 5 de setembro de 2026, ao construir o S25.
+
+Cancelar um item, mudar sua quantidade ou transferi-lo de comanda precisa saber
+se alguém já pagou por ele. A resposta mora em `finance`, e quem precisa dela é
+`operation`, que não pode ler para cima. A saída **não** é somar uma linha à
+baseline: é inverter a dependência.
+
+`app/modules/settlement/contracts.py` nomeia a pergunta — quanto de dinheiro
+está liquidado ou reservado sobre um item, e sobre uma comanda — sem persistência,
+sem FastAPI e sem conhecer nenhum dos dois lados. `finance` registra a resposta
+ao ser importado; `operation` chama a porta. Um registro ausente **levanta erro
+em vez de responder zero**, porque zero seria uma permissão: deixaria cancelar um
+item pago.
+
+Com isso a linha `transfer -> negotiation` saiu da baseline de
+`test_module_boundaries.py` — a primeira que a migração devolve, e exatamente
+pelo motivo que o comentário dela já pedia.
+
 ### 2. O mapa de módulos
 
 | Módulo | Modelos | Papel |

@@ -174,7 +174,7 @@ def issue_and_finalize(
         CheckoutNegotiationStatusEnum.OPEN, CheckoutNegotiationStatusEnum.PARTIALLY_COVERED,
     }:
         raise HTTPException(status_code=409, detail="Negociação não aceita conversão em crediário.")
-    negotiation_service._validate_source(session, negotiation)
+    negotiation_service.reconcile_source(session, negotiation)
     totals = negotiation_service._totals(session, negotiation)
     amount = _money(totals["remaining_amount"] - totals["processing_amount"])
     if amount <= 0:

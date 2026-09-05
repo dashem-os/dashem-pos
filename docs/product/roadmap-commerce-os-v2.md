@@ -1746,10 +1746,38 @@ depender de entitlement comercial nem de arquivo do lojista.
 
 ### S25 — Liquidação progressiva da comanda (Live Settlement)
 
-Estado em 05/09/2026: **contratos 2 e 3 entregues no gate interno; 1, 4 e 5
-abertos.** A ordem foi deliberada e é do dono: 2 e 3 são aditivos — não mudam
-comportamento existente e já fecham a porta da dupla alocação —, enquanto o 1
-muda a semântica da negociação e vem depois. Entregue: `item_settlement` resolve
+Estado em 05/09/2026: **contratos 1, 2 e 3 entregues no gate interno; 4 e 5
+abertos.**
+
+O contrato 1 foi entregue depois de 2 e 3, na ordem pedida pelo dono.
+`_validate_source` deu lugar a `reconcile_source`: consumo novo é absorvido —
+totais recalculados, comandas abertas depois entram numa conta com escopo de
+mesa (e **não** numa conta com escopo de Orders nomeadas), parcelas confirmadas e
+alocações por item ficam onde estavam. `COVERED` deixou de ser terminal e volta
+a `PARTIALLY_COVERED` quando entram duas cervejas antes da finalização. A
+fronteira econômica `item_total >= settled + reserved` passou a ser consultada
+por `cancel_item`, por `update_item` e por `transfer_item`.
+
+Dois achados apareceram ao construir, e os dois eram buracos que o modelo de
+snapshot escondia:
+
+- **`cancel_item` e `update_item` nunca tocavam a sessão da mesa.** Só
+  `add_item` chamava `touch_session_activity`. Cancelar um item ou mudar sua
+  quantidade não mexia na versão da sessão, então a conta divergia do consumo em
+  silêncio — sob o snapshot isso nem sequer invalidava. Os três comandos agora
+  tocam a sessão, com evento próprio para cada um;
+- **a fronteira de módulo precisava ser invertida, não atravessada.** O guarda de
+  cobertura mora em `finance` e quem precisa dele é `operation`, que o ADR-029
+  proíbe de olhar para cima. Em vez de somar uma linha à baseline, nasceu a porta
+  `app/modules/settlement`: `operation` pergunta, `finance` registra a resposta.
+  A linha `transfer -> negotiation` **saiu** da baseline — é a primeira que a
+  migração devolve.
+
+A ordem foi deliberada e é do dono: 2 e 3 são aditivos — não mudam comportamento
+existente e já fecham a porta da dupla alocação —, enquanto o 1 muda a semântica
+da negociação e por isso veio depois, com os outros dois já verdes.
+
+Dos contratos 2 e 3: `item_settlement` resolve
 `item_total`, `settled_amount`, `reserved_amount`, `available_amount` e
 `is_paid` por `OrderItem`, somando alocações de **todas** as negociações que
 tocaram o item, e não só da corrente; a projeção da negociação passou a carregar
@@ -2033,10 +2061,10 @@ e aparece como `não configurada`, nunca como pronta.
 | Atividade ativa do PDV mantida apenas no cliente | 5.4.4 + Gate B | escolha persistida na sessão operacional e auditável | **dívida aberta, criada em 03/09** |
 | Junção de mesas existe no servidor e não na tela | S12 | mesclagem alcançável pelo garçom, com linhagem visível | resolvido e testado em 04/09: item, comanda, sessão, separação para mesa livre, mesclagem e histórico estão alcançáveis na operação |
 | Conta não pode ser dividida por pessoa | **S25** | alocação por item sobre uma conta viva, sem mover item de comanda | **reaberta e reclassificada em 05/09**: o que foi resolvido em 04/09 é pagar *uma comanda inteira* em parcelas mantendo as demais ativas. Dividir por item dentro de uma comanda — Marcelo paga o hambúrguer, Astra paga o whisky, o resto segue aberto — não existe. A proposta deste agente de separar itens em uma comanda irmã foi **recusada pelo dono em 05/09**: pagador não é comanda, e mover o item contamina KDS, produção, auditoria, estorno, fiscal e conciliação |
-| Negociação invalida ao ver consumo novo | S25 | conta viva que absorve o saldo acrescentado | **dívida apurada em 05/09**: `_validate_source` compara a versão da sessão com `source_version` e marca `INVALIDATED` na primeira diferença. Depois de alguém pagar, uma cerveja lançada na mesa impede o pagamento seguinte. A negociação é snapshot de fechamento, e a operação real pede liquidação progressiva |
-| `order_item_id` é escrito na alocação e nunca lido | S25 | projeção de settlement por item com invariante de saldo | **dívida apurada em 05/09**: nada soma alocações por item nem compara com o total dele. Dois pagadores podem alocar o mesmo whisky desde que o total da conta feche. Falta `settled`/`reserved`/`available`/`is_paid` por item |
+| Negociação invalida ao ver consumo novo | S25 | conta viva que absorve o saldo acrescentado | **resolvido em 05/09/2026** pelo contrato 1: `reconcile_source` recalcula o devido, absorve comandas novas numa conta de mesa e preserva parcelas e alocações. `COVERED` deixou de ser terminal |
+| `order_item_id` é escrito na alocação e nunca lido | S25 | projeção de settlement por item com invariante de saldo | **resolvido em 05/09/2026** pelos contratos 2 e 3: `item_settlement` publica `settled`/`reserved`/`available`/`is_paid` por item, e `create_intent` recusa com `409 ITEM_SETTLEMENT_UNAVAILABLE` sobre leitura `FOR UPDATE` |
 | Parcela registra o operador e não o pagador | S25 | `payer_label` e `customer_id` opcional na parcela | **dívida apurada em 05/09**: `PaymentIntent` tem `created_by` e `confirmed_by`, que são quem operou. Não há como a tela dizer "PAGO · Marcelo", nem lançar o valor na conta de um cliente cadastrado |
-| `cancel_item` não consulta cobertura financeira | S25 | `item_total >= settled + reserved` como fronteira única | **dívida apurada em 05/09**: `cancel_item` exige apenas que o Order esteja `OPEN`. Sob o snapshot isso ficava mascarado pela invalidação; numa conta viva é o caminho para cancelar um item já pago |
+| `cancel_item` não consulta cobertura financeira | S25 | `item_total >= settled + reserved` como fronteira única | **resolvido em 05/09/2026**: `cancel_item`, `update_item` e `transfer_item` consultam a cobertura pela porta `app/modules/settlement`. Apurou-se de quebra que os dois primeiros nunca tocavam a sessão da mesa — só `add_item` tocava —, e a conta divergia do consumo em silêncio |
 | Conta da mesa e conta de uma comanda dela podem coexistir | S25 | mesmo item nunca alocado por duas negociações | **dívida apurada em 05/09**: `uq_active_negotiation_scope` impede duas negociações ativas no mesmo `scope_key`, mas `table-session:<id>` e `orders:<id>` são chaves diferentes |
 | SmartPOS existe só como meio de pagamento, não como superfície de operação | S22 proposto em 04/09 | execução local distinta de `TEF_BRIDGE`, com adapter homologado e sem login humano na maquininha | **lacuna levantada em 04/09**: `PaymentDeviceExecutionModeEnum.SMARTPOS` trata a maquininha como destino de cobrança. Um SmartPOS de campo roda o ponto de venda inteiro, e isso não está modelado em lugar nenhum |
 | Owner tratado como domínio e não como camada | [ADR-029](../architecture/adr-029-module-boundaries-and-owner-layer.md) | nenhum serviço de tenant lê tabela do Owner; direitos consultados por contrato | **regra dura estabelecida em 04/09**, sem baseline e sem exceção prevista. Verificada por `test_no_tenant_module_reaches_into_the_owner_layer`, hoje verde |
@@ -2046,7 +2074,7 @@ e aparece como `não configurada`, nunca como pronta.
 | Mesa e comanda operam sem turno de caixa | a decidir | política explícita entre salão livre e turno obrigatório | **decisão pendente, levantada em 04/09**: `table_service` não referencia caixa em ponto algum, então consumo é lançado com o caixa fechado e fica sem turno a que pertencer. Recomendação registrada: manter o lançamento livre e exigir turno aberto para **pagar**, nunca para consumir |
 | `CapabilityConflict` é modelo sem uso | Capability Mesh | detecção e resolução de conflito entre capabilities contratadas | **dívida apurada em 04/09**: a tabela existe em `platform.py` e é reexportada, e **nenhum código a lê ou escreve**. O mesh declara dependências e as resolve topologicamente com detecção de ciclo, mas conflito é só estrutura vazia |
 | Coerência entre capability e atividade é condicional fixa | Capability Mesh + 5.4.4 | regra por atividade como dado, junto do contrato da capability | **dívida apurada em 04/09**: `capability_allowed_by_activity` trata **apenas** `table_service`, por `if` explícito. É o mesmo defeito de classe do vocabulário por nicho — funciona para o caso conhecido e não tem onde declarar o próximo |
-| Modularização iniciada e abandonada | transversal, [ADR-029](../architecture/adr-029-module-boundaries-and-owner-layer.md) | fronteira de módulo por domínio, Owner como camada, dono declarado por tabela | **sob contenção desde 04/09**: o mapa, a direção da dependência e a regra do Owner estão declarados e **defendidos por teste** (`test_module_boundaries.py`). A medição encontrou apenas **8 travessias**, das quais 5 são `Register` e `SalesChannel` morando no arquivo errado. Enquanto o baseline tiver linhas, o sistema não está modularizado — está contido, com a dívida contada |
+| Modularização iniciada e abandonada | transversal, [ADR-029](../architecture/adr-029-module-boundaries-and-owner-layer.md) | mapa declarado e travessias defendidas | **primeira linha devolvida em 05/09/2026**: `transfer -> negotiation` saiu da baseline pela porta `app/modules/settlement`, que inverte a dependência em vez de atravessá-la |
 | Segurança/confiabilidade deixadas para o fim | contínuo + S20 | gate por sprint e prova combinada | política corrigida |
 | Cliente capaz de escolher o autor de uma mutação | Gate A | ator derivado do principal ou service actor emitido pelo servidor | resolvido e testado; retirada dos campos legados fica para evolução de contrato |
 

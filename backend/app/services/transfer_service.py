@@ -5,14 +5,18 @@ from typing import Optional
 from fastapi import HTTPException
 from sqlmodel import Session, select
 from app.core.context import TenantContext, resolve_actor, scope_tenant_query
-from app.models.negotiation import PaymentAllocation
 from app.models.order import Order, OrderFulfillmentEnum, OrderItem, OrderItemStatusEnum, OrderOriginEnum, OrderStatusEnum, ProductionStateEnum
 from app.models.production import ProductionTicket, ProductionTicketItem, ProductionTicketStatusEnum
 from app.models.table_service import ServiceTable, ServiceTableStatusEnum, TableSession, TableSessionEvent, TableSessionKindEnum, TableSessionStatusEnum
 from app.models.transfer import TransferRecord, TransferTypeEnum
+from app.modules.settlement import contracts as settlement
 from app.services import reliability_service
 
 ACTIVE={TableSessionStatusEnum.OPEN,TableSessionStatusEnum.IN_SERVICE}
+
+def _money(value)->Decimal:
+    return Decimal(str(value)).quantize(Decimal("0.0001"))
+
 
 def _actor(context: TenantContext, actor_id: Optional[uuid.UUID])->uuid.UUID:
     return resolve_actor(context, actor_id)
@@ -54,7 +58,10 @@ def transfer_item(session:Session,context:TenantContext,*,source_session_id:uuid
     item=session.exec(select(OrderItem).join(Order,Order.id==OrderItem.order_id).where(OrderItem.id==order_item_id,OrderItem.tenant_id==context.tenant_id,Order.table_session_id==source.id).with_for_update()).first()
     if not item or item.status!=OrderItemStatusEnum.ACTIVE:raise HTTPException(404,"Item ativo não encontrado na origem.")
     if quantity<=0 or quantity>item.quantity:raise HTTPException(422,"Quantidade de transferência inválida.")
-    if session.exec(select(PaymentAllocation).where(PaymentAllocation.order_item_id==item.id)).first():raise HTTPException(409,"Item com cobertura financeira não pode mudar de obrigação.")
+    # Asked of finance through the settlement port, never read from its table:
+    # what stays behind must still be worth what was paid on it (ADR-029, S25).
+    held=settlement.hold_on_items(session,[item.id]).get(item.id,Decimal("0"))
+    if held>0 and _money(item.unit_price)*(_money(item.quantity)-_money(quantity))<held:raise HTTPException(409,detail={"code":"ITEM_BELOW_SETTLEMENT","message":"Item com cobertura financeira não pode mudar de obrigação abaixo do que já foi pago nele.","order_item_id":str(item.id),"covered":str(held)})
     source_order=session.get(Order,item.order_id)
     if source_order.sale_id:raise HTTPException(409,"Item já materializado em venda não pode ser transferido.")
     compensation=_production_state(session,item.id);destination_order=_destination_order(session,context,destination,actor)
@@ -92,11 +99,7 @@ def transfer_order(session:Session,context:TenantContext,*,source_session_id:uui
     order=session.exec(select(Order).where(Order.id==order_id,Order.tenant_id==context.tenant_id,Order.table_session_id==source.id).with_for_update()).first()
     if not order or order.status not in {OrderStatusEnum.OPEN,OrderStatusEnum.SUBMITTED}:raise HTTPException(404,"Comanda ativa não encontrada na origem.")
     if order.sale_id:raise HTTPException(409,"Comanda já materializada em venda não pode ser transferida.")
-    item_ids=list(session.exec(select(OrderItem.id).where(OrderItem.tenant_id==context.tenant_id,OrderItem.order_id==order.id,OrderItem.status==OrderItemStatusEnum.ACTIVE)).all())
-    allocation_filter=PaymentAllocation.order_id==order.id
-    if item_ids:allocation_filter=allocation_filter|PaymentAllocation.order_item_id.in_(item_ids)
-    covered=session.exec(select(PaymentAllocation).where(PaymentAllocation.tenant_id==context.tenant_id,allocation_filter)).first()
-    if covered:raise HTTPException(409,"Comanda com cobertura financeira não pode mudar de obrigação.")
+    if settlement.hold_on_orders(session,[order.id]).get(order.id,Decimal("0"))>0:raise HTTPException(409,"Comanda com cobertura financeira não pode mudar de obrigação.")
     now=datetime.utcnow();order.table_session_id=destination.id;order.table_id=destination.service_table_id;order.updated_at=now
     source.version+=1;destination.version+=1;source.updated_at=now;destination.updated_at=now
     record=TransferRecord(tenant_id=context.tenant_id,store_id=source.store_id,transfer_type=TransferTypeEnum.ORDER,
@@ -129,10 +132,7 @@ def transfer_order_to_table(session:Session,context:TenantContext,*,source_sessi
     order=session.exec(select(Order).where(Order.id==order_id,Order.tenant_id==context.tenant_id,Order.table_session_id==source.id).with_for_update()).first()
     if not order or order.status not in {OrderStatusEnum.OPEN,OrderStatusEnum.SUBMITTED}:raise HTTPException(404,"Comanda ativa não encontrada na origem.")
     if order.sale_id:raise HTTPException(409,"Comanda já materializada em venda não pode ser transferida.")
-    item_ids=list(session.exec(select(OrderItem.id).where(OrderItem.tenant_id==context.tenant_id,OrderItem.order_id==order.id,OrderItem.status==OrderItemStatusEnum.ACTIVE)).all())
-    allocation_filter=PaymentAllocation.order_id==order.id
-    if item_ids:allocation_filter=allocation_filter|PaymentAllocation.order_item_id.in_(item_ids)
-    if session.exec(select(PaymentAllocation).where(PaymentAllocation.tenant_id==context.tenant_id,allocation_filter)).first():raise HTTPException(409,"Comanda com cobertura financeira não pode mudar de obrigação.")
+    if settlement.hold_on_orders(session,[order.id]).get(order.id,Decimal("0"))>0:raise HTTPException(409,"Comanda com cobertura financeira não pode mudar de obrigação.")
     destination=TableSession(tenant_id=context.tenant_id,store_id=source.store_id,service_table_id=table.id,kind=TableSessionKindEnum.TABLE,status=TableSessionStatusEnum.OPEN,display_label=table.name,attendant_id=actor,opened_by=actor,open_idempotency_key=f"transfer:{idempotency_key}",open_request_hash=request_hash)
     session.add(destination);session.flush();now=datetime.utcnow();order.table_session_id=destination.id;order.table_id=table.id;order.updated_at=now;source.version+=1;source.updated_at=now;table.status=ServiceTableStatusEnum.OCCUPIED;table.version+=1;table.updated_at=now
     record=TransferRecord(tenant_id=context.tenant_id,store_id=source.store_id,transfer_type=TransferTypeEnum.ORDER,source_session_id=source.id,destination_session_id=destination.id,source_order_id=order.id,destination_order_id=order.id,source_version_before=expected_source_version,destination_version_before=1,actor_id=actor,reason=reason.strip(),idempotency_key=idempotency_key,request_hash=request_hash)
@@ -180,10 +180,7 @@ def merge_sessions(session:Session,context:TenantContext,*,source_session_id:uui
     if source.version!=expected_source_version or destination.version!=expected_destination_version:raise HTTPException(409,detail={"code":"TRANSFER_VERSION_CONFLICT","source_version":source.version,"destination_version":destination.version})
     orders=list(session.exec(select(Order).where(Order.tenant_id==context.tenant_id,Order.table_session_id==source.id)).all())
     order_ids=[order.id for order in orders]
-    item_ids=list(session.exec(select(OrderItem.id).where(OrderItem.tenant_id==context.tenant_id,OrderItem.order_id.in_(order_ids))).all()) if order_ids else []
-    allocation_filter=PaymentAllocation.order_id.in_(order_ids)
-    if item_ids:allocation_filter=allocation_filter|PaymentAllocation.order_item_id.in_(item_ids)
-    if order_ids and session.exec(select(PaymentAllocation).where(PaymentAllocation.tenant_id==context.tenant_id,allocation_filter)).first():raise HTTPException(409,"Sessão possui comandas ou itens cobertos por pagamento.")
+    if any(value>0 for value in settlement.hold_on_orders(session,order_ids).values()):raise HTTPException(409,"Sessão possui comandas ou itens cobertos por pagamento.")
     for order in orders:order.table_session_id=destination.id;order.table_id=destination.service_table_id;order.updated_at=datetime.utcnow()
     now=datetime.utcnow();source.status=TableSessionStatusEnum.CLOSED;source.closed_by=actor;source.close_reason=f"Unida à sessão {destination.id}: {reason.strip()}";source.closed_at=now;source.updated_at=now;source.version+=1;destination.version+=1;destination.updated_at=now
     if source.service_table_id:

@@ -26,6 +26,7 @@ from app.models.receivable import Receivable, ReceivableAllocation
 from app.models.table_service import (
     ServiceTable, ServiceTableStatusEnum, TableSession, TableSessionStatusEnum,
 )
+from app.modules.settlement import contracts as settlement_contracts
 from app.services import reliability_service
 
 
@@ -193,7 +194,68 @@ def item_settlement(
     return settlement
 
 
-def _validate_source(session: Session, negotiation: CheckoutNegotiation) -> list[Order]:
+def coverage_breaches(session: Session, negotiation: CheckoutNegotiation) -> list[dict]:
+    """Items whose value fell below the money already resting on them.
+
+    The boundary is economic and per item — ``item_total >= settled + reserved``
+    — and not "any item carrying an allocation is frozen". Cancelling a pizza
+    nobody paid for is ordinary work and lowers what the table owes; reducing a
+    whisky below what somebody already settled on it is a financial conflict and
+    is refused. A pizza of R$80 with R$20 settled still accepts any change that
+    leaves it at R$20 or more.
+    """
+    rows = session.exec(
+        select(PaymentAllocation.order_item_id, func.sum(PaymentAllocation.amount))
+        .join(PaymentIntent, PaymentIntent.id == PaymentAllocation.payment_intent_id)
+        .where(
+            PaymentAllocation.tenant_id == negotiation.tenant_id,
+            PaymentAllocation.negotiation_id == negotiation.id,
+            PaymentAllocation.order_item_id.is_not(None),
+            PaymentIntent.status.in_(list(SETTLED_INTENTS | RESERVED_INTENTS)),
+        )
+        .group_by(PaymentAllocation.order_item_id)
+    ).all()
+    breaches = []
+    for item_id, taken in rows:
+        held = _money(taken or 0)
+        item = session.get(OrderItem, item_id)
+        worth = (
+            _money(_money(item.unit_price) * _money(item.quantity))
+            if item is not None and item.status == OrderItemStatusEnum.ACTIVE
+            else Decimal("0")
+        )
+        if worth < held:
+            breaches.append({
+                "order_item_id": str(item_id),
+                "product_name": item.product_name if item is not None else None,
+                "item_total": str(worth), "covered": str(held),
+            })
+    return breaches
+
+
+def reconcile_source(session: Session, negotiation: CheckoutNegotiation) -> list[Order]:
+    """The bill follows the table instead of freezing away from it.
+
+    A negotiation used to be the snapshot of an account that was closing: any
+    change in consumption sent it to ``INVALIDATED`` and the operator had to
+    reopen. That is wrong for the room this product serves. Marcelo settles his
+    hamburger, someone orders another beer, and Astra must still be able to pay
+    her whisky — the bill is a living thing while people are at the table.
+
+    So consumption that *grows* is absorbed: the totals are recomputed, comandas
+    opened after the bill join it, and every confirmed parcel and item
+    allocation stays exactly where it was. Consumption that would fall below
+    money already settled or reserved is refused — on the item by
+    ``coverage_breaches``, and on the whole account by comparing against what is
+    covered. That is a refund, not a reconciliation.
+
+    A consequence worth naming: ``COVERED`` stops being terminal. Two beers
+    arriving after the bill was fully paid return it to ``PARTIALLY_COVERED``
+    with the new balance. The irreversible point is ``FINALIZED``.
+
+    Nothing here commits. The caller owns the transaction, because a commit in
+    the middle of ``confirm_intent`` would drop the row locks it depends on.
+    """
     orders = _orders_for_negotiation(session, negotiation, lock=True)
     table_session = None
     if negotiation.table_session_id:
@@ -204,18 +266,75 @@ def _validate_source(session: Session, negotiation: CheckoutNegotiation) -> list
         ).with_for_update()).first()
         if not table_session or table_session.status not in ACTIVE_SESSIONS:
             raise HTTPException(status_code=409, detail="A sessão vinculada não está mais disponível.")
+        # A bill scoped to the table takes in the comandas the table gained. A
+        # bill scoped to named Orders does not: whoever chose those Orders chose
+        # them, and a group that sat down later is not part of that choice.
+        if negotiation.scope_key.startswith("table-session:"):
+            known = {order.id for order in orders}
+            query = select(Order).where(
+                Order.tenant_id == negotiation.tenant_id,
+                Order.store_id == negotiation.store_id,
+                Order.table_session_id == table_session.id,
+                Order.status.in_([OrderStatusEnum.OPEN, OrderStatusEnum.SUBMITTED]),
+            )
+            if known:
+                query = query.where(Order.id.notin_(list(known)))
+            for order in session.exec(query.with_for_update()).all():
+                session.add(NegotiationOrder(
+                    tenant_id=negotiation.tenant_id, negotiation_id=negotiation.id,
+                    order_id=order.id, amount_snapshot=_order_amount(session, order),
+                ))
+                orders.append(order)
     current = _source_version(table_session, orders)
-    if current != negotiation.source_version:
-        if negotiation.status in ACTIVE_NEGOTIATIONS:
-            negotiation.status = CheckoutNegotiationStatusEnum.INVALIDATED
-            negotiation.version += 1
-            negotiation.updated_at = datetime.utcnow()
-            _event(session, negotiation, negotiation.opened_by, "checkout.negotiation.invalidated", {
-                "expected_source_version": negotiation.source_version,
-                "current_source_version": current,
-            })
-            session.commit()
-        raise HTTPException(status_code=409, detail="O consumo mudou. Reabra a conta para obter um novo snapshot autoritativo.")
+    if current == negotiation.source_version:
+        return orders
+    breaches = coverage_breaches(session, negotiation)
+    if breaches:
+        raise HTTPException(status_code=409, detail={
+            "code": "ITEM_BELOW_SETTLEMENT",
+            "message": "Um item ficou abaixo do valor já liquidado ou reservado nele.",
+            "items": breaches,
+        })
+    snapshots = {order.id: _order_amount(session, order) for order in orders}
+    subtotal = _money(sum(snapshots.values(), Decimal("0")))
+    total_due = _money(
+        subtotal - negotiation.discount_total + negotiation.surcharge_total + negotiation.tax_total
+    )
+    previous = _totals(session, negotiation)
+    covered = _money(previous["confirmed_amount"] + previous["receivable_amount"])
+    if total_due < covered:
+        raise HTTPException(status_code=409, detail={
+            "code": "SETTLEMENT_ABOVE_CONSUMPTION",
+            "message": "O consumo ficou abaixo do que já foi pago. Trate por estorno, não por reabertura.",
+            "total_due": str(total_due), "covered": str(covered),
+        })
+    for row in session.exec(select(NegotiationOrder).where(
+        NegotiationOrder.tenant_id == negotiation.tenant_id,
+        NegotiationOrder.negotiation_id == negotiation.id,
+    )).all():
+        if row.order_id in snapshots:
+            row.amount_snapshot = snapshots[row.order_id]
+    previous_subtotal, previous_status = negotiation.subtotal, negotiation.status
+    negotiation.subtotal = subtotal
+    negotiation.total_due = total_due
+    negotiation.source_version = current
+    negotiation.version += 1
+    negotiation.updated_at = datetime.utcnow()
+    session.flush()
+    totals = _totals(session, negotiation)
+    if negotiation.status in ACTIVE_NEGOTIATIONS:
+        if totals["remaining_amount"] == 0:
+            negotiation.status = CheckoutNegotiationStatusEnum.COVERED
+        elif totals["confirmed_amount"] > 0 or totals["receivable_amount"] > 0:
+            negotiation.status = CheckoutNegotiationStatusEnum.PARTIALLY_COVERED
+        else:
+            negotiation.status = CheckoutNegotiationStatusEnum.OPEN
+    _event(session, negotiation, negotiation.opened_by, "checkout.negotiation.reconciled", {
+        "previous_subtotal": str(previous_subtotal), "subtotal": str(subtotal),
+        "total_due": str(total_due), "remaining_amount": str(totals["remaining_amount"]),
+        "previous_status": previous_status.value, "status": negotiation.status.value,
+        "source_version": current,
+    })
     return orders
 
 
@@ -251,7 +370,13 @@ def projection(session: Session, context: TenantContext, negotiation_id: uuid.UU
     if not negotiation:
         raise HTTPException(status_code=404, detail="Negociação não encontrada neste contexto.")
     if validate and negotiation.status in ACTIVE_NEGOTIATIONS:
-        _validate_source(session, negotiation)
+        reconcile_source(session, negotiation)
+        # A read is where the table's movement usually surfaces: someone opens
+        # the bill and two beers have arrived since. Persisting it here is what
+        # makes the next payer see the new balance instead of a stale one.
+        if session.new or session.dirty:
+            session.commit()
+            session.refresh(negotiation)
     totals = _totals(session, negotiation)
     orders = list(session.exec(select(NegotiationOrder).where(
         NegotiationOrder.tenant_id == context.tenant_id,
@@ -397,7 +522,7 @@ def create_intent(
     negotiation = _locked_negotiation(session, context, negotiation_id)
     if negotiation.status not in ACTIVE_NEGOTIATIONS:
         raise HTTPException(status_code=409, detail="A negociação não aceita novas parcelas.")
-    _validate_source(session, negotiation)
+    reconcile_source(session, negotiation)
     totals = _totals(session, negotiation)
     available = _money(totals["remaining_amount"] - totals["processing_amount"])
     if normalized_amount <= 0 or normalized_amount > available:
@@ -502,7 +627,7 @@ def confirm_intent(
     negotiation = _locked_negotiation(session, context, intent.negotiation_id)
     if negotiation.status not in ACTIVE_NEGOTIATIONS:
         raise HTTPException(status_code=409, detail="Negociação indisponível para confirmação.")
-    _validate_source(session, negotiation)
+    reconcile_source(session, negotiation)
     if intent.method == PaymentMethodEnum.CASH:
         cash = session.exec(select(CashSession).where(
             CashSession.id == intent.cash_session_id,
@@ -609,7 +734,7 @@ def finalize_negotiation(
         raise HTTPException(status_code=409, detail="Versão da negociação desatualizada.")
     if negotiation.status != CheckoutNegotiationStatusEnum.COVERED:
         raise HTTPException(status_code=409, detail="A conta ainda não possui cobertura financeira integral.")
-    orders = _validate_source(session, negotiation)
+    orders = reconcile_source(session, negotiation)
     totals = _totals(session, negotiation)
     if totals["remaining_amount"] != 0:
         raise HTTPException(status_code=409, detail="Saldo restante impede a finalização.")
@@ -718,3 +843,44 @@ def finalize_negotiation(
     else:
         session.flush()
     return projection(session, context, negotiation.id, validate=False)
+
+
+def _hold_on_items(session: Session, order_item_ids) -> dict[uuid.UUID, Decimal]:
+    """Finance answering the operation side, through the settlement port.
+
+    Deliberately not scoped to one negotiation: what rests on an item rests on
+    it whoever is paying, and a cancellation must see all of it.
+    """
+    wanted = list(order_item_ids)
+    if not wanted:
+        return {}
+    rows = session.exec(
+        select(PaymentAllocation.order_item_id, func.sum(PaymentAllocation.amount))
+        .join(PaymentIntent, PaymentIntent.id == PaymentAllocation.payment_intent_id)
+        .where(
+            PaymentAllocation.order_item_id.in_(wanted),
+            PaymentIntent.status.in_(list(SETTLED_INTENTS | RESERVED_INTENTS)),
+        )
+        .group_by(PaymentAllocation.order_item_id)
+    ).all()
+    return {item_id: _money(total or 0) for item_id, total in rows}
+
+
+def _hold_on_orders(session: Session, order_ids) -> dict[uuid.UUID, Decimal]:
+    """The same answer one step up, for a comanda about to change hands."""
+    wanted = list(order_ids)
+    if not wanted:
+        return {}
+    rows = session.exec(
+        select(PaymentAllocation.order_id, func.sum(PaymentAllocation.amount))
+        .join(PaymentIntent, PaymentIntent.id == PaymentAllocation.payment_intent_id)
+        .where(
+            PaymentAllocation.order_id.in_(wanted),
+            PaymentIntent.status.in_(list(SETTLED_INTENTS | RESERVED_INTENTS)),
+        )
+        .group_by(PaymentAllocation.order_id)
+    ).all()
+    return {order_id: _money(total or 0) for order_id, total in rows}
+
+
+settlement_contracts.register(_hold_on_items, _hold_on_orders)

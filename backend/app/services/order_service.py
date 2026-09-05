@@ -25,6 +25,7 @@ from app.models.assortment import Assortment, SalesContextEnum
 from app.services.assortment_service import resolve_effective_product_ids
 from app.services import reliability_service, table_service
 from app.modules.capabilities.service import capability_allowed_by_activity
+from app.modules.settlement import contracts as settlement
 
 
 def _hash(payload: dict[str, Any]) -> str:
@@ -331,6 +332,25 @@ def add_item(
     return _commit_item_command(session, context, order.id, item, idempotency_key, "ADD_ITEM", payload)
 
 
+def _refuse_below_settlement(session: Session, item: OrderItem, new_total: Decimal) -> None:
+    """An item may change, as long as it stays worth what was paid on it.
+
+    The boundary is economic, not a freeze: a pizza nobody paid for can be
+    cancelled and the table owes less; a pizza of R$80 carrying R$20 accepts any
+    change that leaves it at R$20 or more; a whisky already settled cannot be
+    reduced below what settled on it. Finance is asked through the settlement
+    port — operation does not read the allocation table (ADR-029).
+    """
+    held = settlement.hold_on_items(session, [item.id]).get(item.id, Decimal("0"))
+    if held > 0 and new_total < held:
+        raise HTTPException(status_code=409, detail={
+            "code": "ITEM_BELOW_SETTLEMENT",
+            "message": "O item já possui pagamento liquidado ou reservado e não pode valer menos que ele.",
+            "order_item_id": str(item.id), "product_name": item.product_name,
+            "requested_total": str(new_total), "covered": str(held),
+        })
+
+
 def update_item(
     session: Session, context: TenantContext, order_id: uuid.UUID, item_id: uuid.UUID, *,
     quantity: Decimal, notes: Optional[str], idempotency_key: str, actor_id: Optional[uuid.UUID],
@@ -346,10 +366,12 @@ def update_item(
     if order.status != OrderStatusEnum.OPEN: raise HTTPException(status_code=409, detail="Pedido não está aberto.")
     item = session.exec(select(OrderItem).where(OrderItem.tenant_id == context.tenant_id, OrderItem.order_id == order_id, OrderItem.id == item_id)).first()
     if not item or item.status != OrderItemStatusEnum.ACTIVE: raise HTTPException(status_code=404, detail="Item ativo não encontrado.")
+    _refuse_below_settlement(session, item, Decimal(str(item.unit_price)) * Decimal(str(quantity)))
     actor = _actor(context, actor_id)
     item.quantity = quantity; item.notes = notes; item.production_version += 1; item.updated_at = datetime.utcnow()
     _record_command(session, context, order.id, idempotency_key, "UPDATE_ITEM", payload, item.id, actor)
     order.updated_at = item.updated_at
+    table_service.touch_session_activity(session, context, order, actor, item.id, "table_session.item_changed")
     _event(session, context, order, actor, "order.item.updated", {"order_item_id": str(item.id), "quantity": str(quantity)})
     return _commit_item_command(session, context, order.id, item, idempotency_key, "UPDATE_ITEM", payload)
 
@@ -368,6 +390,7 @@ def cancel_item(
     if order.status != OrderStatusEnum.OPEN: raise HTTPException(status_code=409, detail="Pedido não está aberto.")
     item = session.exec(select(OrderItem).where(OrderItem.tenant_id == context.tenant_id, OrderItem.order_id == order_id, OrderItem.id == item_id)).first()
     if not item: raise HTTPException(status_code=404, detail="Item não encontrado.")
+    _refuse_below_settlement(session, item, Decimal("0"))
     actor = _actor(context, actor_id)
     item.status = OrderItemStatusEnum.CANCELED
     item.production_state = ProductionStateEnum.CANCELED
@@ -375,5 +398,6 @@ def cancel_item(
     item.canceled_by = actor; item.cancellation_reason = reason.strip(); item.canceled_at = datetime.utcnow(); item.updated_at = item.canceled_at
     _record_command(session, context, order.id, idempotency_key, "CANCEL_ITEM", payload, item.id, actor)
     order.updated_at = item.updated_at
+    table_service.touch_session_activity(session, context, order, actor, item.id, "table_session.item_canceled")
     _event(session, context, order, actor, "order.item.canceled", {"order_item_id": str(item.id), "reason": reason})
     return _commit_item_command(session, context, order.id, item, idempotency_key, "CANCEL_ITEM", payload)
