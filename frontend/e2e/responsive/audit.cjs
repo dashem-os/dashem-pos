@@ -69,6 +69,41 @@ cases.push({ name: 'channels-publish-selection', screen: 'manage', module: 'chan
     assert.equal(await publish.isDisabled(), false);
     assert.match(await publish.textContent(), /\(1\)/);
 }] });
+// S25: the bill, while people are still at the table. Opening it, then each of
+// the three ways of choosing an amount.
+const openBill = [
+    page => page.getByRole('button', { name: /^Mesa 01/ }).click(),
+    click('Fechar conta completa'),
+];
+cases.push({ name: 'checkout-live-bill', screen: 'tables', steps: openBill });
+for (const mode of ['Tudo', 'Por pessoa', 'Por itens'])
+    cases.push({ name: `checkout-mode-${mode}`, screen: 'tables', steps: [...openBill, click(mode)] });
+// A line somebody already settled says who settled it, and cannot be picked
+// again; a line in flight says so too. Neither is arithmetic done here.
+cases.push({ name: 'checkout-settled-lines', screen: 'tables', steps: [...openBill, click('Por itens'), async page => {
+    await page.getByText(/^PAGO · Marcelo$/).waitFor();
+    await page.getByText(/^EM PAGAMENTO · Astra$/).waitFor();
+    const paid = page.getByRole('button', { name: /Hamb.rguer/ });
+    assert.equal(await paid.isDisabled(), true);
+    const pay = page.getByRole('button', { name: /^Pagar/ });
+    assert.equal(await pay.isDisabled(), true);
+    await page.getByRole('button', { name: /Coca-Cola/ }).click();
+    assert.equal(await pay.isDisabled(), false);
+    assert.match(await page.getByLabel('Valor da parcela').inputValue(), /^10/);
+    await page.getByRole('button', { name: /Pizza com nome extenso/ }).click();
+    assert.match(await page.getByLabel('Valor da parcela').inputValue(), /^70/);
+    // A price that breaks between the reais and the cents is not a price. The
+    // phone found this by eye; this keeps it found.
+    for (const price of await page.locator('button b').all())
+        assert.equal(await price.evaluate(el => getComputedStyle(el).whiteSpace), 'nowrap');
+}] });
+// Splitting between people proposes a share and still lets it be overwritten.
+cases.push({ name: 'checkout-people-share', screen: 'tables', steps: [...openBill, click('Por pessoa'), async page => {
+    await page.getByLabel('Quantidade de pessoas').fill('4');
+    assert.match(await page.getByLabel('Valor da parcela').inputValue(), /^27\.5/);
+    await page.getByLabel('Valor da parcela').fill('30');
+    assert.equal(await page.getByLabel('Valor da parcela').inputValue(), '30');
+}] });
 const out = path.resolve('../.tmp/responsive-audit');
 cases.push({ name: 'pos-search', screen: 'pos', steps: [async page => {
     await page.evaluate(() => {

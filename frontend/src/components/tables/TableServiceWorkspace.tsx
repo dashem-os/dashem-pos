@@ -188,9 +188,15 @@ function SessionPanel({ session, availableSessions, availableTables, headers, pr
   const [transferHistory, setTransferHistory] = useState<api.TransferRecord[]>([])
   const [checkoutOrderId, setCheckoutOrderId] = useState('')
   const [settledOrderId, setSettledOrderId] = useState('')
+  // Three ways of building the same PaymentAllocation, never three systems.
+  const [payMode, setPayMode] = useState<PayMode>('ALL')
+  const [payerLabel, setPayerLabel] = useState('')
+  const [peopleCount, setPeopleCount] = useState('2')
+  const [pickedItems, setPickedItems] = useState<string[]>([])
   useEffect(() => {
     setOrderId(session?.orders.find((order) => order.status === 'OPEN')?.id || '')
     setNegotiation(null); setPaymentAmount(''); setCheckoutOrderId(''); setSettledOrderId('')
+    setPayMode('ALL'); setPayerLabel(''); setPeopleCount('2'); setPickedItems([])
     setTransfer({ itemId: '', orderId: '', destinationId: '', quantity: '1', reason: '' })
   }, [session?.id, session?.orders.length])
   useEffect(() => {
@@ -293,11 +299,22 @@ function SessionPanel({ session, availableSessions, availableTables, headers, pr
     try {
       const isTef = paymentMethod === 'TEF_CREDIT' || paymentMethod === 'TEF_DEBIT'
       const canonicalMethod: api.NegotiationPaymentMethod = paymentMethod === 'TEF_CREDIT' ? 'CREDIT_CARD' : paymentMethod === 'TEF_DEBIT' ? 'DEBIT_CARD' : paymentMethod
+      // Paying by item names the lines; paying it all, or a share of it, names
+      // nothing and lets the server take it from the account's balance.
+      const byItem = payMode === 'ITEMS'
+        ? pickedItems
+          .map((id) => negotiation.item_settlements.find((row) => row.order_item_id === id))
+          .filter((row): row is api.ItemSettlement => Boolean(row))
+          .map((row) => ({ amount: Number(row.available_amount), order_item_id: row.order_item_id }))
+        : null
       const created = await api.createNegotiationPaymentIntent(headers, negotiation.id, crypto.randomUUID(), {
         method: canonicalMethod, amount: Number(paymentAmount),
         cash_session_id: paymentMethod === 'CASH' ? cashSession?.id : undefined,
         tendered_amount: paymentMethod === 'CASH' ? Number(paymentAmount) : undefined,
-        allocations: settledOrderId ? [{ amount: Number(paymentAmount), order_id: settledOrderId }] : undefined,
+        allocations: byItem && byItem.length > 0
+          ? byItem
+          : settledOrderId ? [{ amount: Number(paymentAmount), order_id: settledOrderId }] : undefined,
+        payer_label: payerLabel.trim() || undefined,
         actor_id: operatorId,
       })
       const pending = [...created.intents].reverse().find((item) => item.status === 'PENDING')
@@ -313,7 +330,8 @@ function SessionPanel({ session, availableSessions, availableTables, headers, pr
         return
       }
       const confirmed = await api.confirmNegotiationPaymentIntent(headers, pending.id, crypto.randomUUID(), operatorId)
-      setNegotiation(confirmed); setPaymentAmount(String(Number(confirmed.remaining_amount).toFixed(2)))
+      setNegotiation(confirmed); setPickedItems([]); setPayerLabel('')
+      setPaymentAmount(String(Number(confirmed.remaining_amount).toFixed(2)))
       showToast('success', `Parcela confirmada. Falta ${formatCurrency(Number(confirmed.remaining_amount))}.`)
     } catch (error) { showToast('error', error instanceof Error ? error.message : 'Não foi possível confirmar a parcela.') }
     finally { setBusy(false) }
@@ -348,7 +366,7 @@ function SessionPanel({ session, availableSessions, availableTables, headers, pr
     {permissions.includes('transfer.read')&&transferHistory.length>0&&<details className="mt-3 rounded-2xl border border-slate-200 p-3"><summary className="cursor-pointer text-xs font-black text-slate-700">Histórico de movimentações ({transferHistory.length})</summary><div className="mt-3 space-y-2">{transferHistory.slice(0,10).map((record)=><div key={record.id} className="rounded-xl bg-slate-50 p-3 text-xs"><div className="flex items-center justify-between gap-2"><b>{record.transfer_type==='ITEM'?'Item transferido':record.transfer_type==='ORDER'?'Comanda transferida':record.transfer_type==='SESSION_MOVE'?'Atendimento mudou de mesa':'Atendimentos unidos'}</b><span>{formatApiDateTime(record.created_at)}</span></div><p className="mt-1 text-slate-600">{record.reason}</p><p className="mt-1 text-slate-500">Ator {record.actor_id===operatorId?'atual':record.actor_id.slice(0,8)}</p></div>)}</div></details>}
     {session.active_item_count === 0 && permissions.includes('table.session.close') && <button disabled={busy} onClick={() => void close()} className="mt-4 h-10 w-full rounded-xl border border-slate-300 text-xs font-black text-slate-600">Encerrar sessão vazia</button>}
     {session.active_item_count > 0 && permissions.includes('checkout.open') && !negotiation && <section className="mt-4 space-y-2"><label className="block text-xs font-black text-slate-700">Quem vai pagar<select value={checkoutOrderId} onChange={(event)=>setCheckoutOrderId(event.target.value)} className="mt-2 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm"><option value="">Conta completa da mesa</option>{activeOrders.map((order,index)=><option key={order.id} value={order.id}>{order.notes||`Comanda ${index+1}`} · {formatCurrency(order.items.filter(item=>item.status==='ACTIVE').reduce((total,item)=>total+Number(item.unit_price)*Number(item.quantity),0))}</option>)}</select></label><button disabled={busy} onClick={() => void openCheckout()} className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 text-sm font-black text-white"><WalletCards className="h-4 w-4" />{checkoutOrderId?'Pagar esta comanda':'Fechar conta completa'}</button></section>}
-    {negotiation && <section className="mt-4 space-y-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-3"><div className="flex items-center justify-between"><div><p className="text-[10px] font-black uppercase tracking-wider text-emerald-700">{settledOrderId?'Pagamento individual ou por grupo':'Negociação persistida da mesa'}</p><p className="text-sm font-black">{negotiation.status === 'COVERED' ? 'Conta integralmente coberta' : 'Pagamento parcial em andamento'}</p></div><CreditCard className="h-5 w-5 text-emerald-700" /></div><div className="grid grid-cols-1 min-[400px]:grid-cols-3 gap-2 rounded-xl bg-white p-3 text-center"><Metric label="Total" value={formatCurrency(Number(negotiation.total_due))} /><Metric label="Confirmado" value={formatCurrency(Number(negotiation.confirmed_amount))} /><Metric label="Falta" value={formatCurrency(Number(negotiation.remaining_amount))} /></div>{negotiation.intents.length > 0 && <div className="space-y-1">{negotiation.intents.map((intent) => <div key={intent.id} className="flex items-center justify-between rounded-lg bg-white px-3 py-2 text-xs"><span>{intent.method} · {intent.status}</span><b>{formatCurrency(Number(intent.amount))}</b></div>)}</div>}{permissions.includes('provider.read') && <p className={`rounded-lg px-3 py-2 text-xs font-bold ${tefTerminal?.status === 'ONLINE' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-900'}`}>{tefTerminal?.status === 'ONLINE' ? `TEF online · ${tefTerminal.terminal_code} · bridge ${tefTerminal.bridge_version || 'versão não informada'}` : 'TEF não configurado ou offline; meios locais permanecem disponíveis.'}</p>}{negotiation.status !== 'COVERED' && permissions.includes('checkout.payment') && <div className="grid grid-cols-[1fr_110px] gap-2"><select aria-label="Meio de pagamento" value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as api.NegotiationPaymentMethod | 'TEF_CREDIT' | 'TEF_DEBIT')} className="h-11 rounded-xl border border-emerald-200 bg-white px-3 text-xs font-bold"><option value="CASH">Dinheiro</option><option value="PIX">PIX manual</option><option value="CREDIT_CARD">Crédito manual</option><option value="DEBIT_CARD">Débito manual</option>{tefTerminal?.status === 'ONLINE' && permissions.includes('provider.execute') && <><option value="TEF_CREDIT">Crédito via TEF</option><option value="TEF_DEBIT">Débito via TEF</option></>}</select><input aria-label="Valor da parcela" type="number" min="0.01" step="0.01" value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} className="h-11 rounded-xl border border-emerald-200 px-3 text-sm font-black" /><button disabled={busy || Number(paymentAmount) <= 0} onClick={() => void addAndConfirmPayment()} className="col-span-2 h-11 rounded-xl bg-emerald-700 text-xs font-black text-white disabled:opacity-40">Registrar parcela no meio selecionado</button></div>}{negotiation.status === 'COVERED' && permissions.includes('checkout.finalize') && <button disabled={busy} onClick={() => void finalize()} className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-emerald-700 text-sm font-black text-white"><CheckCircle2 className="h-4 w-4" />{settledOrderId?'Finalizar esta comanda':'Finalizar venda e liberar mesa'}</button>}</section>}
+    {negotiation && <CheckoutSettlement negotiation={negotiation} scopedOrder={settledOrderId} busy={busy} permissions={permissions} tefTerminal={tefTerminal} method={paymentMethod} onMethod={setPaymentMethod} amount={paymentAmount} onAmount={setPaymentAmount} payer={payerLabel} onPayer={setPayerLabel} mode={payMode} onMode={setPayMode} people={peopleCount} onPeople={setPeopleCount} picked={pickedItems} onPicked={setPickedItems} onPay={() => void addAndConfirmPayment()} onFinalize={() => void finalize()} />}
   </aside>
 }
 
@@ -363,3 +381,153 @@ function OpenTabDialog({ storeId, actorId, headers, onClose, onOpened, showToast
 
 function Dialog({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) { return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4"><section className="responsive-dialog w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl"><header className="mb-5 flex items-center justify-between"><h2 className="text-xl font-black">{title}</h2><button onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200"><X className="h-4 w-4" /></button></header>{children}</section></div> }
 function Input({ label, value, onChange, placeholder, type = 'text' }: { label: string; value: string; onChange: (value: string) => void; placeholder?: string; type?: string }) { return <label className="block text-xs font-black text-slate-700">{label}<input required type={type} min={type === 'number' ? 1 : undefined} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} className="mt-1.5 h-11 w-full rounded-xl border border-slate-300 px-3 text-sm font-medium outline-none focus:border-rose-500" /></label> }
+
+type PayMode = 'ALL' | 'PEOPLE' | 'ITEMS'
+const payModes: Array<[PayMode, string]> = [['ALL', 'Tudo'], ['PEOPLE', 'Por pessoa'], ['ITEMS', 'Por itens']]
+// Internal codes are not business language: the correction track made that a
+// rule, and a parcel is read by whoever is at the counter.
+const intentStatusLabel: Record<api.PaymentIntentStatus, string> = {
+  PENDING: 'aguardando', PROCESSING: 'processando', CONFIRMED: 'confirmado',
+  FAILED: 'falhou', CANCELED: 'cancelado',
+}
+const methodLabel: Record<api.NegotiationPaymentMethod, string> = {
+  CASH: 'Dinheiro', PIX: 'PIX', CREDIT_CARD: 'Crédito', DEBIT_CARD: 'Débito',
+  STORE_CREDIT: 'Crediário',
+}
+
+/**
+ * The bill, while people are still at the table.
+ *
+ * Paying everything, splitting between four friends and paying for your own
+ * hamburger are not three features. They are three ways of building the same
+ * PaymentAllocation over one settlement engine, so this panel is one panel with
+ * three ways of choosing an amount.
+ *
+ * Availability is the server's word, never arithmetic here: a line somebody else
+ * is paying for right now reads as taken long before their card comes back, and
+ * a line already settled says who settled it.
+ */
+function CheckoutSettlement({
+  negotiation, scopedOrder, busy, permissions, tefTerminal, method, onMethod, amount, onAmount,
+  payer, onPayer, mode, onMode, people, onPeople, picked, onPicked, onPay, onFinalize,
+}: {
+  negotiation: api.CheckoutNegotiation; scopedOrder: string; busy: boolean; permissions: string[]
+  tefTerminal: api.TefBridgeTerminal | null
+  method: api.NegotiationPaymentMethod | 'TEF_CREDIT' | 'TEF_DEBIT'
+  onMethod: (value: api.NegotiationPaymentMethod | 'TEF_CREDIT' | 'TEF_DEBIT') => void
+  amount: string; onAmount: (value: string) => void
+  payer: string; onPayer: (value: string) => void
+  mode: PayMode; onMode: (value: PayMode) => void
+  people: string; onPeople: (value: string) => void
+  picked: string[]; onPicked: (value: string[]) => void
+  onPay: () => void; onFinalize: () => void
+}) {
+  const remaining = Number(negotiation.remaining_amount)
+  const lines = negotiation.item_settlements ?? []
+  const openLines = lines.filter((row) => Number(row.available_amount) > 0)
+  const pickedTotal = lines
+    .filter((row) => picked.includes(row.order_item_id))
+    .reduce((total, row) => total + Number(row.available_amount), 0)
+  const share = Math.max(0, Number(people) || 0) > 0 ? remaining / Number(people) : 0
+
+  // Choosing a way to pay proposes an amount; the operator may still overwrite it.
+  const choose = (next: PayMode) => {
+    onMode(next); onPicked([])
+    if (next === 'ALL') onAmount(remaining.toFixed(2))
+    if (next === 'PEOPLE') onAmount((remaining / Math.max(1, Number(people) || 1)).toFixed(2))
+    if (next === 'ITEMS') onAmount('0.00')
+  }
+  const toggle = (row: api.ItemSettlement) => {
+    const next = picked.includes(row.order_item_id)
+      ? picked.filter((id) => id !== row.order_item_id)
+      : [...picked, row.order_item_id]
+    onPicked(next)
+    onAmount(lines.filter((item) => next.includes(item.order_item_id))
+      .reduce((total, item) => total + Number(item.available_amount), 0).toFixed(2))
+  }
+  return <section className="mt-4 space-y-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-3">
+    <div className="flex items-center justify-between">
+      <div>
+        <p className="text-[10px] font-black uppercase tracking-wider text-emerald-700">{scopedOrder ? 'Pagamento individual ou por grupo' : 'Conta viva da mesa'}</p>
+        <p className="text-sm font-black">{negotiation.status === 'COVERED' ? 'Conta integralmente coberta' : 'Pagamento parcial em andamento'}</p>
+      </div>
+      <CreditCard className="h-5 w-5 text-emerald-700" />
+    </div>
+    <div className="grid grid-cols-1 min-[400px]:grid-cols-3 gap-2 rounded-xl bg-white p-3 text-center">
+      <Metric label="Total" value={formatCurrency(Number(negotiation.total_due))} />
+      <Metric label="Confirmado" value={formatCurrency(Number(negotiation.confirmed_amount))} />
+      <Metric label="Falta" value={formatCurrency(remaining)} />
+    </div>
+
+    {lines.length > 0 && <div className="space-y-1 rounded-xl bg-white p-2">
+      <p className="px-1 text-[10px] font-black uppercase tracking-wider text-slate-400">Consumo e quitação</p>
+      {lines.map((row) => {
+        const taken = Number(row.available_amount) === 0
+        const chosen = picked.includes(row.order_item_id)
+        const selectable = mode === 'ITEMS' && !taken && negotiation.status !== 'COVERED' && permissions.includes('checkout.payment')
+        return <button
+          key={row.order_item_id} type="button" disabled={!selectable}
+          onClick={() => selectable && toggle(row)}
+          aria-pressed={chosen}
+          className={`flex w-full items-start justify-between gap-3 rounded-lg px-2 py-2 text-left text-xs ${selectable ? 'hover:bg-emerald-50' : ''} ${chosen ? 'bg-emerald-100' : ''} ${taken ? 'opacity-60' : ''}`}
+        >
+          <span className="flex min-w-0 items-start gap-2">
+            {mode === 'ITEMS' && <span aria-hidden="true" className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] font-black ${chosen ? 'border-emerald-700 bg-emerald-700 text-white' : taken ? 'border-slate-200 bg-slate-100 text-slate-300' : 'border-emerald-300 bg-white text-transparent'}`}>✓</span>}
+            <span className="min-w-0">
+            <span className="block font-bold text-slate-800">{Number(row.quantity)}× {row.product_name}</span>
+            {row.is_paid && <span className="block text-[11px] font-black text-emerald-700">PAGO{row.settled_by.length > 0 ? ` · ${row.settled_by.join(', ')}` : ''}</span>}
+            {!row.is_paid && Number(row.reserved_amount) > 0 && <span className="block text-[11px] font-black text-amber-700">EM PAGAMENTO{row.reserved_by.length > 0 ? ` · ${row.reserved_by.join(', ')}` : ''}</span>}
+            {!row.is_paid && Number(row.settled_amount) > 0 && Number(row.available_amount) > 0 && <span className="block text-[11px] text-slate-500">Parcial: {formatCurrency(Number(row.settled_amount))} de {formatCurrency(Number(row.item_total))}</span>}
+            </span>
+          </span>
+          <b className={`whitespace-nowrap ${taken ? 'text-slate-400 line-through' : ''}`}>{formatCurrency(Number(row.available_amount) || Number(row.item_total))}</b>
+        </button>
+      })}
+    </div>}
+
+    {negotiation.intents.length > 0 && <div className="space-y-1">{negotiation.intents.map((intent) => <div key={intent.id} className="flex items-center justify-between rounded-lg bg-white px-3 py-2 text-xs"><span>{methodLabel[intent.method] ?? intent.method} · {intentStatusLabel[intent.status] ?? intent.status}{intent.payer_label ? ` · ${intent.payer_label}` : ''}</span><b>{formatCurrency(Number(intent.amount))}</b></div>)}</div>}
+    {permissions.includes('provider.read') && <p className={`rounded-lg px-3 py-2 text-xs font-bold ${tefTerminal?.status === 'ONLINE' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-900'}`}>{tefTerminal?.status === 'ONLINE' ? `TEF online · ${tefTerminal.terminal_code} · bridge ${tefTerminal.bridge_version || 'versão não informada'}` : 'TEF não configurado ou offline; meios locais permanecem disponíveis.'}</p>}
+
+    {negotiation.status !== 'COVERED' && permissions.includes('checkout.payment') && <div className="space-y-2">
+      <div className="grid grid-cols-3 gap-1 rounded-xl bg-white p-1">
+        {payModes.map(([value, label]) => <button
+          key={value} type="button"
+          disabled={value === 'ITEMS' && openLines.length === 0}
+          onClick={() => choose(value)}
+          className={`h-9 rounded-lg text-xs font-black disabled:opacity-30 ${mode === value ? 'bg-emerald-700 text-white' : 'text-emerald-900'}`}
+        >{label}</button>)}
+      </div>
+      {mode === 'PEOPLE' && <div className="grid grid-cols-[92px_1fr] items-end gap-2">
+        <label className="block text-[10px] font-black uppercase text-slate-500">Pessoas
+          <input aria-label="Quantidade de pessoas" type="number" min="1" step="1" value={people}
+            onChange={(event) => { onPeople(event.target.value); onAmount((remaining / Math.max(1, Number(event.target.value) || 1)).toFixed(2)) }}
+            className="mt-1 h-11 w-full rounded-xl border border-emerald-200 px-3 text-sm font-black" />
+        </label>
+        <p className="pb-3 text-xs text-slate-600">{formatCurrency(share)} por pessoa. O valor abaixo continua editável para quem paga a mais.</p>
+      </div>}
+      {mode === 'ITEMS' && <p className="rounded-lg bg-white px-3 py-2 text-xs text-slate-600">{picked.length === 0 ? 'Toque nos itens que esta pessoa vai pagar.' : `${picked.length} item(ns) · ${formatCurrency(pickedTotal)}`}</p>}
+      <input aria-label="Quem está pagando" value={payer} onChange={(event) => onPayer(event.target.value)} placeholder="Quem está pagando (opcional)" className="h-11 w-full rounded-xl border border-emerald-200 px-3 text-sm" />
+      <div className="grid grid-cols-[1fr_110px] gap-2">
+        <select aria-label="Meio de pagamento" value={method} onChange={(event) => onMethod(event.target.value as api.NegotiationPaymentMethod | 'TEF_CREDIT' | 'TEF_DEBIT')} className="h-11 rounded-xl border border-emerald-200 bg-white px-3 text-xs font-bold">
+          <option value="CASH">Dinheiro</option>
+          <option value="PIX">PIX manual</option>
+          <option value="CREDIT_CARD">Crédito manual</option>
+          <option value="DEBIT_CARD">Débito manual</option>
+          {tefTerminal?.status === 'ONLINE' && permissions.includes('provider.execute') && <>
+            <option value="TEF_CREDIT">Crédito via TEF</option>
+            <option value="TEF_DEBIT">Débito via TEF</option>
+          </>}
+        </select>
+        <input aria-label="Valor da parcela" type="number" min="0.01" step="0.01" value={amount} onChange={(event) => onAmount(event.target.value)} className="h-11 rounded-xl border border-emerald-200 px-3 text-sm font-black" />
+        <button disabled={busy || Number(amount) <= 0 || (mode === 'ITEMS' && picked.length === 0)} onClick={onPay} className="col-span-2 h-11 rounded-xl bg-emerald-700 text-xs font-black text-white disabled:opacity-40">
+          {mode === 'ITEMS' ? `Pagar ${picked.length} item(ns)` : 'Registrar parcela no meio selecionado'}
+        </button>
+      </div>
+      <p className="text-[11px] leading-5 text-slate-500">A mesa continua aberta enquanto houver saldo. Quem já pagou não some do consumo: o item fica marcado com o nome de quem quitou.</p>
+    </div>}
+
+    {negotiation.status === 'COVERED' && permissions.includes('checkout.finalize') && <button disabled={busy} onClick={onFinalize} className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-emerald-700 text-sm font-black text-white">
+      <CheckCircle2 className="h-4 w-4" />{scopedOrder ? 'Finalizar esta comanda' : 'Finalizar venda e liberar mesa'}
+    </button>}
+  </section>
+}

@@ -82,6 +82,39 @@ fixtures.fetchChannelCatalogState = {
     mappings: [{ ...interfaceSample('ChannelCatalogMapping'), id: 'mapping-1', merchant_connection_id: merchantConnection.id, entity_type: 'PRODUCT', internal_id: product.id, internal_name: product.name, external_id: 'EXT-000000000000000001', provider_code: merchantConnection.provider_code, merchant_external_id: merchantConnection.merchant_external_id, connection_status: 'CONNECTED' }],
 };
 fixtures.fetchMarketplaceSettlements = [{ ...interfaceSample('MarketplaceSettlement'), id: 'settlement-1', merchant_connection_id: merchantConnection.id, provider_document_ref: 'DOC-2026-000001', external_order_id: 'PEDIDO-EXTERNO-0001', order_id: null, status: 'PARTIAL', gross_amount: 1234.56, commission_amount: 234.56, fee_amount: 10, promotion_amount: 0, adjustment_amount: -5, expected_net_amount: 985, paid_amount: 400, provider_code: merchantConnection.provider_code, merchant_external_id: merchantConnection.merchant_external_id, connection_status: 'CONNECTED', payments: [{ ...interfaceSample('MarketplaceSettlementPayment'), id: 'payment-1', settlement_id: 'settlement-1', provider_payment_ref: 'PAY-0001', amount: 400 }] }];
+// S25: a live bill with four lines — one settled by Marcelo, one in flight with
+// Astra, two still anybody's — so the three payment modes have something real
+// to render at every viewport.
+const orderItem = (id, name, quantity, price) => ({ ...interfaceSample('OrderItem'), id, order_id: 'order-1', product_id: `product-${id}`, product_name: name, quantity, unit_price: price, status: 'ACTIVE', production_state: 'PENDING', modifier_snapshot: [] });
+const tableOrder = { ...interfaceSample('Order'), id: 'order-1', status: 'OPEN', notes: 'Comanda 1', items: [
+    orderItem('item-1', 'Hambúrguer Artesanal Bacon', 1, 35), orderItem('item-2', 'Coca-Cola', 1, 10),
+    orderItem('item-3', 'Whisky', 1, 40), orderItem('item-4', 'Pizza com nome extenso para leitura', 1, 60),
+] };
+const liveSession = { ...interfaceSample('TableSession'), id: 'session-1', service_table_id: 'table-1', kind: 'TABLE', status: 'PARTIALLY_PAID', display_label: 'Mesa 01', orders: [tableOrder], events: [], order_count: 1, active_item_count: 4, consolidated_total: 145 };
+fixtures.getTableSession = liveSession;
+fixtures.openTableSession = liveSession;
+fixtures.fetchActiveTableSessions = [{ ...interfaceSample('TableSessionSummary'), id: 'session-1', status: 'PARTIALLY_PAID', display_label: 'Mesa 01', kind: 'TABLE', version: 3 }];
+fixtures.fetchServiceTables = [{ ...interfaceSample('ServiceTableProjection'), id: 'table-1', name: 'Mesa 01', status: 'IN_SERVICE', active_session_id: 'session-1', active_session_status: 'PARTIALLY_PAID', active_session_label: 'Mesa 01', active_reservation: null, order_count: 1, item_count: 4, consolidated_total: 145 }];
+const settlementLine = (id, name, price, settled, reserved, settledBy, reservedBy) => ({
+    order_item_id: id, order_id: 'order-1', product_name: name, quantity: 1, unit_price: price,
+    item_total: price, settled_amount: settled, reserved_amount: reserved,
+    available_amount: price - settled - reserved, is_paid: settled >= price,
+    settled_by: settledBy, reserved_by: reservedBy,
+});
+fixtures.openCheckoutNegotiation = {
+    ...interfaceSample('CheckoutNegotiation'), id: 'negotiation-1', status: 'PARTIALLY_COVERED',
+    table_session_id: 'session-1', subtotal: 145, total_due: 145, confirmed_amount: 35,
+    processing_amount: 40, failed_amount: 0, remaining_amount: 110, discount_total: 0,
+    surcharge_total: 0, tax_total: 0, orders: [{ id: 'no-1', order_id: 'order-1', amount_snapshot: 145 }],
+    intents: [{ ...interfaceSample('NegotiationPaymentIntent'), id: 'intent-1', method: 'PIX', status: 'CONFIRMED', amount: 35, payer_label: 'Marcelo' }],
+    allocations: [], unassigned_settled_amount: 0, unassigned_reserved_amount: 0,
+    item_settlements: [
+        settlementLine('item-1', 'Hambúrguer Artesanal Bacon', 35, 35, 0, ['Marcelo'], []),
+        settlementLine('item-2', 'Coca-Cola', 10, 0, 0, [], []),
+        settlementLine('item-3', 'Whisky', 40, 0, 40, [], ['Astra']),
+        settlementLine('item-4', 'Pizza com nome extenso para leitura', 60, 0, 0, [], []),
+    ],
+};
 const permissions = [...new Set(fs.readdirSync(path.join(root, 'src'), { recursive: true }).filter(p => /\.(tsx|ts)$/.test(p)).flatMap(p => [...fs.readFileSync(path.join(root, 'src', p), 'utf8').matchAll(/includes\('([a-z]+\.[a-z.]+)'\)/g)].map(m => m[1])))];
 fixtures.fetchEffectiveAccess = { ...fixtures.fetchEffectiveAccess, permissions, capabilities: { kitchen_routing: {}, table_service: {}, receivables: {} } };
 const fixtureData = { fixtures, product, tenant, permissions };

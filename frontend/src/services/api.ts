@@ -3423,7 +3423,7 @@ export async function getCheckoutNegotiation(headers: Record<string, string>, ne
 
 export async function createNegotiationPaymentIntent(
   headers: Record<string, string>, negotiationId: string, idempotencyKey: string,
-  data: { method: NegotiationPaymentMethod; amount: number; cash_session_id?: string; tendered_amount?: number; allocations?: Array<{ amount: number; order_id?: string; order_item_id?: string }>; actor_id?: string },
+  data: { method: NegotiationPaymentMethod; amount: number; cash_session_id?: string; tendered_amount?: number; allocations?: Array<{ amount: number; order_id?: string; order_item_id?: string }>; payer_label?: string; payer_customer_id?: string; actor_id?: string },
 ): Promise<CheckoutNegotiation> {
   const res = await fetch(`${API_BASE_URL}/api/v1/negotiations/${negotiationId}/intents`, {
     method: 'POST', headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(data),

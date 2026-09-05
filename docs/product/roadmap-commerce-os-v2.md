@@ -1790,7 +1790,26 @@ mecanismo de expiração. Enquanto não houver, uma parcela criada e nunca
 confirmada segura o saldo do item indefinidamente. Não é bloqueio para a
 interface, mas é dívida real e precisa de decisão antes do piloto.
 
-**O que falta do S25 é a interface**, e só ela: os três modos — pagar tudo,
+**Interface entregue em 05/09/2026**, fechando a sprint. `CheckoutSettlement`
+substituiu o painel de fechamento da comanda: a conta viva mostra Total,
+Confirmado e Falta, lista o consumo com o estado financeiro de cada linha —
+`PAGO · Marcelo` em verde, `EM PAGAMENTO · Astra` em âmbar, parcial quando é
+parcial — e oferece os três modos. Item já tomado não é selecionável, e o valor
+disponível vem do servidor, nunca de conta feita no navegador. Um campo livre
+diz quem está pagando; ninguém precisa ser cadastrado. Códigos técnicos foram
+traduzidos na apresentação, como o Sprint 5.2 exige: a parcela lê "PIX ·
+confirmado · Marcelo", não "PIX · CONFIRMED".
+
+Um defeito só apareceu ao abrir a tela em 390 px, e não por teste: o valor
+quebrava entre os reais e os centavos — `R$ 35,0` numa linha e `0` na outra. Um
+preço partido não é um preço. Corrigido, e o audit responsivo passou a verificar
+`white-space` nos valores para manter o achado achado.
+
+Cobertura: seis casos novos no audit responsivo, em sete tamanhos — abrir a
+conta, cada um dos três modos, as linhas já quitadas e em pagamento, e o rateio
+por pessoa que propõe a divisão e continua editável.
+
+O que a interface faz com o motor: os três modos — pagar tudo,
 dividir por pessoa, pagar por itens — que são três formas de construir
 `PaymentAllocation` sobre o mesmo motor, não três funcionalidades. Nada do S25
 está em tela alguma até aqui, por desenho e por ordem do dono.
