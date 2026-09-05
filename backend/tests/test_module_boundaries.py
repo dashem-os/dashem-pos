@@ -71,6 +71,7 @@ MODULE_OF_SERVICE = {
     "catalog": "catalog",
     "assortment": "catalog",
     "inventory": "catalog",
+    "catalog_storage": "catalog",
     "starter_catalog": "catalog",
     "media": "catalog",
     "order": "operation",

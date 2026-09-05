@@ -29,6 +29,28 @@ cases.push({ name: 'tables-tab', screen: 'tables', steps: [click('Comanda indivi
 for (const tab of ['Plano e cobrança', 'Modelos de negócio', 'Capabilities', 'Limites'])
     cases.push({ name: `contract-editor-${tab}`, screen: 'owner', steps: [tenant, click('Contrato'), click('Editar contrato'), click(tab)] });
 const sizes = [[320, 568], [390, 844], [768, 1024], [1024, 768], [1366, 768], [1920, 1080], [844, 390]];
+cases.push({ name: 'dialog-products-Editar', screen: 'manage', module: 'products', steps: [click('Editar')], modal: true });
+cases.push({ name: 'dialog-products-Excluir', screen: 'manage', module: 'products', steps: [page => page.getByRole('button', { name: /^Excluir / }).click()], modal: true });
+cases.push({ name: 'dialog-products-BRL', screen: 'manage', module: 'products', steps: [
+    page => page.getByRole('button', { name: /1 Cadastre o produto/ }).click(),
+    async page => {
+        const input = page.getByPlaceholder('Ex.: 0,00');
+        assert.equal(await input.getAttribute('type'), 'text');
+        await input.fill('123456');
+        assert.equal(await input.inputValue(), '1.234,56');
+        await input.press('End');
+        for (let count = 0; count < 8; count++) await input.press('Backspace');
+        assert.equal(await input.inputValue(), '');
+        await input.fill('0');
+        assert.equal(await input.inputValue(), '0,00');
+        await input.press('Backspace');
+        assert.equal(await input.inputValue(), '');
+    },
+], modal: true });
+cases.push({ name: 'products-assortment-shortcut', screen: 'manage', module: 'products', steps: [
+    page => page.getByRole('button', { name: /2 Publique em um sortimento/ }).click(),
+    async page => { assert.ok(await page.getByRole('button', { name: 'Novo Sortimento', exact: true }).isVisible()); },
+] });
 const out = path.resolve('../.tmp/responsive-audit');
 fs.mkdirSync(out, { recursive: true });
 (async () => { const browser = await chromium.launch({ headless: true }); const page = await browser.newPage(); await page.route('**/*', route => new URL(route.request().url()).hostname === '127.0.0.1' ? route.continue() : route.abort()); const errors = []; page.on('pageerror', e => errors.push(e.message)); const results = []; for (const c of cases.filter(c => !process.env.RESPONSIVE_CASE || c.name.includes(process.env.RESPONSIVE_CASE))) {

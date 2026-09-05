@@ -29,6 +29,17 @@ router = APIRouter()
 router.include_router(assortments.router, prefix="/assortments", tags=["Assortments & Menus"])
 
 
+@router.post("/media-upload/prepare")
+def prepare_media_upload(context: TenantContext = Depends(get_tenant_context), session: Session = Depends(get_session)):
+    from app.services.catalog_storage_service import prepare_catalog_storage
+    from app.services.storage_reconciliation_service import StorageInventoryUnavailable
+    import httpx
+    try:
+        return prepare_catalog_storage(session, context)
+    except (SupabaseStorageUnavailable, StorageInventoryUnavailable, httpx.RequestError) as exc:
+        raise HTTPException(status_code=503, detail="Não foi possível preparar o armazenamento de imagens. A equipe DASHEM precisa verificar a configuração e a conexão do provedor.") from exc
+
+
 class CategoryCreateDTO(BaseModel):
     name: str = Field(min_length=2, max_length=160)
     slug: str = Field(min_length=2, max_length=160, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -59,6 +70,7 @@ class ProductCreateDTO(BaseModel):
 
 
 class ProductUpdateDTO(BaseModel):
+    sale_price: Optional[Decimal] = Field(default=None, ge=0, max_digits=14, decimal_places=4)
     name: Optional[str] = Field(default=None, min_length=2, max_length=200)
     sku: Optional[str] = Field(default=None, min_length=1, max_length=100)
     barcode: Optional[str] = Field(default=None, max_length=80)
@@ -82,6 +94,12 @@ class ProductPriceCreateDTO(BaseModel):
     store_id: Optional[uuid.UUID] = None
 
 
+class ProductImageDTO(BaseModel):
+    source: str
+    url: str
+    expires_at: Optional[str] = None
+
+
 class SellableProductDTO(BaseModel):
     id: uuid.UUID
     name: str
@@ -89,6 +107,7 @@ class SellableProductDTO(BaseModel):
     barcode: Optional[str]
     description: Optional[str]
     image_url: Optional[str]
+    image: Optional[ProductImageDTO] = None
     unit: str
     item_type: ItemTypeEnum
     category_id: Optional[uuid.UUID]
@@ -210,6 +229,11 @@ def archive_product_endpoint(product_id: uuid.UUID, context: TenantContext = Dep
     return catalog_service.archive_product(session, context, product_id)
 
 
+@router.delete("/products/{product_id}/permanent", status_code=204)
+def delete_product_endpoint(product_id: uuid.UUID, context: TenantContext = Depends(get_tenant_context), session: Session = Depends(get_session)):
+    catalog_service.delete_product(session, context, product_id)
+
+
 @router.get("/sellable-products", response_model=SellableProductPageDTO)
 def sellable_products_endpoint(
     sales_context: Optional[SalesContextEnum] = Query(default=None, description="Contexto de venda obrigatório exceto em modo master"),
@@ -257,6 +281,7 @@ def list_product_prices_endpoint(store_id: Optional[uuid.UUID] = None, product_i
 
 
 class ProductMediaDTO(BaseModel):
+    clear: bool = False
     """Either a file the shopkeeper uploaded, or a picture from the shelf."""
 
     bucket_id: Optional[str] = None
@@ -364,6 +389,7 @@ def set_product_media_endpoint(product_id: uuid.UUID, data: ProductMediaDTO, con
         bucket_id=data.bucket_id, object_path=data.object_path, content_type=data.content_type,
         size_bytes=data.size_bytes, original_filename=data.original_filename,
         library_asset_id=data.library_asset_id,
+        clear=data.clear,
     )
 
 

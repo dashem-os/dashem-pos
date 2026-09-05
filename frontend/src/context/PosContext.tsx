@@ -694,8 +694,7 @@ export const PosProvider: React.FC<{
           reason: 'Cadastro Inicial'
         })
       }
-      showToast('success', `Produto '${product.name}' cadastrado!`)
-      refreshData()
+      await refreshData()
       // Returned so the caller can attach a picture: media belongs to a product
       // that already exists, and a new registration has no id until now.
       return created

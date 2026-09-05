@@ -4,18 +4,18 @@ from decimal import Decimal
 from typing import Any, List, Optional
 
 from fastapi import HTTPException
-from sqlalchemy import and_, case, func, or_
+from sqlalchemy import and_, case, delete, func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import aliased
 from sqlmodel import Session, select
 
 from app.core.context import TenantContext, resolve_actor, scope_tenant_query
 from app.models.catalog import (
-    Category, Combo, ComboItem, InventoryBalance, ItemTypeEnum, Modifier,
+    Category, Combo, ComboItem, InventoryBalance, InventoryMovement, ItemTypeEnum, Modifier,
     ModifierGroup, PlatformMediaAsset, Product, ProductModifierGroup, ProductPrice,
     QuickAccessProduct, StoreCatalogLayout, StoreCatalogLayoutItem,
 )
-from app.models.assortment import SalesContextEnum
+from app.models.assortment import AssortmentProduct, SalesContextEnum
 from app.services.assortment_service import resolve_effective_product_ids
 from app.services import media_service, reliability_service
 from app.modules.capabilities.service import capability_allowed_by_activity
@@ -105,6 +105,20 @@ def create_product(session: Session, context: TenantContext, **data: Any) -> Pro
 
 def update_product(session: Session, context: TenantContext, product_id: uuid.UUID, changes: dict[str, Any]) -> Product:
     product = _tenant_record(session, context, Product, product_id, "Produto")
+    changes = dict(changes)
+    sale_price = changes.pop('sale_price', None)
+    for field in ("name", "sku", "item_type", "is_active", "available_for_sale"):
+        if field in changes and (changes[field] is None or (isinstance(changes[field], str) and not changes[field].strip())):
+            raise HTTPException(status_code=422, detail=f"O campo {field} não pode ficar vazio.")
+    if "barcode" in changes:
+        changes["barcode"] = (changes["barcode"] or "").strip() or None
+    for field in ("sku", "barcode"):
+        if changes.get(field):
+            duplicate = session.exec(scope_tenant_query(select(Product).where(
+                getattr(Product, field) == changes[field].strip(), Product.id != product_id,
+            ), Product, context)).first()
+            if duplicate:
+                raise HTTPException(status_code=409, detail="SKU ou código de barras já utilizado por outro produto.")
     if changes.get("category_id"):
         _tenant_record(session, context, Category, changes["category_id"], "Categoria")
     if changes.get("item_type", product.item_type) == ItemTypeEnum.SERVICE:
@@ -113,12 +127,52 @@ def update_product(session: Session, context: TenantContext, product_id: uuid.UU
         setattr(product, key, value.strip() if isinstance(value, str) else value)
     product.updated_at = datetime.utcnow()
     _event(session, context, "catalog.product.updated", "product", product.id, changes)
+    if sale_price is not None:
+        if not context.store_id:
+            raise HTTPException(status_code=422, detail='Selecione uma unidade para alterar o preço.')
+        price = session.exec(scope_tenant_query(select(ProductPrice).where(
+            ProductPrice.product_id == product_id, ProductPrice.store_id == context.store_id,
+        ), ProductPrice, context)).first()
+        if price is None:
+            price = ProductPrice(tenant_id=context.tenant_id, product_id=product_id, store_id=context.store_id)
+        price.sale_price = Decimal(str(sale_price))
+        price.updated_at = datetime.utcnow()
+        session.add(price)
+        _event(session, context, 'catalog.price.upserted', 'product', product_id, {'sale_price': str(sale_price), 'store_id': str(context.store_id)})
     session.commit(); session.refresh(product)
     return product
 
 
 def archive_product(session: Session, context: TenantContext, product_id: uuid.UUID) -> Product:
     return update_product(session, context, product_id, {"is_active": False, "available_for_sale": False})
+
+
+def delete_product(session: Session, context: TenantContext, product_id: uuid.UUID) -> None:
+    """Delete an unused registration; operational references remain protected by FKs."""
+    product = _tenant_record(session, context, Product, product_id, "Produto")
+    movement = session.exec(scope_tenant_query(select(InventoryMovement.id).where(
+        InventoryMovement.product_id == product_id,
+    ), InventoryMovement, context)).first()
+    balance = session.exec(scope_tenant_query(select(InventoryBalance.id).where(
+        InventoryBalance.product_id == product_id, InventoryBalance.quantity != 0,
+    ), InventoryBalance, context)).first()
+    if movement or balance:
+        raise HTTPException(status_code=409, detail="Este produto possui estoque ou movimentações. Arquive-o para preservar o histórico.")
+    published = session.exec(scope_tenant_query(select(AssortmentProduct.id).where(
+        AssortmentProduct.product_id == product_id,
+    ), AssortmentProduct, context)).first()
+    if published:
+        raise HTTPException(status_code=409, detail="Remova o produto dos sortimentos antes de excluí-lo, ou arquive-o para retirar da venda.")
+    try:
+        # Tenant filters are explicit; FK constraints also protect references in other sites.
+        for model in (ProductPrice, InventoryBalance):
+            session.exec(delete(model).where(model.product_id == product_id, model.tenant_id == context.tenant_id))
+        _event(session, context, "catalog.product.deleted", "product", product_id, {"name": product.name, "sku": product.sku})
+        session.exec(delete(Product).where(Product.id == product_id, Product.tenant_id == context.tenant_id))
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        raise HTTPException(status_code=409, detail="Este produto está vinculado a vendas, pedidos ou outras operações. Arquive-o para preservar esses registros.") from exc
 
 
 def list_products(session: Session, context: TenantContext, category_id: Optional[uuid.UUID] = None, search: Optional[str] = None) -> List[Product]:
@@ -310,6 +364,7 @@ def set_product_media(
     bucket_id: Optional[str] = None, object_path: Optional[str] = None,
     content_type: Optional[str] = None, size_bytes: int = 0,
     original_filename: Optional[str] = None, library_asset_id: Optional[uuid.UUID] = None,
+    clear: bool = False,
 ) -> Product:
     """Attach a stored picture to a product — uploaded, or chosen from the shelf.
 
@@ -318,6 +373,15 @@ def set_product_media(
     value stays available if the asset is ever cleared.
     """
     product = _tenant_record(session, context, Product, product_id, "Produto")
+    if clear:
+        product.primary_media_asset_id = None
+        product.image_url = None
+        product.updated_at = datetime.utcnow()
+        session.add(product)
+        _event(session, context, 'catalog.product.media.cleared', 'product', product_id, {})
+        session.commit()
+        session.refresh(product)
+        return product
     if library_asset_id:
         library = session.exec(select(PlatformMediaAsset).where(
             PlatformMediaAsset.id == library_asset_id, PlatformMediaAsset.is_active == True,  # noqa: E712

@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { Archive, Package, Plus, Search, ArrowUpDown, CheckCircle2, Star, AlertCircle, Layers, Store } from 'lucide-react'
+import { Archive, Pencil, Trash2, Package, Plus, Search, ArrowUpDown, CheckCircle2, Star, AlertCircle, Layers, Store } from 'lucide-react'
 import { usePos } from '../../context/PosContext'
 import { Modal } from '../common/Modal'
 import * as api from '../../services/api'
 import { Button } from '../common/Button'
 import { DataTable } from '../common/DataTable'
-import { formatCurrency } from '../../utils/format'
+import { formatCurrency, maskCurrencyInput, parseCurrencyInput } from '../../utils/format'
+import { navigateTo } from '../../utils/navigation'
 import { PendingMedia, ProductMediaPicker } from './ProductMediaPicker'
 
 /** The product photo, falling back to the initial when a tenant has not set one. */
@@ -20,7 +21,7 @@ function ProductThumb({ name, imageUrl }: { name: string; imageUrl?: string | nu
   )
 }
 
-export const CatalogManager: React.FC = () => {
+export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ onOpenAssortments }) => {
   const { tenant, store, products, prices, balances, createNewProduct, adjustStock, refreshData, actionLoading, activeActivity, showToast } = usePos()
   const mediaHeaders = useMemo(
     () => tenant && store ? { 'X-Tenant-ID': tenant.id, 'X-Store-ID': store.id } : null,
@@ -36,6 +37,12 @@ export const CatalogManager: React.FC = () => {
   const [productToArchive, setProductToArchive] = useState<api.SellableProduct | null>(null)
   const [activeAssortments, setActiveAssortments] = useState<api.Assortment[]>([])
   const [publishAssortmentId, setPublishAssortmentId] = useState('')
+  const [editingProduct, setEditingProduct] = useState<api.SellableProduct | null>(null)
+  const [productToDelete, setProductToDelete] = useState<api.SellableProduct | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [mediaBusy, setMediaBusy] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   // New Product Form
   const [name, setName] = useState('')
@@ -58,6 +65,7 @@ export const CatalogManager: React.FC = () => {
 
   useEffect(() => {
     if (!tenant || !store) return
+    let alive = true
 
     const timer = window.setTimeout(() => {
       setContextError(null)
@@ -71,16 +79,18 @@ export const CatalogManager: React.FC = () => {
           search: searchQuery.trim() || undefined,
         }
       ).then((result) => {
+        if (!alive) return
         setCatalogItems(result.items)
         setTotal(result.total)
         setContextError(null)
       }).catch((err: unknown) => {
+        if (!alive) return
         setCatalogItems([])
         setTotal(0)
         setContextError(err instanceof Error ? err.message : 'Falha ao carregar catálogo.')
       })
     }, 250)
-    return () => window.clearTimeout(timer)
+    return () => { alive = false; window.clearTimeout(timer) }
   }, [tenant, store, page, searchQuery, viewMode, salesContext, reloadKey])
 
   useEffect(() => {
@@ -93,55 +103,78 @@ export const CatalogManager: React.FC = () => {
   }, [isAddModalOpen, mediaHeaders, store?.id])
 
   const openAddProduct = () => {
+    setEditingProduct(null)
+    setName(''); setSku(''); setBarcode(''); setItemType('PRODUCT')
+    setPriceInput(''); setStockInput(''); setPendingMedia(null); setFormError(null)
     setPublishAssortmentId('')
     setIsAddModalOpen(true)
+  }
+
+  const openEditProduct = (product: api.SellableProduct) => {
+    setEditingProduct(product)
+    setName(product.name); setSku(product.sku); setBarcode(product.barcode || '')
+    setItemType(product.item_type); setPriceInput(maskCurrencyInput(Number(product.sale_price).toFixed(2)))
+    setPendingMedia(null); setFormError(null); setPublishAssortmentId('')
+    setIsAddModalOpen(true)
+  }
+
+  const permanentlyDelete = async () => {
+    if (!mediaHeaders || !productToDelete || saving) return
+    setSaving(true); setDeleteError(null)
+    try {
+      await api.deleteProduct(mediaHeaders, productToDelete.id)
+      setProductToDelete(null)
+      setReloadKey(key => key + 1)
+      await refreshData()
+      showToast('success', 'Produto excluído. As imagens do negócio foram preservadas.')
+    } catch (reason) {
+      setDeleteError(reason instanceof Error ? reason.message : 'Não foi possível excluir o produto.')
+    } finally { setSaving(false) }
   }
 
   const handleCreateProduct = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!name || !sku || !priceInput) return
-
-    const created = await createNewProduct(
+    if (saving || mediaBusy || !mediaHeaders || !store) return
+    setSaving(true); setFormError(null)
+    try {
+    const created = editingProduct
+      ? await api.updateProduct(mediaHeaders, editingProduct.id, { name, sku, barcode: barcode || null, sale_price: parseCurrencyInput(priceInput) })
+      : await createNewProduct(
       { name, sku, barcode: barcode || undefined, item_type: itemType },
-      parseFloat(priceInput),
+      parseCurrencyInput(priceInput),
       itemType === 'PRODUCT' ? parseInt(stockInput || '0', 10) : 0
     )
     if (!created) return
+    // Retrying a failed photo/price/publication must update the saved product, never create a duplicate.
+    if (!editingProduct) setEditingProduct({ ...created, sale_price: parseCurrencyInput(priceInput), cost_price: 0, margin_percent: 0, quantity: Number(stockInput || 0), minimum_stock: 0, is_low_stock: false })
 
     // The picture is attached after the product exists. A failure here leaves a
     // product without a photo, which is a state the catalogue already handles —
     // never a half-created product.
-    if (created && pendingMedia && pendingMedia.kind !== 'CLEAR' && mediaHeaders) {
-      try {
+    if (pendingMedia) {
         await api.setProductMedia(mediaHeaders, created.id, pendingMedia.kind === 'LIBRARY'
           ? { library_asset_id: pendingMedia.library_asset_id }
+          : pendingMedia.kind === 'CLEAR' ? { clear: true }
           : {
               bucket_id: pendingMedia.bucket_id, object_path: pendingMedia.object_path,
               content_type: pendingMedia.content_type, size_bytes: pendingMedia.size_bytes,
               original_filename: pendingMedia.original_filename,
             })
-      } catch (reason) {
-        showToast('error', reason instanceof Error ? reason.message : 'Produto criado, mas a foto não foi vinculada.')
-      }
+      setPendingMedia(null)
     }
 
     if (publishAssortmentId && mediaHeaders) {
       const target = activeAssortments.find((assortment) => assortment.id === publishAssortmentId)
       if (target) {
-        try {
           await api.linkAssortmentProducts(
             mediaHeaders, target.id, [created.id], target.version,
             `publish-new-product-${created.id}-${target.id}`,
           )
           showToast('success', `Produto publicado em “${target.name}” e disponível nos contextos desse sortimento.`)
-        } catch (reason) {
-          showToast('error', reason instanceof Error
-            ? `Produto cadastrado, mas não foi publicado: ${reason.message}`
-            : 'Produto cadastrado, mas não foi possível publicá-lo no sortimento.')
-        }
       }
     } else {
-      showToast('info', 'Produto cadastrado no acervo. Para aparecer no PDV, publique-o em um sortimento ativo.')
+      showToast('success', editingProduct ? 'Produto atualizado.' : 'Produto cadastrado no acervo. Publique-o em um sortimento para vender no PDV.')
     }
 
     await refreshData()
@@ -154,6 +187,10 @@ export const CatalogManager: React.FC = () => {
     setPriceInput('')
     setStockInput('')
     setIsAddModalOpen(false)
+    } catch (reason) {
+      setFormError(`Não foi possível concluir todas as alterações: ${reason instanceof Error ? reason.message : 'tente novamente'}. O cadastro já salvo será reutilizado ao tentar novamente.`)
+      setReloadKey(key => key + 1)
+    } finally { setSaving(false) }
   }
 
   const handleAdjustStock = async (e: React.FormEvent) => {
@@ -224,18 +261,18 @@ export const CatalogManager: React.FC = () => {
       </div>
 
       <section className="grid gap-2 rounded-2xl border border-dashem-border bg-dashem-surface p-3 sm:grid-cols-3" aria-label="Como um produto chega ao PDV">
-        <div className="flex items-start gap-3 rounded-xl bg-dashem-surface-elevated p-3">
+        <button type="button" onClick={openAddProduct} className="flex items-start gap-3 rounded-xl bg-dashem-surface-elevated p-3 text-left hover:ring-2 hover:ring-dashem-red focus-visible:ring-2 focus-visible:ring-dashem-red">
           <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-dashem-red text-xs font-black text-brand-contrast">1</span>
           <div><p className="text-xs font-black text-dashem-strong">Cadastre o produto</p><p className="mt-1 text-xs leading-5 text-dashem-muted">Nome, foto, preço e estoque pertencem ao acervo do negócio.</p></div>
-        </div>
-        <div className="flex items-start gap-3 rounded-xl bg-dashem-surface-elevated p-3">
+        </button>
+        <button type="button" onClick={onOpenAssortments} disabled={!onOpenAssortments} className="flex items-start gap-3 rounded-xl bg-dashem-surface-elevated p-3 text-left hover:ring-2 hover:ring-dashem-red focus-visible:ring-2 focus-visible:ring-dashem-red disabled:opacity-50">
           <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-dashem-red text-xs font-black text-brand-contrast">2</span>
           <div><p className="text-xs font-black text-dashem-strong">Publique em um sortimento</p><p className="mt-1 text-xs leading-5 text-dashem-muted">Escolha em quais unidades e jornadas ele será vendido.</p></div>
-        </div>
-        <div className="flex items-start gap-3 rounded-xl bg-dashem-surface-elevated p-3">
+        </button>
+        <button type="button" onClick={() => navigateTo('/pos?access=management')} className="flex items-start gap-3 rounded-xl bg-dashem-surface-elevated p-3 text-left hover:ring-2 hover:ring-dashem-red focus-visible:ring-2 focus-visible:ring-dashem-red">
           <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-dashem-red text-xs font-black text-brand-contrast">3</span>
           <div><p className="text-xs font-black text-dashem-strong">Venda no PDV</p><p className="mt-1 text-xs leading-5 text-dashem-muted">O item aparece apenas nos contextos onde foi publicado.</p></div>
-        </div>
+        </button>
       </section>
 
       {/* View Mode Switcher: Master Catalog vs Operational Projection */}
@@ -394,6 +431,8 @@ export const CatalogManager: React.FC = () => {
               key: 'actions', header: 'Ações', actions: true, align: 'right',
               cell: (prod) => (
                 <div className="inline-flex flex-wrap gap-2">
+                  <Button variant="secondary" size="sm" icon={Pencil} onClick={() => openEditProduct(prod)}>Editar</Button>
+                  <Button variant="secondary" size="sm" icon={Trash2} onClick={() => { setProductToDelete(prod); setDeleteError(null) }} aria-label={`Excluir ${prod.name}`} title="Excluir produto">Excluir</Button>
                   <Button variant="secondary" size="sm" icon={Archive} onClick={() => setProductToArchive(prod)}
                     title="Arquivar e retirar do PDV" className="border-amber-200 bg-amber-50 text-amber-700" aria-label="Arquivar" />
                   <Button variant="secondary" size="sm" onClick={() => handleQuickAccess(prod)}
@@ -427,12 +466,13 @@ export const CatalogManager: React.FC = () => {
       {/* Modal: Cadastrar Produto */}
       <Modal
         isOpen={isAddModalOpen}
-        onClose={() => setIsAddModalOpen(false)}
-        title="Cadastrar Novo Produto"
+        onClose={() => { if (!saving && !mediaBusy) setIsAddModalOpen(false) }}
+        title={editingProduct ? 'Editar produto' : 'Cadastrar Novo Produto'}
         subtitle="Cadastre os dados e decida se o item já deve ser publicado no PDV"
         maxWidth="2xl"
       >
         <form onSubmit={handleCreateProduct} className="space-y-4">
+          {formError && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{formError}</p>}
           <div className="space-y-1.5">
             <label className="text-xs font-bold text-dashem-strong block">Nome do Produto / Serviço</label>
             <input
@@ -472,9 +512,12 @@ export const CatalogManager: React.FC = () => {
 
           {mediaHeaders && (
             <ProductMediaPicker
+              key={editingProduct?.id || 'new'}
               headers={mediaHeaders}
               activity={activeActivity}
+              current={editingProduct?.image || (editingProduct?.image_url ? { source: 'LEGACY_URL', url: editingProduct.image_url, expires_at: null } : null)}
               onChange={setPendingMedia}
+              onBusyChange={setMediaBusy}
             />
           )}
 
@@ -483,6 +526,7 @@ export const CatalogManager: React.FC = () => {
               <label className="text-xs font-bold text-dashem-strong block">Tipo</label>
               <select
                 value={itemType}
+                disabled={!!editingProduct}
                 onChange={(e) => setItemType(e.target.value as any)}
                 className="w-full h-11 px-3.5 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-dashem-strong text-xs font-semibold focus:border-dashem-red outline-none"
               >
@@ -494,18 +538,23 @@ export const CatalogManager: React.FC = () => {
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-dashem-strong block">Preço de Venda (R$)</label>
               <input
-                type="number"
-                step="0.01"
+                type="text"
+                inputMode="decimal"
                 required
                 value={priceInput}
-                onChange={(e) => setPriceInput(e.target.value)}
-                placeholder="Ex: 49.90"
+                onChange={(e) => setPriceInput(maskCurrencyInput(e.target.value))}
+                onKeyDown={(e) => {
+                  if ((e.key === 'Backspace' || e.key === 'Delete') && parseCurrencyInput(priceInput) === 0) {
+                    e.preventDefault(); setPriceInput('')
+                  }
+                }}
+                placeholder="Ex.: 0,00"
                 className="w-full h-11 px-3.5 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-dashem-strong text-xs font-semibold focus:border-dashem-red outline-none"
               />
             </div>
           </div>
 
-          {itemType === 'PRODUCT' && (
+          {itemType === 'PRODUCT' && !editingProduct && (
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-dashem-strong block">Estoque Inicial (unidades)</label>
               <input
@@ -534,7 +583,7 @@ export const CatalogManager: React.FC = () => {
               onChange={(event) => setPublishAssortmentId(event.target.value)}
               className="h-11 w-full rounded-xl border border-dashem-border bg-dashem-surface px-3.5 text-xs font-semibold text-dashem-strong outline-none focus:border-dashem-red"
             >
-              <option value="">Não publicar agora — manter somente em Todos os produtos</option>
+              <option value="">{editingProduct ? 'Manter a publicação atual' : 'Não publicar agora — manter somente em Todos os produtos'}</option>
               {activeAssortments.map((assortment) => (
                 <option key={assortment.id} value={assortment.id}>
                   {assortment.name} · {assortment.scopes.map((scope) => ({ COUNTER: 'Balcão', TAKEAWAY: 'Retirada', TABLE: 'Mesa', DELIVERY: 'Delivery', ECOMMERCE: 'E-commerce' }[scope.sales_context])).filter(Boolean).join(', ') || 'sem contexto'}
@@ -551,14 +600,25 @@ export const CatalogManager: React.FC = () => {
           <div className="pt-3">
             <button
               type="submit"
-              disabled={actionLoading}
+              disabled={actionLoading || saving || mediaBusy}
               className="w-full h-12 rounded-2xl bg-dashem-red hover:bg-dashem-red-light text-brand-contrast text-xs font-black flex items-center justify-center space-x-2 transition-all shadow-lg active:scale-95 disabled:opacity-40"
             >
               <Plus className="w-4 h-4" />
-              <span>{publishAssortmentId ? 'Cadastrar e publicar produto' : 'Cadastrar produto'}</span>
+              <span>{mediaBusy ? 'Aguarde o envio da foto...' : saving ? 'Salvando...' : editingProduct ? 'Salvar alterações' : publishAssortmentId ? 'Cadastrar e publicar produto' : 'Cadastrar produto'}</span>
             </button>
           </div>
         </form>
+      </Modal>
+
+      <Modal isOpen={!!productToDelete} onClose={() => { if (!saving) setProductToDelete(null) }} title="Excluir produto">
+        <div className="space-y-4">
+          <p>Excluir “{productToDelete?.name}” do cadastro? Esta ação não pode ser desfeita. Produtos com histórico devem ser arquivados. A foto permanece no acervo privado do negócio.</p>
+          {deleteError && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{deleteError}</p>}
+          <div className="flex flex-wrap gap-3">
+            <Button variant="secondary" disabled={saving} onClick={() => setProductToDelete(null)}>Cancelar</Button>
+            <Button disabled={saving} icon={Trash2} onClick={() => void permanentlyDelete()}>{saving ? 'Excluindo...' : 'Confirmar exclusão'}</Button>
+          </div>
+        </div>
       </Modal>
 
       {/* Modal: Ajustar Estoque */}

@@ -107,7 +107,7 @@ export const ManagementLayout: React.FC = () => {
     switch (module) {
       case 'overview': return <DashboardBI availableModules={availableModules} onOpenModule={(target) => choose(target)} />
       case 'sales': return <SalesHistory />
-      case 'products': return <CatalogManager />
+      case 'products': return <CatalogManager onOpenAssortments={availableModules.has('assortments') ? () => choose('assortments') : undefined} />
       case 'assortments': return <AssortmentManager />
       case 'categories': return <CategoryManager />
       case 'inventory': return <InventoryManager />

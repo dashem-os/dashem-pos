@@ -2272,7 +2272,7 @@ export async function uploadPlatformMediaLibrary(
 
 export async function setProductMedia(
   headers: Record<string, string>, productId: string,
-  input: { bucket_id?: string; object_path?: string; content_type?: string; size_bytes?: number; original_filename?: string; library_asset_id?: string },
+  input: { clear?: boolean; bucket_id?: string; object_path?: string; content_type?: string; size_bytes?: number; original_filename?: string; library_asset_id?: string },
 ): Promise<Product> {
   const res = await fetch(`${API_BASE_URL}/api/v1/catalog/products/${productId}/media`, {
     method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(input),
@@ -2931,7 +2931,7 @@ export async function updateCategory(headers: Record<string, string>, categoryId
 
 export async function updateProduct(
   headers: Record<string, string>, productId: string,
-  data: { name?: string; sku?: string; barcode?: string; category_id?: string; is_active?: boolean; available_for_sale?: boolean },
+  data: { sale_price?: number; name?: string; sku?: string; barcode?: string | null; item_type?: 'PRODUCT' | 'SERVICE'; category_id?: string; is_active?: boolean; available_for_sale?: boolean },
 ): Promise<Product> {
   const res = await fetch(`${API_BASE_URL}/api/v1/catalog/products/${productId}`, {
     method: 'PATCH', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(data),
@@ -2943,6 +2943,17 @@ export async function updateProduct(
 export async function archiveCategory(headers: Record<string, string>, categoryId: string): Promise<Category> {
   const res = await fetch(`${API_BASE_URL}/api/v1/catalog/categories/${categoryId}`, { method: 'DELETE', headers })
   if (!res.ok) throw await apiError(res, 'Não foi possível arquivar a categoria.')
+  return res.json()
+}
+
+export async function deleteProduct(headers: Record<string, string>, productId: string): Promise<void> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/catalog/products/${productId}/permanent`, { method: 'DELETE', headers })
+  if (!res.ok) throw await apiError(res, 'Não foi possível excluir o produto.')
+}
+
+export async function prepareProductImageUpload(headers: Record<string, string>): Promise<{ upload_available: boolean; upload_reason: string | null }> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/catalog/media-upload/prepare`, { method: 'POST', headers })
+  if (!res.ok) throw await apiError(res, 'Não foi possível preparar o envio da foto.')
   return res.json()
 }
 

@@ -8,14 +8,8 @@ import * as api from '../../services/api'
  * DASHEM shelf. The shelf is inspiration and never a fallback — a product left
  * without a picture shows its initial on the POS card.
  *
- * Uploading needs storage provisioned for the tenant; choosing from the shelf
- * does not, because nothing is copied. So the state of that provisioning is
- * read once, up front, and the upload button is disabled with the real reason
- * instead of letting someone pick a file and walk into a wall.
- *
- * The layout stays on one row and the words stay short: this lives inside a
- * narrow modal beside SKU and price, and a paragraph here breaks into a column
- * of single syllables.
+ * Before upload, the backend prepares and measures the tenant's fixed private
+ * namespace. Library selection references a shared asset and copies no file.
  */
 
 export type PendingMedia =
@@ -28,24 +22,15 @@ interface Props {
   activity?: string | null
   current?: api.ProductImage | null
   onChange: (pending: PendingMedia | null) => void
+  onBusyChange?: (busy: boolean) => void
 }
 
 const BUCKET = 'tenant-assets'
 const ACCEPTED = 'image/jpeg,image/png,image/webp'
 
-/**
- * Short, and true. The server's own sentences are precise but written for
- * whoever operates the platform; beside a SKU field they read as a wall. Each
- * of these says what is blocked and who unblocks it.
- */
-const STORAGE_BLOCK_REASON: Record<string, string> = {
-  NO_CONTRACT_QUOTA: 'Envio de arquivo indisponível: o contrato ainda não declara limite de storage.',
-  NO_SOURCES: 'Envio de arquivo indisponível: storage não provisionado para este tenant.',
-  NO_MEASUREMENT: 'Envio de arquivo indisponível: inventário de storage ainda não gerado.',
-}
-const DEFAULT_BLOCK_REASON = 'Envio de arquivo indisponível: storage não está pronto para este tenant.'
+const DEFAULT_BLOCK_REASON = 'Não foi possível preparar o envio da foto. Tente novamente.'
 
-export const ProductMediaPicker: React.FC<Props> = ({ headers, activity, current, onChange }) => {
+export const ProductMediaPicker: React.FC<Props> = ({ headers, activity, current, onChange, onBusyChange }) => {
   const [preview, setPreview] = useState<string | null>(current?.url ?? null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -53,31 +38,34 @@ export const ProductMediaPicker: React.FC<Props> = ({ headers, activity, current
   const [browsing, setBrowsing] = useState(false)
   const [library, setLibrary] = useState<api.LibraryImage[]>([])
   const [search, setSearch] = useState('')
+  const [preparing, setPreparing] = useState(true)
+  const [retryKey, setRetryKey] = useState(0)
 
   useEffect(() => { setPreview(current?.url ?? null) }, [current?.url])
 
-  // Asked once, so the button knows whether it can work before it is pressed,
-  // and says the real reason instead of a shrug after the file was chosen.
+  // Preparation is idempotent; stale inventory is refreshed by the server.
   useEffect(() => {
     let alive = true
-    void api.fetchTenantStorageQuota(headers)
-      .then((quota) => {
+    setPreparing(true)
+    void api.prepareProductImageUpload(headers)
+      .then((result) => {
         if (!alive) return
-        const healthy = quota.quota_status !== 'UNKNOWN' && quota.measurement_status !== 'UNAVAILABLE'
-        setUploadBlocked(healthy ? null : STORAGE_BLOCK_REASON[quota.status_code] ?? DEFAULT_BLOCK_REASON)
+        setUploadBlocked(result.upload_available ? null : result.upload_reason || DEFAULT_BLOCK_REASON)
       })
-      .catch(() => { if (alive) setUploadBlocked(DEFAULT_BLOCK_REASON) })
+      .catch((reason) => { if (alive) setUploadBlocked(reason instanceof Error ? reason.message : DEFAULT_BLOCK_REASON) })
+      .finally(() => { if (alive) setPreparing(false) })
     return () => { alive = false }
-  }, [headers])
+  }, [headers, retryKey])
 
   const loadLibrary = useCallback(async (term: string) => {
     setLibrary(await api.fetchMediaLibrary(headers, term || undefined, activity || undefined))
   }, [headers, activity])
 
-  useEffect(() => { if (browsing) void loadLibrary(search) }, [browsing, search, loadLibrary])
+  useEffect(() => { if (browsing) void loadLibrary(search).catch(() => setError('Não foi possível carregar a biblioteca. Tente novamente.')) }, [browsing, search, loadLibrary])
 
   const upload = async (file: File) => {
     setBusy(true)
+    onBusyChange?.(true)
     setError(null)
     try {
       const safeName = file.name.replace(/[^\w.\-]+/g, '-').slice(-80)
@@ -92,6 +80,7 @@ export const ProductMediaPicker: React.FC<Props> = ({ headers, activity, current
       setError(reason instanceof Error ? reason.message : 'Não foi possível enviar a imagem.')
     } finally {
       setBusy(false)
+      onBusyChange?.(false)
     }
   }
 
@@ -128,9 +117,9 @@ export const ProductMediaPicker: React.FC<Props> = ({ headers, activity, current
               }`}
             >
               <Upload className="h-4 w-4" />
-              <span>{busy ? 'Enviando...' : 'Enviar minha foto'}</span>
+              <span>{preparing ? 'Preparando envio...' : busy ? 'Enviando...' : 'Enviar minha foto'}</span>
               <input
-                type="file" accept={ACCEPTED} className="hidden" disabled={busy || !!uploadBlocked}
+                type="file" accept={ACCEPTED} className="hidden" disabled={preparing || busy || !!uploadBlocked}
                 onChange={(event) => {
                   const file = event.target.files?.[0]
                   if (file) void upload(file)
@@ -162,7 +151,8 @@ export const ProductMediaPicker: React.FC<Props> = ({ headers, activity, current
 
       {uploadBlocked && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold leading-5 text-amber-800">
-          {uploadBlocked} Você ainda pode escolher uma imagem da biblioteca DASHEM.
+          {uploadBlocked}
+          <button type="button" onClick={() => setRetryKey(key => key + 1)} disabled={preparing} className="ml-2 underline">{preparing ? 'Verificando...' : 'Tentar novamente'}</button>
         </div>
       )}
       {error && (

@@ -144,7 +144,10 @@ def latest_provider_measurement(session: Session, *, lock: bool = False) -> Stor
         .order_by(StorageProviderMeasurement.measured_at.desc())
     )
     if lock:
-        query = query.with_for_update()
+        # The tenant can read provider measurements, never update them. FOR UPDATE
+        # applies UPDATE RLS and hides these rows. Serialize reservations with a
+        # transaction lock instead, keeping the provider inventory read-only.
+        session.exec(text("SELECT pg_advisory_xact_lock(73492108)"))
     return session.exec(query).first()
 
 
