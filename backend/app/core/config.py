@@ -45,6 +45,13 @@ class Settings(BaseSettings):
     STORAGE_TENANT_WARNING_PERCENT: int = 70
     STORAGE_TENANT_CRITICAL_PERCENT: int = 85
     STORAGE_MAX_UPLOAD_BYTES: int = 5 * 1024 * 1024
+    # A signed URL's life is a function of what it points at, never of who asks.
+    # A private document is worth sixty seconds; a product photo the shop already
+    # shows across the counter is not, and minting it per card every minute costs
+    # a round trip for every item on the window.
+    CATALOG_MEDIA_SIGNED_URL_TTL_SECONDS: int = 21600
+    LIBRARY_MEDIA_SIGNED_URL_TTL_SECONDS: int = 86400
+    DOCUMENT_SIGNED_URL_TTL_SECONDS: int = 60
     SUPABASE_STORAGE_BUCKETS: str = ",".join(MANAGED_STORAGE_BUCKETS)
     # Declared from the actual provider plan. None means unavailable; the app
     # never assumes that a Supabase project owns the current Free allowance.

@@ -6,6 +6,7 @@ import * as api from '../../services/api'
 import { Button } from '../common/Button'
 import { DataTable } from '../common/DataTable'
 import { formatCurrency } from '../../utils/format'
+import { PendingMedia, ProductMediaPicker } from './ProductMediaPicker'
 
 /** The product photo, falling back to the initial when a tenant has not set one. */
 function ProductThumb({ name, imageUrl }: { name: string; imageUrl?: string | null }) {
@@ -20,7 +21,8 @@ function ProductThumb({ name, imageUrl }: { name: string; imageUrl?: string | nu
 }
 
 export const CatalogManager: React.FC = () => {
-  const { tenant, store, products, prices, balances, createNewProduct, adjustStock, refreshData, actionLoading } = usePos()
+  const { tenant, store, products, prices, balances, createNewProduct, adjustStock, refreshData, actionLoading, activeActivity, showToast } = usePos()
+  const mediaHeaders = tenant && store ? { 'X-Tenant-ID': tenant.id, 'X-Store-ID': store.id } : null
   const [searchQuery, setSearchQuery] = useState('')
   const [catalogItems, setCatalogItems] = useState<api.SellableProduct[]>([])
   const [total, setTotal] = useState(0)
@@ -34,7 +36,7 @@ export const CatalogManager: React.FC = () => {
   const [name, setName] = useState('')
   const [sku, setSku] = useState('')
   const [barcode, setBarcode] = useState('')
-  const [imageUrl, setImageUrl] = useState('')
+  const [pendingMedia, setPendingMedia] = useState<PendingMedia | null>(null)
   const [itemType, setItemType] = useState<'PRODUCT' | 'SERVICE'>('PRODUCT')
   const [priceInput, setPriceInput] = useState('')
   const [stockInput, setStockInput] = useState('')
@@ -80,16 +82,33 @@ export const CatalogManager: React.FC = () => {
     e.preventDefault()
     if (!name || !sku || !priceInput) return
 
-    await createNewProduct(
-      { name, sku, barcode: barcode || undefined, image_url: imageUrl.trim() || undefined, item_type: itemType },
+    const created = await createNewProduct(
+      { name, sku, barcode: barcode || undefined, item_type: itemType },
       parseFloat(priceInput),
       itemType === 'PRODUCT' ? parseInt(stockInput || '0', 10) : 0
     )
 
+    // The picture is attached after the product exists. A failure here leaves a
+    // product without a photo, which is a state the catalogue already handles —
+    // never a half-created product.
+    if (created && pendingMedia && pendingMedia.kind !== 'CLEAR' && mediaHeaders) {
+      try {
+        await api.setProductMedia(mediaHeaders, created.id, pendingMedia.kind === 'LIBRARY'
+          ? { library_asset_id: pendingMedia.library_asset_id }
+          : {
+              bucket_id: pendingMedia.bucket_id, object_path: pendingMedia.object_path,
+              content_type: pendingMedia.content_type, size_bytes: pendingMedia.size_bytes,
+              original_filename: pendingMedia.original_filename,
+            })
+      } catch (reason) {
+        showToast('error', reason instanceof Error ? reason.message : 'Produto criado, mas a foto não foi vinculada.')
+      }
+    }
+
     setName('')
     setSku('')
     setBarcode('')
-    setImageUrl('')
+    setPendingMedia(null)
     setPriceInput('')
     setStockInput('')
     setIsAddModalOpen(false)
@@ -385,30 +404,15 @@ export const CatalogManager: React.FC = () => {
                 className="w-full h-11 px-3.5 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-dashem-strong text-xs font-semibold focus:border-dashem-red outline-none"
               />
   
-            <div className="space-y-1.5 sm:col-span-2">
-              <label className="text-xs font-bold text-dashem-strong block">Foto do produto (endereço da imagem)</label>
-              <input
-                type="url"
-                value={imageUrl}
-                onChange={(e) => setImageUrl(e.target.value)}
-                placeholder="https://..."
-                className="w-full h-11 px-3.5 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-dashem-strong text-xs font-semibold focus:border-brand-ink outline-none"
-              />
-              <p className="text-xs text-dashem-muted">Aparece no cartão do produto no PDV. Deixe em branco para usar a inicial do nome.</p>
-            </div>
           </div>
 
-            <div className="space-y-1.5 sm:col-span-2">
-              <label className="text-xs font-bold text-dashem-strong block">Foto do produto (endereço da imagem)</label>
-              <input
-                type="url"
-                value={imageUrl}
-                onChange={(e) => setImageUrl(e.target.value)}
-                placeholder="https://..."
-                className="w-full h-11 px-3.5 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-dashem-strong text-xs font-semibold focus:border-brand-ink outline-none"
+            {mediaHeaders && (
+              <ProductMediaPicker
+                headers={mediaHeaders}
+                activity={activeActivity}
+                onChange={setPendingMedia}
               />
-              <p className="text-xs text-dashem-muted">Aparece no cartão do produto no PDV. Deixe em branco para usar a inicial do nome.</p>
-            </div>
+            )}
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

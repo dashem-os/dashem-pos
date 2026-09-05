@@ -195,7 +195,8 @@ ORPHAN_CLIENT_FUNCTIONS = {
     "updateRegister",
     "updateTenantCapability",
     "updateTenantSubscription",
-    "uploadTenantStorageObject",
+    # `uploadTenantStorageObject` left this list on 4 September 2026, when the
+    # product registration screen started sending a file through it.
 }
 
 

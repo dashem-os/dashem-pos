@@ -115,8 +115,8 @@ export const ProductShowcase: React.FC<Props> = ({ onPick, disabled }) => {
       onClick={() => onPick(product)}
       className="group flex min-h-[132px] w-36 shrink-0 flex-col justify-between rounded-2xl border border-slate-200 bg-white p-3 text-left shadow-sm transition-all hover:border-rose-400 hover:shadow-md active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
     >
-      {product.image_url ? (
-        <img src={product.image_url} alt="" loading="lazy" className="h-16 w-full rounded-xl border border-slate-100 object-cover" />
+      {(product.image?.url || product.image_url) ? (
+        <img src={product.image?.url || product.image_url} alt="" loading="lazy" className="h-16 w-full rounded-xl border border-slate-100 object-cover" />
       ) : (
         <div className="flex h-16 w-full items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 text-lg font-black text-slate-300">
           {product.name.charAt(0).toUpperCase()}

@@ -254,8 +254,18 @@ def sign_tenant_download(
     context: TenantContext = Depends(get_tenant_context),
 ):
     bucket, object_path = _resolve_storage_target(context.tenant_id, bucket_id, relative_path)
+    # The client never chooses the lifetime. It follows the bucket's purpose:
+    # catalogue media lives long enough for a shift, a document does not.
+    ttl = (
+        settings.CATALOG_MEDIA_SIGNED_URL_TTL_SECONDS
+        if bucket_id == "tenant-assets"
+        else settings.DOCUMENT_SIGNED_URL_TTL_SECONDS
+    )
     try:
-        return SignedStorageUrl(url=SupabaseStorageClient().signed_download_url(bucket, object_path), expires_in=60)
+        return SignedStorageUrl(
+            url=SupabaseStorageClient().signed_download_url(bucket, object_path, expires_in=ttl),
+            expires_in=ttl,
+        )
     except (SupabaseStorageUnavailable, httpx.RequestError) as exc:
         raise _provider_error(exc) from exc
 

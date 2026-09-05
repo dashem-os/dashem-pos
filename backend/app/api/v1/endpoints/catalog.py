@@ -247,6 +247,32 @@ def list_product_prices_endpoint(store_id: Optional[uuid.UUID] = None, product_i
     return catalog_service.list_prices(session, context, store_id, product_id)
 
 
+class ProductMediaDTO(BaseModel):
+    """Either a file the shopkeeper uploaded, or a picture from the shelf."""
+
+    bucket_id: Optional[str] = None
+    object_path: Optional[str] = None
+    content_type: Optional[str] = None
+    size_bytes: int = 0
+    original_filename: Optional[str] = None
+    library_asset_id: Optional[uuid.UUID] = None
+
+
+@router.get("/media-library")
+def search_media_library_endpoint(search: Optional[str] = None, activity: Optional[str] = None, context: TenantContext = Depends(get_tenant_context), session: Session = Depends(get_session)):
+    return catalog_service.search_media_library(session, context, search, activity)
+
+
+@router.put("/products/{product_id}/media", response_model=Product)
+def set_product_media_endpoint(product_id: uuid.UUID, data: ProductMediaDTO, context: TenantContext = Depends(get_tenant_context), session: Session = Depends(get_session)):
+    return catalog_service.set_product_media(
+        session, context, product_id,
+        bucket_id=data.bucket_id, object_path=data.object_path, content_type=data.content_type,
+        size_bytes=data.size_bytes, original_filename=data.original_filename,
+        library_asset_id=data.library_asset_id,
+    )
+
+
 @router.get("/layout")
 def get_store_layout_endpoint(sales_context: Optional[str] = None, business_activity: Optional[str] = None, context: TenantContext = Depends(get_tenant_context), session: Session = Depends(get_session)):
     return catalog_service.get_store_layout(session, context, sales_context, business_activity)

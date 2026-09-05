@@ -79,7 +79,7 @@ interface PosContextType {
   openCash: (openingBalance: number) => Promise<void>
   closeCash: (closingBalance: number) => Promise<void>
   addCashMovement: (type: 'BLEED' | 'REINFORCEMENT', amount: number, notes?: string) => Promise<void>
-  createNewProduct: (product: { name: string; sku: string; barcode?: string; image_url?: string; item_type?: 'PRODUCT' | 'SERVICE' }, price: number, initialStock?: number) => Promise<void>
+  createNewProduct: (product: { name: string; sku: string; barcode?: string; image_url?: string; item_type?: 'PRODUCT' | 'SERVICE' }, price: number, initialStock?: number) => Promise<api.Product | null | undefined>
   adjustStock: (productId: string, quantity: number, type: string, reason?: string) => Promise<void>
   refreshData: () => Promise<void>
 }
@@ -696,9 +696,13 @@ export const PosProvider: React.FC<{
       }
       showToast('success', `Produto '${product.name}' cadastrado!`)
       refreshData()
+      // Returned so the caller can attach a picture: media belongs to a product
+      // that already exists, and a new registration has no id until now.
+      return created
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Erro ao cadastrar produto'
       showToast('error', msg)
+      return null
     } finally {
       setActionLoading(false)
     }

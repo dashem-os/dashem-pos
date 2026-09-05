@@ -133,9 +133,9 @@ export const QuickProductGrid: React.FC = () => {
 
               {/* Every card reserves the same photo area, so a catalogue with
                   partial photography still lines up in the grid. */}
-              {product.image_url ? (
+              {(product.image?.url || product.image_url) ? (
                 <img
-                  src={product.image_url}
+                  src={product.image?.url || product.image_url}
                   alt=""
                   loading="lazy"
                   className="mt-2 h-20 w-full rounded-xl border border-slate-100 object-cover"

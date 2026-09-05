@@ -4,7 +4,8 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Optional, List
 from sqlmodel import SQLModel, Field, Relationship, UniqueConstraint, Column, Numeric
-from sqlalchemy import CheckConstraint, Index, JSON, String, text
+from sqlalchemy import BigInteger, CheckConstraint, Index, JSON, String, text
+from sqlalchemy.dialects.postgresql import JSONB
 from app.core.db_types import EnumString
 
 class ItemTypeEnum(str, Enum):
@@ -83,7 +84,12 @@ class Product(SQLModel, table=True):
     sku: str = Field(index=True)
     barcode: Optional[str] = Field(default=None, index=True)
     description: Optional[str] = None
+    # Kept for compatibility and never rewritten: every address registered
+    # before the media model keeps rendering. Resolution prefers the asset.
     image_url: Optional[str] = Field(default=None, max_length=500)
+    primary_media_asset_id: Optional[uuid.UUID] = Field(
+        default=None, foreign_key="media_assets.id", ondelete="SET NULL",
+    )
     unit: str = Field(default="UN", max_length=16)
     item_type: ItemTypeEnum = Field(
         default=ItemTypeEnum.PRODUCT,
@@ -160,6 +166,72 @@ class InventoryBalance(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
     product: Optional[Product] = Relationship(back_populates="balances")
+
+
+class MediaAssetSourceEnum(str, Enum):
+    TENANT_UPLOAD = "TENANT_UPLOAD"
+    DASHEM_LIBRARY = "DASHEM_LIBRARY"
+
+
+class MediaAsset(SQLModel, table=True):
+    """A stored picture that belongs to a tenant.
+
+    Either a file the shopkeeper uploaded, or a reference to a library picture
+    they chose — the second copies nothing and costs them no storage. Read by
+    nobody outside the tenant, which is why its RLS policy carries no
+    `app.platform_access` escape.
+    """
+
+    __tablename__ = "media_assets"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "bucket_id", "object_path", name="uq_media_asset_object"),
+        CheckConstraint(
+            "source IN ('TENANT_UPLOAD', 'DASHEM_LIBRARY')", name="ck_media_asset_source"
+        ),
+        CheckConstraint("size_bytes >= 0", name="ck_media_asset_size"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(foreign_key="tenants.id", index=True)
+    source: str = Field(max_length=40)
+    bucket_id: str = Field(max_length=80)
+    object_path: str = Field(max_length=500)
+    content_type: str = Field(max_length=80)
+    size_bytes: int = Field(default=0, ge=0, sa_column=Column(BigInteger, nullable=False, server_default="0"))
+    original_filename: Optional[str] = Field(default=None, max_length=260)
+    library_asset_id: Optional[uuid.UUID] = Field(default=None)
+    created_by: Optional[uuid.UUID] = Field(default=None)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class PlatformMediaAsset(SQLModel, table=True):
+    """The DASHEM library: a shelf of ideas, owned by nobody.
+
+    Written only by the platform and offered to every tenant. It is never a
+    fallback — a product with no chosen picture shows its initial, because the
+    system does not decide what someone's item looks like.
+    """
+
+    __tablename__ = "platform_media_assets"
+    __table_args__ = (
+        UniqueConstraint("code", name="uq_platform_media_asset_code"),
+        CheckConstraint("version > 0", name="ck_platform_media_asset_version"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    # The unique constraint already indexes `code`; a second index would be drift.
+    code: str = Field(max_length=80)
+    name: str = Field(max_length=160)
+    bucket_id: str = Field(max_length=80)
+    object_path: str = Field(max_length=500)
+    content_type: str = Field(max_length=80)
+    suggested_activities: list[str] = Field(default_factory=list, sa_column=Column(JSONB, nullable=False, server_default="[]"))
+    tags: list[str] = Field(default_factory=list, sa_column=Column(JSONB, nullable=False, server_default="[]"))
+    collection: str = Field(default="GENERIC", max_length=80, index=True)
+    version: int = Field(default=1, ge=1)
+    is_active: bool = Field(default=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 SALES_CONTEXT_VALUES = "('COUNTER', 'TAKEAWAY', 'TABLE', 'DELIVERY', 'ECOMMERCE')"

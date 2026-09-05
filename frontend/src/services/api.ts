@@ -136,6 +136,12 @@ export interface SellableProduct extends Omit<Product, 'tenant_id' | 'is_active'
   minimum_stock: number
   is_low_stock: boolean
   quick_position?: number
+  /**
+   * Resolved and signed by the server for the whole page at once. Absent means
+   * the product has no picture, and the card draws its initial — the system
+   * never picks one on the shopkeeper's behalf.
+   */
+  image?: { source: 'TENANT_UPLOAD' | 'DASHEM_LIBRARY' | 'LEGACY_URL'; url: string; expires_at?: string | null } | null
 }
 
 export interface SellableProductPage {
@@ -2174,27 +2180,75 @@ export interface StoredTenantObject {
 const storageObjectPath = (bucket: string, relativePath: string) =>
   `${encodeURIComponent(bucket)}/${relativePath.split('/').map(encodeURIComponent).join('/')}`
 
+/**
+ * These three carried no tenant context, and `get_tenant_context` requires
+ * `X-Tenant-ID`. They would have answered 400 on the first call — which is why
+ * they were never merely unused, they were unusable.
+ */
 export async function uploadTenantStorageObject(
-  bucket: string, relativePath: string, file: Blob, idempotencyKey: string,
+  headers: Record<string, string>, bucket: string, relativePath: string, file: Blob, idempotencyKey: string,
 ): Promise<StoredTenantObject> {
   const res = await fetch(`${API_BASE_URL}/api/v1/storage/objects/${storageObjectPath(bucket, relativePath)}`, {
     method: 'PUT', body: file,
-    headers: { 'Content-Type': file.type, 'Idempotency-Key': idempotencyKey },
+    headers: { ...headers, 'Content-Type': file.type, 'Idempotency-Key': idempotencyKey },
   })
   if (!res.ok) throw await apiError(res, 'Não foi possível armazenar o arquivo.')
   return res.json()
 }
 
-export async function deleteTenantStorageObject(bucket: string, relativePath: string): Promise<void> {
+export async function deleteTenantStorageObject(
+  headers: Record<string, string>, bucket: string, relativePath: string,
+): Promise<void> {
   const res = await fetch(`${API_BASE_URL}/api/v1/storage/objects/${storageObjectPath(bucket, relativePath)}`, {
-    method: 'DELETE',
+    method: 'DELETE', headers,
   })
   if (!res.ok) throw await apiError(res, 'Não foi possível excluir o arquivo.')
 }
 
-export async function signTenantStorageDownload(bucket: string, relativePath: string): Promise<{ url: string; expires_in: number }> {
-  const res = await fetch(`${API_BASE_URL}/api/v1/storage/objects/${storageObjectPath(bucket, relativePath)}/signed-url`)
+export async function signTenantStorageDownload(
+  headers: Record<string, string>, bucket: string, relativePath: string,
+): Promise<{ url: string; expires_in: number }> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/storage/objects/${storageObjectPath(bucket, relativePath)}/signed-url`, { headers })
   if (!res.ok) throw await apiError(res, 'Não foi possível autorizar o download.')
+  return res.json()
+}
+
+export interface ProductImage {
+  source: 'TENANT_UPLOAD' | 'DASHEM_LIBRARY' | 'LEGACY_URL'
+  url: string
+  expires_at?: string | null
+}
+
+export interface LibraryImage {
+  id: string
+  code: string
+  name: string
+  collection: string
+  tags: string[]
+  suggested_activities: string[]
+  url: string | null
+}
+
+/** The DASHEM shelf. Activity ranks the results; it never hides anything. */
+export async function fetchMediaLibrary(
+  headers: Record<string, string>, search?: string, activity?: string,
+): Promise<LibraryImage[]> {
+  const params = new URLSearchParams()
+  if (search) params.set('search', search)
+  if (activity) params.set('activity', activity)
+  const res = await fetch(`${API_BASE_URL}/api/v1/catalog/media-library?${params.toString()}`, { headers })
+  if (!res.ok) return []
+  return res.json()
+}
+
+export async function setProductMedia(
+  headers: Record<string, string>, productId: string,
+  input: { bucket_id?: string; object_path?: string; content_type?: string; size_bytes?: number; original_filename?: string; library_asset_id?: string },
+): Promise<Product> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/catalog/products/${productId}/media`, {
+    method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível definir a foto do produto.')
   return res.json()
 }
 

@@ -12,12 +12,12 @@ from sqlmodel import Session, select
 from app.core.context import TenantContext, resolve_actor, scope_tenant_query
 from app.models.catalog import (
     Category, Combo, ComboItem, InventoryBalance, ItemTypeEnum, Modifier,
-    ModifierGroup, Product, ProductModifierGroup, ProductPrice,
+    ModifierGroup, PlatformMediaAsset, Product, ProductModifierGroup, ProductPrice,
     QuickAccessProduct, StoreCatalogLayout, StoreCatalogLayoutItem,
 )
 from app.models.assortment import SalesContextEnum
 from app.services.assortment_service import resolve_effective_product_ids
-from app.services import reliability_service
+from app.services import media_service, reliability_service
 from app.modules.capabilities.service import capability_allowed_by_activity
 from app.services.contract_entitlement_service import resolve_contract_entitlements
 
@@ -274,6 +274,18 @@ def list_sellable_products(
         )}
         item.update(margin_percent=margin.quantize(Decimal("0.01")), is_low_stock=bool(values["tracks_inventory"] and Decimal(str(values["quantity"])) <= Decimal(str(values["minimum_stock"]))))
         items.append(item)
+
+    # The picture is resolved and signed here, for the whole page at once. A card
+    # that signed its own URL would turn a window of twenty items into twenty
+    # round trips, and the first ones would expire before the last ones loaded.
+    if items:
+        page_products = session.exec(scope_tenant_query(
+            select(Product).where(Product.id.in_([item["id"] for item in items])), Product, context,
+        )).all()
+        images = media_service.resolve_product_images(session, context, page_products)
+        for item in items:
+            item["image"] = images.get(item["id"])
+
     return {"items": items, "total": int(rows[0]._mapping["total_count"]) if rows else 0, "page": page, "page_size": page_size}
 
 
@@ -291,6 +303,78 @@ def set_quick_access(session: Session, context: TenantContext, product_id: uuid.
     _event(session, context, "catalog.quick_access.upserted", "product", product_id, {"position": position})
     session.commit(); session.refresh(quick)
     return quick
+
+
+def set_product_media(
+    session: Session, context: TenantContext, product_id: uuid.UUID, *,
+    bucket_id: Optional[str] = None, object_path: Optional[str] = None,
+    content_type: Optional[str] = None, size_bytes: int = 0,
+    original_filename: Optional[str] = None, library_asset_id: Optional[uuid.UUID] = None,
+) -> Product:
+    """Attach a stored picture to a product — uploaded, or chosen from the shelf.
+
+    `image_url` is left exactly as it was. A shop that pasted an address before
+    today keeps it; resolution simply prefers the asset from now on, and the old
+    value stays available if the asset is ever cleared.
+    """
+    product = _tenant_record(session, context, Product, product_id, "Produto")
+    if library_asset_id:
+        library = session.exec(select(PlatformMediaAsset).where(
+            PlatformMediaAsset.id == library_asset_id, PlatformMediaAsset.is_active == True,  # noqa: E712
+        )).first()
+        if not library:
+            raise HTTPException(status_code=404, detail="Imagem da biblioteca não encontrada.")
+        asset = media_service.adopt_library_asset(
+            session, context, library_asset=library, actor_id=_actor(context),
+        )
+    else:
+        if not bucket_id or not object_path or not content_type:
+            raise HTTPException(status_code=400, detail="Informe o arquivo enviado ou uma imagem da biblioteca.")
+        asset = media_service.register_tenant_upload(
+            session, context, bucket_id=bucket_id, object_path=object_path,
+            content_type=content_type, size_bytes=size_bytes,
+            original_filename=original_filename, actor_id=_actor(context),
+        )
+    product.primary_media_asset_id = asset.id
+    product.updated_at = datetime.utcnow()
+    session.add(product)
+    _event(session, context, "catalog.product.media_set", "product", product.id, {
+        "media_asset_id": str(asset.id), "source": asset.source,
+    })
+    session.commit()
+    session.refresh(product)
+    return product
+
+
+def search_media_library(
+    session: Session, context: TenantContext,
+    search: Optional[str] = None, activity: Optional[str] = None, limit: int = 60,
+) -> list[dict[str, Any]]:
+    """The DASHEM shelf. Activity ranks, it never filters something out.
+
+    A lamp shop may want a picture filed under food service, and refusing it
+    would be the platform deciding what the shopkeeper sells.
+    """
+    query = select(PlatformMediaAsset).where(PlatformMediaAsset.is_active == True)  # noqa: E712
+    if search:
+        term = f"%{search.strip()}%"
+        query = query.where(or_(
+            PlatformMediaAsset.name.ilike(term),
+            PlatformMediaAsset.code.ilike(term),
+            PlatformMediaAsset.tags.cast(String).ilike(term),
+        ))
+    rows = list(session.exec(query.limit(limit)).all())
+    if activity:
+        rows.sort(key=lambda asset: activity not in (asset.suggested_activities or []))
+    return [
+        {
+            "id": str(asset.id), "code": asset.code, "name": asset.name,
+            "collection": asset.collection, "tags": asset.tags,
+            "suggested_activities": asset.suggested_activities,
+            "url": (signed[0] if (signed := media_service.sign_library_asset(asset)) else None),
+        }
+        for asset in rows
+    ]
 
 
 ALL_ACTIVITIES = "ALL"
