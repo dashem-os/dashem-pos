@@ -31,7 +31,10 @@ seletor compartilhado com a comanda, agora registrado como dívida própria na
 seção 9; e o S9 deixou de ser `PARCIAL` por falta de tela — `PaymentProviderManager`
 existe, está montado na Gestão e cobre provider, bridge TEF e vínculo de
 maquininha. O S9 nunca foi o cadastro de produtos e sortimentos: esse é o S4,
-estendido pelo Gate 5.4.0.
+estendido pelo Gate 5.4.0. Ainda em 05/09, e por pergunta do dono, apurou-se que
+o **S9 jamais teve seção neste documento** — a seção 7 saltava de S8 para S10, e
+o sprint era avaliado contra um contrato que morava só no ADR-022. A seção foi
+escrita na posição dela, reconstruída a partir da evidência no repositório.
 
 Atualização de estado de 4 de setembro de 2026: o **Gate B foi promovido para
 `PASSED`** após a matriz OA-4 fechar `14/14` contra o deploy publicado, com o
@@ -794,6 +797,78 @@ Gate externo para ativação produtiva de cada provider:
 - certificação do fluxo, impressão, cancelamento, estorno e reconciliação concluída;
 - capability específica liberada somente para combinação homologada de
   tenant/store/terminal/provider.
+
+### S9 — Payment Providers e Dashem TEF Bridge
+
+Estado: **concluído no gate interno; homologação externa aberta.** Esta seção foi
+escrita em 05/09/2026, **reconstruída a partir da evidência no repositório**, e
+não transcreve um contrato original: o S9 foi construído inteiro e nunca teve
+seção própria neste documento — a seção 7 saltava de S8 para S10. A ausência teve
+custo: a auditoria de confronto de 04/09 avaliou o sprint sem ter a lista de
+entregas na mão, e o próprio dono do SaaS perguntou, em 05/09, onde o S9 estava.
+Onde o [ADR-022](../architecture/adr-022-payment-device-binding.md) é explícito,
+o texto abaixo o cita; onde não é, descreve o que o código faz, sem atribuir
+intenção que não esteja registrada.
+
+Objetivo: acoplar provider de pagamento e pinpad à venda sem que a regra de
+negócio dependa de qual adapter está instalado, e sem que o navegador escolha por
+onde o dinheiro passa.
+
+Contrato que o governa: ADR-022 (Gate C, aceito em 24/08/2026, `PASSED` em
+04/09/2026) e ADR-023 (Gate D, `PASSED` em 04/09/2026). Os oito critérios de
+aceite do ADR-022 são o gate deste sprint e não são repetidos aqui.
+
+Entregas, como existem em `app/models/provider.py` e `/api/v1/providers`:
+
+- `PaymentProviderConfiguration` — provider por unidade, com versão de adapter,
+  referência segura de credencial e timeout, único por `(tenant, store,
+  provider_code)`. Credencial é referência, nunca segredo em claro;
+- `TefBridgeTerminal` — bridge pareado a um caixa, com segredo de pareamento
+  guardado como hash, versão de protocolo, heartbeat, último erro e estado
+  `UNPAIRED → ONLINE → OFFLINE → DEGRADED`. Um caixa tem no máximo um bridge;
+- `PaymentDeviceBinding` — a rota autoritativa de um POS até a execução de
+  cartão, única por dispositivo operacional. Guarda caixa, dispositivo, provider,
+  modo de execução e, para TEF, o terminal pareado. Pausa e revogação registram
+  motivo;
+- `ProviderTransaction` e `ProviderTransactionEvent` — a transação no provider e
+  a sua trilha, com o vínculo usado preservado;
+- `PaymentExecutionEvent` — os quatro estágios `REQUESTED → APPROVED → EXECUTED
+  → RESULT_RECORDED` como fatos append-only, base do Gate D;
+- `OperationalProductivityProjection` — produtividade por sessão operacional,
+  reconstruível a partir dos fatos, com fórmulas publicadas;
+- onze rotas: configuração, vínculo com alteração de estado, pareamento e
+  heartbeat de bridge, execução, reconciliação e o callback pelo qual o bridge
+  reporta o resultado sob o próprio principal;
+- `provider_service._resolve_execution_binding`, que recompõe e revalida a cadeia
+  tenant → unidade → caixa → POS → provider → modo de execução na mesma
+  transação da execução;
+- `PaymentProviderManager` na Gestão, guardado pela capability `tef` e pela
+  permission `provider.read`, onde o lojista cadastra provider, pareia bridge,
+  cria vínculo de maquininha e pausa ou revoga — **entregue em 05/09/2026**, e é
+  a peça que faltava para o sprint deixar de ser `PARCIAL` pela régua da seção
+  10.
+
+O que este sprint deliberadamente **não** entrega:
+
+- **SmartPOS executável.** `SMARTPOS` é modo de vínculo, não promessa de
+  integração: sem adapter homologado a execução é recusada com 409 explícito, e
+  a própria tela diz isso. Nunca cai em cartão manual nem simula aprovação. A
+  superfície de operação do SmartPOS é assunto do S22, que não está autorizado;
+- **homologação de provider.** É contrato, credencial e certificação de
+  terceiro, permanece um gate externo e é uma das razões de o S21 seguir `NO-GO`;
+- **hardware do Print Bridge**, que é do S21.1 e não deste sprint.
+
+Prova, além dos oito critérios do ADR-022:
+
+- `tests/test_s9_payment_providers.py` — cobre os critérios 1, 4 e 5: payload
+  legado que escolhe provider e terminal é recusado com 422; bridge offline não
+  bloqueia dinheiro, PIX nem outra parcela; SmartPOS recusado com 409;
+- `tests/test_gate_c_payment_device_binding.py` — a matriz de cruzamento que
+  faltava: vínculo do tenant vizinho recusado nos dois sentidos, vínculo pausado
+  que deixa de executar e volta ao ser reativado, POS revogado que órfã o
+  vínculo, e o turno PIN que só executa pelo seu próprio POS;
+- `tests/test_gate_d_payment_audit.py` e `tests/test_gate_d_audit_completeness.py`
+  — imutabilidade da trilha e ausência de fato duplicado por resultado repetido.
 
 ### S10 — Dashem Channel Hub e External Order Inbox
 
