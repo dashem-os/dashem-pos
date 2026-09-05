@@ -1553,7 +1553,9 @@ Entregas previstas:
   ou cache por versão;
 - biblioteca DASHEM versionada e pesquisável, com atividades sugeridas,
   categorias e tags semânticas, coleção genérica, escrita exclusiva da
-  plataforma e leitura comum pelo resolvedor;
+  plataforma. **É camada de inspiração, não fallback**: o lojista escolhe uma
+  imagem dela ou sobe a própria, e o produto passa a referenciar o que foi
+  escolhido. O resolvedor nunca busca lá por conta própria;
 - upload privado integrado ao cadastro, substituindo o campo de endereço e
   removendo o campo duplicado, com as três funções de storage do cliente
   corrigidas para enviar contexto de tenant;
@@ -1565,8 +1567,25 @@ Gate:
 
 - tenant A nunca lê asset de tenant B, provado por teste que reprova se
   conseguir;
-- produto sem mídia própria cai na biblioteca e depois na inicial, nessa ordem,
-  sem tela vazia e sem inventar imagem;
+- **foto de tenant nunca entra na biblioteca da plataforma**, nem como sugestão,
+  nem como referência, nem por curadoria: o fluxo é de mão única, da plataforma
+  para quem quiser usar. Uma foto que o lojista subiu é dele e morre no
+  namespace dele;
+- **ninguém fora do tenant vê a foto, a DASHEM inclusive.** A consequência é
+  dura e vale registrar: a política de RLS da tabela de mídia **não leva a
+  cláusula `app.platform_access`** que as demais tabelas de tenant carregam.
+  Copiar o padrão da casa aqui abriria a escotilha da plataforma sobre o acervo
+  do lojista. O Owner continua medindo bytes para quota e cobrança, pelo que já
+  existe em `storage_measurements` — medir tamanho não é ver arquivo, caminho
+  nem miniatura, e nenhuma tela do Control lista asset de tenant;
+- a mídia é do tenant e serve todas as suas unidades; o que muda por unidade é a
+  ordem da vitrine, e por pessoa, a faixa de atalhos — a foto não ganha uma
+  quarta dimensão de escopo;
+- produto sem imagem escolhida cai na inicial, e **nunca** recebe uma foto da
+  biblioteca por conta própria: o sistema não decide como o item do lojista se
+  parece;
+- escolher da biblioteca não consome storage do tenant, então um tenant sem
+  contrato de storage tem vitrine com foto — só não sobe arquivo próprio;
 - endereço cadastrado antes de 04/09 continua exibindo, e a migração para asset
   é gradual e reversível;
 - a projeção resolve N imagens em uma chamada e o cartão não dispara assinatura
