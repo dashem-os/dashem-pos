@@ -17,8 +17,7 @@ import {
 } from 'lucide-react'
 import { usePos } from '../context/PosContext'
 import { useAuth } from '../context/AuthContext'
-import { ProductSearch } from '../components/pos/ProductSearch'
-import { QuickProductGrid } from '../components/pos/QuickProductGrid'
+import { CounterProductSelector } from '../components/pos/ProductSelector'
 import { Cart } from '../components/pos/Cart'
 import { SaleTotals } from '../components/pos/SaleTotals'
 import { PaymentDialog } from '../components/pos/PaymentDialog'
@@ -336,8 +335,7 @@ export const PosLayout: React.FC = () => {
                 </div>
               )}
             </div>
-            <ProductSearch />
-            <QuickProductGrid />
+            <CounterProductSelector />
           </div>
 
           {/* RIGHT COLUMN (DESKTOP >= 1024px): "Venda atual" + Items + Totals.

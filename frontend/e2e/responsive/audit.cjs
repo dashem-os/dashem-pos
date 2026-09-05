@@ -75,6 +75,34 @@ const openBill = [
     page => page.getByRole('button', { name: /^Mesa 01/ }).click(),
     click('Fechar conta completa'),
 ];
+cases.push({ name: 'table-product-selector', screen: 'tables', modal: true, steps: [
+    page => page.getByRole('button', { name: /^Mesa 01/ }).click(),
+    async page => {
+      await page.evaluate(() => {
+        window.__calls = [];
+        window.__handlers = {
+          fetchSellableProducts: async (_headers, options) => {
+            if (options.sales_context !== 'TABLE') throw new Error('Wrong sales context');
+            return { items: [{ id: 'table-product', name: 'Exclusivo de mesa', sku: 'MESA', sale_price: 32, quantity: 5, item_type: 'PRODUCT' }], total: 1 };
+          },
+          addOrderItem: async (...args) => { window.__calls.push(args); if (window.__calls.length === 1) throw new Error('Resposta perdida'); return {}; },
+        };
+      });
+    },
+    click('Escolher produtos'),
+    async page => {
+      const dialog = page.getByRole('dialog');
+      await dialog.getByRole('button', { name: /Exclusivo de mesa/ }).click();
+      await dialog.getByText(/Repita o mesmo item/).waitFor();
+      await dialog.getByRole('button', { name: /Exclusivo de mesa/ }).click();
+      await dialog.getByText(/lançado em Comanda 1/).waitFor();
+      const calls = await page.evaluate(() => window.__calls);
+      assert.equal(calls.length, 2);
+      assert.equal(calls[0][1], 'order-1');
+      assert.equal(calls[0][2], calls[1][2]);
+      assert.equal(calls[0][3].product_id, 'table-product');
+    },
+] });
 cases.push({ name: 'checkout-live-bill', screen: 'tables', steps: openBill });
 for (const mode of ['Tudo', 'Por pessoa', 'Por itens'])
     cases.push({ name: `checkout-mode-${mode}`, screen: 'tables', steps: [...openBill, click(mode)] });

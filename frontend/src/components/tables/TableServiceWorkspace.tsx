@@ -6,6 +6,7 @@ import {
 import { usePos } from '../../context/PosContext'
 import * as api from '../../services/api'
 import { formatApiDateTime, formatCurrency, parseApiDate } from '../../utils/format'
+import { TableProductSelector } from './TableProductSelector'
 
 
 const statusLabel: Record<api.ServiceTable['status'], string> = {
@@ -176,8 +177,7 @@ function SessionPanel({ session, availableSessions, availableTables, headers, pr
   session: api.TableSession | null; availableSessions: api.TableSessionSummary[]; availableTables: api.ServiceTableProjection[]; headers: Record<string, string>; products: api.SellableProduct[]; operatorId: string; permissions: string[]; cashSession: api.CashSession | null; registerId?: string; busy: boolean; setBusy: (value: boolean) => void; onChanged: (sessionId: string) => Promise<void>; onClosed: () => Promise<void>; onClose: () => void; showToast: (type: 'success' | 'error' | 'info', text: string) => void
 }) {
   const [orderId, setOrderId] = useState('')
-  const [productId, setProductId] = useState('')
-  const [quantity, setQuantity] = useState('1')
+  const [selectingProducts, setSelectingProducts] = useState(false)
   const [negotiation, setNegotiation] = useState<api.CheckoutNegotiation | null>(null)
   const [paymentMethod, setPaymentMethod] = useState<api.NegotiationPaymentMethod | 'TEF_CREDIT' | 'TEF_DEBIT'>('PIX')
   const [paymentAmount, setPaymentAmount] = useState('')
@@ -195,6 +195,7 @@ function SessionPanel({ session, availableSessions, availableTables, headers, pr
   const [pickedItems, setPickedItems] = useState<string[]>([])
   useEffect(() => {
     setOrderId(session?.orders.find((order) => order.status === 'OPEN')?.id || '')
+    setSelectingProducts(false)
     setNegotiation(null); setPaymentAmount(''); setCheckoutOrderId(''); setSettledOrderId('')
     setPayMode('ALL'); setPayerLabel(''); setPeopleCount('2'); setPickedItems([])
     setTransfer({ itemId: '', orderId: '', destinationId: '', quantity: '1', reason: '' })
@@ -213,13 +214,6 @@ function SessionPanel({ session, availableSessions, availableTables, headers, pr
     ...session.orders.flatMap((order) => order.items.map((item) => item.added_by)),
     ...session.events.map((event) => event.actor_id),
   ].filter(Boolean)))
-  const addItem = async () => {
-    if (!orderId || !productId || Number(quantity) <= 0) return
-    setBusy(true)
-    try { await api.addOrderItem(headers, orderId, crypto.randomUUID(), { product_id: productId, quantity: Number(quantity), actor_id: operatorId }); setProductId(''); setQuantity('1'); await onChanged(session.id); showToast('success', 'Item lançado na comanda.') }
-    catch (error) { showToast('error', error instanceof Error ? error.message : 'Não foi possível lançar o item.') }
-    finally { setBusy(false) }
-  }
   const addOrder = async () => {
     setBusy(true)
     try { const order = await api.addTableSessionOrder(headers, session.id, crypto.randomUUID(), { display_reference: `Comanda ${session.orders.length + 1}`, actor_id: operatorId }); await onChanged(session.id); setOrderId(order.id); showToast('success', 'Nova comanda criada na mesma sessão.') }
@@ -352,7 +346,12 @@ function SessionPanel({ session, availableSessions, availableTables, headers, pr
     finally { setBusy(false) }
   }
   return <aside className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-start justify-between gap-3"><div><p className="text-[10px] font-black uppercase tracking-[.16em] text-orange-600">{session.kind === 'TABLE' ? 'Sessão de mesa' : 'Comanda individual'}</p><h2 className="mt-1 text-xl font-black">{session.display_label}</h2><p className="mt-1 flex items-center gap-1 text-xs text-slate-500"><Clock3 className="h-3.5 w-3.5" />Aberta em {(parseApiDate(session.opened_at) ?? new Date()).toLocaleString('pt-BR')}</p></div><button onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 text-slate-500"><X className="h-4 w-4" /></button></div><div className="mt-4 grid grid-cols-1 gap-2 rounded-2xl bg-slate-50 p-3 text-center sm:grid-cols-3"><Metric label="Comandas" value={String(session.order_count)} /><Metric label="Itens" value={String(session.active_item_count)} /><Metric label="Total" value={formatCurrency(Number(session.consolidated_total))} /></div><p className="mt-2 text-xs font-bold text-slate-500">Atendimento auditado por {attendantIds.length} {attendantIds.length === 1 ? 'profissional' : 'profissionais'}; abertura, lançamentos e transferências preservam o ator de cada ação.</p>
-    {permissions.includes('table.session.update') && !negotiation && <div className="mt-4 space-y-3 rounded-2xl border border-slate-200 p-3"><div className="flex items-center justify-between"><p className="text-xs font-black">Lançamento incremental</p><button disabled={busy} onClick={() => void addOrder()} className="flex items-center gap-1 text-xs font-black text-orange-600"><Plus className="h-3.5 w-3.5" />Nova comanda</button></div><select value={orderId} onChange={(event) => setOrderId(event.target.value)} className="h-10 w-full rounded-xl border border-slate-300 px-3 text-sm">{activeOrders.map((order, index) => <option key={order.id} value={order.id}>{order.notes || `Comanda ${index + 1}`}</option>)}</select><div className="grid grid-cols-[1fr_76px] gap-2"><select value={productId} onChange={(event) => setProductId(event.target.value)} className="h-11 min-w-0 rounded-xl border border-slate-300 px-3 text-sm"><option value="">Selecione um produto real</option>{products.filter((product) => product.available_for_sale).map((product) => <option key={product.id} value={product.id}>{product.name} · {formatCurrency(Number(product.sale_price))}</option>)}</select><input aria-label="Quantidade" type="number" min="0.001" step="0.001" value={quantity} onChange={(event) => setQuantity(event.target.value)} className="h-11 rounded-xl border border-slate-300 px-3 text-sm" /></div><button disabled={busy || !orderId || !productId} onClick={() => void addItem()} className="h-11 w-full rounded-xl bg-orange-500 text-sm font-black text-white disabled:opacity-40">Lançar na comanda</button></div>}
+    {permissions.includes('table.session.update') && !negotiation && <div className="mt-4 space-y-3 rounded-2xl border border-slate-200 p-3">
+      <div className="flex items-center justify-between"><p className="text-xs font-black">Adicionar ao atendimento</p><button disabled={busy} onClick={() => void addOrder()} className="min-h-11 text-xs font-black text-orange-600">Nova comanda</button></div>
+      <label className="block text-sm font-bold">Comanda de destino<select aria-label="Comanda de destino" value={orderId} onChange={event => setOrderId(event.target.value)} className="mt-2 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-900">{activeOrders.filter(order => order.status === 'OPEN').map((order, index) => <option key={order.id} value={order.id}>{order.notes || `Comanda ${index + 1}`}</option>)}</select></label>
+      <button disabled={busy || !activeOrders.some(order => order.id === orderId && order.status === 'OPEN')} onClick={() => setSelectingProducts(true)} className="min-h-11 w-full rounded-xl bg-orange-600 px-4 text-sm font-black text-white disabled:opacity-40">Escolher produtos</button>
+    </div>}
+    {selectingProducts && session.orders.some(order => order.id === orderId) && <TableProductSelector key={`${session.id}/${orderId}`} session={session} order={session.orders.find(order => order.id === orderId)!} onClose={() => setSelectingProducts(false)} onChanged={() => onChanged(session.id)} />}
     <div className="mt-4 max-h-72 space-y-3 overflow-y-auto">{session.orders.map((order, index) => <article key={order.id} className="rounded-2xl border border-slate-200 p-3"><div className="flex items-center justify-between"><p className="text-xs font-black">{order.notes || `Comanda ${index + 1}`}</p><span className="text-xs font-bold text-slate-400">{order.status}</span></div>{order.items.filter((item) => item.status === 'ACTIVE').length === 0 ? <p className="mt-2 text-xs text-slate-400">Sem lançamentos.</p> : <div className="mt-2 space-y-2">{order.items.filter((item) => item.status === 'ACTIVE').map((item) => <div key={item.id} className="flex justify-between gap-3 text-xs"><span><b>{Number(item.quantity)}×</b> {item.product_name}</span><b>{formatCurrency(Number(item.unit_price) * Number(item.quantity))}</b></div>)}</div>}</article>)}</div>
     {permissions.includes('transfer.execute')&&!negotiation&&(destinationSessions.length>0||destinationTables.length>0)&&<section className="mt-4 space-y-3 rounded-2xl border border-violet-200 bg-violet-50 p-3">
       <p className="flex items-center gap-2 text-xs font-black text-violet-900"><ArrowRightLeft className="h-4 w-4"/>Mover ou juntar com linhagem</p>

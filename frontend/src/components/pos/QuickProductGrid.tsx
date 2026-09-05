@@ -1,15 +1,15 @@
 import React, { useState, useMemo } from 'react'
 import { Package, Plus, Star } from 'lucide-react'
-import { usePos } from '../../context/PosContext'
+import { useProductSelection } from './ProductSelectionContext'
 import { formatCurrency, formatStock } from '../../utils/format'
 import { ProductShowcase } from './ProductShowcase'
 
 export const QuickProductGrid: React.FC = () => {
-  const { products, categories, prices, balances, addItemToCart, actionLoading, permissions, connectionState, cashSession } = usePos()
+  const { products, categories, onPick, actionLoading, enabled } = useProductSelection()
   // A sale needs an open till, the same rule the search field already applied.
   // The grid only got away without it because it was never drawn on a closed
   // till — until managerial validation started reaching this screen.
-  const canSell = permissions.includes('sale.create') && connectionState === 'ONLINE' && cashSession?.status === 'OPEN'
+  const canSell = enabled
   const [activeTab, setActiveTab] = useState<string>('ALL')
 
   // Per-member, per-store quick access persisted by the backend.
@@ -34,7 +34,7 @@ export const QuickProductGrid: React.FC = () => {
       {/* What the house sells, first: the unit's window and the person's own
           band, before the alphabetical catalogue. Search below is for the long
           tail that does not earn a place on the first screen. */}
-      <ProductShowcase onPick={(product) => void addItemToCart(product.id)} disabled={!canSell} />
+      <ProductShowcase onPick={(product) => void onPick(product)} disabled={!canSell || actionLoading} />
 
       {emptyCatalogue && (
         <div className="w-full py-10 px-6 flex flex-col items-center justify-center bg-white border border-slate-200 rounded-2xl text-center shadow-sm">
@@ -105,15 +105,15 @@ export const QuickProductGrid: React.FC = () => {
       {/* Touch Grid of Product Cards */}
       <div className="grid grid-cols-1 min-[420px]:grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4" aria-label="Produtos disponíveis para venda">
         {filteredProducts.map((product) => {
-          const price = prices[product.id] ?? 0
-          const stock = balances[product.id] ?? 0
+          const price = Number(product.sale_price)
+          const stock = Number(product.quantity)
           const isService = product.item_type === 'SERVICE'
           const catName = product.category_name || (isService ? 'Serviço' : 'Sem categoria')
 
           return (
             <button
               key={product.id}
-              onClick={() => addItemToCart(product.id, 1)}
+              onClick={() => void onPick(product)}
               disabled={actionLoading || !canSell}
               className="group relative flex min-h-[148px] flex-col justify-between rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition-all hover:border-rose-400 hover:shadow-md active:scale-[0.98] select-none sm:min-h-[160px] sm:p-5"
             >

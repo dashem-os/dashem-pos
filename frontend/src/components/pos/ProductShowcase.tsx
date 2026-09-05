@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Check, ChevronLeft, ChevronRight, GripVertical, LayoutGrid, Star, X } from 'lucide-react'
 
-import { usePos } from '../../context/PosContext'
+import { useProductSelection } from './ProductSelectionContext'
 import * as api from '../../services/api'
 import { formatCurrency } from '../../utils/format'
 
@@ -28,7 +28,7 @@ interface Props {
 }
 
 export const ProductShowcase: React.FC<Props> = ({ onPick, disabled }) => {
-  const { products, tenant, store, permissions, operationMode, activeActivity, showToast } = usePos()
+  const { products, tenant, store, permissions, operationMode, activeActivity, showToast } = useProductSelection()
 
   const [layout, setLayout] = useState<api.StoreCatalogLayout | null>(null)
   const [personal, setPersonal] = useState<string[]>([])

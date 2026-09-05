@@ -1,12 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { Search, Barcode, X, CornerDownLeft, CheckCircle2, ChevronRight } from 'lucide-react'
-import { usePos } from '../../context/PosContext'
+import { useProductSelection } from './ProductSelectionContext'
 import { SellableProduct } from '../../services/api'
 import * as api from '../../services/api'
 import { formatCurrency, formatStock } from '../../utils/format'
 
 export const ProductSearch: React.FC = () => {
-  const { tenant, store, prices, balances, activeActivity, addItemToCart, showToast, actionLoading, cashSession, permissions, connectionState, operationMode } = usePos()
+  const { tenant, store, activeActivity, onPick, actionLoading, enabled, operationMode } = useProductSelection()
   const [query, setQuery] = useState('')
   const [searchResults, setSearchResults] = useState<SellableProduct[]>([])
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
@@ -14,8 +14,8 @@ export const ProductSearch: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null)
   const requestVersion = useRef(0)
   const [searchMessage, setSearchMessage] = useState('')
-  const isCashOpen = cashSession?.status === 'OPEN'
-  const canSell = permissions.includes('sale.create') && connectionState === 'ONLINE'
+  const isCashOpen = enabled
+  const canSell = enabled
 
   const lookup = async (term: string) => {
     if (!tenant || !store) throw new Error('Sessão indisponível')
@@ -92,7 +92,8 @@ export const ProductSearch: React.FC = () => {
 
   const handleSelectProduct = async (product: SellableProduct) => {
     playBeep()
-    const ok = await addItemToCart(product.id, 1)
+    if (!enabled || actionLoading) return
+    const ok = await onPick(product)
     if (ok) {
       setQuery('')
       setSearchResults([])

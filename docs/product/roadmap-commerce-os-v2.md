@@ -21,6 +21,11 @@ Ele converte a `CheckoutNegotiation` de snapshot de fechamento em conta viva, co
 projeção de settlement por item, identidade do pagador e segurança sob
 concorrência entre terminais.
 
+Nota de aceite atual do S23: o registro histórico abaixo não representa fechamento
+integral. A integração compartilhada com a comanda foi implementada após esse
+registro, e aguarda aceite operacional. A seção S23 e a matriz da seção 9
+prevalecem sobre referências históricas a "fechado" ou "metade aberta".
+
 Atualização de estado de 5 de setembro de 2026: **S23 e S24 foram contratados,
 construídos e dados por entregues no gate interno**, por decisão do dono do SaaS
 depois de ver as duas na tela — vitrine com estado vazio honesto, cartão com
@@ -1573,8 +1578,8 @@ Dependências e por que não é agora:
 
 ### S23 — Vitrine operacional e seleção de produto compartilhada
 
-Estado: **entregue no gate interno em 05/09/2026, com uma entrega da lista em
-aberto**. Contratado em 04/09 e construído em seguida: migração
+Estado: **parcial; integração do seletor na comanda implementada, em validação**.
+O aceite anterior cobria o balcão, não o gate integral. Contratado em 04/09 e construído em seguida: migração
 `073_store_catalog_layout`, rotas `GET`/`PUT /catalog/layout` e
 `/catalog/quick-access`, permissions `catalog.layout.manage` e
 `catalog.layout.personalize` semeadas nos perfis, `ProductShowcase` com as duas
@@ -1584,11 +1589,12 @@ produto arquivado e ordenação sem `catalog.update`. O dono observou a tela em
 05/09: vitrine vazia anuncia a si mesma — "a vitrine desta unidade ainda não foi
 montada" —, o cartão exibe a foto e um toque lança no balcão.
 
-**O que continua aberto:** o seletor visual compartilhado com a comanda.
-`ProductShowcase` é consumido apenas por `QuickProductGrid`, no PDV;
-`TableServiceWorkspace` ainda lança item por um campo de identificador de
-produto, chamando `addOrderItem` sem vitrine, foto nem busca. A metade "balcão"
-da entrega está feita; a metade "mesa" não.
+**Atualização da implementação:** `ProductSelector` reúne busca, categorias,
+grade e vitrine, com escopo explícito em `ProductSelectionProvider`.
+`CounterProductSelector` mantém o comando de venda; `TableProductSelector`
+consulta `TABLE`/`FOOD_SERVICE` e lança por `addOrderItem` na comanda identificada.
+O aceite operacional em ambiente publicado ainda é necessário; implementação
+não equivale a homologação completa de todos os critérios abaixo.
 
 Existe para que a tela inicial da operação seja o que a casa realmente vende,
 arrumado por quem conhece o movimento, e para que lançar um item seja um toque
@@ -1618,7 +1624,8 @@ Entregas previstas:
   **posição** das duas tabelas passam a `DEFERRABLE INITIALLY DEFERRED`,
   enquanto a unique de produto dentro do layout permanece imediata;
 - renderização em duas faixas — "Meus atalhos" acima, "Vitrine da unidade"
-  abaixo — sem repetir item que já está na vitrine;
+  abaixo. Um produto pode aparecer nas duas: atalhos pessoais nunca deslocam
+  as posições da vitrine compartilhada;
 - modo explícito "Personalizar vitrine" para o arraste, separado do toque de
   venda e da rolagem, dimensionado para toque;
 - seletor visual de produto compartilhado entre PDV e comanda: vitrine, imagem,
@@ -2053,7 +2060,7 @@ S7 + S8 + S11 → S12 Transferências
 
 ATENDIMENTO E CONTA VIVA
 S8 + S12 → S25 Liquidação progressiva da comanda
-S23 → seletor compartilhado PDV/comanda (metade aberta)
+S23 → seletor compartilhado PDV/comanda (implementado; aceite operacional pendente)
 
 OMNICHANNEL
 S4 + S6 → S10 Channel Hub
@@ -2118,7 +2125,7 @@ e aparece como `não configurada`, nunca como pronta.
 | Imagem do produto listada no S4 e nunca entregue na interface | S4 → 5.4.4 → **S24** | cadastro, listagem e PDV exibindo mídia persistida | **resolvido no S24, entregue em 05/09/2026**: `primary_media_asset_id`, resolvedor determinístico, projeção resolvendo N imagens em uma chamada, biblioteca DASHEM e upload privado integrado ao cadastro. `image_url` permanece como compatibilidade, nunca reescrita. Verificado na tela pelo dono em 05/09 |
 | Ordenar o próprio botão exige poder sobre o catálogo inteiro | S23 | permission de layout separada da permission de catálogo | **resolvido no S23, entregue em 05/09/2026**: `catalog.layout.manage` e `catalog.layout.personalize` criadas na migração `073`, semeadas nos perfis e exigidas pelas rotas de layout. Um caixa ordena os próprios atalhos sem receber poder sobre produtos e preços |
 | Acesso rápido grava uma posição por vez e recusa posição ocupada | S23 | reorder atômico do array inteiro, com versão e auditoria | **resolvido no S23, entregue em 05/09/2026**: o `PUT` recebe a lista inteira com versão esperada, e as uniques de posição das duas tabelas passaram a `DEFERRABLE INITIALLY DEFERRED`. Colisão real responde **409**, nunca 500 |
-| Comanda lança item por identificador, sem a vitrine que o balcão já tem | S23 (metade aberta) | um seletor visual compartilhado, com comando distinto por jornada | **dívida aberta, apurada em 05/09**: `ProductShowcase` é consumido só por `QuickProductGrid`. `TableServiceWorkspace` chama `addOrderItem` a partir de um campo de identificador de produto — sem foto, sem categoria e sem busca. O contrato do S23 previa o componente compartilhado; entregou-se o balcão |
+| Comanda sem seletor visual | S23 (aceite pendente) | um seletor visual compartilhado, com comando distinto por jornada | **implementado, aguardando aceite operacional**: `ProductSelector` é compartilhado pelos adaptadores do balcão e da mesa. A mesa consulta `TABLE`/`FOOD_SERVICE`, identifica o destino e chama `addOrderItem`. Ver `docs/quality/s23-shared-selector-acceptance.md` |
 | Atividade contratada sem efeito sobre o conteúdo publicado | 5.4.0 + 5.4.1 | atividade como dimensão do sortimento, resolvida no servidor | resolvido em 03/09: `assortments.business_activity`, migration 070, recusa 403 para atividade não contratada |
 | Conjunto legado publicando conteúdo de outro nicho no PDV | 5.4.0 | decisão administrativa explícita para reclassificar ou aposentar | resolvido em 03/09: ação de Gestão publica o conjunto da atividade e aposenta o não classificado, sem apagar nada |
 | Vocabulário do console assumindo alimentação para todo tenant | 5.4.4 | termo por atividade como dado extensível | **corrigido por condicional binário em 03/09; classe do problema em aberto** |

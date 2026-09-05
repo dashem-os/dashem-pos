@@ -294,8 +294,10 @@ test('managerial validation reaches the POS workspace with the till closed', asy
     'A conferência gerencial não pode depender de um caixa aberto.',
   )
   // And nothing may be sold from it: a sale needs a till, whoever is looking.
+  const selector = await source('../src/components/pos/ProductSelector.tsx')
+  assert.match(selector, /enabled:[^\n]*cashSession\?\.status === 'OPEN'/)
   const grid = await source('../src/components/pos/QuickProductGrid.tsx')
-  assert.match(grid, /canSell =[^\n]*cashSession\?\.status === 'OPEN'/)
+  assert.match(grid, /disabled=\{actionLoading \|\| !canSell\}/)
 })
 
 test('the permission matrix alone decides the cash controls', async () => {
