@@ -15,6 +15,12 @@ detalhada nos Sprints corretivos 5.2–5.4 de
 Essa trilha não renumera nem substitui os Sprints canônicos abaixo; o pré-piloto,
 storage comercial e homologações externas preservam seus próprios gates.
 
+Atualização de contrato de 5 de setembro de 2026: o **S25 — Liquidação
+progressiva da comanda** foi contratado pelo dono do SaaS e escrito na seção 7.
+Ele converte a `CheckoutNegotiation` de snapshot de fechamento em conta viva, com
+projeção de settlement por item, identidade do pagador e segurança sob
+concorrência entre terminais.
+
 Atualização de estado de 5 de setembro de 2026: **S23 e S24 foram contratados,
 construídos e dados por entregues no gate interno**, por decisão do dono do SaaS
 depois de ver as duas na tela — vitrine com estado vazio honesto, cartão com
@@ -1663,6 +1669,189 @@ Gate:
 O primeiro marco é a biblioteca, não o upload: ela dá foto a todo tenant sem
 depender de entitlement comercial nem de arquivo do lojista.
 
+### S25 — Liquidação progressiva da comanda (Live Settlement)
+
+Contratado com o dono do SaaS em 5 de setembro de 2026, **não iniciado**. Nasce
+de uma leitura do dono sobre a proposta errada deste agente: a de separar itens
+em uma "comanda irmã" para permitir que cada pessoa pagasse a sua parte. A
+correção é a origem desta sprint e vale registrar, porque muda o que se
+constrói: **pagador não é comanda**. O hambúrguer foi pedido naquela mesa,
+produzido para aquela mesa e entregue naquela mesa; só o seu estado financeiro
+mudou. Mover o item para representar quem paga criaria uma associação artificial
+que contamina KDS, produção, auditoria, cancelamento, estorno, desconto, taxa de
+serviço, fiscal, conciliação e transferência real de mesa.
+
+Objetivo: permitir que uma sessão operacional permaneça aberta e continue
+recebendo consumo enquanto partes da obrigação financeira são liquidadas por
+diferentes pagadores, preservando rastreabilidade por item, concorrência segura
+e independência entre produção e pagamento.
+
+Contexto — **o mecanismo já existe quase inteiro, e o que falta não é pagamento
+por item.** A auditoria de 05/09 encontrou construído:
+
+- o ciclo parcial completo. `confirm_intent` põe a negociação em
+  `PARTIALLY_COVERED` enquanto sobra saldo e em `COVERED` quando
+  `remaining == 0`; `PARTIALLY_COVERED` pertence a `ACTIVE_NEGOTIATIONS`, então
+  novas parcelas continuam sendo aceitas; `remaining` é recalculado como
+  `total_due − confirmed − receivable_covered`; e `finalize` é comando separado,
+  admitido só em `COVERED`. `finalize` já significa "a conta inteira terminou",
+  nunca "este pagador terminou";
+- a sessão de mesa vai a `PARTIALLY_PAID` na primeira confirmação, e esse estado
+  pertence a `ACTIVE_SESSIONS` — a mesa não fecha por ter recebido pagamento;
+- **alocação por item**: `PaymentAllocation.order_item_id` existe, e
+  `create_intent` valida que o item pertence a um Order da negociação antes de
+  persistir;
+- **reserva**, mas só no total da conta: `_totals` separa `processing_amount` das
+  parcelas `PENDING`/`PROCESSING`, e `create_intent` só aceita
+  `remaining − processing`. O intervalo entre criar e confirmar já é respeitado
+  no agregado;
+- **lock transacional**: `_locked_negotiation` faz `SELECT ... FOR UPDATE` na
+  negociação, e `create_intent` e `confirm_intent` passam por ele. Dois terminais
+  pagando a mesma conta já serializam.
+
+O que falta é a semântica. A negociação hoje é o **snapshot congelado de uma
+conta que está fechando**, e o que a operação real pede é uma **conta viva que
+vai sendo liquidada**:
+
+```text
+hoje                          contratado
+"vou fechar a conta"          mesa aberta, consumo continua
+  → snapshot                    → Marcelo paga alguns itens → PARTIALLY_COVERED
+  → consumo muda                → entram itens novos → a conta absorve o saldo
+  → INVALIDATED                 → Astra paga outros itens
+                                → último saldo pago → COVERED → FINALIZED
+```
+
+Os quatro pontos concretos que impedem o comportamento contratado:
+
+1. **Consumo novo mata a conta.** `_validate_source` compara a versão da sessão
+   com `negotiation.source_version` e, ao ver diferença, marca `INVALIDATED` e
+   responde 409 "O consumo mudou. Reabra a conta". Lançar uma cerveja depois de
+   Marcelo pagar impede o pagamento seguinte. Os pagamentos não se invalidam
+   entre si — `confirm_intent` ressincroniza `source_version` —, mas o consumo de
+   fora derruba;
+2. **`order_item_id` é escrito e nunca lido.** Não há soma por item, nada compara
+   as alocações com o total do item, e a projeção devolve as alocações cruas.
+   Hoje dois pagadores podem alocar o mesmo whisky, desde que o total da conta
+   feche;
+3. **Não existe pagador.** `PaymentIntent` tem `created_by` e `confirmed_by`, que
+   são o operador. Quem pagou não é registrado em lugar nenhum;
+4. **`cancel_item` não tem guarda financeira nenhuma.** Ele exige apenas que o
+   Order esteja `OPEN` e cancela. Sob o modelo de snapshot isso ficava mascarado
+   pela invalidação; numa conta viva, é o caminho para cancelar um item que
+   alguém já pagou.
+
+Entregas, em cinco contratos:
+
+**1. Live negotiation reconciliation.** A negociação absorve mudança compatível
+do consumo em vez de invalidar: `total_due` é recalculado, `NegotiationOrder`
+ganha as linhas novas, `source_version` acompanha, e nenhuma parcela confirmada
+nem alocação existente é tocada. A fronteira **não** é "aditivo absorve,
+alteração recusa" — é econômica e vale por item:
+
+```text
+item_total_depois_da_mudança  >=  settled_amount + reserved_amount
+```
+
+Assim, cancelar uma pizza de R$ 60 que ninguém pagou é permitido e derruba o
+devido; reduzir para R$ 30 um whisky de R$ 40 já liquidado é recusado; e uma
+pizza de R$ 80 com R$ 20 liquidados aceita mudanças que a mantenham em R$ 20 ou
+mais. A regra é mais forte do que bloquear qualquer item que tenha alocação, e é
+o que `cancel_item`, `transfer_item` e a edição de quantidade passam a consultar.
+
+**2. Item settlement projection.** Por `OrderItem`: `item_total`,
+`settled_amount`, `reserved_amount`, `available_amount` e `is_paid`, com
+`available = item_total − settled − reserved`, resolvidos no servidor. Enquanto
+o cartão do Claude está passando, o segundo terminal lê "em pagamento" no
+whisky, e não "disponível R$ 40". Confirmação move `reserved → settled`; falha,
+cancelamento ou expiração devolve `reserved → available`.
+
+**3. Allocation invariants.** Nenhuma alocação pode liquidar ou reservar acima do
+disponível econômico do item. `amount` é a única verdade financeira: **não** se
+guarda `quantity` na alocação, porque duas fontes canônicas podem discordar e
+"metade da pizza" não tem quantidade inteira. A tela oferece "1 de 4 cervejas ·
+R$ 12" derivando de `amount / unit_price`, e o ledger guarda `amount`. Isso
+atende rateio, couvert, desconto e item compartilhado sem deformar o modelo.
+
+**4. Payer identity.** A parcela passa a registrar quem pagou, sem confundir com
+o operador que executou. `payer_label` textual, obrigatório o bastante para a
+tela dizer "PAGO · Marcelo", mais `customer_id` opcional para o dia em que o
+valor for lançado na conta de um cliente cadastrado ou de uma empresa. Nenhum
+cadastro é exigido para dividir uma conta entre amigos.
+
+**5. Concurrent settlement safety.** Dois terminais nunca se apropriam do mesmo
+saldo. O lock que já existe em `_locked_negotiation` é a base, e o cálculo por
+item passa a acontecer **dentro** dessa mesma transação — recalcular
+`item_total`, `settled` e `reserved`, exigir `requested <= available` e só então
+criar a reserva. Fica registrado um buraco que o lock atual não cobre e que esta
+sprint fecha: `uq_active_negotiation_scope` impede duas negociações ativas com o
+mesmo `scope_key`, mas `table-session:<id>` e `orders:<id>` são chaves
+diferentes, de modo que uma conta da mesa e uma conta de uma comanda daquela
+mesma mesa podem coexistir e alocar os mesmos itens.
+
+`COVERED` deixa de ser terminal, e isso é contrato, não detalhe. Conta de R$ 100
+integralmente paga, e antes de o operador finalizar alguém pede mais duas
+cervejas: a negociação volta a `PARTIALLY_COVERED` com `remaining = R$ 24`.
+`COVERED` significa apenas "neste instante, todo o consumo conhecido está
+coberto". O ponto irreversível é `FINALIZED` — depois dele não entra consumo,
+não entra alocação e não há alteração ordinária; correção passa a ser estorno,
+cancelamento, refund ou ajuste fiscal, pelos fluxos próprios.
+
+```text
+OPEN → PARTIALLY_COVERED ⇄ COVERED → FINALIZED
+         ↑ mais consumo, mais pagamentos ↓
+```
+
+Só então a interface, e a economia do desenho aparece aqui: **pagar tudo,
+dividir por pessoa e pagar por itens deixam de ser três funcionalidades.** São
+três formas de construir `PaymentAllocation` sobre o mesmo motor de settlement.
+
+- **Pagar tudo** — toma todo o saldo aberto da comanda;
+- **Dividir por pessoa** — quatro pessoas, saldo de R$ 400, R$ 100 para cada,
+  com ajuste;
+- **Pagar por itens** — marca hambúrguer e coca, total R$ 45, paga; os itens
+  passam a aparecer como `PAGO · Marcelo` e saem da lista do próximo pagador. A
+  mesa continua aberta.
+
+Gate:
+
+- consumo novo entra numa conta parcialmente paga sem invalidar nada: as
+  parcelas confirmadas permanecem, as alocações por item permanecem, e o devido
+  cresce;
+- cancelar item sem liquidação derruba o devido; cancelar ou reduzir item abaixo
+  de `settled + reserved` é recusado, por `cancel_item`, por `transfer_item` e
+  por qualquer edição de quantidade;
+- **estado de produção não é alterado por operação de pagamento, em nenhum
+  caminho.** `PENDING`, `PREPARING`, `READY` e `DELIVERED` respondem à cozinha;
+  `OPEN`, `PARTIALLY_PAID` e `PAID` respondem ao caixa. Um whisky `DELIVERED +
+  PAID`, uma pizza `DELIVERED + OPEN` e um hambúrguer `PREPARING + OPEN`
+  convivem na mesma comanda;
+- a guarda `READY`/`DELIVERED` de `transfer_item` **não é enfraquecida**: ela
+  protege operação de produção concluída, e nada nesta sprint pede que um item
+  mude de comanda para ser pago;
+- dois terminais tentando pagar o mesmo whisky: um reserva, o outro lê
+  `available = 0` e vê "em pagamento" — provado por teste com transações
+  concorrentes reais, não por checagem sequencial em Python;
+- parcela que falha, é cancelada ou expira devolve o saldo do item a
+  `available`, e o item volta a ser pagável;
+- Σ alocações de um item nunca excede o total do item, provado por teste que
+  reprova se conseguir;
+- `COVERED` volta a `PARTIALLY_COVERED` quando entra consumo antes da
+  finalização, com teste explícito;
+- depois de `FINALIZED` não entra consumo nem alocação;
+- uma conta da mesa e uma conta de uma comanda daquela mesa não podem alocar o
+  mesmo item;
+- isolamento tenant/store e permissions testados negativamente;
+- migration com upgrade, downgrade e drift check verdes.
+
+Dependências e fronteiras: depende do S8 (negociação, parcelas, alocações) e do
+S12 (sessão, comandas, linhagem), ambos concluídos no gate interno. **Não**
+depende de homologação de provider — a divisão funciona com dinheiro, PIX e
+cartão manual, e o TEF só torna a reserva mais visível, porque nele o intervalo
+entre criar e confirmar a parcela é real. Fecha a dívida "Conta não pode ser
+dividida por pessoa" da seção 9 e substitui a proposta de comanda irmã, que fica
+registrada como **recusada** para que ninguém a reintroduza.
+
 ## 8. Dependências e ordem de execução
 
 ```text
@@ -1678,6 +1867,10 @@ S7 + core financeiro existente → S8 CheckoutNegotiation/Orchestrator → S9 TE
 OPERAÇÃO FOOD SERVICE
 S4 + S6 + S10 → S11 Production/KDS
 S7 + S8 + S11 → S12 Transferências
+
+ATENDIMENTO E CONTA VIVA
+S8 + S12 → S25 Liquidação progressiva da comanda
+S23 → seletor compartilhado PDV/comanda (metade aberta)
 
 OMNICHANNEL
 S4 + S6 → S10 Channel Hub
@@ -1749,7 +1942,12 @@ e aparece como `não configurada`, nunca como pronta.
 | Conteúdo inicial por atividade em constante compilada | 5.4.4 | dado versionado e auditável, restrito a tenant interno ou de teste | **dívida aberta, criada em 03/09** |
 | Atividade ativa do PDV mantida apenas no cliente | 5.4.4 + Gate B | escolha persistida na sessão operacional e auditável | **dívida aberta, criada em 03/09** |
 | Junção de mesas existe no servidor e não na tela | S12 | mesclagem alcançável pelo garçom, com linhagem visível | resolvido e testado em 04/09: item, comanda, sessão, separação para mesa livre, mesclagem e histórico estão alcançáveis na operação |
-| Conta não pode ser dividida por pessoa | S8 + S12 | Order por pessoa/grupo e allocations na `CheckoutNegotiation` | resolvido e testado em 04/09: a negociação pode cobrir uma comanda em parcelas, finalizá-la e manter os demais grupos ativos |
+| Conta não pode ser dividida por pessoa | **S25** | alocação por item sobre uma conta viva, sem mover item de comanda | **reaberta e reclassificada em 05/09**: o que foi resolvido em 04/09 é pagar *uma comanda inteira* em parcelas mantendo as demais ativas. Dividir por item dentro de uma comanda — Marcelo paga o hambúrguer, Astra paga o whisky, o resto segue aberto — não existe. A proposta deste agente de separar itens em uma comanda irmã foi **recusada pelo dono em 05/09**: pagador não é comanda, e mover o item contamina KDS, produção, auditoria, estorno, fiscal e conciliação |
+| Negociação invalida ao ver consumo novo | S25 | conta viva que absorve o saldo acrescentado | **dívida apurada em 05/09**: `_validate_source` compara a versão da sessão com `source_version` e marca `INVALIDATED` na primeira diferença. Depois de alguém pagar, uma cerveja lançada na mesa impede o pagamento seguinte. A negociação é snapshot de fechamento, e a operação real pede liquidação progressiva |
+| `order_item_id` é escrito na alocação e nunca lido | S25 | projeção de settlement por item com invariante de saldo | **dívida apurada em 05/09**: nada soma alocações por item nem compara com o total dele. Dois pagadores podem alocar o mesmo whisky desde que o total da conta feche. Falta `settled`/`reserved`/`available`/`is_paid` por item |
+| Parcela registra o operador e não o pagador | S25 | `payer_label` e `customer_id` opcional na parcela | **dívida apurada em 05/09**: `PaymentIntent` tem `created_by` e `confirmed_by`, que são quem operou. Não há como a tela dizer "PAGO · Marcelo", nem lançar o valor na conta de um cliente cadastrado |
+| `cancel_item` não consulta cobertura financeira | S25 | `item_total >= settled + reserved` como fronteira única | **dívida apurada em 05/09**: `cancel_item` exige apenas que o Order esteja `OPEN`. Sob o snapshot isso ficava mascarado pela invalidação; numa conta viva é o caminho para cancelar um item já pago |
+| Conta da mesa e conta de uma comanda dela podem coexistir | S25 | mesmo item nunca alocado por duas negociações | **dívida apurada em 05/09**: `uq_active_negotiation_scope` impede duas negociações ativas no mesmo `scope_key`, mas `table-session:<id>` e `orders:<id>` são chaves diferentes |
 | SmartPOS existe só como meio de pagamento, não como superfície de operação | S22 proposto em 04/09 | execução local distinta de `TEF_BRIDGE`, com adapter homologado e sem login humano na maquininha | **lacuna levantada em 04/09**: `PaymentDeviceExecutionModeEnum.SMARTPOS` trata a maquininha como destino de cobrança. Um SmartPOS de campo roda o ponto de venda inteiro, e isso não está modelado em lugar nenhum |
 | Owner tratado como domínio e não como camada | [ADR-029](../architecture/adr-029-module-boundaries-and-owner-layer.md) | nenhum serviço de tenant lê tabela do Owner; direitos consultados por contrato | **regra dura estabelecida em 04/09**, sem baseline e sem exceção prevista. Verificada por `test_no_tenant_module_reaches_into_the_owner_layer`, hoje verde |
 | Cadastro de dispositivo não distingue ponto de operação, navegador e periférico | S21.1 | pareamento verificado por tipo, com credencial de dispositivo em vez de texto livre | **dívida aberta, criada em 04/09**: `operational_devices` guarda POS, KDS e PRINTER na mesma forma, e o periférico é declarado por uma string `configuration_ref` que ninguém valida. Na tela, cadastrar impressora ou terminal de produção pede um texto do tipo `bridge://cozinha/impressora-01` sem provar que o bridge existe. Maquininha não passa por aqui: vive em `PaymentDeviceBinding` (S9), em outro módulo, sem que a tela de terminais diga isso |
@@ -1914,9 +2112,17 @@ e à tela. A sexta, o resultado item a item, ficou fora por decisão de desenho:
 palavra do marketplace. A certificação de canal permanece um gate externo e
 independente: nada disso antecipa piloto comercial.
 
-**Próximo passo em aberto**, a decidir com o dono: o S8 (fechamento de balcão
-ainda no caminho antigo de `Sale`, e conta que não se divide por pessoa), a
-metade "comanda" do S23, ou os periféricos do S21.1.
+**Contratado em 05/09/2026, ainda não iniciado: o S25 — Liquidação progressiva
+da comanda.** A conversa que o produziu começou como "dividir a conta" e terminou
+mudando o que a negociação é: de snapshot congelado de um fechamento para uma
+conta viva que recebe consumo enquanto vai sendo liquidada por vários pagadores.
+A auditoria de 05/09 mostrou que o ciclo parcial e a alocação por item já estão
+construídos; o que falta é a semântica, a projeção por item, o pagador e a
+segurança sob concorrência entre terminais. Fica registrado o que foi **recusado**
+no caminho: separar itens em uma comanda irmã para representar quem paga.
+
+Continuam em aberto, sem contrato: o fechamento de balcão do S8, ainda no caminho
+antigo de `Sale`; a metade "comanda" do S23; e os periféricos do S21.1.
 
 O Gate B foi **fechado em 04/09/2026** e não bloqueia mais o pré-piloto. O ciclo
 que o fechou foi:
