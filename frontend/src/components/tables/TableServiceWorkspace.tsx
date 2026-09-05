@@ -5,7 +5,7 @@ import {
 
 import { usePos } from '../../context/PosContext'
 import * as api from '../../services/api'
-import { formatApiDateTime, formatCurrency, parseApiDate } from '../../utils/format'
+import { formatApiDateTime, formatCurrency, millisecondsSince, parseApiDate } from '../../utils/format'
 import { TableProductSelector } from './TableProductSelector'
 
 
@@ -330,6 +330,33 @@ function SessionPanel({ session, availableSessions, availableTables, headers, pr
     } catch (error) { showToast('error', error instanceof Error ? error.message : 'Não foi possível confirmar a parcela.') }
     finally { setBusy(false) }
   }
+  const queryParcel = async (intentId: string) => {
+    setBusy(true)
+    try {
+      const updated = await api.queryNegotiationPaymentIntent(headers, intentId, operatorId)
+      setNegotiation(updated)
+      const parcel = updated.intents.find((row) => row.id === intentId)
+      showToast(
+        parcel?.awaiting_provider ? 'info' : 'success',
+        parcel?.awaiting_provider
+          ? 'O provider ainda não respondeu. A reserva continua com esta pessoa.'
+          : 'Resultado recebido do provider.',
+      )
+    } catch (error) { showToast('error', error instanceof Error ? error.message : 'Não foi possível consultar o pagamento.') }
+    finally { setBusy(false) }
+  }
+  const cancelParcel = async (intentId: string) => {
+    setBusy(true)
+    try {
+      const updated = await api.cancelNegotiationPaymentIntent(headers, intentId, crypto.randomUUID(), {
+        reason: 'Reserva cancelada no balcão sem cobrança iniciada', actor_id: operatorId,
+      })
+      setNegotiation(updated); setPickedItems([])
+      setPaymentAmount(String(Number(updated.remaining_amount).toFixed(2)))
+      showToast('success', 'Reserva cancelada; o item voltou a ficar disponível.')
+    } catch (error) { showToast('error', error instanceof Error ? error.message : 'Não foi possível cancelar a reserva.') }
+    finally { setBusy(false) }
+  }
   const finalize = async () => {
     if (!negotiation) return
     setBusy(true)
@@ -365,7 +392,7 @@ function SessionPanel({ session, availableSessions, availableTables, headers, pr
     {permissions.includes('transfer.read')&&transferHistory.length>0&&<details className="mt-3 rounded-2xl border border-slate-200 p-3"><summary className="cursor-pointer text-xs font-black text-slate-700">Histórico de movimentações ({transferHistory.length})</summary><div className="mt-3 space-y-2">{transferHistory.slice(0,10).map((record)=><div key={record.id} className="rounded-xl bg-slate-50 p-3 text-xs"><div className="flex items-center justify-between gap-2"><b>{record.transfer_type==='ITEM'?'Item transferido':record.transfer_type==='ORDER'?'Comanda transferida':record.transfer_type==='SESSION_MOVE'?'Atendimento mudou de mesa':'Atendimentos unidos'}</b><span>{formatApiDateTime(record.created_at)}</span></div><p className="mt-1 text-slate-600">{record.reason}</p><p className="mt-1 text-slate-500">Ator {record.actor_id===operatorId?'atual':record.actor_id.slice(0,8)}</p></div>)}</div></details>}
     {session.active_item_count === 0 && permissions.includes('table.session.close') && <button disabled={busy} onClick={() => void close()} className="mt-4 h-10 w-full rounded-xl border border-slate-300 text-xs font-black text-slate-600">Encerrar sessão vazia</button>}
     {session.active_item_count > 0 && permissions.includes('checkout.open') && !negotiation && <section className="mt-4 space-y-2"><label className="block text-xs font-black text-slate-700">Quem vai pagar<select value={checkoutOrderId} onChange={(event)=>setCheckoutOrderId(event.target.value)} className="mt-2 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm"><option value="">Conta completa da mesa</option>{activeOrders.map((order,index)=><option key={order.id} value={order.id}>{order.notes||`Comanda ${index+1}`} · {formatCurrency(order.items.filter(item=>item.status==='ACTIVE').reduce((total,item)=>total+Number(item.unit_price)*Number(item.quantity),0))}</option>)}</select></label><button disabled={busy} onClick={() => void openCheckout()} className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 text-sm font-black text-white"><WalletCards className="h-4 w-4" />{checkoutOrderId?'Pagar esta comanda':'Fechar conta completa'}</button></section>}
-    {negotiation && <CheckoutSettlement negotiation={negotiation} scopedOrder={settledOrderId} busy={busy} permissions={permissions} tefTerminal={tefTerminal} method={paymentMethod} onMethod={setPaymentMethod} amount={paymentAmount} onAmount={setPaymentAmount} payer={payerLabel} onPayer={setPayerLabel} mode={payMode} onMode={setPayMode} people={peopleCount} onPeople={setPeopleCount} picked={pickedItems} onPicked={setPickedItems} onPay={() => void addAndConfirmPayment()} onFinalize={() => void finalize()} />}
+    {negotiation && <CheckoutSettlement negotiation={negotiation} scopedOrder={settledOrderId} busy={busy} permissions={permissions} tefTerminal={tefTerminal} method={paymentMethod} onMethod={setPaymentMethod} amount={paymentAmount} onAmount={setPaymentAmount} payer={payerLabel} onPayer={setPayerLabel} mode={payMode} onMode={setPayMode} people={peopleCount} onPeople={setPeopleCount} picked={pickedItems} onPicked={setPickedItems} onPay={() => void addAndConfirmPayment()} onFinalize={() => void finalize()} onQuery={(id) => void queryParcel(id)} onCancel={(id) => void cancelParcel(id)} />}
   </aside>
 }
 
@@ -409,6 +436,7 @@ const methodLabel: Record<api.NegotiationPaymentMethod, string> = {
 function CheckoutSettlement({
   negotiation, scopedOrder, busy, permissions, tefTerminal, method, onMethod, amount, onAmount,
   payer, onPayer, mode, onMode, people, onPeople, picked, onPicked, onPay, onFinalize,
+  onQuery, onCancel,
 }: {
   negotiation: api.CheckoutNegotiation; scopedOrder: string; busy: boolean; permissions: string[]
   tefTerminal: api.TefBridgeTerminal | null
@@ -420,6 +448,7 @@ function CheckoutSettlement({
   people: string; onPeople: (value: string) => void
   picked: string[]; onPicked: (value: string[]) => void
   onPay: () => void; onFinalize: () => void
+  onQuery: (intentId: string) => void; onCancel: (intentId: string) => void
 }) {
   const remaining = Number(negotiation.remaining_amount)
   const lines = negotiation.item_settlements ?? []
@@ -484,7 +513,14 @@ function CheckoutSettlement({
       })}
     </div>}
 
-    {negotiation.intents.length > 0 && <div className="space-y-1">{negotiation.intents.map((intent) => <div key={intent.id} className="flex items-center justify-between rounded-lg bg-white px-3 py-2 text-xs"><span>{methodLabel[intent.method] ?? intent.method} · {intentStatusLabel[intent.status] ?? intent.status}{intent.payer_label ? ` · ${intent.payer_label}` : ''}</span><b>{formatCurrency(Number(intent.amount))}</b></div>)}</div>}
+    {negotiation.intents.length > 0 && <div className="space-y-1">{negotiation.intents.map((intent) => <ParcelRow key={intent.id} intent={intent} busy={busy} canCancel={permissions.includes('checkout.payment.cancel')} onQuery={onQuery} onCancel={onCancel} />)}</div>}
+    {negotiation.divergences?.length > 0 && <div className="space-y-1 rounded-xl border border-amber-300 bg-amber-50 p-3">
+      <p className="text-[10px] font-black uppercase tracking-wider text-amber-800">Pendente de conciliação</p>
+      {negotiation.divergences.map((row) => <p key={row.id} className="text-[11px] leading-5 text-amber-900">
+        <b>{divergenceLabel[row.kind] ?? row.kind}</b> · {formatCurrency(Number(row.amount))}{row.detail ? ` — ${row.detail}` : ''}
+      </p>)}
+      <p className="text-[11px] leading-5 text-amber-800">O provider respondeu algo que não pôde ser aplicado a esta conta. O registro fica aqui até alguém decidir; nada foi liberado nem cobrado por conta disso.</p>
+    </div>}
     {permissions.includes('provider.read') && <p className={`rounded-lg px-3 py-2 text-xs font-bold ${tefTerminal?.status === 'ONLINE' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-900'}`}>{tefTerminal?.status === 'ONLINE' ? `TEF online · ${tefTerminal.terminal_code} · bridge ${tefTerminal.bridge_version || 'versão não informada'}` : 'TEF não configurado ou offline; meios locais permanecem disponíveis.'}</p>}
 
     {negotiation.status !== 'COVERED' && permissions.includes('checkout.payment') && <div className="space-y-2">
@@ -529,4 +565,61 @@ function CheckoutSettlement({
       <CheckCircle2 className="h-4 w-4" />{scopedOrder ? 'Finalizar esta comanda' : 'Finalizar venda e liberar mesa'}
     </button>}
   </section>
+}
+
+const divergenceLabel: Record<api.SettlementDivergence['kind'], string> = {
+  LATE_CONFIRMATION: 'Provider confirmou depois do encerramento',
+  LATE_FAILURE: 'Provider recusou uma parcela já confirmada',
+  EXTERNAL_CANCEL_AFTER_CONFIRM: 'Cancelamento externo sobre parcela confirmada',
+  REFUND_REQUIRES_REVERSAL: 'Estorno no provider exige baixa por estorno',
+  UNEXPECTED_RESULT: 'Resposta inesperada do provider',
+}
+
+/** How long a reserve has been waiting, in words a person uses. */
+function waitingFor(since: string | undefined): string {
+  const elapsed = millisecondsSince(since)
+  if (elapsed === null) return ''
+  const minutes = Math.floor(elapsed / 60000)
+  if (minutes < 1) return 'há menos de um minuto'
+  if (minutes < 60) return `há ${minutes} min`
+  return `há ${Math.floor(minutes / 60)} h`
+}
+
+/**
+ * One parcel of the bill, and what can still be done with it.
+ *
+ * The two actions are not symmetric and must never look it. "Consultar
+ * pagamento" asks the provider what happened and is the only honest way out of
+ * an unknown; "Cancelar reserva" gives back a line that was never charged. What
+ * does not exist here, on purpose, is a generic unblock: marking a parcel failed
+ * by hand while a card is authorising is how the same consumption gets charged
+ * twice, so the server refuses it and the screen does not offer it.
+ */
+function ParcelRow({ intent, busy, canCancel, onQuery, onCancel }: {
+  intent: api.NegotiationPaymentIntent; busy: boolean; canCancel: boolean
+  onQuery: (intentId: string) => void; onCancel: (intentId: string) => void
+}) {
+  const waiting = intent.awaiting_provider
+  const open = intent.status === 'PENDING' || intent.status === 'PROCESSING'
+  return <div className="rounded-lg bg-white px-3 py-2 text-xs">
+    <div className="flex items-center justify-between gap-2">
+      <span className="min-w-0">
+        {methodLabel[intent.method] ?? intent.method} · {intentStatusLabel[intent.status] ?? intent.status}
+        {intent.payer_label ? ` · ${intent.payer_label}` : ''}
+      </span>
+      <b className="whitespace-nowrap">{formatCurrency(Number(intent.amount))}</b>
+    </div>
+    {waiting && <p className="mt-1 text-[11px] font-bold text-amber-700">
+      Aguardando conciliação {waitingFor(intent.created_at)} · a cobrança saiu e o provider ainda não respondeu.
+    </p>}
+    {!waiting && open && intent.reserve_expires_at && <p className="mt-1 text-[11px] text-slate-500">
+      Reservado {waitingFor(intent.created_at)}, sem cobrança iniciada.
+    </p>}
+    {intent.status === 'CANCELED' && intent.cancel_reason && <p className="mt-1 text-[11px] text-slate-500">{intent.cancel_reason}</p>}
+    {intent.status === 'FAILED' && intent.failure_reason && <p className="mt-1 text-[11px] text-red-700">{intent.failure_reason}</p>}
+    {(intent.can_query_provider || (intent.can_cancel && canCancel)) && <div className="mt-2 flex flex-wrap gap-2">
+      {intent.can_query_provider && <button type="button" disabled={busy} onClick={() => onQuery(intent.id)} className="min-h-9 rounded-lg border border-amber-300 px-3 text-[11px] font-black text-amber-900 disabled:opacity-40">Consultar pagamento</button>}
+      {intent.can_cancel && canCancel && <button type="button" disabled={busy} onClick={() => onCancel(intent.id)} className="min-h-9 rounded-lg border border-slate-300 px-3 text-[11px] font-black text-slate-700 disabled:opacity-40">Cancelar reserva</button>}
+    </div>}
+  </div>
 }

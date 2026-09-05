@@ -460,6 +460,29 @@ export interface NegotiationPaymentIntent {
    *  customer link is for when the value is charged to a real account. */
   payer_label?: string | null
   payer_customer_id?: string | null
+  canceled_at?: string | null
+  cancel_reason?: string | null
+  /** When the server may take this reserve back on its own. Null once it left
+   *  through a device: a charge already sent is queried, never expired. */
+  reserve_expires_at?: string | null
+  /** What can still be done with this parcel, decided by the server. The screen
+   *  must never offer a release that would be refused. */
+  awaiting_provider: boolean
+  provider_status?: string | null
+  can_cancel: boolean
+  can_query_provider: boolean
+}
+
+/** A provider answer that could not be applied and was not discarded. */
+export interface SettlementDivergence {
+  id: string
+  payment_intent_id: string
+  kind: 'LATE_CONFIRMATION' | 'LATE_FAILURE' | 'EXTERNAL_CANCEL_AFTER_CONFIRM' | 'REFUND_REQUIRES_REVERSAL' | 'UNEXPECTED_RESULT'
+  intent_status: string
+  provider_status: string
+  amount: number
+  detail?: string | null
+  created_at: string
 }
 
 export interface CheckoutNegotiation {
@@ -488,6 +511,7 @@ export interface CheckoutNegotiation {
   allocations: Array<{ id: string; payment_intent_id: string; order_id?: string; order_item_id?: string; amount: number }>
   /** What each item of the account still owes, resolved by the server. */
   item_settlements: ItemSettlement[]
+  divergences: SettlementDivergence[]
   /** Money paid against the bill without naming an item. */
   unassigned_settled_amount: number
   unassigned_reserved_amount: number
@@ -3423,12 +3447,39 @@ export async function getCheckoutNegotiation(headers: Record<string, string>, ne
 
 export async function createNegotiationPaymentIntent(
   headers: Record<string, string>, negotiationId: string, idempotencyKey: string,
-  data: { method: NegotiationPaymentMethod; amount: number; cash_session_id?: string; tendered_amount?: number; allocations?: Array<{ amount: number; order_id?: string; order_item_id?: string }>; payer_label?: string; payer_customer_id?: string; actor_id?: string },
+  data: { method: NegotiationPaymentMethod; amount: number; cash_session_id?: string; tendered_amount?: number; allocations?: Array<{ amount: number; order_id?: string; order_item_id?: string }>; payer_label?: string; payer_customer_id?: string; payment_device_binding_id?: string; actor_id?: string },
 ): Promise<CheckoutNegotiation> {
   const res = await fetch(`${API_BASE_URL}/api/v1/negotiations/${negotiationId}/intents`, {
     method: 'POST', headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(data),
   })
   if (!res.ok) throw await apiError(res, 'Não foi possível registrar a parcela.')
+  return res.json()
+}
+
+/** Give back a reserve that was never sent.
+ *
+ *  Not a way to unblock a charge: the server refuses while a provider
+ *  transaction is unresolved, and the parcel says so through `can_cancel`. */
+export async function cancelNegotiationPaymentIntent(
+  headers: Record<string, string>, intentId: string, idempotencyKey: string,
+  data: { reason: string; actor_id?: string },
+): Promise<CheckoutNegotiation> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/negotiations/intents/${intentId}/cancel`, {
+    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(data),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível cancelar a reserva.')
+  return res.json()
+}
+
+/** Ask the provider what happened. The only honest way out of an unknown: the
+ *  reserve is kept while the question is open and released by an answer. */
+export async function queryNegotiationPaymentIntent(
+  headers: Record<string, string>, intentId: string, actorId?: string,
+): Promise<CheckoutNegotiation> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/negotiations/intents/${intentId}/query`, {
+    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ actor_id: actorId }),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível consultar o pagamento no provider.')
   return res.json()
 }
 

@@ -42,6 +42,10 @@ class Settings(BaseSettings):
     # inventory is newer than this configurable policy window.
     STORAGE_MEASUREMENT_MAX_AGE_HOURS: int = 24
     STORAGE_RESERVATION_TTL_MINUTES: int = 15
+    # How long an untouched payment reserve may hold a line of the bill before
+    # the server takes it back. It applies only to a reserve with no provider
+    # transaction at all: a charge already sent is queried, never expired.
+    PAYMENT_RESERVE_TTL_SECONDS: int = 900
     STORAGE_TENANT_WARNING_PERCENT: int = 70
     STORAGE_TENANT_CRITICAL_PERCENT: int = 85
     STORAGE_MAX_UPLOAD_BYTES: int = 5 * 1024 * 1024

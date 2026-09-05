@@ -132,6 +132,18 @@ cases.push({ name: 'checkout-people-share', screen: 'tables', steps: [...openBil
     await page.getByLabel('Valor da parcela').fill('30');
     assert.equal(await page.getByLabel('Valor da parcela').inputValue(), '30');
 }] });
+// S25.1: a parcel says how long it has been waiting, why, and what can be done
+// with it — and never offers a release the server would refuse.
+cases.push({ name: 'checkout-recovery', screen: 'tables', steps: [...openBill, async page => {
+    await page.getByText(/Aguardando concilia..o h. \d+ min/).waitFor();
+    await page.getByText(/Reservado h. \d+ min, sem cobran.a iniciada/).waitFor();
+    // The card in flight can only be asked about; the untouched reserve can be
+    // given back. Neither offers "marcar falha" as a generic unblock.
+    assert.equal(await page.getByRole('button', { name: 'Consultar pagamento' }).count(), 1);
+    assert.equal(await page.getByRole('button', { name: 'Cancelar reserva' }).count(), 1);
+    assert.equal(await page.getByRole('button', { name: /marcar falha/i }).count(), 0);
+    await page.getByText(/Estorno no provider exige baixa por estorno/).waitFor();
+}] });
 const out = path.resolve('../.tmp/responsive-audit');
 cases.push({ name: 'pos-search', screen: 'pos', steps: [async page => {
     await page.evaluate(() => {

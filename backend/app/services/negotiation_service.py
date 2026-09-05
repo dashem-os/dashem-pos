@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Iterable, Optional
 
@@ -8,12 +8,15 @@ from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
+from app.core.config import settings
 from app.core.context import TenantContext, resolve_actor, scope_tenant_query
 from app.models.catalog import Product
 from app.models.negotiation import (
     CheckoutNegotiation, CheckoutNegotiationStatusEnum, NegotiationEvent,
     NegotiationOrder, PaymentAllocation, PaymentIntent, PaymentIntentStatusEnum,
+    PaymentSettlementDivergence, SettlementDivergenceKindEnum,
 )
+from app.models.provider import ProviderTransaction, ProviderTransactionStatusEnum
 from app.models.order import Order, OrderItem, OrderItemStatusEnum, OrderStatusEnum
 from app.models.payment import (
     CashMovement, CashMovementTypeEnum, CashSession, CashSessionStatusEnum,
@@ -420,8 +423,28 @@ def projection(session: Session, context: TenantContext, negotiation_id: uuid.UU
     settlement = item_settlement(session, negotiation)
     assigned_settled = _money(sum((row["settled_amount"] for row in settlement.values()), Decimal("0")))
     assigned_reserved = _money(sum((row["reserved_amount"] for row in settlement.values()), Decimal("0")))
+    # Each parcel says what can still be done with it, so the screen never has
+    # to guess whether cancelling would be refused. The answer is the server's.
+    parcels = []
+    for row in totals["intents"]:
+        charge = unresolved_charge(session, row) if row.status in OPEN_INTENTS else None
+        parcels.append({
+            **row.model_dump(),
+            "awaiting_provider": charge is not None,
+            "provider_status": charge.status.value if charge is not None else None,
+            "can_cancel": row.status in OPEN_INTENTS and charge is None,
+            "can_query_provider": charge is not None,
+        })
+    divergences = list(session.exec(scope_tenant_query(
+        select(PaymentSettlementDivergence).where(
+            PaymentSettlementDivergence.payment_intent_id.in_([row.id for row in totals["intents"]] or [uuid.uuid4()]),
+            PaymentSettlementDivergence.resolved_at.is_(None),
+        ).order_by(PaymentSettlementDivergence.created_at),
+        PaymentSettlementDivergence, context,
+    )).all()) if totals["intents"] else []
     return {
         "item_settlements": list(settlement.values()),
+        "divergences": divergences,
         # Money paid against the account without naming an item: whoever settled
         # the whole bill rather than their own share.
         "unassigned_settled_amount": max(Decimal("0"), _money(totals["confirmed_amount"] - assigned_settled)),
@@ -434,7 +457,7 @@ def projection(session: Session, context: TenantContext, negotiation_id: uuid.UU
         "total_due": negotiation.total_due, "source_version": negotiation.source_version,
         "version": negotiation.version, "created_at": negotiation.created_at,
         "updated_at": negotiation.updated_at, "finalized_at": negotiation.finalized_at,
-        "orders": orders, "allocations": allocations, **totals,
+        "orders": orders, "allocations": allocations, **{**totals, "intents": parcels},
     }
 
 
@@ -553,6 +576,7 @@ def create_intent(
     tendered_amount: Optional[Decimal], allocations: list[dict],
     actor_id: Optional[uuid.UUID], idempotency_key: str,
     payer_label: Optional[str] = None, payer_customer_id: Optional[uuid.UUID] = None,
+    payment_device_binding_id: Optional[uuid.UUID] = None,
 ) -> dict:
     actor = _actor(context, actor_id)
     normalized_amount = _money(amount)
@@ -563,6 +587,7 @@ def create_intent(
         "allocations": allocations, "actor_id": str(actor),
         "payer_label": (payer_label or "").strip() or None,
         "payer_customer_id": str(payer_customer_id) if payer_customer_id else None,
+        "payment_device_binding_id": str(payment_device_binding_id) if payment_device_binding_id else None,
     }
     request_hash = reliability_service.compute_request_hash(payload)
     existing = session.exec(select(PaymentIntent).where(
@@ -601,6 +626,16 @@ def create_intent(
         allocation_total = _money(sum((_money(item["amount"]) for item in allocations), Decimal("0")))
         if allocation_total != normalized_amount:
             raise HTTPException(status_code=422, detail="A soma das allocations deve ser igual à parcela.")
+    # If this parcel is going out through a device, the chain is proved before
+    # the reserve exists. The screen used to create the parcel and only then
+    # discover the bridge was offline, leaving a line of the bill held by an
+    # attempt that never happened.
+    if payment_device_binding_id is not None:
+        from app.services import provider_service  # local: provider imports this module
+        provider_service.assert_executable_binding(
+            session, context, payment_device_binding_id=payment_device_binding_id,
+            store_id=negotiation.store_id, method=method,
+        )
     # A named customer must be this tenant's. An unnamed payer is fine: dividing
     # a bill between friends never requires registering anybody.
     if payer_customer_id and not session.exec(scope_tenant_query(
@@ -637,6 +672,12 @@ def create_intent(
         method=method, amount=normalized_amount, tendered_amount=tendered,
         change_amount=change, provider="MANUAL_OPERATOR",
         payer_label=payload["payer_label"], payer_customer_id=payer_customer_id,
+        # Only a reserve that can be abandoned carries a clock. One that is
+        # about to leave through a device does not: it will be reconciled.
+        reserve_expires_at=(
+            None if payment_device_binding_id is not None
+            else datetime.utcnow() + timedelta(seconds=settings.PAYMENT_RESERVE_TTL_SECONDS)
+        ),
         idempotency_key=idempotency_key, request_hash=request_hash, created_by=actor,
     )
     session.add(intent)
@@ -670,8 +711,14 @@ def create_intent(
 
 def confirm_intent(
     session: Session, context: TenantContext, intent_id: uuid.UUID, *,
-    actor_id: Optional[uuid.UUID], idempotency_key: str,
+    actor_id: Optional[uuid.UUID], idempotency_key: str, external: bool = False,
 ) -> dict:
+    """Take the money in, and only when nothing outside contradicts it.
+
+    Hand-confirming a card whose transaction is still unresolved would write a
+    receipt the acquirer never issued, so it is refused the same way cancelling
+    is. The provider's own result passes with ``external=True``.
+    """
     actor = _actor(context, actor_id)
     request_hash = reliability_service.compute_request_hash({"intent_id": str(intent_id), "actor_id": str(actor)})
     intent = session.exec(scope_tenant_query(select(PaymentIntent).where(
@@ -685,6 +732,8 @@ def confirm_intent(
         return projection(session, context, intent.negotiation_id, validate=False)
     if intent.status not in {PaymentIntentStatusEnum.PENDING, PaymentIntentStatusEnum.PROCESSING}:
         raise HTTPException(status_code=409, detail="A parcela não está pendente para confirmação.")
+    if not external:
+        _refuse_over_external_charge(session, intent, "confirm")
     negotiation = _locked_negotiation(session, context, intent.negotiation_id)
     if negotiation.status not in ACTIVE_NEGOTIATIONS:
         raise HTTPException(status_code=409, detail="Negociação indisponível para confirmação.")
@@ -709,6 +758,7 @@ def confirm_intent(
         session.flush()
         intent.cash_movement_id = movement.id
     intent.status = PaymentIntentStatusEnum.CONFIRMED
+    intent.reserve_expires_at = None
     intent.confirmed_by = actor
     intent.confirmed_at = datetime.utcnow()
     intent.updated_at = datetime.utcnow()
@@ -745,7 +795,16 @@ def confirm_intent(
 def fail_intent(
     session: Session, context: TenantContext, intent_id: uuid.UUID, *,
     failure_code: str, reason: str, actor_id: Optional[uuid.UUID], idempotency_key: str,
+    external: bool = False,
 ) -> dict:
+    """Record that an attempt did not go through.
+
+    Saying a payment failed is the provider's word. Until S25.1 this command
+    took anyone's: it released the reserve after checking only that the parcel
+    was open, so a card still authorising could be declared failed and its line
+    handed to somebody else. It now refuses over a charge in flight unless the
+    caller *is* the provider result (``external=True``).
+    """
     actor = _actor(context, actor_id)
     payload = {"intent_id": str(intent_id), "failure_code": failure_code, "reason": reason, "actor_id": str(actor)}
     request_hash = reliability_service.compute_request_hash(payload)
@@ -760,7 +819,10 @@ def fail_intent(
         return projection(session, context, intent.negotiation_id, validate=False)
     if intent.status not in {PaymentIntentStatusEnum.PENDING, PaymentIntentStatusEnum.PROCESSING}:
         raise HTTPException(status_code=409, detail="Somente parcelas pendentes podem falhar.")
+    if not external:
+        _refuse_over_external_charge(session, intent, "fail")
     negotiation = _locked_negotiation(session, context, intent.negotiation_id)
+    intent.reserve_expires_at = None
     intent.status = PaymentIntentStatusEnum.FAILED
     intent.failure_code = failure_code
     intent.failure_reason = reason
@@ -776,6 +838,196 @@ def fail_intent(
     })
     session.commit()
     return projection(session, context, negotiation.id)
+
+
+# ---------------------------------------------------------------------------
+# S25.1 — recovering a reserve that was abandoned, or whose answer never came.
+#
+# Four operations, and the whole sprint is in keeping them apart:
+#
+#   cancel   the reserve was never sent; give the line back
+#   fail     something was attempted and did not go through
+#   expire   the server cancels an untouched reserve, and only that
+#   refund   money left and came back; it is a reversal, never a release
+#
+# The rule that decides all of them, in the owner's words: never release money
+# merely because the clock passed.
+# ---------------------------------------------------------------------------
+
+UNRESOLVED_PROVIDER = {
+    ProviderTransactionStatusEnum.CREATED,
+    ProviderTransactionStatusEnum.PROCESSING,
+    ProviderTransactionStatusEnum.UNKNOWN,
+}
+OPEN_INTENTS = {PaymentIntentStatusEnum.PENDING, PaymentIntentStatusEnum.PROCESSING}
+
+
+def provider_transactions_for(session: Session, intent: PaymentIntent) -> list[ProviderTransaction]:
+    return list(session.exec(select(ProviderTransaction).where(
+        ProviderTransaction.tenant_id == intent.tenant_id,
+        ProviderTransaction.payment_intent_id == intent.id,
+    ).order_by(ProviderTransaction.created_at)).all())
+
+
+def unresolved_charge(session: Session, intent: PaymentIntent) -> Optional[ProviderTransaction]:
+    """A charge that left this building and has not answered yet.
+
+    Its existence is what forbids cancelling, expiring or hand-confirming a
+    parcel. Absence of an answer is not absence of a charge.
+    """
+    for transaction in provider_transactions_for(session, intent):
+        if transaction.status in UNRESOLVED_PROVIDER:
+            return transaction
+    return None
+
+
+def _refuse_over_external_charge(session: Session, intent: PaymentIntent, action: str) -> None:
+    charge = unresolved_charge(session, intent)
+    if charge is None:
+        return
+    raise HTTPException(status_code=409, detail={
+        "code": "EXTERNAL_CHARGE_IN_FLIGHT",
+        "message": (
+            "Existe cobrança externa sem resultado conhecido. "
+            "Consulte o pagamento antes de decidir sobre esta parcela."
+        ),
+        "action": action,
+        "payment_intent_id": str(intent.id),
+        "provider_transaction_id": str(charge.id),
+        "provider_status": charge.status.value,
+    })
+
+
+def record_divergence(
+    session: Session, intent: PaymentIntent, *, kind: SettlementDivergenceKindEnum,
+    provider_status: str, transaction_id: Optional[uuid.UUID], detail: str,
+) -> Optional[PaymentSettlementDivergence]:
+    """Write down what the provider said when the parcel could not hear it.
+
+    Never applied, never discarded. The unique key makes a repeated or
+    out-of-order event land on the same fact instead of a second one.
+    """
+    existing = session.exec(select(PaymentSettlementDivergence).where(
+        PaymentSettlementDivergence.tenant_id == intent.tenant_id,
+        PaymentSettlementDivergence.payment_intent_id == intent.id,
+        PaymentSettlementDivergence.kind == kind,
+        PaymentSettlementDivergence.provider_status == provider_status,
+    )).first()
+    if existing:
+        return existing
+    row = PaymentSettlementDivergence(
+        tenant_id=intent.tenant_id, store_id=intent.store_id, payment_intent_id=intent.id,
+        provider_transaction_id=transaction_id, kind=kind,
+        intent_status=intent.status.value, provider_status=provider_status,
+        amount=intent.amount, detail=detail,
+    )
+    session.add(row)
+    session.flush()
+    return row
+
+
+def cancel_intent(
+    session: Session, context: TenantContext, intent_id: uuid.UUID, *,
+    reason: str, actor_id: Optional[uuid.UUID], idempotency_key: str,
+    external: bool = False, external_status: Optional[str] = None,
+) -> dict:
+    """Give the line back because nothing was ever charged for it.
+
+    This is deliberately not `fail_intent`. Failing says an attempt did not go
+    through, and it is the provider's word to say so; cancelling says there was
+    no attempt, and it is a person's decision. A parcel with a charge in flight
+    is refused here, and the operator is sent to consult the payment instead.
+    """
+    actor = _actor(context, actor_id)
+    payload = {"intent_id": str(intent_id), "reason": reason, "actor_id": str(actor)}
+    request_hash = reliability_service.compute_request_hash(payload)
+    intent = session.exec(scope_tenant_query(select(PaymentIntent).where(
+        PaymentIntent.id == intent_id,
+    ).with_for_update(), PaymentIntent, context)).first()
+    if not intent:
+        raise HTTPException(status_code=404, detail="Parcela não encontrada.")
+    if intent.cancel_idempotency_key:
+        if intent.cancel_idempotency_key != idempotency_key or intent.cancel_request_hash != request_hash:
+            raise HTTPException(status_code=409, detail="Cancelamento já registrado com outro comando.")
+        return projection(session, context, intent.negotiation_id, validate=False)
+    if intent.status == PaymentIntentStatusEnum.CONFIRMED:
+        raise HTTPException(status_code=409, detail={
+            "code": "CONFIRMED_PAYMENT_NEEDS_REVERSAL",
+            "message": "Pagamento confirmado não se cancela para liberar saldo; use o fluxo de estorno.",
+            "payment_intent_id": str(intent.id),
+        })
+    if intent.status not in OPEN_INTENTS:
+        raise HTTPException(status_code=409, detail="Somente parcela pendente ou em processamento pode ser cancelada.")
+    if not external:
+        _refuse_over_external_charge(session, intent, "cancel")
+    negotiation = _locked_negotiation(session, context, intent.negotiation_id)
+    now = datetime.utcnow()
+    intent.status = PaymentIntentStatusEnum.CANCELED
+    intent.cancel_reason = reason
+    intent.canceled_by = actor
+    intent.canceled_at = now
+    intent.cancel_idempotency_key = idempotency_key
+    intent.cancel_request_hash = request_hash
+    intent.reserve_expires_at = None
+    intent.updated_at = now
+    negotiation.version += 1
+    negotiation.updated_at = now
+    _event(session, negotiation, actor, "payment.intent.canceled", {
+        "payment_intent_id": str(intent.id), "amount": str(intent.amount),
+        "reason": reason, "origin": "PROVIDER" if external else "OPERATOR",
+        "provider_status": external_status,
+    })
+    reliability_service.write_audit_and_outbox(
+        session, context.tenant_id, intent.store_id, actor,
+        "checkout.payment.canceled", f"INTENT-{intent.id}",
+        {"amount": str(intent.amount), "reason": reason, "origin": "PROVIDER" if external else "OPERATOR"},
+        "payment_intent", str(intent.id), "checkout.payment.canceled",
+        {"negotiation_id": str(negotiation.id), "amount": str(intent.amount)},
+    )
+    session.commit()
+    return projection(session, context, negotiation.id)
+
+
+def expire_abandoned_reserves(session: Session, *, now: Optional[datetime] = None) -> list[uuid.UUID]:
+    """Take back reserves the server can prove were never sent.
+
+    Two conditions, and both are evidence rather than time alone: the clock ran
+    out, and the parcel has **no provider transaction at all**. A parcel that
+    reached a provider is queried by reconciliation, never expired — a lost
+    answer is not a lost charge.
+    """
+    moment = now or datetime.utcnow()
+    candidates = list(session.exec(select(PaymentIntent).where(
+        PaymentIntent.status == PaymentIntentStatusEnum.PENDING,
+        PaymentIntent.reserve_expires_at.is_not(None),
+        PaymentIntent.reserve_expires_at <= moment,
+    ).with_for_update(skip_locked=True)).all())
+    expired = []
+    for intent in candidates:
+        if provider_transactions_for(session, intent):
+            # It reached a provider at some point: this belongs to reconciliation.
+            intent.reserve_expires_at = None
+            intent.updated_at = moment
+            continue
+        negotiation = session.exec(select(CheckoutNegotiation).where(
+            CheckoutNegotiation.id == intent.negotiation_id,
+        ).with_for_update()).first()
+        if not negotiation:
+            continue
+        intent.status = PaymentIntentStatusEnum.CANCELED
+        intent.cancel_reason = "Reserva expirada sem cobrança iniciada."
+        intent.canceled_by = intent.created_by
+        intent.canceled_at = moment
+        intent.reserve_expires_at = None
+        intent.updated_at = moment
+        negotiation.version += 1
+        negotiation.updated_at = moment
+        _event(session, negotiation, intent.created_by, "payment.intent.expired", {
+            "payment_intent_id": str(intent.id), "amount": str(intent.amount),
+        })
+        expired.append(intent.id)
+    session.commit()
+    return expired
 
 
 def finalize_negotiation(
@@ -945,3 +1197,15 @@ def _hold_on_orders(session: Session, order_ids) -> dict[uuid.UUID, Decimal]:
 
 
 settlement_contracts.register(_hold_on_items, _hold_on_orders)
+
+
+def locked_intent_for_query(
+    session: Session, context: TenantContext, intent_id: uuid.UUID,
+) -> PaymentIntent:
+    """The parcel, in this tenant, ready to be asked about."""
+    intent = session.exec(scope_tenant_query(select(PaymentIntent).where(
+        PaymentIntent.id == intent_id,
+    ), PaymentIntent, context)).first()
+    if not intent:
+        raise HTTPException(status_code=404, detail="Parcela não encontrada.")
+    return intent

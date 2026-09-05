@@ -13,7 +13,9 @@ from sqlmodel import Session, select
 from app.core.config import settings
 from app.core.context import TenantContext, resolve_actor, scope_tenant_query
 from app.core.tenancy import set_tenant_db_context
-from app.models.negotiation import PaymentIntent, PaymentIntentStatusEnum
+from app.models.negotiation import (
+    PaymentIntent, PaymentIntentStatusEnum, SettlementDivergenceKindEnum,
+)
 from app.models.identity import OperationalSession, OperationalSessionStatusEnum, RoleEnum, Register
 from app.models.payment import PaymentMethodEnum
 from app.models.device import OperationalDevice, OperationalDeviceStatusEnum, OperationalDeviceTypeEnum
@@ -488,19 +490,86 @@ def _apply_result(
         },
     )
     session.commit()
+    # What the provider said, applied to the parcel — or written down when it
+    # can no longer be applied. Before S25.1 only CONFIRMED and FAILED had a
+    # destination; CANCELED and REFUNDED fell through and left the reserve held
+    # forever, and a result arriving after the parcel closed was simply lost.
+    divergence = None
     if result.status == ProviderTransactionStatusEnum.CONFIRMED:
-        negotiation = negotiation_service.confirm_intent(
-            session, context, intent.id, actor_id=actor_id,
-            idempotency_key=f"provider-confirm-{transaction.id}",
-        )
+        if intent.status == PaymentIntentStatusEnum.CONFIRMED:
+            negotiation = negotiation_service.projection(session, context, intent.negotiation_id, validate=False)
+        elif intent.status in negotiation_service.OPEN_INTENTS:
+            negotiation = negotiation_service.confirm_intent(
+                session, context, intent.id, actor_id=actor_id,
+                idempotency_key=f"provider-confirm-{transaction.id}", external=True,
+            )
+        else:
+            # The money went through after the parcel was cancelled or failed.
+            # Confirming now could charge a line somebody else has since paid;
+            # discarding would lose a real payment. It waits for a person.
+            divergence = negotiation_service.record_divergence(
+                session, intent, kind=SettlementDivergenceKindEnum.LATE_CONFIRMATION,
+                provider_status=result.status.value, transaction_id=transaction.id,
+                detail="Provider confirmou depois de a parcela ter sido encerrada.",
+            )
+            negotiation = negotiation_service.projection(session, context, intent.negotiation_id, validate=False)
     elif result.status == ProviderTransactionStatusEnum.FAILED:
-        negotiation = negotiation_service.fail_intent(
-            session, context, intent.id, failure_code=result.failure_code or "PROVIDER_FAILED",
-            reason=result.failure_reason or "Provider recusou a transação.", actor_id=actor_id,
-            idempotency_key=f"provider-fail-{transaction.id}",
-        )
+        if intent.status in negotiation_service.OPEN_INTENTS:
+            negotiation = negotiation_service.fail_intent(
+                session, context, intent.id, failure_code=result.failure_code or "PROVIDER_FAILED",
+                reason=result.failure_reason or "Provider recusou a transação.", actor_id=actor_id,
+                idempotency_key=f"provider-fail-{transaction.id}", external=True,
+            )
+        else:
+            if intent.status == PaymentIntentStatusEnum.CONFIRMED:
+                divergence = negotiation_service.record_divergence(
+                    session, intent, kind=SettlementDivergenceKindEnum.LATE_FAILURE,
+                    provider_status=result.status.value, transaction_id=transaction.id,
+                    detail="Provider recusou uma transação cuja parcela já estava confirmada.",
+                )
+            negotiation = negotiation_service.projection(session, context, intent.negotiation_id, validate=False)
+    elif result.status == ProviderTransactionStatusEnum.CANCELED:
+        if intent.status in negotiation_service.OPEN_INTENTS:
+            negotiation = negotiation_service.cancel_intent(
+                session, context, intent.id,
+                reason=result.failure_reason or "Cobrança cancelada no provider.",
+                actor_id=actor_id, idempotency_key=f"provider-cancel-{transaction.id}",
+                external=True, external_status=result.status.value,
+            )
+        else:
+            if intent.status == PaymentIntentStatusEnum.CONFIRMED:
+                # Money was taken and then cancelled outside. Releasing the
+                # reserve here would silently undo a settled payment.
+                divergence = negotiation_service.record_divergence(
+                    session, intent, kind=SettlementDivergenceKindEnum.EXTERNAL_CANCEL_AFTER_CONFIRM,
+                    provider_status=result.status.value, transaction_id=transaction.id,
+                    detail="Cancelamento externo sobre parcela já confirmada; exige estorno.",
+                )
+            negotiation = negotiation_service.projection(session, context, intent.negotiation_id, validate=False)
+    elif result.status == ProviderTransactionStatusEnum.REFUNDED:
+        # A refund is not a cancellation. Money left and came back, which is a
+        # financial reversal and not a reserve being handed over. Where nothing
+        # had been captured the parcel is closed as cancelled; where it had, the
+        # reversal needs a flow this product does not have yet, so the fact is
+        # recorded and the money is left exactly where it is.
+        if intent.status in negotiation_service.OPEN_INTENTS:
+            negotiation = negotiation_service.cancel_intent(
+                session, context, intent.id,
+                reason="Cobrança estornada no provider antes de ser confirmada aqui.",
+                actor_id=actor_id, idempotency_key=f"provider-refund-{transaction.id}",
+                external=True, external_status=result.status.value,
+            )
+        else:
+            divergence = negotiation_service.record_divergence(
+                session, intent, kind=SettlementDivergenceKindEnum.REFUND_REQUIRES_REVERSAL,
+                provider_status=result.status.value, transaction_id=transaction.id,
+                detail="Estorno no provider sobre parcela confirmada; baixa financeira exige fluxo de estorno.",
+            )
+            negotiation = negotiation_service.projection(session, context, intent.negotiation_id, validate=False)
     else:
         negotiation = negotiation_service.projection(session, context, intent.negotiation_id, validate=False)
+    if divergence is not None:
+        session.commit()
     terminal = session.get(TefBridgeTerminal, transaction.bridge_terminal_id) if transaction.bridge_terminal_id else None
     if terminal:
         terminal.last_operation_at = datetime.utcnow()
@@ -636,3 +705,25 @@ def report_bridge_result(
         failure_reason=(failure_reason or "")[:300] or None,
         sanitized_payload={"reported_by_bridge": True, "protocol_version": terminal.protocol_version},
     ), terminal.id)
+
+
+def assert_executable_binding(
+    session: Session, context: TenantContext, *, payment_device_binding_id: uuid.UUID,
+    store_id: uuid.UUID, method: PaymentMethodEnum,
+) -> None:
+    """Prove the device can execute before anybody reserves a line of the bill.
+
+    The chain is the one ADR-022 already revalidates at execution: tenant, unit,
+    register, POS, provider configuration, execution mode and — for TEF — the
+    bridge paired to that register. What S25.1 adds is *when* it is asked. The
+    screen used to create the parcel first and discover the bridge was offline
+    afterwards, and the reserve it left behind held an item nobody could pay.
+    """
+    if method not in CARD_METHODS:
+        raise HTTPException(status_code=422, detail="Execução por dispositivo exige parcela de cartão.")
+    # `_resolve_execution_binding` is the chain ADR-022 already validates, offline
+    # bridge included. Nothing is re-checked here: what changes is *when* it is
+    # asked, which is before a line of the bill is held.
+    _resolve_execution_binding(
+        session, context, payment_device_binding_id=payment_device_binding_id, store_id=store_id,
+    )

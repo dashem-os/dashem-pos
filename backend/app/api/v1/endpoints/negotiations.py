@@ -41,10 +41,17 @@ class PaymentIntentCreateDTO(BaseModel):
     # register themselves, and an unnamed parcel is honest about being unnamed.
     payer_label: Optional[str] = Field(default=None, max_length=160)
     payer_customer_id: Optional[uuid.UUID] = None
+    # Declared up front when the parcel is meant to leave through a device, so
+    # the chain is proved before a line of the bill is held.
+    payment_device_binding_id: Optional[uuid.UUID] = None
 
 
 class IntentCommandDTO(BaseModel):
     actor_id: Optional[uuid.UUID] = None
+
+
+class IntentCancelDTO(IntentCommandDTO):
+    reason: str = Field(min_length=3, max_length=500)
 
 
 class IntentFailureDTO(IntentCommandDTO):
@@ -80,6 +87,16 @@ class PaymentIntentDTO(BaseModel):
     failed_at: Optional[datetime]
     payer_label: Optional[str]
     payer_customer_id: Optional[uuid.UUID]
+    canceled_at: Optional[datetime]
+    cancel_reason: Optional[str]
+    reserve_expires_at: Optional[datetime]
+    # What can still be done with this parcel, decided by the server. The screen
+    # must never offer a release that would be refused, nor hide a query that
+    # would resolve an unknown.
+    awaiting_provider: bool
+    provider_status: Optional[str]
+    can_cancel: bool
+    can_query_provider: bool
 
 
 class PaymentAllocationDTO(BaseModel):
@@ -112,6 +129,19 @@ class ItemSettlementDTO(BaseModel):
     reserved_by: List[str]
 
 
+class SettlementDivergenceDTO(BaseModel):
+    """A provider answer that could not be applied and must not be discarded."""
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
+    payment_intent_id: uuid.UUID
+    kind: str
+    intent_status: str
+    provider_status: str
+    amount: Decimal
+    detail: Optional[str]
+    created_at: datetime
+
+
 class NegotiationProjectionDTO(BaseModel):
     id: uuid.UUID
     tenant_id: uuid.UUID
@@ -138,6 +168,7 @@ class NegotiationProjectionDTO(BaseModel):
     intents: List[PaymentIntentDTO]
     allocations: List[PaymentAllocationDTO]
     item_settlements: List[ItemSettlementDTO]
+    divergences: List[SettlementDivergenceDTO]
     unassigned_settled_amount: Decimal
     unassigned_reserved_amount: Decimal
 
@@ -178,6 +209,7 @@ def create_payment_intent_endpoint(
         allocations=[item.model_dump(mode="json") for item in data.allocations],
         actor_id=data.actor_id, idempotency_key=idempotency_key,
         payer_label=data.payer_label, payer_customer_id=data.payer_customer_id,
+        payment_device_binding_id=data.payment_device_binding_id,
     )
 
 
@@ -205,6 +237,42 @@ def fail_payment_intent_endpoint(
         session, context, intent_id, failure_code=data.failure_code,
         reason=data.reason, actor_id=data.actor_id, idempotency_key=idempotency_key,
     )
+
+
+@router.post("/intents/{intent_id}/cancel", response_model=NegotiationProjectionDTO)
+def cancel_payment_intent_endpoint(
+    intent_id: uuid.UUID, data: IntentCancelDTO,
+    idempotency_key: str = Header(alias="Idempotency-Key", min_length=8, max_length=160),
+    context: TenantContext = Depends(get_tenant_context),
+    session: Session = Depends(get_session),
+):
+    """Give back a reserve that was never sent. Not a way to unblock a charge."""
+    return negotiation_service.cancel_intent(
+        session, context, intent_id, reason=data.reason,
+        actor_id=data.actor_id, idempotency_key=idempotency_key,
+    )
+
+
+@router.post("/intents/{intent_id}/query", response_model=NegotiationProjectionDTO)
+def query_payment_intent_endpoint(
+    intent_id: uuid.UUID, data: IntentCommandDTO,
+    context: TenantContext = Depends(get_tenant_context),
+    session: Session = Depends(get_session),
+):
+    """Ask the provider what happened, and apply whatever it answers.
+
+    This is the only honest way out of an unknown: the reserve is kept while the
+    question is open, and released only by an answer.
+    """
+    from app.services import provider_service
+
+    intent = negotiation_service.locked_intent_for_query(session, context, intent_id)
+    charge = negotiation_service.unresolved_charge(session, intent)
+    if charge is None:
+        return negotiation_service.projection(session, context, intent.negotiation_id, validate=False)
+    return provider_service.reconcile_transaction(
+        session, context, charge.id, actor_id=data.actor_id,
+    )["negotiation"]
 
 
 @router.post("/{negotiation_id}/finalize", response_model=NegotiationProjectionDTO)
