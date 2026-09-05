@@ -50,6 +50,18 @@ def catalog():
         app.dependency_overrides.pop(get_session, None)
 
 
+def test_search_ignores_case_accents_and_treats_wildcards_literally(catalog):
+    client, _, _ = catalog
+    result = client.post('/api/v1/catalog/products', json={'name': 'Hambúrguer AÇÃO', 'sku': 'HAB-01'})
+    assert result.status_code == 200, result.text
+    for term in ['ha', 'HA', 'hamburguer', 'HAMBÚRGUER', 'acao', 'AÇÃO', 'hab-01']:
+        response = client.get('/api/v1/catalog/sellable-products', params={'master': 'true', 'search': term})
+        assert response.status_code == 200, response.text
+        assert response.json()['total'] == 1, term
+    for term in ['xyz', '%', '_']:
+        assert client.get('/api/v1/catalog/sellable-products', params={'master': 'true', 'search': term}).json()['total'] == 0
+
+
 def test_edit_price_and_photo_survive_the_http_response(catalog, monkeypatch):
     client, context, _ = catalog
     product = client.post('/api/v1/catalog/products', json={'name': 'Hambúrguer', 'sku': 'HAB-01'}).json()

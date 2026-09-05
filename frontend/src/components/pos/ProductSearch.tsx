@@ -6,15 +6,50 @@ import * as api from '../../services/api'
 import { formatCurrency, formatStock } from '../../utils/format'
 
 export const ProductSearch: React.FC = () => {
-  const { tenant, store, prices, balances, addItemToCart, showToast, actionLoading, cashSession, permissions, connectionState, operationMode } = usePos()
+  const { tenant, store, prices, balances, activeActivity, addItemToCart, showToast, actionLoading, cashSession, permissions, connectionState, operationMode } = usePos()
   const [query, setQuery] = useState('')
   const [searchResults, setSearchResults] = useState<SellableProduct[]>([])
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
-
+  const requestVersion = useRef(0)
+  const [searchMessage, setSearchMessage] = useState('')
   const isCashOpen = cashSession?.status === 'OPEN'
   const canSell = permissions.includes('sale.create') && connectionState === 'ONLINE'
+
+  const lookup = async (term: string) => {
+    if (!tenant || !store) throw new Error('Sessão indisponível')
+    const headers = { 'X-Tenant-ID': tenant.id, 'X-Store-ID': store.id }
+    const options = { sales_context: operationMode, activity: activeActivity || undefined, pageSize: 20 }
+    const result = await api.fetchSellableProducts(headers, { ...options, search: term })
+    if (result.items.length) return { items: result.items, message: '' }
+    const context = await api.fetchSellableProducts(headers, { ...options, pageSize: 1 })
+    return { items: [], message: context.total === 0
+      ? 'Nenhum produto disponível neste contexto. Confira a publicação em Sortimentos e cardápios para esta unidade, atividade e jornada.'
+      : 'Nenhuma correspondência entre os produtos publicados neste contexto. Confira o nome ou código; a Gestão pode verificar a publicação do item.' }
+  }
+
+  useEffect(() => {
+    const version = ++requestVersion.current
+    setSearchResults([])
+    setSearchMessage('')
+    setIsDropdownOpen(false)
+    if (query.trim().length < 2 || !tenant || !store || !canSell || !isCashOpen) return
+    const timer = window.setTimeout(async () => {
+      if (requestVersion.current !== version) return
+      setIsDropdownOpen(true)
+      setSearchMessage('Buscando…')
+      try {
+        const result = await lookup(query.trim())
+        if (requestVersion.current !== version) return
+        setSearchResults(result.items)
+        setSearchMessage(result.message)
+      } catch {
+        if (requestVersion.current === version) setSearchMessage('Não foi possível consultar os produtos. Verifique a conexão e pressione Enter para tentar novamente.')
+      }
+    }, 250)
+    return () => { window.clearTimeout(timer); requestVersion.current++ }
+  }, [query, tenant?.id, store?.id, operationMode, activeActivity, canSell, isCashOpen])
 
   // Web Audio subtle scanner beep feedback
   const playBeep = () => {
@@ -72,11 +107,20 @@ export const ProductSearch: React.FC = () => {
     if (!clean || !isCashOpen || !canSell || actionLoading) return
 
     if (!tenant || !store) return
-    const result = await api.fetchSellableProducts(
-      { 'X-Tenant-ID': tenant.id, 'X-Store-ID': store.id },
-      { sales_context: operationMode, search: clean, pageSize: 20 }
-    ).catch(() => null)
-    const matches = result?.items || []
+    const version = ++requestVersion.current
+    let result
+    try {
+      result = await lookup(clean)
+    } catch {
+      if (version !== requestVersion.current) return
+      setSearchResults([])
+      setSearchMessage('Não foi possível consultar os produtos. Verifique a conexão e pressione Enter para tentar novamente.')
+      setIsDropdownOpen(true)
+      return
+    }
+    if (version !== requestVersion.current) return
+    const matches = result.items
+    setSearchMessage('')
 
     // 1. Exact match by Barcode (EAN)
     const exactBarcode = matches.find((p) => p.barcode && p.barcode.toLowerCase() === clean.toLowerCase())
@@ -107,8 +151,9 @@ export const ProductSearch: React.FC = () => {
       return
     }
 
-    showToast('error', `Produto com código/termo '${clean}' não localizado!`)
-    setQuery('')
+    setSearchResults([])
+    setSearchMessage(result.message)
+    setIsDropdownOpen(true)
     inputRef.current?.focus()
   }
 
@@ -129,7 +174,7 @@ export const ProductSearch: React.FC = () => {
               setQuery(e.target.value)
               if (isDropdownOpen) setIsDropdownOpen(false)
             }}
-            placeholder="Escanear código de barras (Enter) ou digitar SKU / nome..."
+            placeholder="Buscar nome / SKU (2 caracteres) ou escanear código + Enter..."
             disabled={!isCashOpen || !canSell || actionLoading}
             className="h-full w-full bg-transparent pr-24 text-base font-semibold text-slate-900 outline-none placeholder:text-slate-400 disabled:opacity-50 sm:text-lg"
           />
@@ -160,17 +205,17 @@ export const ProductSearch: React.FC = () => {
       </form>
 
       {/* Multiple Partial Matches Dropdown (Operator Picks - No Arbitrary Selection) */}
-      {isDropdownOpen && searchResults.length > 1 && (
+      {isDropdownOpen && (
         <div className="absolute top-16 left-0 right-0 z-40 bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
           <div className="px-4 py-2 bg-slate-50 border-b border-slate-100 flex items-center justify-between text-xs font-bold text-slate-500">
-            <span>{searchResults.length} produtos encontrados para "{query}"</span>
+            <span role="status" aria-live="polite">{searchMessage || `${searchResults.length} produto(s) encontrado(s) para "${query}"`}</span>
             <span>Toque para selecionar</span>
           </div>
 
           <div className="max-h-64 overflow-y-auto divide-y divide-slate-100">
             {searchResults.map((product) => {
-              const price = prices[product.id] || 0
-              const stock = balances[product.id] || 0
+              const price = Number(product.sale_price)
+              const stock = Number(product.quantity)
               return (
                 <button
                   key={product.id}

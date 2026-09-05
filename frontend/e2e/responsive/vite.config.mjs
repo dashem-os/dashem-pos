@@ -77,7 +77,7 @@ const permissions = [...new Set(fs.readdirSync(path.join(root, 'src'), { recursi
 fixtures.fetchEffectiveAccess = { ...fixtures.fetchEffectiveAccess, permissions, capabilities: { kitchen_routing: {}, table_service: {}, receivables: {} } };
 const fixtureData = { fixtures, product, tenant, permissions };
 fs.writeFileSync(path.join(root, 'e2e/responsive/generated-fixtures.json'), JSON.stringify(fixtureData, null, 2));
-const mockApi = Object.keys(fixtures).map(name => `export async function ${name}(...args) { if (window.__fixtures?.['${name}'] !== undefined) return window.__fixtures['${name}']; return fixtures['${name}']; }`).join('\n');
+const mockApi = Object.keys(fixtures).map(name => `export async function ${name}(...args) { if (window.__handlers?.['${name}']) return window.__handlers['${name}'](...args); if (window.__fixtures?.['${name}'] !== undefined) return window.__fixtures['${name}']; return fixtures['${name}']; }`).join('\n');
 export default defineConfig({
     plugins: [react(), {
             name: 'responsive-test-fixtures', enforce: 'pre',

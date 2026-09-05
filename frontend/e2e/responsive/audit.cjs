@@ -52,6 +52,34 @@ cases.push({ name: 'products-assortment-shortcut', screen: 'manage', module: 'pr
     async page => { assert.ok(await page.getByRole('button', { name: 'Novo Sortimento', exact: true }).isVisible()); },
 ] });
 const out = path.resolve('../.tmp/responsive-audit');
+cases.push({ name: 'pos-search', screen: 'pos', steps: [async page => {
+    await page.evaluate(() => {
+        window.__searchCalls = [];
+        window.__handlers = { fetchSellableProducts: async (_headers, options) => {
+            window.__searchCalls.push(options);
+            if (options.search === 'erro') throw new Error('offline');
+            if (!options.search) return { items: [], total: window.__emptyContext ? 0 : 1 };
+            if (options.search === 'zz') return { items: [], total: 0 };
+            return { items: [{ id: 'test', name: 'Hambúrguer busca', sku: 'HAB', sale_price: 32, quantity: 5 }], total: 1 };
+        } };
+    });
+    const input = page.getByPlaceholder('Buscar nome / SKU (2 caracteres) ou escanear código + Enter...');
+    await input.fill('h');
+    await page.waitForTimeout(350);
+    assert.equal(await page.evaluate(() => window.__searchCalls.length), 0);
+    await input.fill('ha');
+    await page.getByText('Hambúrguer busca', { exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => window.__searchCalls[0].activity), 'FOOD_SERVICE');
+    await input.fill('zz');
+    await page.getByText(/Nenhuma correspondência entre/).waitFor();
+    await page.evaluate(() => { window.__emptyContext = true; });
+    await input.press('Enter');
+    await page.getByText(/Nenhum produto disponível neste contexto/).waitFor();
+    await input.fill('erro');
+    await page.getByText(/Não foi possível consultar os produtos/).waitFor();
+    assert.equal(await input.inputValue(), 'erro');
+    await input.fill('');
+}] });
 fs.mkdirSync(out, { recursive: true });
 (async () => { const browser = await chromium.launch({ headless: true }); const page = await browser.newPage(); await page.route('**/*', route => new URL(route.request().url()).hostname === '127.0.0.1' ? route.continue() : route.abort()); const errors = []; page.on('pageerror', e => errors.push(e.message)); const results = []; for (const c of cases.filter(c => !process.env.RESPONSIVE_CASE || c.name.includes(process.env.RESPONSIVE_CASE))) {
     errors.length = 0;

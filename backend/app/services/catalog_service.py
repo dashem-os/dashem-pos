@@ -1,4 +1,5 @@
 import uuid
+import unicodedata
 from datetime import datetime
 from decimal import Decimal
 from typing import Any, List, Optional
@@ -20,6 +21,16 @@ from app.services.assortment_service import resolve_effective_product_ids
 from app.services import media_service, reliability_service
 from app.modules.capabilities.service import capability_allowed_by_activity
 from app.services.contract_entitlement_service import resolve_contract_entitlements
+
+
+def _product_search(search: str):
+    # Portable PostgreSQL accent folding without requiring an installed extension.
+    accents = 'áàâãäåéèêëíìîïóòôõöúùûüçñýÿ'
+    plain = ''.join(unicodedata.normalize('NFD', c)[0] for c in accents)
+    term = ''.join(c for c in unicodedata.normalize('NFD', search.strip().lower()) if not unicodedata.combining(c))
+    term = term.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+    return or_(*(func.lower(func.translate(column, accents + accents.upper(), plain + plain.upper())).like(f'%{term}%', escape='\\')
+                 for column in (Product.name, Product.sku, Product.barcode)))
 
 
 def _actor(context: TenantContext) -> uuid.UUID:
@@ -180,8 +191,7 @@ def list_products(session: Session, context: TenantContext, category_id: Optiona
     if category_id:
         query = query.where(Product.category_id == category_id)
     if search:
-        term = f"%{search.strip()}%"
-        query = query.where(or_(Product.name.ilike(term), Product.sku.ilike(term), Product.barcode.ilike(term)))
+        query = query.where(_product_search(search))
     return list(session.exec(query.order_by(Product.name).limit(200)).all())
 
 
@@ -311,8 +321,7 @@ def list_sellable_products(
     if category_id: query = query.where(Product.category_id == category_id)
     if quick_access: query = query.where(Quick.id.is_not(None))
     if search:
-        term = f"%{search.strip()}%"
-        query = query.where(or_(Product.name.ilike(term), Product.sku.ilike(term), Product.barcode.ilike(term)))
+        query = query.where(_product_search(search))
     query = query.order_by(case((Quick.position.is_(None), 1), else_=0), Quick.position, Product.name).offset((page - 1) * page_size).limit(page_size)
     rows = session.exec(query).all()
     items: list[dict[str, Any]] = []
