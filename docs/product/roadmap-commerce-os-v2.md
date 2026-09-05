@@ -1753,113 +1753,41 @@ depender de entitlement comercial nem de arquivo do lojista.
 
 ### S25 — Liquidação progressiva da comanda (Live Settlement)
 
-Estado em 05/09/2026: **os cinco contratos entregues no gate interno. Falta a
-interface.**
+Estado: **núcleo e interface entregues; recuperação de pagamentos pendente,
+necessária antes do piloto.** Classificação dada pelo dono do SaaS em
+05/09/2026, depois de uma revisão dele sobre o código entregue. Esta seção foi
+reescrita na mesma data porque vinha sendo emendada a cada avanço e passou a se
+contradizer — dizia "falta a interface" num parágrafo e "interface entregue,
+fechando a sprint" no seguinte, admitindo ao mesmo tempo um critério do gate não
+implementado. O estado abaixo é único e substitui os anteriores.
 
-Contratos 4 e 5, os últimos: a migração `075_payment_intent_payer` acrescentou
-`payer_label` e `payer_customer_id` à parcela, sem backfill — parcela antiga não
-ganha um pagador inventado, ela lê como desconhecida, que é a verdade. Nenhum
-dos dois é obrigatório: dividir uma conta entre amigos não exige cadastrar
-ninguém, e o vínculo com cliente existe para o dia em que o valor for lançado na
-conta de alguém real. A projeção por item passou a dizer `settled_by` e
-`reserved_by`, que é o que a tela precisa para escrever `PAGO · Marcelo` e para
-mostrar "em pagamento" enquanto o cartão do outro não volta.
+**Entregue e verde, local e no CI:** os cinco contratos e a interface.
 
-O contrato 5 fechou o buraco que a auditoria tinha apontado: `open_negotiation`
-recusa com `409 ORDER_ALREADY_IN_NEGOTIATION` quando uma comanda já pertence a
-outra conta aberta, nos dois sentidos, sobre os `Order` que ele já travava com
-`FOR UPDATE`; e a absorção do contrato 1 pula comanda que já está sendo paga em
-conta própria — generosa, mas nunca às custas de outra conta. A prova de
-concorrência é com transações reais: dois terminais pedindo o mesmo whisky no
-mesmo instante por `asyncio.gather`, com a conta ainda devendo R$145 para que só
-o guarda de item possa ser o que recusou. Um recebe 200, o outro `409
-ITEM_SETTLEMENT_UNAVAILABLE`, e o item fica com um reservador só.
+- *Contratos 2 e 3* — `item_settlement` resolve `item_total`, `settled_amount`,
+  `reserved_amount`, `available_amount` e `is_paid` por `OrderItem`, somando
+  alocações de todas as negociações que tocaram o item; `create_intent` recusa
+  com `409 ITEM_SETTLEMENT_UNAVAILABLE` sobre leitura `FOR UPDATE` dentro da
+  transação que já trava a negociação;
+- *Contrato 1* — `reconcile_source` no lugar de `_validate_source`: consumo novo
+  é absorvido, comandas abertas depois entram numa conta de escopo de mesa,
+  parcelas e alocações ficam onde estavam, `COVERED` deixou de ser terminal e a
+  fronteira `item_total >= settled + reserved` é consultada por `cancel_item`,
+  `update_item` e `transfer_item`. Dois buracos que o snapshot escondia foram
+  fechados: `cancel_item` e `update_item` não tocavam a sessão da mesa, e a
+  travessia `transfer -> negotiation` virou a porta `app/modules/settlement`,
+  primeira linha devolvida à baseline de módulos;
+- *Contratos 4 e 5* — `payer_label` e `payer_customer_id` na parcela pela
+  migração `075`, sem backfill; `open_negotiation` recusa com
+  `409 ORDER_ALREADY_IN_NEGOTIATION` nos dois sentidos, e a absorção pula
+  comanda já paga em conta própria. Concorrência provada com transações reais;
+- *Interface* — `CheckoutSettlement`: conta viva com Total, Confirmado e Falta;
+  consumo com `PAGO · Marcelo`, `EM PAGAMENTO · Astra` e parcial; três modos
+  sobre a mesma chamada; item tomado não é selecionável; pagador em campo livre;
+  códigos técnicos traduzidos. Seis casos no audit responsivo em sete tamanhos.
 
-Fechamento do gate em 05/09, por pergunta do dono — "só resta UI?". Quatro
-critérios do gate ainda eram só prosa e ganharam teste: produção intocada por
-pagamento, conta finalizada que não aceita nova alocação, e a fronteira
-econômica da transferência, que era **código alterado por esta sprint e sem
-teste algum**. Escrever esse último revelou um efeito colateral do contrato 1:
-`transfer_service` recusava toda transferência em sessão `PARTIALLY_PAID`. Fazia
-sentido quando esse estado significava "conta congelada, fechando"; sob
-liquidação progressiva ele significa o oposto — alguém pagou a parte dele e a
-mesa continua comendo. A recusa em bloco congelava mesa viva, e saiu.
-`PARTIALLY_PAID` entrou no conjunto ativo de transferência; `CLOSING` e `CLOSED`
-continuam fora. O que protege o dinheiro deixou de ser o estado da sessão e
-passou a ser a fronteira econômica por item e por comanda, perguntada ao módulo
-de finanças pela porta — regra mais forte do que a recusa que substituiu.
-
-Uma linha do gate permanece **parcialmente aspiracional e está registrada como
-tal**: "parcela que falha, é cancelada ou expira devolve o saldo do item".
-Falhar devolve, e isso está provado. Cancelar e expirar não existem —
-`PaymentIntentStatusEnum.CANCELED` não é escrito por nenhum comando e não há
-mecanismo de expiração. Enquanto não houver, uma parcela criada e nunca
-confirmada segura o saldo do item indefinidamente. Não é bloqueio para a
-interface, mas é dívida real e precisa de decisão antes do piloto.
-
-**Interface entregue em 05/09/2026**, fechando a sprint. `CheckoutSettlement`
-substituiu o painel de fechamento da comanda: a conta viva mostra Total,
-Confirmado e Falta, lista o consumo com o estado financeiro de cada linha —
-`PAGO · Marcelo` em verde, `EM PAGAMENTO · Astra` em âmbar, parcial quando é
-parcial — e oferece os três modos. Item já tomado não é selecionável, e o valor
-disponível vem do servidor, nunca de conta feita no navegador. Um campo livre
-diz quem está pagando; ninguém precisa ser cadastrado. Códigos técnicos foram
-traduzidos na apresentação, como o Sprint 5.2 exige: a parcela lê "PIX ·
-confirmado · Marcelo", não "PIX · CONFIRMED".
-
-Um defeito só apareceu ao abrir a tela em 390 px, e não por teste: o valor
-quebrava entre os reais e os centavos — `R$ 35,0` numa linha e `0` na outra. Um
-preço partido não é um preço. Corrigido, e o audit responsivo passou a verificar
-`white-space` nos valores para manter o achado achado.
-
-Cobertura: seis casos novos no audit responsivo, em sete tamanhos — abrir a
-conta, cada um dos três modos, as linhas já quitadas e em pagamento, e o rateio
-por pessoa que propõe a divisão e continua editável.
-
-O que a interface faz com o motor: os três modos — pagar tudo,
-dividir por pessoa, pagar por itens — que são três formas de construir
-`PaymentAllocation` sobre o mesmo motor, não três funcionalidades. Nada do S25
-está em tela alguma até aqui, por desenho e por ordem do dono.
-
-Antes deles, o contrato 1, entregue depois de 2 e 3 na ordem pedida pelo dono.
-`_validate_source` deu lugar a `reconcile_source`: consumo novo é absorvido —
-totais recalculados, comandas abertas depois entram numa conta com escopo de
-mesa (e **não** numa conta com escopo de Orders nomeadas), parcelas confirmadas e
-alocações por item ficam onde estavam. `COVERED` deixou de ser terminal e volta
-a `PARTIALLY_COVERED` quando entram duas cervejas antes da finalização. A
-fronteira econômica `item_total >= settled + reserved` passou a ser consultada
-por `cancel_item`, por `update_item` e por `transfer_item`.
-
-Dois achados apareceram ao construir, e os dois eram buracos que o modelo de
-snapshot escondia:
-
-- **`cancel_item` e `update_item` nunca tocavam a sessão da mesa.** Só
-  `add_item` chamava `touch_session_activity`. Cancelar um item ou mudar sua
-  quantidade não mexia na versão da sessão, então a conta divergia do consumo em
-  silêncio — sob o snapshot isso nem sequer invalidava. Os três comandos agora
-  tocam a sessão, com evento próprio para cada um;
-- **a fronteira de módulo precisava ser invertida, não atravessada.** O guarda de
-  cobertura mora em `finance` e quem precisa dele é `operation`, que o ADR-029
-  proíbe de olhar para cima. Em vez de somar uma linha à baseline, nasceu a porta
-  `app/modules/settlement`: `operation` pergunta, `finance` registra a resposta.
-  A linha `transfer -> negotiation` **saiu** da baseline — é a primeira que a
-  migração devolve.
-
-A ordem foi deliberada e é do dono: 2 e 3 são aditivos — não mudam comportamento
-existente e já fecham a porta da dupla alocação —, enquanto o 1 muda a semântica
-da negociação e por isso veio depois, com os outros dois já verdes.
-
-Dos contratos 2 e 3: `item_settlement` resolve
-`item_total`, `settled_amount`, `reserved_amount`, `available_amount` e
-`is_paid` por `OrderItem`, somando alocações de **todas** as negociações que
-tocaram o item, e não só da corrente; a projeção da negociação passou a carregar
-`item_settlements` mais o que foi pago sem nomear item; e `create_intent`
-recusa, com `409 ITEM_SETTLEMENT_UNAVAILABLE`, qualquer alocação acima do
-disponível do item, decidindo sobre uma leitura `FOR UPDATE` feita dentro da
-transação que já trava a negociação. Isso cobre por antecipação a metade de
-concorrência do contrato 5 que depende do item; o que resta lá é a coexistência
-de duas negociações sobre os mesmos itens. Nada disso chegou à tela ainda, por
-desenho: os três modos da UX vêm depois dos cinco contratos.
+**Pendente, e é funcional, não acabamento:** o ciclo de recuperação de pagamento
+abandonado ou incerto, delimitado no **S25.1** abaixo. O CI verde prova os
+cenários cobertos; não prova um ciclo ausente.
 
 Contratado com o dono do SaaS em 5 de setembro de 2026. Nasce
 de uma leitura do dono sobre a proposta errada deste agente: a de separar itens
@@ -2042,6 +1970,97 @@ entre criar e confirmar a parcela é real. Fecha a dívida "Conta não pode ser
 dividida por pessoa" da seção 9 e substitui a proposta de comanda irmã, que fica
 registrada como **recusada** para que ninguém a reintroduza.
 
+### S25.1 — Recuperação de pagamento abandonado ou incerto
+
+Contratado pelo dono do SaaS em 5 de setembro de 2026, **não iniciado**. Nasce
+de uma revisão dele sobre o S25 recém-entregue, e a frase que a resume é dele:
+**nunca liberar dinheiro apenas porque o relógio passou.**
+
+O S25 tornou a reserva por item real e útil — e, com isso, tornou o abandono
+caro. Antes, uma parcela pendente segurava apenas saldo do total da conta.
+Agora ela segura **um item específico**: um whisky preso em `EM PAGAMENTO ·
+Astra` não é pagável por mais ninguém, para sempre. O que era incômodo virou
+bloqueio, e é por isso que este fechamento é entrega própria e não acabamento.
+
+Quatro defeitos apurados no código, todos confirmados em 05/09:
+
+1. **A reserva pode durar indefinidamente.** `PENDING` e `PROCESSING` reservam
+   saldo do item, e não existe comando que leve a parcela a `CANCELED` nem
+   qualquer expiração. `PaymentIntentStatusEnum.CANCELED` não é escrito em
+   lugar nenhum do código;
+2. **"Marcar falha" não é solução segura para tudo.** `fail_intent` libera a
+   reserva verificando apenas que a parcela está `PENDING` ou `PROCESSING`.
+   Ele nunca olha a `ProviderTransaction` associada, de modo que uma parcela
+   cujo cartão está autorizando pode ser declarada falha e o item, liberado para
+   outra cobrança. **E a ação não existe na interface**: nenhuma função do
+   cliente chama `POST /negotiations/intents/{id}/fail`, então hoje o operador
+   não tem saída alguma pela tela;
+3. **O cancelamento do provider não completa o ciclo da parcela.**
+   `_apply_result` propaga `CONFIRMED` para `confirm_intent` e `FAILED` para
+   `fail_intent`. `CANCELED` e `REFUNDED` caem no `else` e apenas projetam: a
+   transação externa fecha, a parcela continua `PROCESSING` e a reserva do item
+   fica presa. Isto é defeito, não lacuna de escopo;
+4. **A interface tem janela de abandono.** Em `addAndConfirmPayment` a parcela é
+   criada **antes** de conferir vínculo e estado do TEF. Escolher TEF com bridge
+   offline cria a parcela, lança o erro depois, e deixa a reserva pendurada.
+
+Decisão de desenho, do dono: **separar reserva abandonada de cobrança em
+andamento.** O tratamento depende de até onde o dinheiro foi, nunca do relógio
+sozinho:
+
+| Situação | Tratamento |
+|---|---|
+| Parcela criada, sem cobrança iniciada nem recebimento registrado | cancelar é permitido; expiração automática pode liberar a reserva após prazo configurado |
+| Cobrança enviada ao TEF ou ao provider | consultar o resultado; **não** expirar automaticamente a obrigação financeira |
+| Resultado desconhecido ou conexão perdida | manter a reserva, exibir "Aguardando conciliação" e oferecer "Consultar pagamento" |
+| Provider confirma falha ou cancelamento definitivo | atualizar a parcela e liberar a reserva em transação auditada |
+| Pagamento confirmado | nunca cancelar para liberar saldo; se necessário, seguir o fluxo próprio de estorno |
+
+Entregas:
+
+- **cancelamento explícito** da parcela, autorizado, idempotente e auditado,
+  distinto de "marcar falha" e recusado quando existe cobrança externa não
+  resolvida;
+- **expiração segura**, controlada pelo servidor e válida somente para reserva
+  comprovadamente **não enviada**, com prazo configurado e nunca universalizado
+  para cobrança externa;
+- **reconciliação** para cobrança em processamento ou incerta, reaproveitando
+  `POST /providers/transactions/{id}/reconcile`, que já existe e ainda não tem
+  função no cliente;
+- **propagação do cancelamento externo**: `CANCELED` e `REFUNDED` deixam de cair
+  no `else` de `_apply_result` e passam a fechar a parcela;
+- **proteções**: confirmação tardia, corrida entre cancelar e confirmar, e
+  evento repetido do provider. O lock `FOR UPDATE` sobre a parcela em
+  `confirm_intent` e `fail_intent` já serializa a corrida — o que falta é o
+  terceiro comando entrar na mesma disciplina;
+- **na interface**: motivo, tempo de espera e ação possível, sem deixar o
+  operador adivinhar. Uma linha `EM PAGAMENTO` precisa dizer há quanto tempo
+  está assim e o que é possível fazer com ela;
+- recebimento manual recebe o mesmo cuidado: **ausência de confirmação no
+  sistema não prova ausência de dinheiro recebido.**
+
+Gate:
+
+- parcela sem cobrança iniciada é cancelada por comando explícito, auditado e
+  idempotente, e o item volta a `available`;
+- parcela com transação de provider não resolvida **não** é cancelada nem
+  expirada, e a recusa diz por quê;
+- provider que responde `CANCELED` ou `REFUNDED` fecha a parcela e devolve a
+  reserva, em transação auditada, sem passar por decisão humana;
+- consulta de resultado é alcançável pela tela e atualiza parcela e item;
+- confirmação que chega depois de um cancelamento é recusada, e o inverso
+  também: um vencedor, o outro em 409, provado com transações concorrentes;
+- evento repetido do provider não produz fato novo nem devolve saldo duas vezes;
+- reinício do serviço no meio do ciclo não perde a reserva nem a libera sozinho;
+- a tela nunca cria parcela antes de saber que o meio escolhido pode executar;
+- isolamento tenant/store testado negativamente;
+- migration com upgrade, downgrade e drift check verdes, se houver.
+
+Dependência: nenhuma externa. **É pré-requisito do piloto comercial (S21)**,
+porque um item preso indefinidamente é dinheiro que o lojista não recebe e
+consumo que ele não consegue cobrar de outra pessoa.
+
+
 ## 8. Dependências e ordem de execução
 
 ```text
@@ -2060,6 +2079,7 @@ S7 + S8 + S11 → S12 Transferências
 
 ATENDIMENTO E CONTA VIVA
 S8 + S12 → S25 Liquidação progressiva da comanda
+S25 + S9 → S25.1 Recuperação de pagamento abandonado ou incerto (pré-piloto)
 S23 → seletor compartilhado PDV/comanda (implementado; aceite operacional pendente)
 
 OMNICHANNEL
@@ -2078,6 +2098,7 @@ capabilities reais de S9–S18 → S19 Capability Profiles
 
 PILOTO
 S8–S19 → S20 Hardening/Pilot Readiness → S21.1 Acesso e dispositivos → S21 Piloto Comercial
+S25.1 é pré-requisito do S21: item preso é consumo que o lojista não cobra
 ```
 
 Os números registram a sequência recomendada de foco. S10 e partes internas do
@@ -2138,7 +2159,10 @@ e aparece como `não configurada`, nunca como pronta.
 | Parcela registra o operador e não o pagador | S25 | `payer_label` e `customer_id` opcional na parcela | **resolvido em 05/09/2026** pelo contrato 4, na migração `075_payment_intent_payer`, sem backfill: parcela antiga lê como pagador desconhecido em vez de receber um inventado |
 | `cancel_item` não consulta cobertura financeira | S25 | `item_total >= settled + reserved` como fronteira única | **resolvido em 05/09/2026**: `cancel_item`, `update_item` e `transfer_item` consultam a cobertura pela porta `app/modules/settlement`. Apurou-se de quebra que os dois primeiros nunca tocavam a sessão da mesa — só `add_item` tocava —, e a conta divergia do consumo em silêncio |
 | Conta da mesa e conta de uma comanda dela podem coexistir | S25 | mesmo item nunca alocado por duas negociações | **resolvido em 05/09/2026** pelo contrato 5: `open_negotiation` recusa com `409 ORDER_ALREADY_IN_NEGOTIATION` nos dois sentidos, sob o `FOR UPDATE` que já existia nos `Order`, e a absorção do contrato 1 pula comanda já paga em conta própria |
-| Parcela pendente segura o saldo do item para sempre | S25 (aberta) | cancelamento explícito e expiração de reserva | **dívida apurada em 05/09**: `fail` devolve o saldo e está provado, mas `PaymentIntentStatusEnum.CANCELED` não é escrito por comando algum e não existe expiração. Uma parcela criada e nunca confirmada bloqueia o item indefinidamente. Precisa de decisão antes do piloto |
+| Parcela pendente segura o saldo do item para sempre | **S25.1** | cancelar, expirar com segurança e reconciliar o incerto | **reclassificada em 05/09 pelo dono, de acabamento para pendência funcional**: o S25 tornou a reserva por item real e, com isso, tornou o abandono caro — um whisky preso em `EM PAGAMENTO` não é pagável por mais ninguém. Pré-requisito do piloto |
+| `fail_intent` libera a reserva sem olhar a cobrança externa | S25.1 | cancelamento distinto de falha, recusado com transação não resolvida | **defeito apurado em 05/09**: verifica apenas que a parcela está `PENDING`/`PROCESSING` e nunca consulta a `ProviderTransaction`. E não existe na interface — nenhuma função do cliente chama `/negotiations/intents/{id}/fail`, então o operador não tem saída pela tela |
+| Provider que cancela ou estorna deixa a parcela presa | S25.1 | `CANCELED` e `REFUNDED` fecham a parcela e devolvem a reserva | **defeito apurado em 05/09**: `_apply_result` propaga só `CONFIRMED` e `FAILED`; os demais caem no `else` e apenas projetam. A transação externa fecha e o item continua bloqueado |
+| A tela cria a parcela antes de saber se o TEF executa | S25.1 | conferir meio e vínculo antes de reservar saldo | **defeito apurado em 05/09**: `addAndConfirmPayment` cria o intent e só depois checa vínculo e estado do bridge. TEF offline deixa parcela pendurada e item reservado |
 | SmartPOS existe só como meio de pagamento, não como superfície de operação | S22 proposto em 04/09 | execução local distinta de `TEF_BRIDGE`, com adapter homologado e sem login humano na maquininha | **lacuna levantada em 04/09**: `PaymentDeviceExecutionModeEnum.SMARTPOS` trata a maquininha como destino de cobrança. Um SmartPOS de campo roda o ponto de venda inteiro, e isso não está modelado em lugar nenhum |
 | Owner tratado como domínio e não como camada | [ADR-029](../architecture/adr-029-module-boundaries-and-owner-layer.md) | nenhum serviço de tenant lê tabela do Owner; direitos consultados por contrato | **regra dura estabelecida em 04/09**, sem baseline e sem exceção prevista. Verificada por `test_no_tenant_module_reaches_into_the_owner_layer`, hoje verde |
 | Cadastro de dispositivo não distingue ponto de operação, navegador e periférico | S21.1 | pareamento verificado por tipo, com credencial de dispositivo em vez de texto livre | **dívida aberta, criada em 04/09**: `operational_devices` guarda POS, KDS e PRINTER na mesma forma, e o periférico é declarado por uma string `configuration_ref` que ninguém valida. Na tela, cadastrar impressora ou terminal de produção pede um texto do tipo `bridge://cozinha/impressora-01` sem provar que o bridge existe. Maquininha não passa por aqui: vive em `PaymentDeviceBinding` (S9), em outro módulo, sem que a tela de terminais diga isso |
@@ -2303,8 +2327,15 @@ e à tela. A sexta, o resultado item a item, ficou fora por decisão de desenho:
 palavra do marketplace. A certificação de canal permanece um gate externo e
 independente: nada disso antecipa piloto comercial.
 
-**Contratado em 05/09/2026, ainda não iniciado: o S25 — Liquidação progressiva
-da comanda.** A conversa que o produziu começou como "dividir a conta" e terminou
+**Contratado em 05/09/2026 e entregue no mesmo dia — núcleo e interface — mas
+não fechado para operação real: o S25.** A revisão do dono sobre o código
+entregue classificou a recuperação de pagamento abandonado ou incerto como
+**pendência funcional, não acabamento**, e ela virou o **S25.1**, pré-requisito
+do piloto. O argumento é curto e decide: o S25 tornou a reserva por item real e,
+com isso, um whisky preso em `EM PAGAMENTO` deixou de ser pagável por qualquer
+pessoa. CI verde prova os cenários cobertos, nunca um ciclo ausente.
+
+Do contrato original do S25: A conversa que o produziu começou como "dividir a conta" e terminou
 mudando o que a negociação é: de snapshot congelado de um fechamento para uma
 conta viva que recebe consumo enquanto vai sendo liquidada por vários pagadores.
 A auditoria de 05/09 mostrou que o ciclo parcial e a alocação por item já estão
