@@ -455,6 +455,11 @@ export interface NegotiationPaymentIntent {
   created_at: string
   confirmed_at?: string
   failed_at?: string
+  /** Whose money this was — never the operator who executed it. Free text, so
+   *  splitting a bill between friends never requires registering anybody; the
+   *  customer link is for when the value is charged to a real account. */
+  payer_label?: string | null
+  payer_customer_id?: string | null
 }
 
 export interface CheckoutNegotiation {
@@ -506,6 +511,10 @@ export interface ItemSettlement {
   reserved_amount: number
   available_amount: number
   is_paid: boolean
+  /** Who settled part of this line, and who is settling it right now. Empty
+   *  when the parcel carried no declared payer — unknown, not anonymous. */
+  settled_by: string[]
+  reserved_by: string[]
 }
 
 export interface PaymentProviderConfiguration {

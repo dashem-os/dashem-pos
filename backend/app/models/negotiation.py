@@ -105,6 +105,12 @@ class PaymentIntent(SQLModel, table=True):
     tendered_amount: Optional[Decimal] = Field(default=None, sa_column=Column(Numeric(14, 4), nullable=True))
     change_amount: Decimal = Field(default=Decimal("0"), sa_column=Column(Numeric(14, 4), nullable=False))
     provider: str = Field(default="MANUAL", max_length=80, index=True)
+    # Whose money this was, which is never the same question as who operated the
+    # terminal. Free text, because splitting a bill between friends must not
+    # require registering anybody; the customer link is for the day the value is
+    # charged to a real account.
+    payer_label: Optional[str] = Field(default=None, max_length=160)
+    payer_customer_id: Optional[uuid.UUID] = Field(default=None, foreign_key="customers.id", index=True)
     failure_code: Optional[str] = Field(default=None, max_length=80)
     failure_reason: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     idempotency_key: str = Field(max_length=160, index=True)

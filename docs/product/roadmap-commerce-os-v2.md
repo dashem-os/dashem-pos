@@ -1746,10 +1746,34 @@ depender de entitlement comercial nem de arquivo do lojista.
 
 ### S25 — Liquidação progressiva da comanda (Live Settlement)
 
-Estado em 05/09/2026: **contratos 1, 2 e 3 entregues no gate interno; 4 e 5
-abertos.**
+Estado em 05/09/2026: **os cinco contratos entregues no gate interno. Falta a
+interface.**
 
-O contrato 1 foi entregue depois de 2 e 3, na ordem pedida pelo dono.
+Contratos 4 e 5, os últimos: a migração `075_payment_intent_payer` acrescentou
+`payer_label` e `payer_customer_id` à parcela, sem backfill — parcela antiga não
+ganha um pagador inventado, ela lê como desconhecida, que é a verdade. Nenhum
+dos dois é obrigatório: dividir uma conta entre amigos não exige cadastrar
+ninguém, e o vínculo com cliente existe para o dia em que o valor for lançado na
+conta de alguém real. A projeção por item passou a dizer `settled_by` e
+`reserved_by`, que é o que a tela precisa para escrever `PAGO · Marcelo` e para
+mostrar "em pagamento" enquanto o cartão do outro não volta.
+
+O contrato 5 fechou o buraco que a auditoria tinha apontado: `open_negotiation`
+recusa com `409 ORDER_ALREADY_IN_NEGOTIATION` quando uma comanda já pertence a
+outra conta aberta, nos dois sentidos, sobre os `Order` que ele já travava com
+`FOR UPDATE`; e a absorção do contrato 1 pula comanda que já está sendo paga em
+conta própria — generosa, mas nunca às custas de outra conta. A prova de
+concorrência é com transações reais: dois terminais pedindo o mesmo whisky no
+mesmo instante por `asyncio.gather`, com a conta ainda devendo R$145 para que só
+o guarda de item possa ser o que recusou. Um recebe 200, o outro `409
+ITEM_SETTLEMENT_UNAVAILABLE`, e o item fica com um reservador só.
+
+**O que falta do S25 é a interface**, e só ela: os três modos — pagar tudo,
+dividir por pessoa, pagar por itens — que são três formas de construir
+`PaymentAllocation` sobre o mesmo motor, não três funcionalidades. Nada do S25
+está em tela alguma até aqui, por desenho e por ordem do dono.
+
+Antes deles, o contrato 1, entregue depois de 2 e 3 na ordem pedida pelo dono.
 `_validate_source` deu lugar a `reconcile_source`: consumo novo é absorvido —
 totais recalculados, comandas abertas depois entram numa conta com escopo de
 mesa (e **não** numa conta com escopo de Orders nomeadas), parcelas confirmadas e
@@ -2063,9 +2087,9 @@ e aparece como `não configurada`, nunca como pronta.
 | Conta não pode ser dividida por pessoa | **S25** | alocação por item sobre uma conta viva, sem mover item de comanda | **reaberta e reclassificada em 05/09**: o que foi resolvido em 04/09 é pagar *uma comanda inteira* em parcelas mantendo as demais ativas. Dividir por item dentro de uma comanda — Marcelo paga o hambúrguer, Astra paga o whisky, o resto segue aberto — não existe. A proposta deste agente de separar itens em uma comanda irmã foi **recusada pelo dono em 05/09**: pagador não é comanda, e mover o item contamina KDS, produção, auditoria, estorno, fiscal e conciliação |
 | Negociação invalida ao ver consumo novo | S25 | conta viva que absorve o saldo acrescentado | **resolvido em 05/09/2026** pelo contrato 1: `reconcile_source` recalcula o devido, absorve comandas novas numa conta de mesa e preserva parcelas e alocações. `COVERED` deixou de ser terminal |
 | `order_item_id` é escrito na alocação e nunca lido | S25 | projeção de settlement por item com invariante de saldo | **resolvido em 05/09/2026** pelos contratos 2 e 3: `item_settlement` publica `settled`/`reserved`/`available`/`is_paid` por item, e `create_intent` recusa com `409 ITEM_SETTLEMENT_UNAVAILABLE` sobre leitura `FOR UPDATE` |
-| Parcela registra o operador e não o pagador | S25 | `payer_label` e `customer_id` opcional na parcela | **dívida apurada em 05/09**: `PaymentIntent` tem `created_by` e `confirmed_by`, que são quem operou. Não há como a tela dizer "PAGO · Marcelo", nem lançar o valor na conta de um cliente cadastrado |
+| Parcela registra o operador e não o pagador | S25 | `payer_label` e `customer_id` opcional na parcela | **resolvido em 05/09/2026** pelo contrato 4, na migração `075_payment_intent_payer`, sem backfill: parcela antiga lê como pagador desconhecido em vez de receber um inventado |
 | `cancel_item` não consulta cobertura financeira | S25 | `item_total >= settled + reserved` como fronteira única | **resolvido em 05/09/2026**: `cancel_item`, `update_item` e `transfer_item` consultam a cobertura pela porta `app/modules/settlement`. Apurou-se de quebra que os dois primeiros nunca tocavam a sessão da mesa — só `add_item` tocava —, e a conta divergia do consumo em silêncio |
-| Conta da mesa e conta de uma comanda dela podem coexistir | S25 | mesmo item nunca alocado por duas negociações | **dívida apurada em 05/09**: `uq_active_negotiation_scope` impede duas negociações ativas no mesmo `scope_key`, mas `table-session:<id>` e `orders:<id>` são chaves diferentes |
+| Conta da mesa e conta de uma comanda dela podem coexistir | S25 | mesmo item nunca alocado por duas negociações | **resolvido em 05/09/2026** pelo contrato 5: `open_negotiation` recusa com `409 ORDER_ALREADY_IN_NEGOTIATION` nos dois sentidos, sob o `FOR UPDATE` que já existia nos `Order`, e a absorção do contrato 1 pula comanda já paga em conta própria |
 | SmartPOS existe só como meio de pagamento, não como superfície de operação | S22 proposto em 04/09 | execução local distinta de `TEF_BRIDGE`, com adapter homologado e sem login humano na maquininha | **lacuna levantada em 04/09**: `PaymentDeviceExecutionModeEnum.SMARTPOS` trata a maquininha como destino de cobrança. Um SmartPOS de campo roda o ponto de venda inteiro, e isso não está modelado em lugar nenhum |
 | Owner tratado como domínio e não como camada | [ADR-029](../architecture/adr-029-module-boundaries-and-owner-layer.md) | nenhum serviço de tenant lê tabela do Owner; direitos consultados por contrato | **regra dura estabelecida em 04/09**, sem baseline e sem exceção prevista. Verificada por `test_no_tenant_module_reaches_into_the_owner_layer`, hoje verde |
 | Cadastro de dispositivo não distingue ponto de operação, navegador e periférico | S21.1 | pareamento verificado por tipo, com credencial de dispositivo em vez de texto livre | **dívida aberta, criada em 04/09**: `operational_devices` guarda POS, KDS e PRINTER na mesma forma, e o periférico é declarado por uma string `configuration_ref` que ninguém valida. Na tela, cadastrar impressora ou terminal de produção pede um texto do tipo `bridge://cozinha/impressora-01` sem provar que o bridge existe. Maquininha não passa por aqui: vive em `PaymentDeviceBinding` (S9), em outro módulo, sem que a tela de terminais diga isso |

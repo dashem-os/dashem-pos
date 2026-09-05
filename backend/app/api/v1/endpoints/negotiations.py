@@ -37,6 +37,10 @@ class PaymentIntentCreateDTO(BaseModel):
     tendered_amount: Optional[Decimal] = Field(default=None, gt=0)
     allocations: List[AllocationCreateDTO] = Field(default_factory=list)
     actor_id: Optional[uuid.UUID] = None
+    # Whose money this is. Never required: friends splitting a bill do not
+    # register themselves, and an unnamed parcel is honest about being unnamed.
+    payer_label: Optional[str] = Field(default=None, max_length=160)
+    payer_customer_id: Optional[uuid.UUID] = None
 
 
 class IntentCommandDTO(BaseModel):
@@ -74,6 +78,8 @@ class PaymentIntentDTO(BaseModel):
     created_at: datetime
     confirmed_at: Optional[datetime]
     failed_at: Optional[datetime]
+    payer_label: Optional[str]
+    payer_customer_id: Optional[uuid.UUID]
 
 
 class PaymentAllocationDTO(BaseModel):
@@ -102,6 +108,8 @@ class ItemSettlementDTO(BaseModel):
     reserved_amount: Decimal
     available_amount: Decimal
     is_paid: bool
+    settled_by: List[str]
+    reserved_by: List[str]
 
 
 class NegotiationProjectionDTO(BaseModel):
@@ -169,6 +177,7 @@ def create_payment_intent_endpoint(
         cash_session_id=data.cash_session_id, tendered_amount=data.tendered_amount,
         allocations=[item.model_dump(mode="json") for item in data.allocations],
         actor_id=data.actor_id, idempotency_key=idempotency_key,
+        payer_label=data.payer_label, payer_customer_id=data.payer_customer_id,
     )
 
 

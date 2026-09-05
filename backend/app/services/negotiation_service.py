@@ -20,7 +20,7 @@ from app.models.payment import (
     Payment, PaymentMethodEnum, PaymentStatusEnum,
 )
 from app.models.sale import (
-    FulfillmentTypeEnum, Sale, SaleItem, SaleOperationModeEnum, SaleStatusEnum,
+    Customer, FulfillmentTypeEnum, Sale, SaleItem, SaleOperationModeEnum, SaleStatusEnum,
 )
 from app.models.receivable import Receivable, ReceivableAllocation
 from app.models.table_service import (
@@ -164,23 +164,34 @@ def item_settlement(
         return {}
     taken: dict[uuid.UUID, dict] = {}
     rows = session.exec(
-        select(PaymentAllocation.order_item_id, PaymentIntent.status, func.sum(PaymentAllocation.amount))
+        select(
+            PaymentAllocation.order_item_id, PaymentIntent.status,
+            PaymentIntent.payer_label, func.sum(PaymentAllocation.amount),
+        )
         .join(PaymentIntent, PaymentIntent.id == PaymentAllocation.payment_intent_id)
         .where(
             PaymentAllocation.tenant_id == negotiation.tenant_id,
             PaymentAllocation.order_item_id.in_([item.id for item in items]),
         )
-        .group_by(PaymentAllocation.order_item_id, PaymentIntent.status)
+        .group_by(PaymentAllocation.order_item_id, PaymentIntent.status, PaymentIntent.payer_label)
     ).all()
-    for item_id, intent_status, total in rows:
-        bucket = taken.setdefault(item_id, {"settled": Decimal("0"), "reserved": Decimal("0")})
+    for item_id, intent_status, payer, total in rows:
+        bucket = taken.setdefault(
+            item_id, {"settled": Decimal("0"), "reserved": Decimal("0"), "settled_by": [], "reserved_by": []},
+        )
         if intent_status in SETTLED_INTENTS:
             bucket["settled"] += _money(total or 0)
+            if payer and payer not in bucket["settled_by"]:
+                bucket["settled_by"].append(payer)
         elif intent_status in RESERVED_INTENTS:
             bucket["reserved"] += _money(total or 0)
+            if payer and payer not in bucket["reserved_by"]:
+                bucket["reserved_by"].append(payer)
     settlement = {}
     for item in items:
-        bucket = taken.get(item.id, {"settled": Decimal("0"), "reserved": Decimal("0")})
+        bucket = taken.get(
+            item.id, {"settled": Decimal("0"), "reserved": Decimal("0"), "settled_by": [], "reserved_by": []},
+        )
         item_total = _money(_money(item.unit_price) * _money(item.quantity))
         settled, reserved = _money(bucket["settled"]), _money(bucket["reserved"])
         settlement[item.id] = {
@@ -190,6 +201,10 @@ def item_settlement(
             "settled_amount": settled, "reserved_amount": reserved,
             "available_amount": max(Decimal("0"), _money(item_total - settled - reserved)),
             "is_paid": item_total > 0 and settled >= item_total,
+            # Who paid, when they said so. A parcel with no declared payer adds
+            # nothing here rather than a guess.
+            "settled_by": list(bucket["settled_by"]),
+            "reserved_by": list(bucket["reserved_by"]),
         }
     return settlement
 
@@ -279,7 +294,21 @@ def reconcile_source(session: Session, negotiation: CheckoutNegotiation) -> list
             )
             if known:
                 query = query.where(Order.id.notin_(list(known)))
+            # A comanda already being paid in its own bill is not absorbed: it
+            # belongs to whoever opened that bill, and taking it here would let
+            # the same item be spent twice.
+            taken = {row for row in session.exec(
+                select(NegotiationOrder.order_id)
+                .join(CheckoutNegotiation, CheckoutNegotiation.id == NegotiationOrder.negotiation_id)
+                .where(
+                    CheckoutNegotiation.tenant_id == negotiation.tenant_id,
+                    CheckoutNegotiation.id != negotiation.id,
+                    CheckoutNegotiation.status.in_(list(ACTIVE_NEGOTIATIONS)),
+                )
+            ).all()}
             for order in session.exec(query.with_for_update()).all():
+                if order.id in taken:
+                    continue
                 session.add(NegotiationOrder(
                     tenant_id=negotiation.tenant_id, negotiation_id=negotiation.id,
                     order_id=order.id, amount_snapshot=_order_amount(session, order),
@@ -466,6 +495,28 @@ def open_negotiation(
     )).first()
     if active:
         return projection(session, context, active.id)
+    # One live bill per comanda, whatever shape the scope has. The unique index
+    # only guards an identical `scope_key`, and `table-session:<id>` and
+    # `orders:<id>` are different strings — so the table's bill and a bill for
+    # one of its comandas could both exist and spend the same whisky. The Orders
+    # above are already locked FOR UPDATE, so two terminals opening at the same
+    # instant serialise here rather than both winning.
+    held = session.exec(
+        select(NegotiationOrder.order_id, CheckoutNegotiation.scope_key)
+        .join(CheckoutNegotiation, CheckoutNegotiation.id == NegotiationOrder.negotiation_id)
+        .where(
+            CheckoutNegotiation.tenant_id == context.tenant_id,
+            CheckoutNegotiation.store_id == store_id,
+            CheckoutNegotiation.status.in_(list(ACTIVE_NEGOTIATIONS)),
+            NegotiationOrder.order_id.in_([order.id for order in orders]),
+        )
+    ).first()
+    if held:
+        raise HTTPException(status_code=409, detail={
+            "code": "ORDER_ALREADY_IN_NEGOTIATION",
+            "message": "Uma comanda desta conta já está sendo paga em outra conta aberta.",
+            "order_id": str(held[0]), "held_by_scope": held[1],
+        })
     snapshots = [(order, _order_amount(session, order)) for order in orders]
     subtotal = _money(sum((amount for _, amount in snapshots), Decimal("0")))
     if subtotal <= 0:
@@ -501,6 +552,7 @@ def create_intent(
     method: PaymentMethodEnum, amount: Decimal, cash_session_id: Optional[uuid.UUID],
     tendered_amount: Optional[Decimal], allocations: list[dict],
     actor_id: Optional[uuid.UUID], idempotency_key: str,
+    payer_label: Optional[str] = None, payer_customer_id: Optional[uuid.UUID] = None,
 ) -> dict:
     actor = _actor(context, actor_id)
     normalized_amount = _money(amount)
@@ -509,6 +561,8 @@ def create_intent(
         "amount": str(normalized_amount), "cash_session_id": str(cash_session_id) if cash_session_id else None,
         "tendered_amount": str(tendered_amount) if tendered_amount is not None else None,
         "allocations": allocations, "actor_id": str(actor),
+        "payer_label": (payer_label or "").strip() or None,
+        "payer_customer_id": str(payer_customer_id) if payer_customer_id else None,
     }
     request_hash = reliability_service.compute_request_hash(payload)
     existing = session.exec(select(PaymentIntent).where(
@@ -547,6 +601,12 @@ def create_intent(
         allocation_total = _money(sum((_money(item["amount"]) for item in allocations), Decimal("0")))
         if allocation_total != normalized_amount:
             raise HTTPException(status_code=422, detail="A soma das allocations deve ser igual à parcela.")
+    # A named customer must be this tenant's. An unnamed payer is fine: dividing
+    # a bill between friends never requires registering anybody.
+    if payer_customer_id and not session.exec(scope_tenant_query(
+        select(Customer).where(Customer.id == payer_customer_id), Customer, context,
+    )).first():
+        raise HTTPException(status_code=404, detail="Cliente informado como pagador não existe neste contexto.")
     # The item invariant, decided here and not after the intent exists: nothing
     # may settle or reserve above what the item still has available. The read is
     # FOR UPDATE inside the transaction that already holds the negotiation, so
@@ -576,6 +636,7 @@ def create_intent(
         negotiation_id=negotiation.id, cash_session_id=cash_session_id,
         method=method, amount=normalized_amount, tendered_amount=tendered,
         change_amount=change, provider="MANUAL_OPERATOR",
+        payer_label=payload["payer_label"], payer_customer_id=payer_customer_id,
         idempotency_key=idempotency_key, request_hash=request_hash, created_by=actor,
     )
     session.add(intent)
