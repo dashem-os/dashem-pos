@@ -2,7 +2,10 @@ from typing import Any, Optional
 
 from sqlmodel import Session, select
 
-from app.models.platform import EntitlementStatusEnum, StoreCapabilityOverride, TenantCapability
+from app.models.platform import (
+    CapabilityProfileRevision, EntitlementStatusEnum, StoreCapabilityOverride,
+    TenantCapability, TenantProfileAssignment,
+)
 from app.modules.capabilities.registry import (
     CAPABILITY_REGISTRY, IMPLEMENTED_CAPABILITIES, resolve_dependencies,
 )
@@ -12,19 +15,49 @@ from app.services.contract_entitlement_service import resolve_contract_entitleme
 TABLE_SERVICE_ACTIVITY = "FOOD_SERVICE"
 
 
+def tenant_activity_keys(session: Session, tenant_id) -> tuple[str, ...]:
+    """As atividades que este tenant declarou, contratadas ou legadas.
+
+    O contrato versionado é a fonte quando existe. Antes dele, a atividade vivia
+    na atribuição de perfil de capability, e é de lá que o Owner console lê até
+    hoje — então é de lá que se lê aqui também, em vez de tratar "sem contrato"
+    como "sem regra".
+
+    Um tenant que não declarou atividade nenhuma devolve tupla vazia, e quem
+    consulta decide. Para a jornada de mesa, decidir é recusar.
+    """
+    snapshot = resolve_contract_entitlements(session, tenant_id)
+    if snapshot is not None:
+        return tuple(snapshot.activity_keys)
+    revision = session.exec(
+        select(CapabilityProfileRevision)
+        .join(
+            TenantProfileAssignment,
+            TenantProfileAssignment.revision_id == CapabilityProfileRevision.id,
+        )
+        .where(
+            TenantProfileAssignment.tenant_id == tenant_id,
+            TenantProfileAssignment.status == "ACTIVE",
+        )
+    ).first()
+    return (revision.profile_key,) if revision is not None else ()
+
+
 def capability_allowed_by_activity(session: Session, tenant_id, capability_key: str) -> bool:
     """Return whether a contracted capability is coherent with tenant activities.
 
-    The activity list is part of the immutable contract snapshot.  A table
-    journey is a food-service concern; a permission or a stale capability row
-    must never publish it for a retail/beauty tenant.  Pre-contract tenants are
-    kept readable through the explicit legacy path until they receive a
-    contract snapshot.
+    Atender mesa é assunto de food service. Nem uma permissão, nem uma linha de
+    capability esquecida, nem um sortimento publicado devem abrir essa jornada
+    para um tenant de beleza ou de varejo.
+
+    O tenant legado — sem contrato versionado — **não** é mais exceção. Ele era,
+    e o efeito prático da exceção era que quem nunca contratou nada tinha mais
+    acesso do que quem contratou errado. Agora ele responde pela atividade que
+    declarou no perfil; não tendo declarado nenhuma, a jornada é recusada.
     """
     if capability_key != "table_service":
         return True
-    snapshot = resolve_contract_entitlements(session, tenant_id)
-    return snapshot is None or TABLE_SERVICE_ACTIVITY in snapshot.activity_keys
+    return TABLE_SERVICE_ACTIVITY in tenant_activity_keys(session, tenant_id)
 
 
 def effective_capabilities(session: Session, tenant_id, store_id: Optional[object] = None) -> dict[str, dict[str, Any]]:

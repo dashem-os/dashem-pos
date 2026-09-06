@@ -13,6 +13,7 @@ from app.models.assortment import (
 )
 from app.models.catalog import SalesChannel, Product, Category, ProductPrice
 from app.models.identity import Store
+from app.modules.capabilities.service import capability_allowed_by_activity
 from app.services import reliability_service
 
 
@@ -185,6 +186,64 @@ def get_assortment(session: Session, context: TenantContext, assortment_id: uuid
     }
 
 
+def assert_publication_remains_eligible(
+    session: Session,
+    context: TenantContext,
+    *,
+    status: AssortmentStatusEnum,
+    sales_contexts: set[SalesContextEnum],
+) -> None:
+    """O que importa é o estado em que a edição **deixa** o sortimento.
+
+    Validar só o que chega no payload deixava passar o caminho mais provável no
+    mundo real: um sortimento de mesa que já existe, o tenant perde FOOD_SERVICE
+    ou a capability, e alguém reativa o sortimento sem tocar em escopo nenhum.
+    Nada era reenviado, então nada era revalidado.
+
+    Sair de publicação, porém, é sempre permitido. Bloquear a desativação
+    prenderia o lojista num sortimento que ele não pode manter e não pode
+    remover — a regra existe para impedir publicar indevidamente, não para
+    impedir a correção.
+    """
+    if status is not AssortmentStatusEnum.ACTIVE:
+        return
+    for sales_context in sorted(sales_contexts, key=lambda item: item.value):
+        assert_journey_publishable(session, context, sales_context)
+
+
+def assert_journey_publishable(
+    session: Session, context: TenantContext, sales_context: SalesContextEnum,
+) -> None:
+    """Publicar para uma jornada exige a jornada, não só o catálogo.
+
+    O sortimento é onde um produto passa a existir para uma jornada de venda. A
+    permissão de catálogo abria essa porta para qualquer contexto, então um
+    tenant de beleza ou de varejo podia publicar um sortimento de **mesa** — que
+    a leitura depois recusava, mas que já estava gravado e visível na Gestão como
+    se fosse uma configuração legítima.
+
+    A regra é a mesma da jornada em si, e vem do mesmo lugar: a capability
+    `table_service` — que `effective_capabilities` só entrega a quem declarou
+    FOOD_SERVICE. Publicar, operar e ler passam a responder igual.
+    """
+    if sales_context is not SalesContextEnum.TABLE:
+        return
+    if "table_service" in set(context.capabilities or ()):
+        return
+    if not capability_allowed_by_activity(session, context.tenant_id, "table_service"):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Publicar sortimento de mesa exige a atividade FOOD_SERVICE "
+                "contratada e ativa nesta unidade."
+            ),
+        )
+    raise HTTPException(
+        status_code=403,
+        detail="Capacidade 'table_service' não contratada ou inativa para esta unidade.",
+    )
+
+
 def create_assortment(
     session: Session,
     context: TenantContext,
@@ -254,6 +313,11 @@ def create_assortment(
             status_code=http_status.HTTP_409_CONFLICT,
             detail="Conflito ao criar sortimento: código ou chave de idempotência já utilizado.",
         ) from exc
+
+    assert_publication_remains_eligible(
+        session, context, status=status,
+        sales_contexts={SalesContextEnum(sc["sales_context"]) for sc in (scopes or [])},
+    )
 
     # Add Scopes
     if scopes:
@@ -409,6 +473,24 @@ def update_assortment(
         if conflict:
             raise HTTPException(status_code=409, detail=f"Código '{code.strip()}' já em uso.")
         assortment.code = code.strip()
+
+    # O estado resultante, antes de qualquer mutação: o status que valerá e as
+    # jornadas que o sortimento publicará depois desta edição — as que chegaram
+    # no payload, ou as que ele já tinha quando o payload não mexe em escopo.
+    resulting_status = status or assortment.status
+    if scopes is not None:
+        resulting_contexts = {SalesContextEnum(sc["sales_context"]) for sc in scopes}
+    else:
+        resulting_contexts = {
+            row.sales_context
+            for row in session.exec(select(AssortmentScope).where(
+                AssortmentScope.tenant_id == context.tenant_id,
+                AssortmentScope.assortment_id == assortment.id,
+            )).all()
+        }
+    assert_publication_remains_eligible(
+        session, context, status=resulting_status, sales_contexts=resulting_contexts,
+    )
 
     if name:
         assortment.name = name.strip()

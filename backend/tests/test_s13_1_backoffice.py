@@ -6,6 +6,7 @@ import httpx
 import pytest
 from sqlmodel import Session
 
+from activity_fixtures import declare_food_service
 from app.core.database import engine
 from app.core.tenancy import set_platform_db_context
 from app.models.platform import EntitlementStatusEnum, TenantCapability
@@ -22,6 +23,7 @@ async def _context(client: httpx.AsyncClient, prefix: str):
     # for contract-backed tenants before publishing the journey.
     with Session(engine) as db:
         set_platform_db_context(db)
+        declare_food_service(db, tenant["id"])
         db.add(TenantCapability(
             tenant_id=uuid.UUID(tenant["id"]),
             key="table_service",

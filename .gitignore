@@ -51,3 +51,6 @@ frontend/tests_e2e/
 
 # Claude Code: preferências pessoais da máquina (o settings.json do projeto é versionado)
 .claude/settings.local.json
+
+# Artefatos de geração (render, modelagem) não pertencem ao repositório do produto.
+outputs/

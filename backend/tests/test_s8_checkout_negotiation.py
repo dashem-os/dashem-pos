@@ -6,6 +6,7 @@ import httpx
 import pytest
 from sqlmodel import Session, select
 
+from activity_fixtures import declare_food_service
 from app.core.database import engine
 from app.core.tenancy import set_platform_db_context
 from app.models.negotiation import CheckoutNegotiation, PaymentAllocation, PaymentIntent
@@ -29,6 +30,7 @@ async def _context(client: httpx.AsyncClient, prefix: str):
     with Session(engine) as db:
         set_platform_db_context(db)
         from app.models.platform import TenantCapability, EntitlementStatusEnum
+        declare_food_service(db, tenant["id"])
         db.add(TenantCapability(
             tenant_id=uuid.UUID(tenant["id"]),
             key="counter_order",

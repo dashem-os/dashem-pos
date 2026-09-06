@@ -1,6 +1,7 @@
 import os,uuid
 import httpx,pytest
 from sqlmodel import Session
+from activity_fixtures import declare_food_service
 from app.core.database import engine
 from app.core.tenancy import set_platform_db_context
 from app.models.platform import TenantCapability, EntitlementStatusEnum
@@ -9,6 +10,7 @@ async def base(client,label):
  s=uuid.uuid4().hex[:8];actor=str(uuid.uuid4());tenant=(await client.post('/api/v1/identity/tenants',json={'name':label,'slug':f'{label.lower()}-{s}'})).json();store=(await client.post('/api/v1/identity/stores',json={'tenant_id':tenant['id'],'name':'Matriz','code':s})).json()
  with Session(engine) as db:
   set_platform_db_context(db)
+  declare_food_service(db, tenant['id'])
   db.add(TenantCapability(tenant_id=uuid.UUID(tenant['id']), key='table_service', enabled=True, status=EntitlementStatusEnum.ACTIVE))
   db.commit()
  h={'X-Tenant-ID':tenant['id'],'X-Store-ID':store['id']};return tenant,store,h,actor
