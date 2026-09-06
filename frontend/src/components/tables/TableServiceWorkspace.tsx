@@ -289,6 +289,9 @@ function SessionPanel({ session, availableSessions, availableTables, headers, pr
   const addAndConfirmPayment = async () => {
     if (!negotiation || Number(paymentAmount) <= 0) return
     if (paymentMethod === 'CASH' && cashSession?.status !== 'OPEN') { showToast('error', 'Abra uma sessão de caixa para receber em dinheiro.'); return }
+    if ((paymentMethod === 'TEF_CREDIT' || paymentMethod === 'TEF_DEBIT') && !tefBinding) {
+      showToast('error', 'TEF não possui vínculo ativo neste caixa.'); return
+    }
     setBusy(true)
     try {
       const isTef = paymentMethod === 'TEF_CREDIT' || paymentMethod === 'TEF_DEBIT'
@@ -309,13 +312,16 @@ function SessionPanel({ session, availableSessions, availableTables, headers, pr
           ? byItem
           : settledOrderId ? [{ amount: Number(paymentAmount), order_id: settledOrderId }] : undefined,
         payer_label: payerLabel.trim() || undefined,
+        // Declared here so the server proves the chain *before* holding a line
+        // of the bill. The screen used to create the parcel and only then find
+        // the bridge offline, leaving a reserve nobody could pay or release.
+        payment_device_binding_id: isTef ? tefBinding?.id : undefined,
         actor_id: operatorId,
       })
       const pending = [...created.intents].reverse().find((item) => item.status === 'PENDING')
       if (!pending) throw new Error('A parcela persistida não ficou disponível para confirmação.')
       if (isTef) {
         if (!tefBinding) throw new Error('TEF não possui vínculo ativo neste caixa.')
-        if (!tefTerminal || tefTerminal.status !== 'ONLINE') throw new Error('Dashem TEF Bridge não configurado ou offline neste caixa.')
         const execution = await api.executeProviderTransaction(headers, crypto.randomUUID(), {
           payment_intent_id: pending.id, payment_device_binding_id: tefBinding.id, actor_id: operatorId,
         })

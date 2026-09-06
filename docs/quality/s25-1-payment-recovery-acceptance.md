@@ -18,12 +18,12 @@ com provider**, que não foi feita e não pode ser deduzida daqui.
 | Expiração só com evidência de que nada foi cobrado | `expire_abandoned_reserves`: exige `reserve_expires_at` vencido **e** nenhuma `ProviderTransaction`; varredura no `outbox_worker` a cada 60 s | `test_s25_1_expiry_needs_evidence_that_nothing_was_ever_charged` | **local ✓** — a reserva sem cobrança expira; a que foi enviada não expira nem com o relógio forçado ao passado |
 | Recuperação de `PROCESSING`/desconhecido por consulta, mantendo a reserva | `POST /negotiations/intents/{id}/query` → `provider_service.reconcile_transaction` | `test_s25_1_a_charge_in_flight_blocks_release_and_hand_confirmation` | **local ✓** — resposta `UNKNOWN` mantém a reserva; só o resultado do bridge devolve o item |
 | Propagação do cancelamento externo | `CANCELED` passa a chamar `cancel_intent(external=True)` | `test_s25_1_the_provider_closing_the_charge_closes_the_parcel` | **local ✓** — antes caía no `else` e deixava o item preso |
-| Estorno não é cancelamento de reserva | `REFUNDED` sobre parcela confirmada gera `REFUND_REQUIRES_REVERSAL` e **não** mexe no dinheiro | `test_s25_1_a_refund_is_a_reversal_and_never_a_released_reserve` | **local ✓ com bloqueio declarado** (ver abaixo) |
+| Estorno não é cancelamento de reserva | confirmada → `REFUND_REQUIRES_REVERSAL`, dinheiro intocado; aberta → `FAILED` com `REFUND_WITHOUT_CAPTURE`, **nunca** `cancel_intent` | `test_s25_1_a_refund_is_a_reversal_and_never_a_released_reserve`, `test_s25_1_a_refund_without_capture_frees_the_line_but_is_not_a_cancellation` | **local ✓ após a revisão** — a primeira rodada convertia estorno em cancelamento de reserva |
 | Confirmação tardia registrada e reconciliada, nunca descartada | `record_divergence` com `LATE_CONFIRMATION`; parcela encerrada não é reaberta | `test_s25_1_a_late_or_repeated_answer_is_written_down_and_never_applied` | **local ✓** — o pagamento de quem quitou depois permanece intacto |
 | Evento repetido ou fora de ordem | unique `(payment_intent_id, kind, provider_status)` + leitura prévia em `record_divergence` | idem | **local ✓** — três respostas do bridge, uma divergência |
 | Corrida entre cancelar e confirmar | ambos travam a parcela com `SELECT FOR UPDATE` | `test_s25_1_cancelling_and_confirming_at_the_same_instant_has_one_winner` | **local ✓** — `asyncio.gather`, um 200 e um 409, linha coerente nos dois desfechos |
 | Retomada da mesma tentativa sem criar outra cobrança | `execute_transaction` reconcilia a transação em voo em vez de abrir outra | `test_s25_1_a_lost_answer_is_retried_on_the_same_attempt_not_a_new_charge` | **local ✓** — duas execuções e uma consulta, uma única `ProviderTransaction` |
-| Validação do TEF antes de criar a parcela | `provider_service.assert_executable_binding` chamado por `create_intent` antes de reservar | `test_s25_1_an_offline_bridge_leaves_no_reserve_behind` | **local ✓** — bridge offline responde 503 e a conta fica sem parcela alguma |
+| Validação do TEF antes de criar a parcela | `assert_executable_binding` em `create_intent`, **e a tela declarando o dispositivo junto com a parcela** | `test_s25_1_an_offline_bridge_leaves_no_reserve_behind` + `checkout-tef-declared-upfront` | **local ✓ após a revisão** — na primeira rodada o guarda existia sem caller; o teste de tela falha se o campo deixar de viajar |
 | Reinício do serviço no meio do ciclo | o prazo vive na linha (`reserve_expires_at`), não em memória; a varredura roda em sessão nova | teste de expiração, que executa em `Session` própria depois das chamadas HTTP | **local ✓ parcial** — prova que o estado sobrevive a outra sessão/processo, não um `docker restart` encenado |
 | Isolamento tenant/unidade | `scope_tenant_query` nas rotas novas + RLS forçado em `payment_settlement_divergences` | `test_s25_1_a_neighbour_never_cancels_or_queries_this_bill` | **local ✓** — 404 nos dois comandos, reserva intacta |
 | Permissões negativas | `route_requirement` mapeia `/cancel` para `checkout.payment.cancel` | `test_s25_1_releasing_money_needs_its_own_permission` | **local ✓ no mapeamento** — a suíte HTTP roda sob `AUTH_MODE=disabled`, então isto prova a regra, não a recusa ponta a ponta (mesma limitação registrada no Gate C) |
@@ -63,3 +63,39 @@ contrato próprio.
   ausência de confirmação no sistema não prova ausência de dinheiro recebido. O
   cancelamento de reserva não confirmada não afirma que nada foi recebido fora
   do sistema; ele afirma que **este** registro não foi cobrado.
+
+## Segunda rodada — achados da revisão, 05/09/2026
+
+Seis bloqueadores vieram da revisão do PR. Todos se confirmaram no código, e a
+matriz acima foi corrigida onde ela descrevia intenção em vez de comportamento.
+
+| Achado | O que estava errado | Correção | Teste |
+|---|---|---|---|
+| 1. Validação antecipada do TEF desconectada da tela | `create_intent` aceitava `payment_device_binding_id` e **nenhum caller enviava**. O guarda existia e não era alcançado; a tela seguia criando a parcela e só depois conferindo o bridge | a tela declara o dispositivo junto com a parcela; a checagem redundante do cliente saiu | `checkout-tef-declared-upfront` no audit — dirige a tela real, seleciona TEF e afirma o valor no payload. Verificado que **falha** sem a correção |
+| 2. `REFUNDED` virava cancelamento de reserva | parcela aberta com estorno externo era fechada por `cancel_intent`, o que afirma que nada foi enviado — falso | fecha como `FAILED`, que é o que é (tentativa sem pagamento aqui), e registra `REFUND_WITHOUT_CAPTURE`; a linha volta a ficar disponível e o movimento fica no registro | `test_s25_1_a_refund_without_capture_frees_the_line_but_is_not_a_cancellation` |
+| 3. Resultado externo persistido e não aplicado | `_apply_result` grava a transação e só depois toca a parcela. Morrer entre os dois commits deixava cobrança `CONFIRMED` ao lado de parcela aberta — e `unresolved_charge` só olhava cobranças em voo, então **dava para cancelar reserva de cartão aprovado** | `unresolved_charge` passa a bloquear também resultado terminal não aplicado; `recover_transaction` reaplica a resposta já gravada sem perguntar de novo; varredura do worker faz o mesmo sem ninguém abrir a conta | `test_s25_1_a_crash_between_the_two_commits_never_frees_an_approved_card` — encena a falha exatamente entre os dois commits |
+| 4. Regressão de estado por evento atrasado | `transaction.status = result.status` sem guarda: um `UNKNOWN` na fila chegando depois de `CONFIRMED` reabria a cobrança e a reserva | estado terminal não retrocede; `CONFIRMED → REFUNDED` continua permitido; contradição é classificada pelo que aconteceu com o dinheiro (`LATE_CONFIRMATION`) e o resto vira `STATE_REGRESSION_REFUSED` | `test_s25_1_a_stale_answer_never_walks_the_charge_backwards` |
+| 5. Nova execução de parcela encerrada | `execute_transaction` conferia o meio, nunca o estado da parcela | recusa `INTENT_NOT_EXECUTABLE` e `CHARGE_ALREADY_SETTLED`, **depois** dos caminhos de replay idempotente e de reconciliação, que seguem funcionando | `test_s25_1_a_settled_parcel_is_never_sent_to_the_card_machine_again` |
+| 6. Elegibilidade de expiração | só reserva sem dispositivo declarado ganhava prazo, então **abandono antes do envio ao TEF** era ineternamente inalcançável pela varredura | toda reserva aberta carrega prazo; o prazo é limpo quando a cobrança sai; o que protege a cobrança enviada continua sendo a evidência (`nenhuma ProviderTransaction`), não a ausência de prazo | `test_s25_1_a_reserve_abandoned_before_reaching_the_tef_still_expires` |
+
+### Recebimento manual
+
+O texto da expiração foi escrito com cuidado e é verificado por teste: ele diz
+que **nenhuma cobrança foi iniciada por este registro** e que recebimento fora do
+sistema, se houve, precisa ser lançado. Expirar não afirma que ninguém entregou
+dinheiro no balcão.
+
+### Correção da linha "reinício do serviço"
+
+A matriz acima dizia "prova que o estado sobrevive a outra sessão/processo". Isso
+continua verdade, e agora existe a prova que faltava: a falha **entre os dois
+commits** é encenada diretamente no banco e recuperada tanto pela consulta quanto
+pela varredura. Um `docker restart` encenado continua não existindo.
+
+### O que continua não provado
+
+Nada mudou aqui: **homologação real de provider** e **aceite em ambiente
+publicado** seguem por fazer, e o **bloqueio de estorno sobre parcela confirmada**
+segue declarado, sem baixa financeira improvisada. `REFUND_WITHOUT_CAPTURE` é
+caso diferente — nada foi capturado nesta conta — e não abre exceção àquele
+bloqueio.

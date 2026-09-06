@@ -672,12 +672,12 @@ def create_intent(
         method=method, amount=normalized_amount, tendered_amount=tendered,
         change_amount=change, provider="MANUAL_OPERATOR",
         payer_label=payload["payer_label"], payer_customer_id=payer_customer_id,
-        # Only a reserve that can be abandoned carries a clock. One that is
-        # about to leave through a device does not: it will be reconciled.
-        reserve_expires_at=(
-            None if payment_device_binding_id is not None
-            else datetime.utcnow() + timedelta(seconds=settings.PAYMENT_RESERVE_TTL_SECONDS)
-        ),
+        # Every open reserve carries a clock, including one bound to a device.
+        # A parcel abandoned *before* being sent to the TEF was unreachable by
+        # the first cut of this sprint, and held its line forever. What protects
+        # a charge that did leave is the evidence rule inside the sweep — no
+        # provider transaction — and never the absence of a deadline.
+        reserve_expires_at=datetime.utcnow() + timedelta(seconds=settings.PAYMENT_RESERVE_TTL_SECONDS),
         idempotency_key=idempotency_key, request_hash=request_hash, created_by=actor,
     )
     session.add(intent)
@@ -860,6 +860,14 @@ UNRESOLVED_PROVIDER = {
     ProviderTransactionStatusEnum.UNKNOWN,
 }
 OPEN_INTENTS = {PaymentIntentStatusEnum.PENDING, PaymentIntentStatusEnum.PROCESSING}
+# A transaction that already has an answer. Reaching one of these is the end of
+# the provider's side of the story; only REFUNDED may still follow CONFIRMED.
+TERMINAL_PROVIDER = {
+    ProviderTransactionStatusEnum.CONFIRMED,
+    ProviderTransactionStatusEnum.FAILED,
+    ProviderTransactionStatusEnum.CANCELED,
+    ProviderTransactionStatusEnum.REFUNDED,
+}
 
 
 def provider_transactions_for(session: Session, intent: PaymentIntent) -> list[ProviderTransaction]:
@@ -870,15 +878,43 @@ def provider_transactions_for(session: Session, intent: PaymentIntent) -> list[P
 
 
 def unresolved_charge(session: Session, intent: PaymentIntent) -> Optional[ProviderTransaction]:
-    """A charge that left this building and has not answered yet.
+    """A charge whose answer has not reached this parcel.
 
-    Its existence is what forbids cancelling, expiring or hand-confirming a
-    parcel. Absence of an answer is not absence of a charge.
+    Two shapes, and the second is the one the review found. The obvious one is a
+    transaction still in flight. The dangerous one is a transaction that *did*
+    answer — CONFIRMED, say — while the parcel stayed open, which happens when
+    the process dies between persisting the provider's result and applying it.
+    Reading only the first shape let an operator cancel a parcel whose card had
+    been approved.
+
+    Either way the answer is the same: this parcel is not free to be released by
+    hand. Absence of an answer here is not absence of a charge out there.
     """
     for transaction in provider_transactions_for(session, intent):
         if transaction.status in UNRESOLVED_PROVIDER:
             return transaction
+        if transaction.status in TERMINAL_PROVIDER and intent.status in OPEN_INTENTS:
+            # Answered outside, unapplied here: recoverable, never releasable.
+            return transaction
     return None
+
+
+def unapplied_results(session: Session, limit: int = 200) -> list[ProviderTransaction]:
+    """Provider answers that were persisted and never reached their parcel.
+
+    The window is real: `_apply_result` commits the transaction before touching
+    the parcel, so a crash in between leaves the two disagreeing. This is what
+    the worker sweeps, and what a query on the bill resolves on the spot.
+    """
+    rows = session.exec(select(ProviderTransaction).where(
+        ProviderTransaction.status.in_(list(TERMINAL_PROVIDER)),
+    ).order_by(ProviderTransaction.updated_at.desc()).limit(limit)).all()
+    pending = []
+    for transaction in rows:
+        intent = session.get(PaymentIntent, transaction.payment_intent_id)
+        if intent is not None and intent.status in OPEN_INTENTS:
+            pending.append(transaction)
+    return pending
 
 
 def _refuse_over_external_charge(session: Session, intent: PaymentIntent, action: str) -> None:
@@ -1015,7 +1051,13 @@ def expire_abandoned_reserves(session: Session, *, now: Optional[datetime] = Non
         if not negotiation:
             continue
         intent.status = PaymentIntentStatusEnum.CANCELED
-        intent.cancel_reason = "Reserva expirada sem cobrança iniciada."
+        # Deliberately narrow wording. Expiring says this registration was
+        # never charged by the system; it does not claim nobody handed money
+        # over the counter, and a manual receipt still has to be entered.
+        intent.cancel_reason = (
+            "Reserva expirada: nenhuma cobrança foi iniciada por este registro. "
+            "Recebimento fora do sistema, se houve, precisa ser lançado."
+        )
         intent.canceled_by = intent.created_by
         intent.canceled_at = moment
         intent.reserve_expires_at = None

@@ -51,6 +51,23 @@ def sweep_expired_reserves() -> int:
     return len(expired)
 
 
+def sweep_unapplied_results() -> int:
+    """Finish provider answers whose parcel never heard them.
+
+    The result is persisted before the parcel is touched, so a crash between the
+    two commits leaves them disagreeing. Nothing is re-asked of the provider —
+    the answer is already on the row.
+    """
+    from app.services.provider_service import recover_unapplied_results
+
+    with Session(engine) as session:
+        set_platform_db_context(session)
+        recovered = recover_unapplied_results(session)
+    if recovered:
+        logger.info("Recovered %s provider results that never reached their parcel", len(recovered))
+    return len(recovered)
+
+
 def process_one_event() -> bool:
     """Publish one leased outbox event and persist an immutable receipt."""
 
@@ -96,6 +113,7 @@ def process_outbox_events():
             # and it survives a restart because it reads the clock from the row.
             if time.monotonic() - last_sweep_at >= 60:
                 sweep_expired_reserves()
+                sweep_unapplied_results()
                 last_sweep_at = time.monotonic()
             if not process_one_event():
                 time.sleep(1.0)
