@@ -363,6 +363,26 @@ function SessionPanel({ session, availableSessions, availableTables, headers, pr
     } catch (error) { showToast('error', error instanceof Error ? error.message : 'Não foi possível cancelar a reserva.') }
     finally { setBusy(false) }
   }
+  const refundParcel = async (intentId: string, amount: number, reason: string) => {
+    setBusy(true)
+    try {
+      const updated = await api.refundNegotiationPaymentIntent(headers, intentId, crypto.randomUUID(), {
+        amount, reason, actor_id: operatorId,
+      })
+      setNegotiation(updated); setPickedItems([])
+      setPaymentAmount(String(Number(updated.remaining_amount).toFixed(2)))
+      const parcel = updated.intents.find((row) => row.id === intentId)
+      // Pedir não é devolver: enquanto o adquirente não disser quanto reverteu,
+      // a conta não muda, e a tela precisa dizer isso em vez de comemorar.
+      showToast(
+        parcel?.awaiting_refund ? 'info' : 'success',
+        parcel?.awaiting_refund
+          ? 'Estorno enviado ao provider. O saldo só volta quando ele confirmar o valor revertido.'
+          : 'Estorno registrado; o item voltou a ficar disponível.',
+      )
+    } catch (error) { showToast('error', error instanceof Error ? error.message : 'Não foi possível estornar a parcela.') }
+    finally { setBusy(false) }
+  }
   const finalize = async () => {
     if (!negotiation) return
     setBusy(true)
@@ -398,7 +418,7 @@ function SessionPanel({ session, availableSessions, availableTables, headers, pr
     {permissions.includes('transfer.read')&&transferHistory.length>0&&<details className="mt-3 rounded-2xl border border-slate-200 p-3"><summary className="cursor-pointer text-xs font-black text-slate-700">Histórico de movimentações ({transferHistory.length})</summary><div className="mt-3 space-y-2">{transferHistory.slice(0,10).map((record)=><div key={record.id} className="rounded-xl bg-slate-50 p-3 text-xs"><div className="flex items-center justify-between gap-2"><b>{record.transfer_type==='ITEM'?'Item transferido':record.transfer_type==='ORDER'?'Comanda transferida':record.transfer_type==='SESSION_MOVE'?'Atendimento mudou de mesa':'Atendimentos unidos'}</b><span>{formatApiDateTime(record.created_at)}</span></div><p className="mt-1 text-slate-600">{record.reason}</p><p className="mt-1 text-slate-500">Ator {record.actor_id===operatorId?'atual':record.actor_id.slice(0,8)}</p></div>)}</div></details>}
     {session.active_item_count === 0 && permissions.includes('table.session.close') && <button disabled={busy} onClick={() => void close()} className="mt-4 h-10 w-full rounded-xl border border-slate-300 text-xs font-black text-slate-600">Encerrar sessão vazia</button>}
     {session.active_item_count > 0 && permissions.includes('checkout.open') && !negotiation && <section className="mt-4 space-y-2"><label className="block text-xs font-black text-slate-700">Quem vai pagar<select value={checkoutOrderId} onChange={(event)=>setCheckoutOrderId(event.target.value)} className="mt-2 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm"><option value="">Conta completa da mesa</option>{activeOrders.map((order,index)=><option key={order.id} value={order.id}>{order.notes||`Comanda ${index+1}`} · {formatCurrency(order.items.filter(item=>item.status==='ACTIVE').reduce((total,item)=>total+Number(item.unit_price)*Number(item.quantity),0))}</option>)}</select></label><button disabled={busy} onClick={() => void openCheckout()} className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 text-sm font-black text-white"><WalletCards className="h-4 w-4" />{checkoutOrderId?'Pagar esta comanda':'Fechar conta completa'}</button></section>}
-    {negotiation && <CheckoutSettlement negotiation={negotiation} scopedOrder={settledOrderId} busy={busy} permissions={permissions} tefTerminal={tefTerminal} method={paymentMethod} onMethod={setPaymentMethod} amount={paymentAmount} onAmount={setPaymentAmount} payer={payerLabel} onPayer={setPayerLabel} mode={payMode} onMode={setPayMode} people={peopleCount} onPeople={setPeopleCount} picked={pickedItems} onPicked={setPickedItems} onPay={() => void addAndConfirmPayment()} onFinalize={() => void finalize()} onQuery={(id) => void queryParcel(id)} onCancel={(id) => void cancelParcel(id)} />}
+    {negotiation && <CheckoutSettlement negotiation={negotiation} scopedOrder={settledOrderId} busy={busy} permissions={permissions} tefTerminal={tefTerminal} method={paymentMethod} onMethod={setPaymentMethod} amount={paymentAmount} onAmount={setPaymentAmount} payer={payerLabel} onPayer={setPayerLabel} mode={payMode} onMode={setPayMode} people={peopleCount} onPeople={setPeopleCount} picked={pickedItems} onPicked={setPickedItems} onPay={() => void addAndConfirmPayment()} onFinalize={() => void finalize()} onQuery={(id) => void queryParcel(id)} onCancel={(id) => void cancelParcel(id)} onRefund={(id, amount, reason) => void refundParcel(id, amount, reason)} />}
   </aside>
 }
 
@@ -442,7 +462,7 @@ const methodLabel: Record<api.NegotiationPaymentMethod, string> = {
 function CheckoutSettlement({
   negotiation, scopedOrder, busy, permissions, tefTerminal, method, onMethod, amount, onAmount,
   payer, onPayer, mode, onMode, people, onPeople, picked, onPicked, onPay, onFinalize,
-  onQuery, onCancel,
+  onQuery, onCancel, onRefund,
 }: {
   negotiation: api.CheckoutNegotiation; scopedOrder: string; busy: boolean; permissions: string[]
   tefTerminal: api.TefBridgeTerminal | null
@@ -455,6 +475,7 @@ function CheckoutSettlement({
   picked: string[]; onPicked: (value: string[]) => void
   onPay: () => void; onFinalize: () => void
   onQuery: (intentId: string) => void; onCancel: (intentId: string) => void
+  onRefund: (intentId: string, amount: number, reason: string) => void
 }) {
   const remaining = Number(negotiation.remaining_amount)
   const lines = negotiation.item_settlements ?? []
@@ -519,7 +540,7 @@ function CheckoutSettlement({
       })}
     </div>}
 
-    {negotiation.intents.length > 0 && <div className="space-y-1">{negotiation.intents.map((intent) => <ParcelRow key={intent.id} intent={intent} busy={busy} canCancel={permissions.includes('checkout.payment.cancel')} onQuery={onQuery} onCancel={onCancel} />)}</div>}
+    {negotiation.intents.length > 0 && <div className="space-y-1">{negotiation.intents.map((intent) => <ParcelRow key={intent.id} intent={intent} busy={busy} canCancel={permissions.includes('checkout.payment.cancel')} canRefund={permissions.includes('checkout.payment.refund')} onQuery={onQuery} onCancel={onCancel} onRefund={onRefund} />)}</div>}
     {negotiation.divergences?.length > 0 && <div className="space-y-1 rounded-xl border border-amber-300 bg-amber-50 p-3">
       <p className="text-[10px] font-black uppercase tracking-wider text-amber-800">Pendente de conciliação</p>
       {negotiation.divergences.map((row) => <p key={row.id} className="text-[11px] leading-5 text-amber-900">
@@ -603,12 +624,22 @@ function waitingFor(since: string | undefined): string {
  * by hand while a card is authorising is how the same consumption gets charged
  * twice, so the server refuses it and the screen does not offer it.
  */
-function ParcelRow({ intent, busy, canCancel, onQuery, onCancel }: {
-  intent: api.NegotiationPaymentIntent; busy: boolean; canCancel: boolean
+function ParcelRow({ intent, busy, canCancel, canRefund, onQuery, onCancel, onRefund }: {
+  intent: api.NegotiationPaymentIntent; busy: boolean; canCancel: boolean; canRefund: boolean
   onQuery: (intentId: string) => void; onCancel: (intentId: string) => void
+  onRefund: (intentId: string, amount: number, reason: string) => void
 }) {
   const waiting = intent.awaiting_provider
   const open = intent.status === 'PENDING' || intent.status === 'PROCESSING'
+  // Estornar pede valor e motivo: é dinheiro saindo, e o motivo é o contrapeso
+  // de não haver segunda pessoa aprovando.
+  const [asking, setAsking] = useState(false)
+  const [amount, setAmount] = useState('')
+  const [reason, setReason] = useState('')
+  const refundable = Number(intent.refundable_amount ?? 0)
+  const wanted = Number(amount.replace(',', '.'))
+  const valid = Number.isFinite(wanted) && wanted > 0 && wanted <= refundable && reason.trim().length >= 3
+  const start = () => { setAmount(refundable.toFixed(2)); setReason(''); setAsking(true) }
   return <div className="rounded-lg bg-white px-3 py-2 text-xs">
     <div className="flex items-center justify-between gap-2">
       <span className="min-w-0">
@@ -625,9 +656,29 @@ function ParcelRow({ intent, busy, canCancel, onQuery, onCancel }: {
     </p>}
     {intent.status === 'CANCELED' && intent.cancel_reason && <p className="mt-1 text-[11px] text-slate-500">{intent.cancel_reason}</p>}
     {intent.status === 'FAILED' && intent.failure_reason && <p className="mt-1 text-[11px] text-red-700">{intent.failure_reason}</p>}
-    {(intent.can_query_provider || (intent.can_cancel && canCancel)) && <div className="mt-2 flex flex-wrap gap-2">
+    {Number(intent.refunded_amount ?? 0) > 0 && <p className="mt-1 text-[11px] font-bold text-slate-600">
+      Estornado {formatCurrency(Number(intent.refunded_amount))} desta parcela.
+    </p>}
+    {intent.awaiting_refund && <p className="mt-1 text-[11px] font-bold text-amber-700">
+      Estorno de {formatCurrency(Number(intent.refund_pending_amount))} enviado ao provider · o saldo só volta quando ele confirmar o valor revertido.
+    </p>}
+    {(intent.can_query_provider || (intent.can_cancel && canCancel) || (intent.can_refund && canRefund)) && <div className="mt-2 flex flex-wrap gap-2">
       {intent.can_query_provider && <button type="button" disabled={busy} onClick={() => onQuery(intent.id)} className="min-h-9 rounded-lg border border-amber-300 px-3 text-[11px] font-black text-amber-900 disabled:opacity-40">Consultar pagamento</button>}
       {intent.can_cancel && canCancel && <button type="button" disabled={busy} onClick={() => onCancel(intent.id)} className="min-h-9 rounded-lg border border-slate-300 px-3 text-[11px] font-black text-slate-700 disabled:opacity-40">Cancelar reserva</button>}
+      {intent.can_refund && canRefund && !asking && <button type="button" disabled={busy} onClick={start} className="min-h-9 rounded-lg border border-slate-300 px-3 text-[11px] font-black text-slate-700 disabled:opacity-40">Estornar</button>}
+    </div>}
+    {asking && <div className="mt-2 space-y-2 rounded-lg bg-slate-50 p-2">
+      <p className="text-[11px] text-slate-600">Devolver até {formatCurrency(refundable)} desta parcela. O que entrou continua registrado.</p>
+      <label className="block text-[11px] font-bold text-slate-700">Valor a devolver
+        <input value={amount} onChange={(event) => setAmount(event.target.value)} inputMode="decimal" className="mt-1 min-h-9 w-full rounded-lg border border-slate-300 px-2 text-xs" />
+      </label>
+      <label className="block text-[11px] font-bold text-slate-700">Motivo
+        <input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Por que o dinheiro está voltando" className="mt-1 min-h-9 w-full rounded-lg border border-slate-300 px-2 text-xs" />
+      </label>
+      <div className="flex flex-wrap gap-2">
+        <button type="button" disabled={busy || !valid} onClick={() => { setAsking(false); onRefund(intent.id, wanted, reason.trim()) }} className="min-h-9 rounded-lg bg-slate-900 px-3 text-[11px] font-black text-white disabled:opacity-40">Confirmar estorno</button>
+        <button type="button" disabled={busy} onClick={() => setAsking(false)} className="min-h-9 rounded-lg border border-slate-300 px-3 text-[11px] font-black text-slate-700 disabled:opacity-40">Voltar</button>
+      </div>
     </div>}
   </div>
 }

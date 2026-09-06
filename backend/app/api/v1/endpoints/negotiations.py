@@ -59,6 +59,24 @@ class IntentFailureDTO(IntentCommandDTO):
     reason: str = Field(min_length=3, max_length=500)
 
 
+class RefundAllocationDTO(BaseModel):
+    order_item_id: uuid.UUID
+    amount: Decimal = Field(gt=0)
+
+
+class IntentRefundDTO(IntentCommandDTO):
+    """Devolver dinheiro de uma parcela confirmada, com a conta aberta (ADR-030).
+
+    Sem alocações declaradas o estorno preenche as linhas da própria parcela na
+    ordem em que foram pagas — para estorno integral isso reproduz exatamente as
+    alocações da parcela.
+    """
+
+    amount: Decimal = Field(gt=0)
+    reason: str = Field(min_length=3, max_length=500)
+    allocations: List[RefundAllocationDTO] = Field(default_factory=list)
+
+
 class NegotiationFinalizeDTO(BaseModel):
     expected_version: int = Field(ge=1)
     actor_id: Optional[uuid.UUID] = None
@@ -97,6 +115,13 @@ class PaymentIntentDTO(BaseModel):
     provider_status: Optional[str]
     can_cancel: bool
     can_query_provider: bool
+    # Quanto já voltou para o cliente, quanto foi pedido e ainda espera prova, e
+    # quanto ainda pode ser devolvido. A tela não deduz autoridade sozinha.
+    refunded_amount: Decimal
+    refund_pending_amount: Decimal
+    refundable_amount: Decimal
+    can_refund: bool
+    awaiting_refund: bool
 
 
 class PaymentAllocationDTO(BaseModel):
@@ -125,6 +150,7 @@ class ItemSettlementDTO(BaseModel):
     reserved_amount: Decimal
     available_amount: Decimal
     is_paid: bool
+    refunded_amount: Decimal
     settled_by: List[str]
     reserved_by: List[str]
 
@@ -140,6 +166,27 @@ class SettlementDivergenceDTO(BaseModel):
     amount: Decimal
     detail: Optional[str]
     created_at: datetime
+
+
+class PaymentIntentRefundDTO(BaseModel):
+    """O dinheiro que voltou, escrito ao lado do que entrou.
+
+    ``amount`` é o que foi pedido; ``reverted_amount`` é o que foi provado. Só o
+    segundo move saldo, e um estorno pendente mostra os dois números diferentes
+    de propósito: é isso que o operador precisa ver enquanto espera.
+    """
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
+    payment_intent_id: uuid.UUID
+    amount: Decimal
+    reverted_amount: Decimal
+    status: str
+    route: str
+    reason: str
+    failure_code: Optional[str]
+    failure_reason: Optional[str]
+    created_at: datetime
+    confirmed_at: Optional[datetime]
 
 
 class NegotiationProjectionDTO(BaseModel):
@@ -169,6 +216,11 @@ class NegotiationProjectionDTO(BaseModel):
     allocations: List[PaymentAllocationDTO]
     item_settlements: List[ItemSettlementDTO]
     divergences: List[SettlementDivergenceDTO]
+    refunds: List[PaymentIntentRefundDTO]
+    # O bruto confirmado e o total revertido, para a tela poder mostrar que o
+    # dinheiro entrou e voltou, em vez de fingir que nunca entrou.
+    gross_confirmed_amount: Decimal
+    refunded_amount: Decimal
     unassigned_settled_amount: Decimal
     unassigned_reserved_amount: Decimal
 
@@ -249,6 +301,21 @@ def cancel_payment_intent_endpoint(
     """Give back a reserve that was never sent. Not a way to unblock a charge."""
     return negotiation_service.cancel_intent(
         session, context, intent_id, reason=data.reason,
+        actor_id=data.actor_id, idempotency_key=idempotency_key,
+    )
+
+
+@router.post("/intents/{intent_id}/refund", response_model=NegotiationProjectionDTO)
+def refund_payment_intent_endpoint(
+    intent_id: uuid.UUID, data: IntentRefundDTO,
+    idempotency_key: str = Header(alias="Idempotency-Key", min_length=8, max_length=160),
+    context: TenantContext = Depends(get_tenant_context),
+    session: Session = Depends(get_session),
+):
+    """Devolver dinheiro já recebido, sem fingir que ele nunca entrou (ADR-030)."""
+    return negotiation_service.refund_intent(
+        session, context, intent_id, amount=data.amount, reason=data.reason,
+        allocations=[line.model_dump() for line in data.allocations],
         actor_id=data.actor_id, idempotency_key=idempotency_key,
     )
 

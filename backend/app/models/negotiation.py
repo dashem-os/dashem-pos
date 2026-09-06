@@ -229,3 +229,101 @@ class PaymentSettlementDivergence(SQLModel, table=True):
     resolved_by: Optional[uuid.UUID] = Field(default=None)
     resolution_note: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+
+
+class PaymentIntentRefundStatusEnum(str, Enum):
+    """Um estorno pedido não é um estorno provado (ADR-030)."""
+
+    PENDING = "PENDING"
+    CONFIRMED = "CONFIRMED"
+    FAILED = "FAILED"
+
+
+class PaymentIntentRefundRouteEnum(str, Enum):
+    """Por onde o dinheiro volta, que é por onde ele entrou."""
+
+    CASH = "CASH"
+    PROVIDER = "PROVIDER"
+    MANUAL = "MANUAL"
+
+
+class PaymentIntentRefund(SQLModel, table=True):
+    """O dinheiro que voltou, escrito ao lado do que entrou.
+
+    A parcela confirmada continua confirmada: mesmo valor, mesmo autor, mesma
+    data. Tratar estorno como mutação da parcela contaria que o dinheiro nunca
+    entrou, que é falso e foi exatamente a mentira que o S25.1 recusou quando
+    convertia estorno em cancelamento de reserva.
+
+    ``reverted_amount`` é o único número que move saldo, e ele começa em zero.
+    Pedir não é provar: dinheiro sai da gaveta por movimento de caixa, cartão
+    volta pela resposta do adquirente com valor declarado, e recebimento manual
+    volta pela palavra nomeada de quem estorna.
+    """
+
+    __tablename__ = "payment_intent_refunds"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "idempotency_key", name="uq_tenant_payment_intent_refund_key"),
+        UniqueConstraint("cash_movement_id", name="uq_payment_intent_refund_cash_movement"),
+        CheckConstraint("amount > 0", name="ck_payment_intent_refund_amount_positive"),
+        CheckConstraint("reverted_amount >= 0", name="ck_payment_intent_refund_reverted_nonnegative"),
+        CheckConstraint("reverted_amount <= amount", name="ck_payment_intent_refund_reverted_within_request"),
+        CheckConstraint("status IN ('PENDING', 'CONFIRMED', 'FAILED')", name="ck_payment_intent_refund_status"),
+        CheckConstraint("route IN ('CASH', 'PROVIDER', 'MANUAL')", name="ck_payment_intent_refund_route"),
+        CheckConstraint(
+            "status <> 'CONFIRMED' OR (reverted_amount > 0 AND confirmed_at IS NOT NULL)",
+            name="ck_payment_intent_refund_confirmed_has_proof",
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(foreign_key="tenants.id", index=True)
+    store_id: uuid.UUID = Field(foreign_key="stores.id", index=True)
+    negotiation_id: uuid.UUID = Field(foreign_key="checkout_negotiations.id", ondelete="CASCADE", index=True)
+    payment_intent_id: uuid.UUID = Field(foreign_key="payment_intents.id", ondelete="CASCADE", index=True)
+    amount: Decimal = Field(sa_column=Column(Numeric(14, 4), nullable=False))
+    reverted_amount: Decimal = Field(
+        default=Decimal("0"), sa_column=Column(Numeric(14, 4), nullable=False, server_default=text("0")),
+    )
+    status: PaymentIntentRefundStatusEnum = Field(
+        default=PaymentIntentRefundStatusEnum.PENDING,
+        sa_column=Column(EnumString(PaymentIntentRefundStatusEnum), nullable=False, index=True),
+    )
+    route: PaymentIntentRefundRouteEnum = Field(
+        sa_column=Column(EnumString(PaymentIntentRefundRouteEnum), nullable=False),
+    )
+    reason: str = Field(sa_column=Column(Text, nullable=False))
+    requested_by: uuid.UUID = Field()
+    confirmed_by: Optional[uuid.UUID] = Field(default=None)
+    cash_movement_id: Optional[uuid.UUID] = Field(default=None, foreign_key="cash_movements.id")
+    provider_transaction_id: Optional[uuid.UUID] = Field(default=None)
+    failure_code: Optional[str] = Field(default=None, max_length=80)
+    failure_reason: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    idempotency_key: str = Field(max_length=160)
+    request_hash: str = Field(max_length=64)
+    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    confirmed_at: Optional[datetime] = Field(default=None)
+
+
+class PaymentIntentRefundAllocation(SQLModel, table=True):
+    """Qual linha da conta recebeu o dinheiro de volta.
+
+    Espelha ``PaymentAllocation``: um valor, nunca uma quantidade. Sem isto o
+    estorno parcial não teria onde pousar, e o item continuaria quitado por um
+    dinheiro que já voltou para o cliente.
+    """
+
+    __tablename__ = "payment_intent_refund_allocations"
+    __table_args__ = (
+        CheckConstraint("amount > 0", name="ck_payment_intent_refund_allocation_amount_positive"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(foreign_key="tenants.id", index=True)
+    negotiation_id: uuid.UUID = Field(foreign_key="checkout_negotiations.id", ondelete="CASCADE", index=True)
+    payment_intent_refund_id: uuid.UUID = Field(foreign_key="payment_intent_refunds.id", ondelete="CASCADE", index=True)
+    order_id: Optional[uuid.UUID] = Field(default=None, foreign_key="orders.id")
+    order_item_id: Optional[uuid.UUID] = Field(default=None, foreign_key="order_items.id", index=True)
+    amount: Decimal = Field(sa_column=Column(Numeric(14, 4), nullable=False))
+    created_at: datetime = Field(default_factory=datetime.utcnow)

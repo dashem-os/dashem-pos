@@ -128,6 +128,10 @@ def route_requirement(method: str, path: str) -> RouteRequirement:
             # S25.1 a release ran under the permission used to create a parcel.
             if path.endswith("/cancel"):
                 return RouteRequirement("checkout.payment.cancel")
+            # E devolver dinheiro ja recebido nao e nenhuma das duas: nao e criar
+            # parcela, nem soltar reserva que nunca saiu (ADR-030).
+            if path.endswith("/refund"):
+                return RouteRequirement("checkout.payment.refund")
             return RouteRequirement("checkout.payment")
         return RouteRequirement("checkout.open")
     if path.startswith("/api/v1/providers"):
