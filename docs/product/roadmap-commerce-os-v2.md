@@ -1973,8 +1973,11 @@ registrada como **recusada** para que ninguém a reintroduza.
 
 ### S25.1 — Recuperação de pagamento abandonado ou incerto
 
-Estado: **implementado no gate interno em 05/09/2026; homologação real de
-provider e aceite em ambiente publicado permanecem pendentes.** A matriz
+Estado: **mesclado em `main` em 05/09/2026 (PR #3, três rodadas de revisão do
+dono); homologação real de provider e aceite em ambiente publicado permanecem
+pendentes.** As duas rodadas de revisão depois da primeira entrega encontraram
+nove achados, e três deles eram correções minhas que trocavam um erro por outro
+— estão registrados na matriz com o que estava errado e como ficou. A matriz
 critério → implementação → teste → resultado está em
 [`s25-1-payment-recovery-acceptance.md`](../quality/s25-1-payment-recovery-acceptance.md),
 e ela distingue o que foi provado localmente do que não foi provado em lugar
@@ -2176,7 +2179,7 @@ e aparece como `não configurada`, nunca como pronta.
 | Parcela registra o operador e não o pagador | S25 | `payer_label` e `customer_id` opcional na parcela | **resolvido em 05/09/2026** pelo contrato 4, na migração `075_payment_intent_payer`, sem backfill: parcela antiga lê como pagador desconhecido em vez de receber um inventado |
 | `cancel_item` não consulta cobertura financeira | S25 | `item_total >= settled + reserved` como fronteira única | **resolvido em 05/09/2026**: `cancel_item`, `update_item` e `transfer_item` consultam a cobertura pela porta `app/modules/settlement`. Apurou-se de quebra que os dois primeiros nunca tocavam a sessão da mesa — só `add_item` tocava —, e a conta divergia do consumo em silêncio |
 | Conta da mesa e conta de uma comanda dela podem coexistir | S25 | mesmo item nunca alocado por duas negociações | **resolvido em 05/09/2026** pelo contrato 5: `open_negotiation` recusa com `409 ORDER_ALREADY_IN_NEGOTIATION` nos dois sentidos, sob o `FOR UPDATE` que já existia nos `Order`, e a absorção do contrato 1 pula comanda já paga em conta própria |
-| Parcela pendente segura o saldo do item para sempre | S25.1 | cancelar, expirar com segurança e reconciliar o incerto | **resolvido em 05/09/2026**: cancelamento explícito com permission própria, expiração só com evidência de que nada foi cobrado, e consulta ao provider que mantém a reserva enquanto houver incerteza |
+| Parcela pendente segura o saldo do item para sempre | S25.1 | cancelar, expirar com segurança e reconciliar o incerto | **resolvido e mesclado em 05/09/2026 (PR #3)**: cancelamento explícito com permission própria; expiração só quando a rota foi declarada e não usada — recebimento manual nunca expira sozinho; consulta ao provider mantendo a reserva enquanto houver incerteza |
 | `fail_intent` libera a reserva sem olhar a cobrança externa | S25.1 | cancelamento distinto de falha, recusado com transação não resolvida | **resolvido em 05/09/2026**: `fail_intent` e `confirm_intent` recusam com `409 EXTERNAL_CHARGE_IN_FLIGHT`; a tela oferece "Consultar pagamento" e "Cancelar reserva", e **nunca** "marcar falha" como desbloqueio |
 | Provider que cancela ou estorna deixa a parcela presa | S25.1 | `CANCELED` fecha a parcela; `REFUNDED` é reversão | **resolvido em 05/09/2026 com bloqueio declarado**: `CANCELED` cancela a parcela e devolve a reserva; `REFUNDED` sobre parcela confirmada vira `REFUND_REQUIRES_REVERSAL` e espera um fluxo de estorno que não existe — escopo proposto na matriz de aceite |
 | A tela cria a parcela antes de saber se o TEF executa | S25.1 | conferir meio e vínculo antes de reservar saldo | **resolvido em 05/09/2026**: `create_intent` valida a cadeia do ADR-022 no servidor antes de reservar, então bridge offline não deixa parcela pendurada |
