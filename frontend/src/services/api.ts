@@ -1127,7 +1127,22 @@ export interface CommercialOfferProposal {
   capability_keys: string[]
   capabilities: Array<{ key: string; name: string; sources: string[]; activity_keys: string[] }>
   gaps: Array<{ key: string; name: string; reason: string }>
+  /** Elegibilidade do catálogo inteiro nesta composição, resolvida no servidor.
+   *  Vem daqui, e não de uma conta refeita no navegador: o Mesh é a fonte, e é
+   *  ele que enxerga dependências — uma capability que se apoia em algo
+   *  incompleto não é entregável por mais pronta que esteja (ADR-031). */
+  eligibility: CapabilityEligibility[]
   authorizes_tenant: false
+}
+
+export type CapabilityEligibilityReason =
+  | 'REACHABLE' | 'IN_DEVELOPMENT' | 'NOT_IN_PLAN' | 'NOT_OFFERED_BY_ACTIVITIES'
+
+export interface CapabilityEligibility {
+  key: string
+  reason: CapabilityEligibilityReason
+  /** Qual capability travou esta, quando não foi ela mesma. */
+  blocked_by?: string | null
 }
 
 export type CommercialChangeKind = 'ACTIVITY' | 'CAPABILITY' | 'USER_LIMIT' | 'DEVICE_LIMIT' | 'UNIT_LIMIT' | 'STORAGE_LIMIT' | 'INTEGRATION'
@@ -1256,6 +1271,15 @@ export interface CapabilityCatalogItem {
   enabled: boolean
   status: string
   contract_limits: Record<string, unknown>
+  /** Prontidão do produto, não deste tenant (ADR-031). Vem separada porque
+   *  "ainda estamos construindo" e "não está no plano contratado" são coisas
+   *  diferentes: só a segunda o Owner resolve marcando uma caixa. */
+  implementation: 'NONE' | 'PARTIAL' | 'COMPLETE'
+  implementation_missing?: string | null
+  /** O resumo, e a lista que o produziu. Certificar TEF com um adquirente não
+   *  diz nada sobre o próximo, então a integração viaja junto. */
+  homologation: 'NOT_APPLICABLE' | 'PENDING' | 'CERTIFIED'
+  homologations: Array<{ integration: string; state: 'NOT_APPLICABLE' | 'PENDING' | 'CERTIFIED'; evidence?: string | null; certified_on?: string | null }>
   required: boolean
   addon: boolean
   recommended: boolean

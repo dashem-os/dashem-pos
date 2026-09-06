@@ -34,14 +34,17 @@ step "Backend: suíte de testes"
 docker exec -e TEST_BASE_URL="$IN_CONTAINER_API" "$BACKEND_CONTAINER" python -m pytest tests -q \
   --ignore=tests/test_frontend_api_contract.py \
   --ignore=tests/test_supabase_storage_adapter.py \
-  --ignore=tests/test_surface_reachability.py
+  --ignore=tests/test_surface_reachability.py \
+  --ignore=tests/test_capability_readiness.py
 
 step "Backend: testes que leem o repositório inteiro"
-# The running container only mounts backend/, so these three read frontend/ and
+# The running container only mounts backend/, so these read frontend/, docs/ and
 # supabase/ through a throwaway container with the whole repository mounted.
 # test_surface_reachability.py joined them on 05/09/2026: it had been running in
 # the mounted container, where it could not open api.ts, and failed there for a
-# reason that said nothing about the product.
+# reason that said nothing about the product. test_capability_readiness.py
+# joined on 06/09/2026 for the same reason: it opens every evidence path a
+# capability declares, and those live across the repository (ADR-031).
 IMAGE="$(docker inspect "$BACKEND_CONTAINER" --format '{{.Config.Image}}')"
 NETWORK="$(docker inspect "$BACKEND_CONTAINER" --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}')"
 DB_URL="$(docker inspect "$BACKEND_CONTAINER" --format '{{range .Config.Env}}{{println .}}{{end}}' | grep '^DATABASE_URL=' | cut -d= -f2-)"
@@ -50,7 +53,7 @@ MSYS_NO_PATHCONV=1 docker run --rm --network "$NETWORK" -v "$ROOT:/repo" -w /rep
   -e SECRET_KEY="local-verify-secret-key-with-at-least-32-chars" \
   -e ENVIRONMENT=development -e AUTH_MODE=disabled \
   -e TEST_BASE_URL="http://${BACKEND_CONTAINER}:8000" \
-  "$IMAGE" python -m pytest tests/test_frontend_api_contract.py tests/test_supabase_storage_adapter.py tests/test_surface_reachability.py -q
+  "$IMAGE" python -m pytest tests/test_frontend_api_contract.py tests/test_supabase_storage_adapter.py tests/test_surface_reachability.py tests/test_capability_readiness.py -q
 
 step "Frontend: tipos, testes e build"
 cd frontend

@@ -21,7 +21,28 @@ test('gives the Owner a real commercial plan catalog before tenant contracting',
   assert.match(plans, /quota da oferta; aplicação exige medição atualizada no tenant/)
   assert.doesNotMatch(plans, /enforcement exige/)
   assert.match(workspace, /Atividades comerciais contratadas/)
-  assert.match(workspace, /Capabilities da nova versão contratual/)
+  // A tela de capabilities precisa responder duas perguntas separadas: o que
+  // vale hoje, e o que muda ao salvar. Pintar contrato e proposta com o mesmo
+  // verde e o mesmo check foi o que a tornou ilegível, então os quatro estados
+  // são afirmados por nome.
+  // Contratação, alteração e disponibilidade são três perguntas, e cada uma
+  // tem a sua resposta no cartão.
+  assert.match(workspace, /EM VIGOR/)
+  assert.match(workspace, /NÃO CONTRATADA/)
+  assert.match(workspace, /ENTRA AO SALVAR/)
+  assert.match(workspace, /SAI AO SALVAR/)
+  // "Base obrigatória" é informação adicional, nunca um estado que ocupe o
+  // lugar dos outros — quando ocupava, escondia inclusões e distorcia o resumo.
+  assert.match(workspace, /Base obrigatória da composição/)
+  assert.doesNotMatch(workspace, /label: 'BASE OBRIGATÓRIA'/)
+  // E dívida de construção não se confunde com decisão de catálogo: mandar o
+  // Owner editar um plano não libera o que ainda não foi construído.
+  assert.match(workspace, /EM DESENVOLVIMENTO/)
+  assert.match(workspace, /FORA DO PLANO/)
+  assert.match(workspace, /FORA DAS ATIVIDADES/)
+  assert.match(workspace, /Indisponíveis agora/)
+  assert.match(workspace, /implementation !== 'COMPLETE'/)
+  assert.doesNotMatch(workspace, /catalog\.filter\(item => requiredProposalKeys\.includes/)
   assert.match(workspace, /Quotas da nova versão contratual/)
   assert.match(workspace, /capabilities elegíveis ·/)
   assert.match(workspace, /Gerenciar capabilities/)

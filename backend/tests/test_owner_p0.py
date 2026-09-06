@@ -23,6 +23,17 @@ from app.models.identity import (
 )
 from app.models.platform import PlatformMembership, PlatformRoleEnum, TenantContract
 from app.modules.capabilities.niches import BusinessNiche, NICHE_CONTRACTS
+from app.modules.capabilities.registry import IMPLEMENTED_CAPABILITIES
+
+
+def _sellable(niche: BusinessNiche) -> list[str]:
+    """O plano oferece o que o nicho permite **e** o produto entrega.
+
+    Um plano que lista capability não vendável é a oferta contradizendo a
+    prontidão — precisamente o que o ADR-031 passou a recusar. `tef` saiu daqui
+    quando o transporte de comandos ao bridge foi reconhecido como ausente.
+    """
+    return sorted(NICHE_CONTRACTS[niche].allowed & IMPLEMENTED_CAPABILITIES)
 
 
 def _owner(session: Session) -> tuple[AuthPrincipal, User]:
@@ -96,7 +107,7 @@ def test_owner_p0_provisions_complete_tenant_by_niche(monkeypatch, niche, addons
             ServicePlanCreate(
                 code=f"P0_{suffix.upper()}", name=f"Owner P0 {suffix}",
                 activity_keys=[niche.value],
-                capability_keys=sorted(NICHE_CONTRACTS[niche].allowed),
+                capability_keys=_sellable(niche),
                 store_limit=3, user_limit=10, terminal_limit=5, storage_limit_mib=4096,
             ), principal, session,
         )
@@ -196,7 +207,7 @@ def test_owner_can_combine_niches_and_version_existing_contract(monkeypatch):
         plan = create_service_plan(ServicePlanCreate(
             code=f"HYBRID_{suffix.upper()}", name=f"Híbrido {suffix}", monthly_price=149,
             activity_keys=["FOOD_SERVICE", "BEAUTY_RESELLER", "RETAIL"],
-            capability_keys=sorted(set().union(*(contract.allowed for contract in NICHE_CONTRACTS.values()))),
+            capability_keys=sorted(set().union(*(contract.allowed for contract in NICHE_CONTRACTS.values())) & IMPLEMENTED_CAPABILITIES),
             store_limit=4, user_limit=12, terminal_limit=8, storage_limit_mib=8192,
         ), principal, session)
         provisioned = provision_owner_tenant(OwnerTenantProvisionCreate(
@@ -296,7 +307,7 @@ def test_owner_can_regularize_legacy_tenant_and_recognizes_existing_admin():
         plan = create_service_plan(ServicePlanCreate(
             code=f"LEGACY_{suffix.upper()}", name=f"Legado {suffix}", monthly_price=99,
             activity_keys=["RETAIL"],
-            capability_keys=sorted(NICHE_CONTRACTS[BusinessNiche.RETAIL].allowed),
+            capability_keys=_sellable(BusinessNiche.RETAIL),
             store_limit=2, user_limit=5, terminal_limit=3, storage_limit_mib=2048,
         ), principal, session)
         legacy = provision_platform_tenant(PlatformTenantCreate(
@@ -363,3 +374,135 @@ def test_owner_can_replace_contract_administrator_with_audited_access(monkeypatc
         assert result.access.status == MembershipStatusEnum.INVITED
         assert result.access.email == f"new-admin-{suffix}@example.test"
         assert result.delivery_status == "ENVIADO"
+
+
+def test_a_contract_carrying_nfce_can_still_be_edited_after_the_plan_dropped_it(monkeypatch):
+    """ADR-031 — o direito histórico atravessa a cadeia inteira, pela rota real.
+
+    Depois da migração `081` a NFC-e saiu da oferta corrente dos planos. Um
+    tenant que já a tinha contratada precisa continuar podendo editar o próprio
+    contrato — trocar quota, mudar cobrança — sem perder o direito e sem ser
+    recusado. A recusa viria de três lugares diferentes na composição: a
+    prontidão, a cobertura do plano, e a conferência final entre seleção e
+    proposta resolvida.
+    """
+    suffix = uuid.uuid4().hex[:8]
+    monkeypatch.setattr(
+        "app.api.v1.endpoints.identity.supabase_admin.invite_user",
+        lambda **_: {"id": str(uuid.uuid4())},
+    )
+    with Session(engine) as session:
+        principal, actor = _owner(session)
+        plan = create_service_plan(
+            ServicePlanCreate(
+                code=f"NFCE_{suffix.upper()}", name=f"Plano corrente {suffix}",
+                activity_keys=[BusinessNiche.FOOD_SERVICE.value],
+                capability_keys=_sellable(BusinessNiche.FOOD_SERVICE),
+                store_limit=3, user_limit=10, terminal_limit=5, storage_limit_mib=4096,
+            ), principal, session,
+        )
+        # A oferta corrente não lista NFC-e — é o estado pós-081.
+        assert "fiscal_nfce" not in plan.capability_keys
+
+        provisioned = provision_owner_tenant(
+            OwnerTenantProvisionCreate(
+                name=f"NFC-e vigente {suffix}", legal_name=f"NFC-e {suffix} LTDA",
+                slug=f"nfce-live-{suffix}", tenant_type=TenantTypeEnum.CUSTOMER,
+                lifecycle_phase=TenantPhaseEnum.PILOT,
+                tax_id=_valid_cnpj(f"{int(suffix, 16) % 100_000_000:08d}0001"),
+                company_phone="11999999999", company_email=f"empresa-{suffix}@example.test",
+                contact_name="Responsável", contact_email=f"contrato-{suffix}@example.test",
+                first_store_name="Matriz", first_store_code="MATRIZ", postal_code="01310100",
+                street="Avenida Paulista", street_number="1000", district="Bela Vista",
+                city="São Paulo", state="SP",
+                niches=[BusinessNiche.FOOD_SERVICE], plan_id=plan.id,
+                capability_keys=list(NICHE_CONTRACTS[BusinessNiche.FOOD_SERVICE].required),
+                capability_selection_mode="EXPLICIT",
+                quotas=OwnerQuotaCreate(users=8, devices=4, units=2, storage_mib=2048),
+                billing=OwnerBillingCreate(
+                    contact_name="Financeiro", email=f"financeiro-{suffix}@example.test",
+                    monthly_amount=199, billing_day=10,
+                ),
+                initial_admin=OwnerInitialAdminCreate(
+                    full_name="Administrador", email=f"admin-{suffix}@example.test",
+                ),
+            ), principal, session,
+        )
+        tenant_id = provisioned.tenant.id
+        historical = sorted(set(provisioned.contract.capability_keys) | {"fiscal_nfce"})
+
+        # A história: o contrato foi assinado quando o plano ainda vendia NFC-e.
+        # Escrito direto porque a rota de hoje, corretamente, recusaria criá-lo.
+        session.add(TenantContract(
+            tenant_id=tenant_id, version=provisioned.contract.version + 1, status="ACTIVE",
+            schema_version=provisioned.contract.schema_version, plan_id=plan.id,
+            capability_keys=historical, activity_keys=[BusinessNiche.FOOD_SERVICE.value],
+            limits=dict(provisioned.contract.limits),
+            limit_entitlements=dict(provisioned.contract.limit_entitlements),
+            created_by=actor.id, reason="Contrato anterior à retirada da NFC-e da oferta.",
+        ))
+        session.commit()
+
+        # A edição real, pela rota: mexe em quota e mantém o direito histórico.
+        detail = update_owner_tenant_contract(tenant_id, OwnerTenantContractUpdate(
+            plan_id=plan.id, niches=[BusinessNiche.FOOD_SERVICE],
+            capability_keys=historical, capability_selection_mode="EXPLICIT",
+            quotas=OwnerQuotaCreate(users=9, devices=5, units=2, storage_mib=3072),
+            billing=OwnerBillingCreate(
+                contact_name="Financeiro", email=f"financeiro-{suffix}@example.test",
+                monthly_amount=219, billing_day=10,
+            ),
+            subscription_status=SubscriptionStatusEnum.ACTIVE,
+            expected_contract_version=provisioned.contract.version + 1,
+            expected_billing_account_version=1,
+            reason="Ajuste de quota mantendo a NFC-e já contratada.",
+        ), principal, session)
+
+        assert "fiscal_nfce" in detail.contract.capability_keys, (
+            "o direito já contratado precisa atravessar a composição inteira"
+        )
+        assert detail.contract.limits["users"] == 9
+        assert {item.key for item in detail.capabilities if item.enabled} >= {"fiscal_nfce", "payments"}
+
+        # E contratar NFC-e de quem não a tem continua recusado, pela mesma rota.
+        other = provision_owner_tenant(
+            OwnerTenantProvisionCreate(
+                name=f"Sem NFC-e {suffix}", legal_name=f"Sem NFC-e {suffix} LTDA",
+                slug=f"nfce-none-{suffix}", tenant_type=TenantTypeEnum.CUSTOMER,
+                lifecycle_phase=TenantPhaseEnum.PILOT,
+                tax_id=_valid_cnpj(f"{(int(suffix, 16) + 7) % 100_000_000:08d}0001"),
+                company_phone="11999999999", company_email=f"outra-{suffix}@example.test",
+                contact_name="Responsável", contact_email=f"outro-{suffix}@example.test",
+                first_store_name="Matriz", first_store_code="MATRIZ", postal_code="01310100",
+                street="Avenida Paulista", street_number="1000", district="Bela Vista",
+                city="São Paulo", state="SP",
+                niches=[BusinessNiche.FOOD_SERVICE], plan_id=plan.id,
+                capability_keys=list(NICHE_CONTRACTS[BusinessNiche.FOOD_SERVICE].required),
+                capability_selection_mode="EXPLICIT",
+                quotas=OwnerQuotaCreate(users=5, devices=3, units=1, storage_mib=2048),
+                billing=OwnerBillingCreate(
+                    contact_name="Financeiro", email=f"fin-{suffix}@example.test",
+                    monthly_amount=149, billing_day=5,
+                ),
+                initial_admin=OwnerInitialAdminCreate(
+                    full_name="Administrador", email=f"adm-{suffix}@example.test",
+                ),
+            ), principal, session,
+        )
+        with pytest.raises(HTTPException) as refused:
+            update_owner_tenant_contract(other.tenant.id, OwnerTenantContractUpdate(
+                plan_id=plan.id, niches=[BusinessNiche.FOOD_SERVICE],
+                capability_keys=sorted(set(other.contract.capability_keys) | {"fiscal_nfce"}),
+                capability_selection_mode="EXPLICIT",
+                quotas=OwnerQuotaCreate(users=5, devices=3, units=1, storage_mib=2048),
+                billing=OwnerBillingCreate(
+                    contact_name="Financeiro", email=f"fin-{suffix}@example.test",
+                    monthly_amount=149, billing_day=5,
+                ),
+                subscription_status=SubscriptionStatusEnum.ACTIVE,
+                expected_contract_version=other.contract.version,
+                expected_billing_account_version=1,
+                reason="Tentativa de contratar NFC-e nova.",
+            ), principal, session)
+        assert refused.value.status_code == 422
+        assert "fiscal_nfce" in str(refused.value.detail)
