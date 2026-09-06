@@ -2,7 +2,7 @@ import { ResponsiveTable } from '../common/DataTable'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, Ban, Building2, Check, CheckCircle2, ChevronRight, Loader2, Pencil, Plus, Save, ShieldCheck, Users, WalletCards, X } from 'lucide-react'
 import {
-  BusinessNiche, CapabilityCatalogItem, fetchOwnerNiches, fetchPlatformTenantDetail, fetchServicePlans,
+  BusinessNiche, CapabilityCatalogItem, CapabilityEligibility, fetchOwnerNiches, fetchPlatformTenantDetail, fetchServicePlans,
   fetchTenantCapabilityCatalog, OwnerNiche, PlatformTenantDetail, replacePlatformTenantAdministrator,
   PlatformTenantSummary, resolveCommercialOffer, ServicePlan, SubscriptionStatus, TenantPhase, TenantType,
   updateOwnerTenantContract, updatePlatformTenantLifecycle, updatePlatformTenantProfile,
@@ -228,6 +228,8 @@ function ContractEditor({ detail, catalog, niches, plans, initialSection, onMana
   const [selectedNiches, setSelectedNiches] = useState<BusinessNiche[]>(detail.niches || [])
   const [keys, setKeys] = useState(detail.contract?.capability_keys || catalog.filter(item => item.enabled).map(item => item.key))
   const [requiredProposalKeys, setRequiredProposalKeys] = useState<string[]>([])
+  // Resolvida pelo Mesh para esta composição. A tela não recalcula: ela lê.
+  const [resolvedEligibility, setResolvedEligibility] = useState<Record<string, CapabilityEligibility>>({})
   const [resolvedComposition, setResolvedComposition] = useState('')
   const [users, setUsers] = useState(String(limits.users ?? detail.subscription?.contracted_user_limit ?? initialPlan?.user_limit ?? '')); const [devices, setDevices] = useState(String(limits.devices ?? detail.subscription?.contracted_device_limit ?? initialPlan?.terminal_limit ?? '')); const [units, setUnits] = useState(String(limits.units ?? detail.subscription?.contracted_store_limit ?? initialPlan?.store_limit ?? '')); const [storage, setStorage] = useState(String(limits.storage_mib ?? initialPlan?.storage_limit_mib ?? ''))
   const [contactName, setContactName] = useState(billing.contact_name || ''); const [email, setEmail] = useState(billing.email || ''); const [phone, setPhone] = useState(billing.phone || '')
@@ -242,11 +244,58 @@ function ContractEditor({ detail, catalog, niches, plans, initialSection, onMana
   const [discountReviewOn, setDiscountReviewOn] = useState(detail.subscription?.discount_review_on || savedBilling.discount_review_on || '')
   const suggested = useMemo(() => new Set(niches.filter(item => selectedNiches.includes(item.key)).flatMap(item => [...item.required_capabilities, ...item.allowed_addons].map(capability => capability.key))), [niches, selectedNiches])
   const selectedPlan = plans.find(item => item.id === planId)
+  // Três perguntas independentes, respondidas separadamente — juntá-las foi o
+  // que tornou a tela ilegível. "Base obrigatória" não é um estado: é uma
+  // informação a mais sobre um cartão que já tem os três. Quando ela ocupava o
+  // lugar do estado, uma capability nova e obrigatória aparecia só como "base"
+  // e sumia da contagem de inclusões, distorcendo o resumo.
+  type Availability = 'AVAILABLE' | 'IN_DEVELOPMENT' | 'NOT_IN_PLAN' | 'NOT_OFFERED'
+  type Change = 'UNCHANGED' | 'ENTERING' | 'LEAVING'
+  const capabilityGroups = useMemo(() => {
+    const availability = (item: CapabilityCatalogItem): Availability => {
+      // Quem responde é o Mesh, não esta tela. Repetir a regra aqui foi o que
+      // permitiu que a resposta do servidor e a do navegador divergissem — e a
+      // versão do navegador não enxergava dependências.
+      const resolved = resolvedEligibility[item.key]
+      if (resolved) return ({
+        REACHABLE: 'AVAILABLE',
+        IN_DEVELOPMENT: 'IN_DEVELOPMENT',
+        NOT_IN_PLAN: 'NOT_IN_PLAN',
+        NOT_OFFERED_BY_ACTIVITIES: 'NOT_OFFERED',
+      } as const)[resolved.reason]
+      // Antes de a composição resolver, a única coisa que já é sabida é a
+      // prontidão do produto, que não depende de plano nem de atividade.
+      return item.implementation !== 'COMPLETE' ? 'IN_DEVELOPMENT' : 'AVAILABLE'
+    }
+    const rows = catalog.map(item => {
+      const inProposal = keys.includes(item.key)
+      const change: Change = inProposal === item.enabled ? 'UNCHANGED' : inProposal ? 'ENTERING' : 'LEAVING'
+      return {
+        item, change, inProposal,
+        inForce: item.enabled,
+        required: requiredProposalKeys.includes(item.key),
+        availability: availability(item),
+        blockedBy: resolvedEligibility[item.key]?.blocked_by ?? null,
+      }
+    })
+    return {
+      rows,
+      proposal: rows.filter(row => row.inProposal),
+      leaving: rows.filter(row => row.change === 'LEAVING'),
+      available: rows.filter(row => !row.inProposal && !row.inForce && row.availability === 'AVAILABLE'),
+      blocked: rows.filter(row => !row.inProposal && !row.inForce && row.availability !== 'AVAILABLE'),
+      entering: rows.filter(row => row.change === 'ENTERING').length,
+      leavingCount: rows.filter(row => row.change === 'LEAVING').length,
+      inForce: rows.filter(row => row.inForce).length,
+      inDevelopment: rows.filter(row => row.availability === 'IN_DEVELOPMENT').length,
+    }
+  }, [catalog, keys, requiredProposalKeys, resolvedEligibility])
   const initialComposition = `${detail.plan?.id || ''}:${[...(detail.niches || [])].sort().join(',')}`
   const composition = `${planId}:${[...selectedNiches].sort().join(',')}`
   useEffect(() => {
     if (!planId || selectedNiches.length === 0) {
       setRequiredProposalKeys([])
+      setResolvedEligibility({})
       setResolvedComposition('')
       return
     }
@@ -256,6 +305,7 @@ function ContractEditor({ detail, catalog, niches, plans, initialSection, onMana
       .then(proposal => {
         if (cancelled) return
         setRequiredProposalKeys(proposal.capability_keys)
+        setResolvedEligibility(Object.fromEntries((proposal.eligibility || []).map(row => [row.key, row])))
         if (!detail.contract || composition !== initialComposition) setKeys(proposal.capability_keys)
         setResolvedComposition(composition)
         setError('')
@@ -333,7 +383,7 @@ function ContractEditor({ detail, catalog, niches, plans, initialSection, onMana
       setError(cause instanceof Error ? cause.message : 'Não foi possível salvar o contrato.')
     } finally { setSaving(false) }
   }
-  if (!editing) return <div><div className="mb-5 flex justify-end"><button onClick={() => setEditing(true)} className="flex h-11 items-center gap-2 rounded-xl bg-[#E12120] px-5 font-black text-white"><Pencil className="h-4 w-4" />Editar contrato</button></div><div className="space-y-5"><section className="rounded-2xl border border-slate-200 bg-white p-6"><div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4"><Info label="Plano" value={detail.plan?.name} /><Info label="Valor bruto" value={money(detail.subscription?.gross_monthly_amount)} /><Info label="Desconto" value={money(detail.subscription?.discount_amount)} /><Info label="Mensalidade líquida" value={money(detail.subscription?.monthly_amount)} /><Info label="Vencimento contratual" value={detail.subscription?.billing_day ? `Dia ${detail.subscription.billing_day}` : undefined} /><Info label="Conta de cobrança" value={detail.billing_account?.contact_email} /></div><div className="mt-5 flex flex-col gap-3 rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm font-semibold text-blue-900 sm:flex-row sm:items-center sm:justify-between"><p>Faturas, recebimentos e inadimplência são fatos persistidos e ficam disponíveis no Financeiro SaaS.</p><button onClick={onFinance} className="h-9 shrink-0 rounded-lg border border-blue-300 bg-white px-3 text-xs font-black">Abrir Financeiro SaaS</button></div></section><section className="rounded-2xl border border-slate-200 bg-white p-6"><h3 className="text-lg font-black">Atividades e capabilities contratadas</h3><p className="mt-2 text-sm text-slate-500">{detail.niches.length ? detail.niches.map(item => nicheLabel[item]).join(' + ') : 'Sem filtro de nicho'}</p><div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">{catalog.filter(item => item.enabled).map(item => <article key={item.key} className="rounded-xl border border-emerald-200 bg-emerald-50 p-4"><div className="flex justify-between gap-3"><h4 className="font-black">{item.name}</h4><CheckCircle2 className="h-5 w-5 text-emerald-600" /></div><p className="mt-2 text-sm text-slate-600">{item.description}</p></article>)}</div></section></div></div>
+  if (!editing) return <div><div className="mb-5 flex justify-end"><button onClick={() => setEditing(true)} className="flex h-11 items-center gap-2 rounded-xl bg-[#E12120] px-5 font-black text-white"><Pencil className="h-4 w-4" />Editar contrato</button></div><div className="space-y-5"><section className="rounded-2xl border border-slate-200 bg-white p-6"><div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4"><Info label="Plano" value={detail.plan?.name} /><Info label="Valor bruto" value={money(detail.subscription?.gross_monthly_amount)} /><Info label="Desconto" value={money(detail.subscription?.discount_amount)} /><Info label="Mensalidade líquida" value={money(detail.subscription?.monthly_amount)} /><Info label="Vencimento contratual" value={detail.subscription?.billing_day ? `Dia ${detail.subscription.billing_day}` : undefined} /><Info label="Conta de cobrança" value={detail.billing_account?.contact_email} /></div><div className="mt-5 flex flex-col gap-3 rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm font-semibold text-blue-900 sm:flex-row sm:items-center sm:justify-between"><p>Faturas, recebimentos e inadimplência são fatos persistidos e ficam disponíveis no Financeiro SaaS.</p><button onClick={onFinance} className="h-9 shrink-0 rounded-lg border border-blue-300 bg-white px-3 text-xs font-black">Abrir Financeiro SaaS</button></div></section><section className="rounded-2xl border border-slate-200 bg-white p-6"><div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between"><div><h3 className="text-lg font-black">Capabilities em vigor</h3><p className="mt-2 text-sm text-slate-500">{detail.niches.length ? detail.niches.map(item => nicheLabel[item]).join(' + ') : 'Sem filtro de nicho'}</p></div><span className="w-fit rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">CONTRATO V{detail.contract?.version ?? 1} · {catalog.filter(item => item.enabled).length} AUTORIZADAS</span></div><p className="mt-3 text-sm text-slate-500">Isto é o que o tenant pode usar agora. Para propor mudança, use “Editar contrato”.</p><div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">{catalog.filter(item => item.enabled).map(item => <article key={item.key} className="rounded-xl border border-emerald-200 bg-emerald-50 p-4"><div className="flex justify-between gap-3"><h4 className="font-black">{item.name}</h4><span className="flex shrink-0 items-center gap-1 rounded-full bg-emerald-100 px-2 py-1 text-[11px] font-black text-emerald-800"><CheckCircle2 className="h-3.5 w-3.5" />EM VIGOR</span></div><p className="mt-2 text-sm text-slate-600">{item.description}</p></article>)}</div></section></div></div>
   if (plans.length === 0) return <section className="rounded-2xl border border-amber-300 bg-amber-50 p-6"><p className="text-xs font-black uppercase tracking-wider text-amber-800">Contrato ainda não configurável</p><h3 className="mt-2 text-xl font-black">Cadastre um plano comercial ativo</h3><p className="mt-2 max-w-2xl text-sm text-slate-600">O plano é a referência obrigatória para mensalidade, limites e assinatura. Depois do cadastro, volte a esta organização para salvar a primeira versão do contrato.</p><button onClick={onManagePlans} className="mt-5 h-11 rounded-xl bg-[#022444] px-5 text-sm font-black text-white">Ir para Planos comerciais</button></section>
   return <div className="space-y-6">
     <div className="flex items-center justify-between"><div><h3 className="text-xl font-black">Editar contrato e mensalidade</h3><p className="mt-1 text-sm text-slate-500">Cada salvamento cria uma nova versão auditada.</p></div>{detail.contract && <button onClick={() => setEditing(false)} className="rounded-xl border border-slate-200 p-2"><X className="h-5 w-5" /></button>}</div>
@@ -369,7 +419,56 @@ function ContractEditor({ detail, catalog, niches, plans, initialSection, onMana
       <div className="mt-4 flex flex-col gap-3 rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm font-semibold text-blue-900 sm:flex-row sm:items-center sm:justify-between"><p>Este contrato define as fontes da cobrança. Faturas, recebimentos e inadimplência são administrados no Financeiro SaaS.</p><button onClick={onFinance} className="h-9 shrink-0 rounded-lg border border-blue-300 bg-white px-3 text-xs font-black">Abrir Financeiro SaaS</button></div>
     </section>}
     {contractSection === 'models' && <section className="rounded-2xl border border-slate-200 bg-white p-6"><h4 className="font-black">Atividades comerciais contratadas</h4><p className="mt-1 text-sm text-slate-500">Uma organização pode contratar uma ou mais atividades. Alterações são decisões do Owner e geram uma nova versão auditada do contrato.</p><div className="mt-5 grid gap-3 md:grid-cols-3">{niches.map(niche => <button key={niche.key} onClick={() => toggleNiche(niche.key)} className={`rounded-xl border-2 p-4 text-left ${selectedNiches.includes(niche.key) ? 'border-[#E12120] bg-red-50' : 'border-slate-200'}`}><div className="flex justify-between gap-3"><span className="font-black">{niche.name}</span>{selectedNiches.includes(niche.key) && <Check className="h-5 w-5 text-[#E12120]" />}</div><p className="mt-2 text-sm text-slate-500">{niche.description}</p></button>)}</div></section>}
-    {contractSection === 'capabilities' && <section className="rounded-2xl border border-slate-200 bg-white p-6"><div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between"><div><h4 className="font-black">Capabilities da nova versão contratual</h4><p className="mt-1 text-sm text-slate-500">A composição plano + atividades torna obrigatória a base operacional. O Owner pode contratar add-ons compatíveis; nenhum item abaixo autoriza o tenant antes do salvamento.</p></div><span className="w-fit rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">{keys.length} NA PROPOSTA</span></div><p className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm font-semibold text-blue-900">Esta tela prepara uma decisão contratual. Ao salvar, as capabilities e suas fontes ficam congeladas no snapshot da nova versão.</p><div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">{catalog.filter(item => requiredProposalKeys.includes(item.key) || (suggested.has(item.key) && selectedPlan?.capability_keys.includes(item.key)) || keys.includes(item.key)).map(item => <button key={item.key} disabled={requiredProposalKeys.includes(item.key)} onClick={() => toggleCapability(item.key)} className={`rounded-xl border-2 p-4 text-left disabled:cursor-not-allowed ${keys.includes(item.key) ? 'border-emerald-400 bg-emerald-50' : suggested.has(item.key) ? 'border-[#ffbf00] bg-amber-50' : 'border-slate-200'}`}><div className="flex justify-between gap-3"><span className="font-black">{item.name}</span>{requiredProposalKeys.includes(item.key) ? <span className="rounded-full bg-blue-100 px-2 py-1 text-xs font-black text-blue-800">BASE OBRIGATÓRIA</span> : keys.includes(item.key) && <Check className="h-5 w-5 text-emerald-600" />}</div><p className="mt-2 text-sm text-slate-500">{item.description}</p></button>)}</div></section>}
+    {contractSection === 'capabilities' && <section className="space-y-4">
+      <div className="rounded-2xl border border-slate-200 bg-white p-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h4 className="font-black">Capabilities</h4>
+            <p className="mt-1 text-sm text-slate-500">Três coisas diferentes, ditas separadamente: o que está contratado hoje, o que muda ao salvar, e o que o produto tem para oferecer. Ao salvar, as capabilities e suas fontes ficam congeladas no snapshot da nova versão.</p>
+          </div>
+          <div className="flex shrink-0 flex-wrap gap-2">
+            <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">{capabilityGroups.inForce} EM VIGOR · CONTRATO V{detail.contract?.version ?? 1}</span>
+            {capabilityGroups.entering > 0 && <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-black text-blue-800">+{capabilityGroups.entering} ENTRAM</span>}
+            {capabilityGroups.leavingCount > 0 && <span className="rounded-full bg-red-50 px-3 py-1 text-xs font-black text-[#a01818]">−{capabilityGroups.leavingCount} SAEM</span>}
+            {capabilityGroups.entering === 0 && capabilityGroups.leavingCount === 0 && <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-500">SEM MUDANÇA</span>}
+          </div>
+        </div>
+        <div className="mt-4 grid gap-2 rounded-xl bg-slate-50 p-3 text-xs font-bold text-slate-600 sm:grid-cols-3">
+          <span>Contratação · <span className="font-semibold text-slate-500">em vigor ou não contratada</span></span>
+          <span>Alteração · <span className="font-semibold text-slate-500">entra, sai ou permanece ao salvar</span></span>
+          <span>Disponibilidade · <span className="font-semibold text-slate-500">do produto, não deste contrato</span></span>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-white p-6">
+        <h5 className="font-black">Na proposta <span className="text-slate-400">({capabilityGroups.proposal.length})</span></h5>
+        <p className="mt-1 text-sm text-slate-500">O que o tenant poderá usar se esta versão for salva.</p>
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">{capabilityGroups.proposal.map(row => <CapabilityCard key={row.item.key} row={row} planName={selectedPlan?.name} onToggle={toggleCapability} />)}</div>
+      </div>
+
+      {capabilityGroups.leaving.length > 0 && <div className="rounded-2xl border-2 border-[#E12120] bg-white p-6">
+        <h5 className="font-black text-[#a01818]">Saem ao salvar <span className="text-slate-400">({capabilityGroups.leaving.length})</span></h5>
+        <p className="mt-1 text-sm text-slate-500">Estão em vigor hoje e deixam de estar. Uma remoção é declarada, nunca um silêncio.</p>
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">{capabilityGroups.leaving.map(row => <CapabilityCard key={row.item.key} row={row} planName={selectedPlan?.name} onToggle={toggleCapability} />)}</div>
+      </div>}
+
+      {capabilityGroups.available.length > 0 && <div className="rounded-2xl border border-slate-200 bg-white p-6">
+        <h5 className="font-black">Disponíveis para incluir <span className="text-slate-400">({capabilityGroups.available.length})</span></h5>
+        <p className="mt-1 text-sm text-slate-500">O produto entrega, o plano cobre e as atividades ofertam. Um toque inclui na proposta.</p>
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">{capabilityGroups.available.map(row => <CapabilityCard key={row.item.key} row={row} planName={selectedPlan?.name} onToggle={toggleCapability} />)}</div>
+      </div>}
+
+      {capabilityGroups.blocked.length > 0 && <div className="rounded-2xl border border-slate-200 bg-white p-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h5 className="font-black">Indisponíveis agora <span className="text-slate-400">({capabilityGroups.blocked.length})</span></h5>
+            <p className="mt-1 text-sm text-slate-500">Existem no produto e não podem entrar nesta composição. O motivo aparece em cada uma, em vez de a capability sumir da lista.{capabilityGroups.inDevelopment > 0 && ` ${capabilityGroups.inDevelopment} está em desenvolvimento e nenhuma mudança comercial a libera.`}</p>
+          </div>
+          <button type="button" onClick={onManagePlans} className="h-10 shrink-0 rounded-xl border border-slate-300 px-4 text-sm font-black hover:border-[#E12120]">Gerenciar planos</button>
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">{capabilityGroups.blocked.map(row => <CapabilityCard key={row.item.key} row={row} planName={selectedPlan?.name} onToggle={toggleCapability} />)}</div>
+      </div>}
+    </section>}
     {contractSection === 'limits' && <section className="rounded-2xl border border-slate-200 bg-white p-6"><h4 className="font-black">Quotas da nova versão contratual</h4><p className="mt-1 text-sm text-slate-500">Os valores do plano iniciam a contratação. Diferenças persistidas ficam registradas como decisão do Owner na nova versão.</p><div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-3"><NumberInput label="Quota contratual de usuários" value={users} max={selectedPlan?.user_limit} onChange={setUsers} /><NumberInput label="Quota contratual de dispositivos" value={devices} max={selectedPlan?.terminal_limit} onChange={setDevices} /><NumberInput label="Quota contratual de unidades" value={units} max={selectedPlan?.store_limit} onChange={setUnits} /></div><div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4"><div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between"><h5 className="font-black">Quota contratual de armazenamento</h5><StorageStatus usage={detail.storage_usage} /></div><div className="mt-3 max-w-sm"><NumberInput label="Quota contratual de armazenamento (MiB)" value={storage} min={128} max={selectedPlan?.storage_limit_mib} onChange={setStorage} /></div><dl className="mt-3 grid gap-2 text-xs sm:grid-cols-3"><div><dt className="text-slate-500">Estado da medição</dt><dd className="font-black">{storageMeasurementLabel[detail.storage_usage.measurement_status]}</dd></div><div><dt className="text-slate-500">Fontes esperadas</dt><dd className="font-black">{detail.storage_usage.expected_source_keys.length}</dd></div><div><dt className="text-slate-500">Fontes observadas</dt><dd className="font-black">{detail.storage_usage.measured_source_keys.length}</dd></div></dl></div></section>}
     <TextField label="Motivo da alteração" value={reason} onChange={setReason} />
     <button onClick={save} disabled={saving} className="flex h-11 items-center gap-2 rounded-xl bg-[#E12120] px-5 font-black text-white disabled:opacity-40">{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}{saving ? 'Salvando…' : 'Salvar nova versão'}</button>
@@ -418,3 +517,70 @@ function CurrencyInput({ label, value, onChange }: { label: string; value: strin
 function NumberInput({ label, value, onChange, min = 1, max, maxHint }: { label: string; value: string; onChange: (value: string) => void; min?: number; max?: number; maxHint?: string }) { return <label className="text-sm font-black">{label}<input type="text" inputMode="numeric" value={value} onChange={event => onChange(onlyDigits(event.target.value).replace(/^0+(?=\d)/, ''))} className={inputClass} />{max && <span className="mt-1 block text-xs text-slate-400">{maxHint || `Limite cadastrado no plano: ${max}`}</span>}{min > 1 && <span className="mt-1 block text-xs text-slate-400">Mínimo: {min}</span>}</label> }
 function Select({ label, value, options, onChange }: { label: string; value: string; options: Array<[string, string]>; onChange: (value: string) => void }) { return <label className="text-sm font-black">{label}<select value={value} onChange={event => onChange(event.target.value)} className={inputClass}>{options.map(([key, text]) => <option key={key} value={key}>{text}</option>)}</select></label> }
 function LifecycleModal({ status, onClose, onConfirm }: { status: 'PAUSED' | 'ARCHIVED'; onClose: () => void; onConfirm: (reason: string) => Promise<void> }) { const [reason, setReason] = useState(''); const [saving, setSaving] = useState(false); const [error, setError] = useState(''); const submit = async (event: React.FormEvent) => { event.preventDefault(); setSaving(true); try { await onConfirm(reason) } catch (cause) { setError(cause instanceof Error ? cause.message : 'Não foi possível concluir.'); setSaving(false) } }; return <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#022444]/60 p-4"><button className="absolute inset-0" onClick={onClose} /><form onSubmit={submit} className="responsive-dialog relative w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl"><h2 className="text-xl font-black">{status === 'PAUSED' ? 'Pausar' : 'Arquivar'} cliente</h2><p className="mt-2 text-sm text-slate-500">A ação preserva contrato, cadastro e auditoria.</p><TextField label="Motivo" value={reason} onChange={setReason} />{error && <p className="mt-3 text-sm font-bold text-red-700">{error}</p>}<div className="mt-6 flex gap-3"><button type="button" onClick={onClose} className="h-11 flex-1 rounded-xl border border-slate-300 font-black">Cancelar</button><button disabled={saving || reason.trim().length < 3} className="h-11 flex-1 rounded-xl bg-[#E12120] font-black text-white disabled:opacity-40">Confirmar</button></div></form></div> }
+
+
+/**
+ * Uma capability e as três respostas que o Owner precisa ao mesmo tempo.
+ *
+ * Contratação, alteração e disponibilidade são perguntas independentes, e a
+ * tela anterior as fundia num estado só — com contrato e proposta pintados do
+ * mesmo verde, e "base obrigatória" ocupando o lugar do estado, o que escondia
+ * que uma capability obrigatória também podia estar *entrando* e a tirava da
+ * contagem de inclusões. Aqui "base" é um selo a mais, nunca um estado.
+ */
+function CapabilityCard({ row, planName, onToggle }: {
+  row: {
+    item: CapabilityCatalogItem
+    change: 'UNCHANGED' | 'ENTERING' | 'LEAVING'
+    inProposal: boolean
+    inForce: boolean
+    required: boolean
+    availability: 'AVAILABLE' | 'IN_DEVELOPMENT' | 'NOT_IN_PLAN' | 'NOT_OFFERED'
+    blockedBy: string | null
+  }
+  planName?: string
+  onToggle: (key: string) => void
+}) {
+  const { item, change, inForce, required, availability } = row
+  const blocked = availability !== 'AVAILABLE' && !row.inProposal && !inForce
+  const locked = required || blocked
+  const change_ = {
+    ENTERING: { chip: 'bg-blue-600 text-white', label: 'ENTRA AO SALVAR' },
+    LEAVING: { chip: 'bg-[#E12120] text-white', label: 'SAI AO SALVAR' },
+    UNCHANGED: null,
+  }[change]
+  const availability_ = {
+    AVAILABLE: null,
+    IN_DEVELOPMENT: {
+      label: 'EM DESENVOLVIMENTO',
+      note: row.blockedBy
+        ? `Depende de ${row.blockedBy}, que ainda está em desenvolvimento.`
+        : item.implementation_missing
+          ? `Falta: ${item.implementation_missing}`
+          : 'O módulo executável ainda não faz o trabalho inteiro do contrato.',
+    },
+    NOT_IN_PLAN: { label: 'FORA DO PLANO', note: `Não incluída em ${planName || 'plano atual'}. Inclua-a no plano para poder contratar.` },
+    NOT_OFFERED: { label: 'FORA DAS ATIVIDADES', note: 'Nenhuma atividade selecionada oferta esta capability.' },
+  }[availability]
+  const box = change === 'LEAVING' ? 'border-[#E12120] bg-red-50'
+    : change === 'ENTERING' ? 'border-blue-500 bg-white'
+    : inForce ? 'border-emerald-400 bg-emerald-50'
+    : blocked ? 'border-dashed border-slate-300 bg-slate-50'
+    : 'border-slate-200 bg-white'
+  return <button type="button" disabled={locked} onClick={() => onToggle(item.key)} className={`rounded-xl border-2 p-4 text-left disabled:cursor-not-allowed ${box}`}>
+    <div className="flex items-start justify-between gap-3">
+      <span className={`font-black ${blocked ? 'text-slate-500' : ''}`}>{item.name}</span>
+      <div className="flex shrink-0 flex-col items-end gap-1">
+        <span className={`rounded-full px-2 py-1 text-[11px] font-black ${inForce ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'}`}>{inForce ? 'EM VIGOR' : 'NÃO CONTRATADA'}</span>
+        {change_ && <span className={`rounded-full px-2 py-1 text-[11px] font-black ${change_.chip}`}>{change_.label}</span>}
+        {availability_ && <span className="rounded-full bg-slate-200 px-2 py-1 text-[11px] font-black text-slate-600">{availability_.label}</span>}
+      </div>
+    </div>
+    <p className="mt-2 text-sm text-slate-500">{item.description}</p>
+    {required && <p className="mt-2 text-xs font-bold text-blue-800">Base obrigatória da composição plano + atividades: não pode sair.</p>}
+    {availability_ && <p className="mt-2 text-xs font-bold text-slate-500">{availability_.note}</p>}
+    {(item.homologations || []).map(row => <p key={row.integration} className={`mt-1 text-xs font-bold ${row.state === 'CERTIFIED' ? 'text-emerald-700' : 'text-amber-700'}`}>
+      {row.integration}: {row.state === 'CERTIFIED' ? `homologada${row.certified_on ? ` em ${row.certified_on}` : ''}` : 'homologação pendente'}
+    </p>)}
+  </button>
+}

@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from enum import Enum
 
+from collections.abc import Iterable
+
 from app.modules.capabilities.registry import CAPABILITY_REGISTRY, IMPLEMENTED_CAPABILITIES, resolve_dependencies
 
 
@@ -66,12 +68,23 @@ def entitlement_keys(niche: BusinessNiche, addon_keys: list[str] | tuple[str, ..
     return resolved
 
 
-def selected_entitlement_keys(capability_keys: list[str] | tuple[str, ...]) -> tuple[str, ...]:
+def selected_entitlement_keys(
+    capability_keys: list[str] | tuple[str, ...],
+    grandfathered: Iterable[str] = (),
+) -> tuple[str, ...]:
+    """As capabilities de um contrato, recusando o que não pode ser vendido.
+
+    ``grandfathered`` são as que o tenant **já tem contratadas**. Elas passam
+    mesmo incompletas, e a razão é simples: descobrir que uma capability é menos
+    pronta do que se pensava não pode desligar quem já a usa nem impedir que o
+    contrato dela seja mantido — trocar uma quota passaria a ser impossível. O
+    que a prontidão governa é **contratar de novo**, não continuar existindo.
+    """
     unknown = set(capability_keys).difference(CAPABILITY_REGISTRY)
     if unknown:
         raise ValueError(f"Capabilities desconhecidas: {', '.join(sorted(unknown))}")
     resolved = resolve_dependencies(capability_keys)
-    unavailable = set(resolved).difference(IMPLEMENTED_CAPABILITIES)
+    unavailable = set(resolved).difference(IMPLEMENTED_CAPABILITIES).difference(set(grandfathered))
     if unavailable:
         raise ValueError(f"Capabilities ainda não executáveis: {', '.join(sorted(unavailable))}")
     return resolved

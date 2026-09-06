@@ -1,6 +1,7 @@
 from collections.abc import Iterable
 
 from app.modules.capabilities.contracts import CapabilityContract, CapabilityScope
+from app.modules.capabilities.readiness import sellable_capabilities
 
 
 def _contract(key: str, name: str, scope: CapabilityScope, description: str, *requires: str) -> CapabilityContract:
@@ -42,14 +43,16 @@ CAPABILITY_REGISTRY: dict[str, CapabilityContract] = {
 
 
 # A contract may be designed before its executable module exists. Commercial
-# activation is allowed only for this audited list; planned contracts remain
-# visible to architecture tooling but cannot be sold as working software.
-IMPLEMENTED_CAPABILITIES = frozenset({
-    "catalog", "inventory", "customer", "cash_management", "payments",
-    "barcode_scanning", "modifiers", "combos", "kitchen_routing",
-    "delivery_orders", "counter_order", "table_service", "high_speed_checkout",
-    "supervisor_override", "tef", "fiscal_nfce", "receivables",
-})
+# activation is allowed only where the implementation is complete; planned and
+# partial contracts remain visible to architecture tooling and to the Owner —
+# disappearing from the screen is what hid `tef` — but cannot be sold as working
+# software.
+#
+# This used to be a hand-kept `frozenset`, and a hand-kept set is exactly how a
+# capability with no command transport came to declare itself implemented. It is
+# now derived from the readiness record, where the claim has to name the
+# evidence it rests on (ADR-031).
+IMPLEMENTED_CAPABILITIES = sellable_capabilities()
 
 
 def resolve_dependencies(keys: Iterable[str]) -> tuple[str, ...]:

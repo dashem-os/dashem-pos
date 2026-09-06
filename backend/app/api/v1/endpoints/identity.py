@@ -1,4 +1,5 @@
 import json
+from collections.abc import Iterable
 import re
 import time
 import uuid
@@ -62,6 +63,8 @@ from app.services.storage_quota_service import (
     storage_quota_read_model,
 )
 from app.modules.governance.contracts import CountResource
+from app.modules.capabilities import service as capability_service
+from app.modules.capabilities.readiness import CAPABILITY_READINESS
 from app.modules.capabilities.registry import CAPABILITY_REGISTRY, IMPLEMENTED_CAPABILITIES, resolve_dependencies
 from app.modules.capabilities.niches import (
     BusinessNiche, NICHE_CONTRACTS, capability_payload,
@@ -125,6 +128,60 @@ def _commercial_terms(subscription: TenantSubscription, billing: "OwnerBillingCr
     subscription.discount_ends_on = discount.ends_on
     subscription.discount_review_on = discount.review_on
     subscription.monthly_amount = (gross - discount_amount).quantize(Decimal("0.01"))
+
+
+def _homologation_override_keys(session: Session, tenant_id: uuid.UUID) -> list[str]:
+    """As capabilities ligadas por exceção de homologação, e só elas."""
+    rows = session.exec(select(TenantCapability).where(
+        TenantCapability.tenant_id == tenant_id,
+        TenantCapability.enabled.is_(True),
+    )).all()
+    return sorted(
+        item.key for item in rows
+        if (item.configuration or {}).get("homologation_override") is True
+    )
+
+
+def _revoke_homologation_overrides(
+    session: Session, tenant_id: uuid.UUID, actor_id: uuid.UUID, reason: str,
+) -> list[str]:
+    """Desligar as exceções de homologação deste tenant.
+
+    Chamado quando o tenant deixa a fase de teste. Uma exceção existe para
+    exercitar o que ainda não pode ser vendido; sobreviver à promoção do tenant
+    faria dela justamente o contrário — software incompleto valendo em piloto ou
+    produção, sem nunca ter passado pelo gate (ADR-031).
+    """
+    revoked: list[str] = []
+    for item in session.exec(select(TenantCapability).where(
+        TenantCapability.tenant_id == tenant_id,
+        TenantCapability.enabled.is_(True),
+    )).all():
+        configuration = dict(item.configuration or {})
+        if configuration.get("homologation_override") is not True:
+            continue
+        configuration.pop("homologation_override", None)
+        item.configuration = configuration
+        item.enabled = False
+        item.status = EntitlementStatusEnum.SUSPENDED
+        item.updated_at = datetime.utcnow()
+        session.add(item)
+        revoked.append(item.key)
+    if revoked:
+        payload = {
+            "tenant_id": str(tenant_id), "capability_keys": sorted(revoked),
+            "reason": reason, "actor_id": str(actor_id),
+        }
+        reliability_service.write_audit_and_outbox(
+            session, tenant_id=tenant_id, store_id=None, actor_id=actor_id,
+            action="platform.tenant.capability_homologation_override_revoked",
+            target=f"tenant:{tenant_id}",
+            audit_payload=payload, aggregate_type="tenant_capability",
+            aggregate_id=str(tenant_id),
+            event_type="platform.tenant.capability_homologation_override_revoked",
+            outbox_payload=payload,
+        )
+    return sorted(revoked)
 
 
 def _snapshot_plan(
@@ -644,12 +701,29 @@ class CapabilityCatalogItem(BaseModel):
     required: bool = False
     addon: bool = False
     recommended: bool = False
+    # Prontidão do produto, não deste tenant (ADR-031). Separada de propósito:
+    # "estamos construindo" e "não está no plano" são coisas diferentes, e só a
+    # segunda o Owner resolve marcando uma caixa.
+    implementation: str = "NONE"
+    implementation_missing: Optional[str] = None
+    # O resumo, e a lista que o produziu. Homologar TEF com um adquirente não
+    # diz nada sobre o próximo, então a integração viaja junto (ADR-031).
+    homologation: str = "NOT_APPLICABLE"
+    homologations: List[dict[str, Any]] = PydanticField(default_factory=list)
+    # Ligada por exceção de homologação, fora do contrato. Nunca é o mesmo que
+    # contratada, e a tela não deve deixar isso parecer a mesma coisa.
+    homologation_override: bool = False
 
 
 class TenantCapabilityUpdate(BaseModel):
     enabled: bool
     contract_limits: dict[str, Any] = PydanticField(default_factory=dict)
     reason: str = PydanticField(min_length=4, max_length=500)
+    # Habilitar o que ainda está sendo construído, para exercitá-lo no tenant de
+    # homologação. Precisa ser dito no ato: a fase de teste é o **padrão** de
+    # todo tenant novo, então usá-la sozinha como porta abriria o gate para
+    # todos. Quem liga assume, por escrito, que está ligando algo incompleto.
+    homologation_override: bool = False
 
 
 class PlatformTenantProfileUpdate(BaseModel):
@@ -1410,6 +1484,7 @@ def _contract_offer(
     activity_keys: list[str],
     capability_keys: list[str],
     selection_mode: CapabilitySelectionMode,
+    grandfathered: Iterable[str] = (),
 ) -> dict[str, Any]:
     normalized_activities = _validated_activity_keys(session, activity_keys)
     rows = session.exec(
@@ -1432,6 +1507,7 @@ def _contract_offer(
             plan_activity_keys=plan.activity_keys,
             selected_activity_keys=normalized_activities,
             rules=rules,
+            grandfathered=tuple(grandfathered),
         )
         if base["gaps"]:
             missing = ", ".join(item["key"] for item in base["gaps"])
@@ -1445,7 +1521,7 @@ def _contract_offer(
                 )
             return base
 
-        explicit = set(selected_entitlement_keys(capability_keys))
+        explicit = set(selected_entitlement_keys(capability_keys, grandfathered))
         required = set(base["capability_keys"])
         missing_required = required.difference(explicit)
         if missing_required:
@@ -1467,6 +1543,7 @@ def _contract_offer(
             selected_activity_keys=normalized_activities,
             requested_addon_keys=sorted(addon_keys),
             rules=rules,
+            grandfathered=tuple(grandfathered),
         )
         if set(proposal["capability_keys"]) != explicit:
             raise CommercialOfferError(
@@ -1918,7 +1995,16 @@ def update_platform_tenant_profile(
     tenant.updated_at = datetime.utcnow()
     profile.customer_type = _legacy_customer_type(data.tenant_type, data.lifecycle_phase)
     profile.tenant_type = data.tenant_type
+    previous_phase = getattr(profile.lifecycle_phase, "value", str(profile.lifecycle_phase))
     profile.lifecycle_phase = data.lifecycle_phase
+    # Sair da fase de teste encerra as exceções de homologação. Elas existem
+    # para exercitar o que ainda não pode ser vendido; sobreviver à promoção do
+    # tenant faria delas exatamente o contrário (ADR-031).
+    if previous_phase == TenantPhaseEnum.TEST.value and data.lifecycle_phase is not TenantPhaseEnum.TEST:
+        _revoke_homologation_overrides(
+            session, tenant_id, actor.id,
+            f"Tenant promovido de TEST para {data.lifecycle_phase.value}.",
+        )
     profile.trade_name = tenant.name
     profile.legal_name = tenant.legal_name
     profile.tax_id = normalized_tax_id
@@ -2227,12 +2313,17 @@ def _apply_owner_tenant_contract(
     _validate_quota("unidades", data.quotas.units, plan.store_limit)
     _validate_quota("storage", data.quotas.storage_mib, plan.storage_limit_mib)
     selected_niches = list(dict.fromkeys(data.niches))
+    # O que o tenant já tem contratado atravessa, mesmo que a prontidão dessa
+    # capability tenha caído depois. Descobrir que a NFC-e emite por um gateway
+    # falso não pode desligar quem já a contratou, nem travar a manutenção do
+    # contrato dela — o gate é sobre contratar de novo (ADR-031).
     proposal = _contract_offer(
         session,
         plan=plan,
         activity_keys=[niche.value for niche in selected_niches],
         capability_keys=data.capability_keys,
         selection_mode=data.capability_selection_mode,
+        grandfathered=tuple(previous_contract.capability_keys) if previous_contract else (),
     )
     selected_keys = tuple(proposal["capability_keys"])
 
@@ -2376,6 +2467,35 @@ def _tenant_niche(session: Session, tenant_id: uuid.UUID) -> Optional[BusinessNi
     return niches[0] if niches else None
 
 
+def _readiness_payload(key: str) -> dict[str, Any]:
+    """O que o Mesh afirma sobre esta capability, para quem desenha a tela.
+
+    As homologações viajam **uma a uma**, com a integração que cada uma atesta.
+    Resumir a lista a um estado só perderia a única informação que importa
+    quando existe mais de um adquirente: qual deles certificou.
+    """
+    readiness = CAPABILITY_READINESS.get(key)
+    if readiness is None:
+        return {
+            "implementation": "NONE", "missing": None,
+            "homologation": "NOT_APPLICABLE", "homologations": [],
+        }
+    return {
+        "implementation": readiness.implementation.value,
+        "missing": readiness.missing,
+        "homologation": readiness.homologation_state.value,
+        "homologations": [
+            {
+                "integration": item.integration,
+                "state": item.state.value,
+                "evidence": item.evidence,
+                "certified_on": item.certified_on,
+            }
+            for item in readiness.homologations
+        ],
+    }
+
+
 @router.get(
     "/platform/tenants/{tenant_id}/capabilities",
     response_model=List[CapabilityCatalogItem],
@@ -2399,6 +2519,14 @@ def tenant_capability_catalog(
         if snapshot is not None
         else {key for key, item in entitlements.items() if item.enabled}
     )
+    # Habilitada por fora do contrato, para exercitar o que ainda não pode ser
+    # vendido. Fica num campo próprio de propósito: misturar com `enabled` faria
+    # a exceção se parecer com contratação, que é o que ela justamente não é.
+    override_keys = {
+        key for key, item in entitlements.items()
+        if item.enabled and key not in enabled_keys
+        and (item.configuration or {}).get("homologation_override") is True
+    }
     niches = _tenant_niches(session, tenant_id)
     activity_rules = session.exec(
         select(CommercialActivityCapability).where(
@@ -2429,6 +2557,14 @@ def tenant_capability_catalog(
             required=key in recommended_keys,
             addon=key in suggested_addons,
             recommended=key in recommended_keys or key in suggested_addons,
+            # Prontidão é do produto, não deste tenant: a tela precisa separar
+            # "ainda estamos construindo" de "não está no plano contratado",
+            # porque a segunda o Owner resolve e a primeira não (ADR-031).
+            implementation=_readiness_payload(key)["implementation"],
+            implementation_missing=_readiness_payload(key)["missing"],
+            homologation=_readiness_payload(key)["homologation"],
+            homologations=_readiness_payload(key)["homologations"],
+            homologation_override=key in override_keys,
         )
         for key, contract in CAPABILITY_REGISTRY.items()
     ]
@@ -2449,7 +2585,38 @@ def update_tenant_capability(
     assert actor is not None
     if session.get(Tenant, tenant_id) is None:
         raise HTTPException(status_code=404, detail="Tenant não encontrado.")
-    if latest_contract(session, tenant_id) is not None:
+    if capability_key not in CAPABILITY_REGISTRY:
+        raise HTTPException(status_code=404, detail="Capacidade não encontrada no catálogo.")
+    profile = session.get(TenantProfile, tenant_id)
+    contract = latest_contract(session, tenant_id)
+    readiness = CAPABILITY_READINESS.get(capability_key)
+    in_test_phase = profile is not None and profile.lifecycle_phase == TenantPhaseEnum.TEST
+    incomplete = capability_key not in IMPLEMENTED_CAPABILITIES
+
+    # Vender exige implementação completa. Mas exercitar o que está sendo
+    # construído precisa de um lugar legítimo, senão a única saída seria mentir
+    # na declaração de prontidão para conseguir testar — que é como `tef` foi
+    # parar na lista de vendável. O tenant em fase de teste é esse lugar, e o
+    # caminho é explícito, nomeado e auditado (ADR-031).
+    #
+    # E ele precisa alcançar o tenant de homologação **como ele é**: com
+    # contrato versionado. Sem isto o caminho existia apenas onde não era
+    # necessário — todo tenant de homologação tem contrato.
+    override = bool(data.enabled and incomplete and data.homologation_override and in_test_phase)
+    # Revogar a exceção precisa do mesmo caminho que concedê-la. Sem isto o
+    # ciclo ficava pela metade: dava para ligar o incompleto num tenant com
+    # contrato e nunca mais desligá-lo por esta rota, porque o guarda de
+    # contrato versionado recusava a saída.
+    current = session.exec(select(TenantCapability).where(
+        TenantCapability.tenant_id == tenant_id,
+        TenantCapability.key == capability_key,
+    )).first()
+    revoking_override = bool(
+        not data.enabled and current is not None
+        and (current.configuration or {}).get("homologation_override") is True
+    )
+
+    if contract is not None and not override and not revoking_override:
         raise HTTPException(
             status_code=409,
             detail=(
@@ -2457,12 +2624,45 @@ def update_tenant_capability(
                 "para criar uma nova versão auditada."
             ),
         )
-    if capability_key not in CAPABILITY_REGISTRY:
-        raise HTTPException(status_code=404, detail="Capacidade não encontrada no catálogo.")
-    if data.enabled and capability_key not in IMPLEMENTED_CAPABILITIES:
+    if data.enabled and incomplete and not override:
         raise HTTPException(
             status_code=409,
-            detail="Capability possui contrato arquitetural, mas seu módulo executável ainda não passou pelo gate.",
+            detail=(
+                "Capability possui contrato arquitetural, mas seu módulo executável ainda "
+                "não passou pelo gate. Para exercitá-la, use um tenant em fase de teste e "
+                "declare `homologation_override`."
+                + (f" Falta: {readiness.missing}." if readiness and readiness.missing else "")
+            ),
+        )
+    # E ela nunca concede o que está por baixo. `tef` depende de `payments`:
+    # numa conta onde pagamentos não vale, ligar o TEF por exceção seria
+    # conceder pagamentos de graça. Recusar aqui é mais honesto do que gravar
+    # uma concessão que a leitura efetiva vai ignorar em silêncio.
+    if override:
+        effective = capability_service.effective_capabilities(session, tenant_id)
+        missing_dependencies = [
+            key for key in CAPABILITY_REGISTRY[capability_key].requires
+            if key not in effective
+        ]
+        if missing_dependencies:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "A exceção de homologação não concede o que está por baixo. "
+                    "Contrate primeiro: " + ", ".join(sorted(missing_dependencies)) + "."
+                ),
+            )
+    # O override é exceção ao contrato, não parte dele: habilita o incompleto
+    # **por fora** da versão contratada. Se isso não estivesse dito na trilha,
+    # uma leitura futura veria a capability ligada e concluiria que ela foi
+    # vendida.
+    if override and contract is not None and data.contract_limits:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Exceção de homologação não altera limites contratuais. "
+                "Use o editor do contrato para isso."
+            ),
         )
 
     existing = {
@@ -2472,15 +2672,30 @@ def update_tenant_capability(
     }
     changed_keys: list[str] = []
     if data.enabled:
-        for key in resolve_dependencies([capability_key]):
+        # Uma exceção liga **uma** capability. Resolver dependências aqui
+        # significaria criar ou reativar linhas de capabilities contratadas —
+        # a exceção mexendo no contrato pela porta de trás. O que ela precisa
+        # por baixo é conferido acima, e recusado se faltar.
+        affected = [capability_key] if override else list(resolve_dependencies([capability_key]))
+        for key in affected:
             _ensure_capability_definition(session, key)
         session.flush()
-        for key in resolve_dependencies([capability_key]):
+        for key in affected:
             entitlement = existing.get(key) or TenantCapability(tenant_id=tenant_id, key=key)
             entitlement.enabled = True
             entitlement.status = EntitlementStatusEnum.ACTIVE
             if key == capability_key:
                 entitlement.contract_limits = data.contract_limits
+                # A linha diz por que existe. Sem isto, `effective_capabilities`
+                # precisaria consultar a fase do tenant para decidir se uma
+                # capability fora do contrato vale — e uma concessão sem motivo
+                # gravado é indistinguível de uma inconsistência.
+                configuration = dict(entitlement.configuration or {})
+                if override:
+                    configuration["homologation_override"] = True
+                else:
+                    configuration.pop("homologation_override", None)
+                entitlement.configuration = configuration
             entitlement.updated_at = datetime.utcnow()
             session.add(entitlement)
             existing[key] = entitlement
@@ -2515,13 +2730,29 @@ def update_tenant_capability(
         "reason": data.reason.strip(),
         "actor_id": str(actor.id),
     }
+    if override:
+        # A exceção é registrada com o que ela é e com o que ainda falta, para
+        # que ninguém leia "capability ligada" como "capability vendida".
+        payload["homologation_override"] = True
+        payload["implementation"] = readiness.implementation.value if readiness else "NONE"
+        payload["implementation_missing"] = readiness.missing if readiness else None
+        payload["contract_version"] = contract.version if contract is not None else None
+        payload["lifecycle_phase"] = getattr(profile.lifecycle_phase, "value", profile.lifecycle_phase) if profile else None
+    if revoking_override:
+        payload["homologation_override_revoked"] = True
+        payload["contract_version"] = contract.version if contract is not None else None
+    action = (
+        "platform.tenant.capability_homologation_override" if override
+        else "platform.tenant.capability_homologation_override_revoked" if revoking_override
+        else "platform.tenant.capability_updated"
+    )
     reliability_service.write_audit_and_outbox(
         session, tenant_id=tenant_id, store_id=None, actor_id=actor.id,
-        action="platform.tenant.capability_updated",
+        action=action,
         target=f"tenant:{tenant_id}:capability:{capability_key}",
         audit_payload=payload, aggregate_type="tenant_capability",
         aggregate_id=f"{tenant_id}:{capability_key}",
-        event_type="platform.tenant.capability_updated", outbox_payload=payload,
+        event_type=action, outbox_payload=payload,
     )
     session.commit()
     return tenant_capability_catalog(tenant_id, principal, session)

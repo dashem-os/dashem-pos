@@ -3,7 +3,9 @@ from typing import Any, Optional
 from sqlmodel import Session, select
 
 from app.models.platform import EntitlementStatusEnum, StoreCapabilityOverride, TenantCapability
-from app.modules.capabilities.registry import CAPABILITY_REGISTRY, resolve_dependencies
+from app.modules.capabilities.registry import (
+    CAPABILITY_REGISTRY, IMPLEMENTED_CAPABILITIES, resolve_dependencies,
+)
 from app.services.contract_entitlement_service import resolve_contract_entitlements
 
 
@@ -41,6 +43,24 @@ def effective_capabilities(session: Session, tenant_id, store_id: Optional[objec
             for key in snapshot.capability_keys
             if key in CAPABILITY_REGISTRY
         }
+        # Exceção de homologação (ADR-031): capability que **não pode ser
+        # vendida** habilitada por fora do contrato, para ser exercitada. Sem
+        # isto o caminho existia só no papel — a leitura efetiva vinha do
+        # snapshot e a concessão não tinha efeito nenhum.
+        #
+        # Três limites que fazem dela exceção e não porta dos fundos: a própria
+        # linha declara que é override, a capability precisa estar fora da lista
+        # de vendáveis, e tudo de que ela depende já precisa estar valendo —
+        # ninguém liga TEF numa conta onde pagamentos não vale.
+        for key, configuration in persisted.items():
+            if key in enabled or key in IMPLEMENTED_CAPABILITIES:
+                continue
+            if configuration.get("homologation_override") is not True:
+                continue
+            requires = CAPABILITY_REGISTRY[key].requires
+            if any(dependency not in enabled for dependency in requires):
+                continue
+            enabled[key] = configuration
     else:
         # Pre-contract tenants remain readable from their persisted grants. This
         # is explicit legacy state, never an inference from the current plan.

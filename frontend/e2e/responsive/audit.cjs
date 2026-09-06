@@ -19,6 +19,105 @@ cases.push({ name: 'finance-detail', screen: 'owner', steps: [owner('Financeiro 
 cases.push({ name: 'owner-new', screen: 'owner', steps: [owner('Organizações'), click('Novo cliente')], modal: true });
 cases.push({ name: 'owner-plan-form', screen: 'owner', steps: [owner('Planos comerciais'), click('Novo plano')] });
 cases.push({ name: 'owner-pause', screen: 'owner', steps: [tenant, click('Pausar')], modal: true });
+// A tela de capabilities responde duas perguntas ao mesmo tempo — o que vale
+// hoje, e o que muda ao salvar — e antes pintava as duas com o mesmo verde. O
+// caso `contract-editor-Capabilities` acima roda com o catálogo vazio gerado
+// pelos fixtures, então provava layout e nenhum estado. Este dirige a tela com
+// um catálogo real e afirma os estados pelo nome, incluindo o que **não** é
+// contratável: uma capability que some da lista sem explicação é o defeito que
+// motivou o redesenho.
+cases.push({ name: 'owner-capability-states', screen: 'owner', steps: [
+    async page => {
+      await page.evaluate(() => {
+        const item = (key, name, enabled, implementation = 'COMPLETE', missing = null) => ({
+          key, name, version: '1.0', scope: 'TENANT', description: `Descrição de ${name}.`,
+          requires: [], enabled, status: 'ACTIVE', contract_limits: {}, required: false,
+          implementation, implementation_missing: missing, homologation: 'NOT_APPLICABLE',
+          homologations: [], homologation_override: false,
+        });
+        const plan = {
+          id: 'fixture-id', code: 'STATES', name: 'Plano de teste', description: 'Plano do caso',
+          is_active: true, version: 1, activity_keys: ['FOOD_SERVICE'],
+          capability_keys: ['catalog', 'payments', 'table_service', 'kitchen_routing', 'combos', 'quotes'],
+          store_limit: 3, user_limit: 40, terminal_limit: 10, storage_limit_mib: 1024, monthly_price: 389,
+        };
+        window.__handlers = {
+          fetchServicePlans: async () => [plan],
+          fetchOwnerNiches: async () => [{
+            key: 'FOOD_SERVICE', name: 'Food Service', description: 'Atividade do caso',
+            required_capabilities: [{ key: 'catalog', name: 'Catálogo' }, { key: 'payments', name: 'Pagamentos' }],
+            allowed_addons: [
+              { key: 'table_service', name: 'Mesas e comandas' },
+              { key: 'kitchen_routing', name: 'Roteamento de cozinha' },
+              { key: 'receivables', name: 'Crediário e recebíveis' },
+              { key: 'tef', name: 'TEF' },
+            ],
+          }],
+          // A elegibilidade vem resolvida do servidor: a tela lê, não recalcula.
+          resolveCommercialOffer: async () => ({
+            plan_name: plan.name, activity_keys: ['FOOD_SERVICE'],
+            capability_keys: ['catalog', 'payments'], capabilities: [], gaps: [],
+            eligibility: [
+              { key: 'catalog', reason: 'REACHABLE' },
+              { key: 'payments', reason: 'REACHABLE' },
+              { key: 'table_service', reason: 'REACHABLE' },
+              { key: 'kitchen_routing', reason: 'REACHABLE' },
+              { key: 'receivables', reason: 'NOT_IN_PLAN' },
+              { key: 'combos', reason: 'NOT_OFFERED_BY_ACTIVITIES' },
+              { key: 'quotes', reason: 'IN_DEVELOPMENT' },
+              { key: 'tef', reason: 'IN_DEVELOPMENT' },
+            ],
+          }),
+          fetchTenantCapabilityCatalog: async () => [
+            item('catalog', 'Catálogo', true),                  // base, em vigor
+            item('payments', 'Pagamentos', true),               // base, em vigor
+            item('table_service', 'Mesas e comandas', true),    // opcional em vigor
+            item('kitchen_routing', 'Roteamento de cozinha', false),        // disponível
+            item('receivables', 'Crediário e recebíveis', false),           // fora do plano
+            item('combos', 'Combos', false),                                // fora das atividades
+            item('quotes', 'Orçamentos', false, 'NONE'),                    // em desenvolvimento
+            {
+            ...item('tef', 'TEF', false, 'PARTIAL', 'transporte de comandos ao bridge'),
+            homologations: [{ integration: 'SITEF', state: 'PENDING', evidence: null, certified_on: null }],
+          },
+          ],
+        };
+      });
+    },
+    tenant, click('Contrato'), click('Editar contrato'),
+    click('Modelos de negócio'),
+    page => page.getByRole('button', { name: /Food Service/ }).first().click(),
+    click('Capabilities'),
+    async page => {
+      const chip = name => page.locator('span', { hasText: new RegExp(`^${name}$`) }).first();
+      const card = name => page.getByRole('button', { name: new RegExp(name) });
+      // Contratação e alteração são eixos distintos e aparecem juntos no mesmo
+      // cartão: o que vale hoje, e o que muda ao salvar.
+      await chip('EM VIGOR').waitFor();
+      await chip('NÃO CONTRATADA').waitFor();
+      await chip('SAI AO SALVAR').waitFor();
+      await page.getByText('−1 SAEM').waitFor();
+      // "Base obrigatória" é informação adicional, não um estado que ocupa o
+      // lugar dos outros — e por isso não esconde mais uma inclusão.
+      await page.getByText(/Base obrigatória da composição/).first().waitFor();
+      // Dívida de construção não se confunde com decisão de catálogo.
+      await chip('EM DESENVOLVIMENTO').waitFor();
+      await chip('FORA DO PLANO').waitFor();
+      await chip('FORA DAS ATIVIDADES').waitFor();
+      await page.getByText('transporte de comandos ao bridge', { exact: false }).first().waitFor();
+      // Homologação aparece com a integração que ela atesta, nunca resumida.
+      await page.getByText(/SITEF: homologação pendente/).first().waitFor();
+      assert.ok(await card('TEF').isDisabled());
+      assert.ok(await card('Pagamentos').isDisabled());
+      // Devolver o opcional à proposta o traz de volta ao que ele é hoje.
+      await card('Mesas e comandas').click();
+      assert.equal(await page.getByText('−1 SAEM').count(), 0);
+      // E incluir um add-on novo é uma entrada declarada, com o diff mudando.
+      await card('Roteamento de cozinha').click();
+      await chip('ENTRA AO SALVAR').waitFor();
+      await page.getByText('+1 ENTRAM').waitFor();
+    },
+] });
 for (const [module, name] of [['products', 'Cadastrar Novo Produto'], ['products', 'Ajustar'], ['assortments', 'Novo Sortimento'], ['assortments', 'Produtos (1)'], ['customers', 'Novo cliente'], ['team', 'Conceder acesso'], ['devices', 'Novo dispositivo'], ['devices', 'Nova regra'], ['tables', 'Nova mesa'], ['tables', 'Nova reserva'], ['categories', 'Nova categoria']])
     cases.push({ name: `dialog-${module}-${name}`, screen: 'manage', module, steps: [click(name)], modal: true });
 cases.push({ name: 'team-new-employee', screen: 'manage', module: 'team', steps: [click('Conceder acesso'), click('Novo cadastro')], modal: true });

@@ -4,6 +4,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Iterable, Mapping, Sequence
 
+from app.modules.capabilities.eligibility import eligibility_map
 from app.modules.capabilities.registry import (
     CAPABILITY_REGISTRY,
     IMPLEMENTED_CAPABILITIES,
@@ -30,8 +31,16 @@ def compose_commercial_offer(
     selected_activity_keys: Sequence[str],
     rules: Iterable[ActivityRule],
     requested_addon_keys: Sequence[str] = (),
+    grandfathered: Sequence[str] = (),
 ) -> dict[str, object]:
-    """Return a proposal only; callers must persist a contract to grant access."""
+    """Return a proposal only; callers must persist a contract to grant access.
+
+    ``grandfathered`` são as capabilities que o tenant **já tem contratadas**.
+    Elas atravessam a composição inteira: não são recusadas por prontidão, não
+    entram em ``gaps`` e não somem da proposta quando a versão corrente do plano
+    deixou de listá-las. O plano que as vendeu é história, e história de contrato
+    não se reescreve — o que a prontidão governa é contratar de novo (ADR-031).
+    """
 
     activities = tuple(dict.fromkeys(selected_activity_keys))
     if not activities:
@@ -72,20 +81,26 @@ def compose_commercial_offer(
         raise CommercialOfferError(
             "Capabilities desconhecidas na matriz: " + ", ".join(sorted(unknown))
         )
+    carried = set(grandfathered)
     expanded = set(resolve_dependencies(tuple(sorted(requested))))
-    unavailable = expanded.difference(IMPLEMENTED_CAPABILITIES)
+    unavailable = expanded.difference(IMPLEMENTED_CAPABILITIES).difference(carried)
     if unavailable:
         raise CommercialOfferError(
             "Capabilities ainda não executáveis: " + ", ".join(sorted(unavailable))
         )
 
     plan_keys = set(plan_capability_keys)
-    proposed = expanded & plan_keys
-    gaps = expanded - plan_keys
+    # Um direito já contratado continua coberto mesmo quando a versão corrente
+    # do plano parou de oferecê-lo. Sem isto, publicar uma nova versão de plano
+    # transformaria a próxima edição de contrato de quem tem o direito antigo
+    # numa recusa — e trocar uma quota viraria impossível.
+    covered = plan_keys | carried
+    proposed = expanded & covered
+    gaps = expanded - covered
     capabilities: list[dict[str, object]] = []
     for key in sorted(proposed):
         rule_items = rules_by_capability.get(key, [])
-        sources = {"PLAN"}
+        sources = {"PLAN"} if key in plan_keys else {"GRANDFATHERED"}
         if key in required:
             sources.add("ACTIVITY")
         if key in requested_addons:
@@ -101,10 +116,30 @@ def compose_commercial_offer(
             }
         )
 
+    # A elegibilidade do catálogo inteiro nesta composição, resolvida aqui e não
+    # refeita por quem consome. A tela do Control lia plano e atividades e
+    # repetia a conta em TypeScript — é assim que duas verdades divergem. E ela
+    # é sensível a dependências: uma capability que se apoia em algo incompleto
+    # não é entregável, por mais pronto que esteja o código dela (ADR-031).
+    offered_by_activities = required | optional
+    resolved_eligibility = eligibility_map(
+        sorted(CAPABILITY_REGISTRY),
+        plan_capability_keys=plan_keys,
+        activity_capability_keys=offered_by_activities,
+    )
+
     return {
         "activity_keys": list(activities),
         "capabilities": capabilities,
         "capability_keys": sorted(proposed),
+        "eligibility": [
+            {
+                "key": key,
+                "reason": item.reason.value,
+                "blocked_by": item.blocked_by,
+            }
+            for key, item in sorted(resolved_eligibility.items())
+        ],
         "gaps": [
             {
                 "key": key,
