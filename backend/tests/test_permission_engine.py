@@ -211,3 +211,45 @@ def test_contract_requests_have_a_dedicated_tenant_permission():
             )
         assert manager.value.status_code == 403
         assert "contract.request" in manager.value.detail
+
+
+def test_permission_mapping_downgrades_on_a_trailing_slash_and_routing_is_what_saves_it():
+    """Achado em aberto, com a suposição que o mantém inofensivo pinada aqui.
+
+    `route_requirement` casa a rota por string. Com barra final, `/refund/` e
+    `/cancel/` deixam de casar com a regra específica e **caem no ramo genérico**
+    — trocando `checkout.payment.refund` por `checkout.payment`, que é a
+    permissão de criar parcela. Uma barra rebaixaria a autoridade exigida para
+    devolver dinheiro.
+
+    Hoje isso não é alcançável: a autorização roda como dependência, e o
+    roteamento do FastAPI responde 307 para a barra final antes de qualquer
+    dependência executar. Ou seja, o que protege não é a regra — é o roteador.
+
+    A correção combinada é mover a autorização para as rotas, e ela tem contrato
+    próprio; um `rstrip` aqui esconderia o problema em vez de resolvê-lo. Até lá,
+    este teste falha alto se alguém desligar `redirect_slashes` ou registrar uma
+    rota com barra final, que são as duas formas de tornar o rebaixamento real.
+    """
+    from app.core.permissions import route_requirement
+    from app.main import app
+
+    canonical = route_requirement("POST", "/api/v1/negotiations/intents/abc/refund")
+    slashed = route_requirement("POST", "/api/v1/negotiations/intents/abc/refund/")
+    assert canonical.permission == "checkout.payment.refund"
+    assert slashed.permission == "checkout.payment", (
+        "o rebaixamento por barra final mudou; reavalie o contrato pendente"
+    )
+
+    assert app.router.redirect_slashes is True, (
+        "sem o redirecionamento do roteador, a barra final vira rebaixamento real "
+        "de permissão — mova a autorização para as rotas antes de desligar isto"
+    )
+    with_trailing = [
+        route.path for route in app.routes
+        if getattr(route, "path", "").endswith("/") and route.path != "/"
+    ]
+    assert with_trailing == [], (
+        "rota registrada com barra final alcança o ramo genérico de permissão: "
+        + ", ".join(with_trailing)
+    )

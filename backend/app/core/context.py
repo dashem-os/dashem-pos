@@ -132,7 +132,15 @@ def authorize_tenant_context(
         )
 
     user = resolve_internal_user(session, principal)
-    assert user is not None
+    if user is None:
+        # Não era alcançável — o bypass retorna acima e `resolve_internal_user`
+        # levanta para identidade não provisionada. Mas era um `assert`, e
+        # `assert` some com `python -O`. Uma decisão de acesso não deve depender
+        # de a otimização estar desligada.
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Authenticated identity could not be resolved.",
+        )
     # Establish a restrictive RLS scope before validating any tenant-owned
     # infrastructure referenced by an operational token.
     set_tenant_db_context(session, tenant_id, store_id, user.id)
@@ -234,7 +242,12 @@ def get_tenant_context(
 ) -> TenantContext:
     tenant_id = _parse_uuid(x_tenant_id, "X-Tenant-ID", required=True)
     store_id = _parse_uuid(x_store_id, "X-Store-ID")
-    assert tenant_id is not None
+    if tenant_id is None:
+        # `required=True` já levanta. O `assert` daqui era narrowing, e sob
+        # `python -O` deixaria um tenant nulo entrar na autorização.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="X-Tenant-ID is required.",
+        )
     return authorize_tenant_context(
         session, principal, tenant_id, store_id, request.method, request.url.path
     )

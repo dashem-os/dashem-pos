@@ -8,8 +8,13 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-dashem_pos}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:-dashem_pos}
+    # Preso ao loopback. Sem isto o Postgres sobe em 0.0.0.0 e fica alcançável
+    # por qualquer máquina da rede local — e o backend ao lado roda com
+    # AUTH_MODE=disabled, então as duas exposições juntas valem mais do que a
+    # soma delas. Abrir é possível, mas passa a ser um ato deliberado:
+    # BIND_HOST=0.0.0.0 no .env.
     ports:
-      - "${POSTGRES_PORT:-5437}:5432"
+      - "${BIND_HOST:-127.0.0.1}:${POSTGRES_PORT:-5437}:5432"
     volumes:
       - postgres_pos_data:/var/lib/postgresql/data
     healthcheck:
@@ -23,8 +28,11 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: dashem-pos-backend
+    # Mesmo motivo do banco, e aqui o risco é maior: em desenvolvimento a API
+    # aceita `X-User-ID` sem token. Exposta na rede, isso é impersonação de
+    # qualquer usuário por quem estiver no mesmo Wi-Fi.
     ports:
-      - "${BACKEND_PORT:-8002}:8000"
+      - "${BIND_HOST:-127.0.0.1}:${BACKEND_PORT:-8002}:8000"
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-dashem_pos}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@dashem-pos-db:5432/${POSTGRES_DB:-dashem_pos}
       SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
