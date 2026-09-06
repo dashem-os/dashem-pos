@@ -24,7 +24,7 @@ com provider**, que não foi feita e não pode ser deduzida daqui.
 | Corrida entre cancelar e confirmar | ambos travam a parcela com `SELECT FOR UPDATE` | `test_s25_1_cancelling_and_confirming_at_the_same_instant_has_one_winner` | **local ✓** — `asyncio.gather`, um 200 e um 409, linha coerente nos dois desfechos |
 | Retomada da mesma tentativa sem criar outra cobrança | `execute_transaction` reconcilia a transação em voo em vez de abrir outra | `test_s25_1_a_lost_answer_is_retried_on_the_same_attempt_not_a_new_charge` | **local ✓** — duas execuções e uma consulta, uma única `ProviderTransaction` |
 | Validação do TEF antes de criar a parcela | `assert_executable_binding` em `create_intent`, **e a tela declarando o dispositivo junto com a parcela** | `test_s25_1_an_offline_bridge_leaves_no_reserve_behind` + `checkout-tef-declared-upfront` | **local ✓ após a revisão** — na primeira rodada o guarda existia sem caller; o teste de tela falha se o campo deixar de viajar |
-| Reinício do serviço no meio do ciclo | o prazo vive na linha (`reserve_expires_at`), não em memória; a varredura roda em sessão nova | teste de expiração, que executa em `Session` própria depois das chamadas HTTP | **local ✓ parcial** — prova que o estado sobrevive a outra sessão/processo, não um `docker restart` encenado |
+| Reinício do serviço no meio do ciclo | o prazo vive na linha (`reserve_expires_at`), não em memória; a varredura roda em sessão nova | teste de expiração, que executa em `Session` própria depois das chamadas HTTP, **e o drill de 06/09** | **local ✓** — o `docker restart` encenado existe desde 06/09/2026: [drill de reinício](s25-1-staged-restart-drill.md) |
 | Isolamento tenant/unidade | `scope_tenant_query` nas rotas novas + RLS forçado em `payment_settlement_divergences` | `test_s25_1_a_neighbour_never_cancels_or_queries_this_bill` | **local ✓** — 404 nos dois comandos, reserva intacta |
 | Permissões negativas | `route_requirement` mapeia `/cancel` para `checkout.payment.cancel` | `test_s25_1_releasing_money_needs_its_own_permission` | **local ✓ no mapeamento** — a suíte HTTP roda sob `AUTH_MODE=disabled`, então isto prova a regra, não a recusa ponta a ponta (mesma limitação registrada no Gate C) |
 | Preservar pagamentos confirmados, produção e histórico | nenhuma alteração de `production_state` nos caminhos novos | `test_s25_gate_closure`, `test_s25_live_settlement`, `test_s12_transfers`, `test_gate_d_*` seguem verdes | **local ✓** |
@@ -56,9 +56,9 @@ contrato próprio.
   sendo gate externo do S9/S21;
 - **Aceite em ambiente publicado.** Nada aqui foi executado contra o deploy nem
   contra o tenant de homologação. A tela foi vista contra fixtures;
-- **Reinício encenado.** O estado sobrevive a outra sessão e a outro processo,
-  provado em teste; um `docker restart` no meio de uma cobrança não foi
-  encenado;
+- ~~**Reinício encenado.**~~ Encenado em 06/09/2026 contra a pilha real, com
+  API e worker reiniciados no meio da cobrança:
+  [drill de reinício](s25-1-staged-restart-drill.md);
 - **Recebimento manual sem confirmação.** Continua valendo o alerta do dono:
   ausência de confirmação no sistema não prova ausência de dinheiro recebido. O
   cancelamento de reserva não confirmada não afirma que nada foi recebido fora
@@ -90,7 +90,8 @@ dinheiro no balcão.
 A matriz acima dizia "prova que o estado sobrevive a outra sessão/processo". Isso
 continua verdade, e agora existe a prova que faltava: a falha **entre os dois
 commits** é encenada diretamente no banco e recuperada tanto pela consulta quanto
-pela varredura. Um `docker restart` encenado continua não existindo.
+pela varredura. Um `docker restart` encenado passou a existir em 06/09/2026, em
+[drill próprio](s25-1-staged-restart-drill.md).
 
 ### O que continua não provado
 
@@ -127,7 +128,44 @@ estorno dizia que a linha voltava a ficar disponível; ela não volta.
 
 ### O que continua não provado
 
-Sem mudança: **homologação real de provider**, **aceite em ambiente publicado**,
-**estorno sobre parcela confirmada** e **reinício encenado**. O bloqueio de
+**Homologação real de provider** e **aceite em ambiente publicado** seguem por
+fazer. O **reinício encenado** deixou esta lista em 06/09/2026
+([drill](s25-1-staged-restart-drill.md)), e o **estorno sobre parcela
+confirmada** saiu do bloqueio pelo ADR-030 — veja a seção abaixo. O bloqueio de
 estorno agora cobre também a parcela aberta com estorno externo — mesma razão,
 mesma recusa em improvisar baixa financeira.
+
+## Quarta rodada — 06/09/2026: o bloqueio de estorno deixa de ser um beco
+
+O bloqueio declarado acima permanece verdadeiro como descrição do que o S25.1
+entregou. Ele deixou de ser o estado do produto em 06/09/2026, quando o escopo
+que a própria matriz propôs — "um estorno de parcela dentro da negociação
+aberta" — foi contratado, decidido e implementado como
+[ADR-030](../architecture/adr-030-open-account-parcel-reversal.md).
+
+O que mudou, em uma frase: **estorno passou a ser um fato próprio, escrito ao
+lado da parcela**, e o saldo da conta passou a ser lido como confirmado menos
+revertido. A parcela confirmada continua confirmada.
+
+O que **não** mudou, e é o ponto: nenhuma baixa é improvisada. Um estorno pedido
+não move saldo nenhum. Só o valor comprovadamente revertido move, e a prova é a
+mesma coisa que comprovou a entrada — o movimento de caixa para dinheiro, a
+resposta do adquirente com valor declarado para cartão, a palavra nomeada de uma
+pessoa para recebimento manual. As três recusas das rodadas anteriores continuam
+de pé, agora com um lugar para esperar em vez de uma divergência sem desfecho.
+
+Duas linhas da seção "o que continua não provado" mudam de lugar com isso:
+
+- **estorno sobre parcela confirmada** sai da lista: existe fluxo, com permissão
+  própria (`checkout.payment.refund`), estorno parcial, idempotência e trilha
+  preservada. Provado em `tests/test_s25_2_open_account_reversal.py`, 10 cenários;
+- **`REFUNDED` sobre parcela aberta** continua segurando a reserva, com uma
+  exceção nova e estreita: reversão declarada **igual** ao valor da parcela fecha
+  a parcela como `FAILED` e devolve a linha. Reversão parcial ou sem valor
+  declarado segue exatamente como estava.
+
+Segue **não provado**, sem mudança: homologação real de provider e aceite em
+ambiente publicado. Ambos dependem de coisas que este repositório não contém —
+e a homologação depende, antes, de
+[transporte de comandos do bridge](../product/bridge-command-transport.md), que
+é trabalho interno ainda não iniciado.

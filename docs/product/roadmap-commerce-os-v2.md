@@ -15,6 +15,30 @@ detalhada nos Sprints corretivos 5.2–5.4 de
 Essa trilha não renumera nem substitui os Sprints canônicos abaixo; o pré-piloto,
 storage comercial e homologações externas preservam seus próprios gates.
 
+Atualização de estado de 6 de setembro de 2026 — **o que fecha um sprint**.
+Merge em `main` e CI verde não fecham sprint nenhum aqui, e a partir desta data
+o registro passa a dizer as duas coisas separadamente: o que está **provado**, e
+por qual prova. CI verde prova os cenários que a suíte cobre, contra a pilha
+efêmera; ele não vê tela, não vê adquirente e não vê o ambiente publicado.
+
+Estado real das três frentes em aberto nesta data:
+
+- **S23 — seletor compartilhado**: implementado e testado; validação local com
+  102 testes de frontend, build e 42 verificações responsivas. **Falta aceite
+  operacional em homologação**, que depende de uma pessoa operando o PDV no
+  ambiente publicado;
+- **S25 / S25.0 — liquidação progressiva**: núcleo e interface entregues, com
+  validação local e CI verdes. Não fechado para operação real;
+- **S25.1 — recuperação de pagamento**: mesclado em 05/09/2026 (PR #3) após três
+  rodadas de revisão. Em 06/09/2026 ganhou o **reinício encenado**
+  ([drill](../quality/s25-1-staged-restart-drill.md)) e o **estorno em conta
+  aberta** ([ADR-030](../architecture/adr-030-open-account-parcel-reversal.md)).
+  Continuam por fazer: homologação com provider real e aceite no ambiente
+  publicado — e a primeira depende do
+  [transporte de comandos do bridge](bridge-command-transport.md), trabalho
+  interno ainda não iniciado, sem o qual nenhuma cobrança sai daqui mesmo com
+  adquirente contratado.
+
 Atualização de contrato de 5 de setembro de 2026: o **S25 — Liquidação
 progressiva da comanda** foi contratado pelo dono do SaaS e escrito na seção 7.
 Ele converte a `CheckoutNegotiation` de snapshot de fechamento em conta viva, com
@@ -2181,7 +2205,7 @@ e aparece como `não configurada`, nunca como pronta.
 | Conta da mesa e conta de uma comanda dela podem coexistir | S25 | mesmo item nunca alocado por duas negociações | **resolvido em 05/09/2026** pelo contrato 5: `open_negotiation` recusa com `409 ORDER_ALREADY_IN_NEGOTIATION` nos dois sentidos, sob o `FOR UPDATE` que já existia nos `Order`, e a absorção do contrato 1 pula comanda já paga em conta própria |
 | Parcela pendente segura o saldo do item para sempre | S25.1 | cancelar, expirar com segurança e reconciliar o incerto | **resolvido e mesclado em 05/09/2026 (PR #3)**: cancelamento explícito com permission própria; expiração só quando a rota foi declarada e não usada — recebimento manual nunca expira sozinho; consulta ao provider mantendo a reserva enquanto houver incerteza |
 | `fail_intent` libera a reserva sem olhar a cobrança externa | S25.1 | cancelamento distinto de falha, recusado com transação não resolvida | **resolvido em 05/09/2026**: `fail_intent` e `confirm_intent` recusam com `409 EXTERNAL_CHARGE_IN_FLIGHT`; a tela oferece "Consultar pagamento" e "Cancelar reserva", e **nunca** "marcar falha" como desbloqueio |
-| Provider que cancela ou estorna deixa a parcela presa | S25.1 | `CANCELED` fecha a parcela; `REFUNDED` é reversão | **resolvido em 05/09/2026 com bloqueio declarado**: `CANCELED` cancela a parcela e devolve a reserva; `REFUNDED` sobre parcela confirmada vira `REFUND_REQUIRES_REVERSAL` e espera um fluxo de estorno que não existe — escopo proposto na matriz de aceite |
+| Provider que cancela ou estorna deixa a parcela presa | S25.1 → ADR-030 | `CANCELED` fecha a parcela; `REFUNDED` é reversão | **resolvido em 05/09/2026 com bloqueio declarado, e o bloqueio removido em 06/09/2026**: `CANCELED` cancela a parcela e devolve a reserva. `REFUNDED` sobre parcela confirmada tem agora fluxo próprio ([ADR-030](../architecture/adr-030-open-account-parcel-reversal.md)): estorno parcial, permissão `checkout.payment.refund`, idempotência e trilha preservada — e nada se move sem valor revertido comprovado. Sobre parcela **aberta**, só reversão declarada integral fecha a linha; o resto continua esperando conciliação |
 | A tela cria a parcela antes de saber se o TEF executa | S25.1 | conferir meio e vínculo antes de reservar saldo | **resolvido em 05/09/2026**: `create_intent` valida a cadeia do ADR-022 no servidor antes de reservar, então bridge offline não deixa parcela pendurada |
 | SmartPOS existe só como meio de pagamento, não como superfície de operação | S22 proposto em 04/09 | execução local distinta de `TEF_BRIDGE`, com adapter homologado e sem login humano na maquininha | **lacuna levantada em 04/09**: `PaymentDeviceExecutionModeEnum.SMARTPOS` trata a maquininha como destino de cobrança. Um SmartPOS de campo roda o ponto de venda inteiro, e isso não está modelado em lugar nenhum |
 | Owner tratado como domínio e não como camada | [ADR-029](../architecture/adr-029-module-boundaries-and-owner-layer.md) | nenhum serviço de tenant lê tabela do Owner; direitos consultados por contrato | **regra dura estabelecida em 04/09**, sem baseline e sem exceção prevista. Verificada por `test_no_tenant_module_reaches_into_the_owner_layer`, hoje verde |

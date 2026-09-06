@@ -61,6 +61,7 @@ from app.models.table_service import (
 from app.models.negotiation import (
     CheckoutNegotiation, CheckoutNegotiationStatusEnum, NegotiationOrder,
     PaymentIntent, PaymentIntentStatusEnum, PaymentAllocation, NegotiationEvent,
+    PaymentIntentRefund, PaymentIntentRefundAllocation, PaymentIntentRefundRouteEnum, PaymentIntentRefundStatusEnum,
 )
 from app.models.provider import (
     PaymentProviderConfiguration, ProviderConfigurationStatusEnum,
@@ -222,6 +223,8 @@ __all__ = [
     "PaymentIntent",
     "PaymentIntentStatusEnum",
     "PaymentAllocation",
+    "PaymentIntentRefund", "PaymentIntentRefundAllocation",
+    "PaymentIntentRefundRouteEnum", "PaymentIntentRefundStatusEnum",
     "NegotiationEvent",
     "PaymentProviderConfiguration",
     "ProviderConfigurationStatusEnum",

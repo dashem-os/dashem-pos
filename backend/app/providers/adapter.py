@@ -27,6 +27,10 @@ class ProviderResult:
     card_brand: str | None = None
     failure_code: str | None = None
     failure_reason: str | None = None
+    # Quanto o provider declara ter revertido. Sem quantia, "estornado" e uma
+    # palavra: estorno pode ser parcial, e nenhuma baixa se improvisa a partir
+    # de uma palavra sem numero (ADR-030).
+    refunded_amount: Decimal | None = None
     sanitized_payload: dict = field(default_factory=dict)
 
 
@@ -63,6 +67,8 @@ class BridgeQueuedAdapter:
         return ProviderResult(status=ProviderTransactionStatusEnum.PROCESSING, external_transaction_id=request.external_transaction_id)
 
     def refund(self, request: ProviderRequest) -> ProviderResult:
+        # O bridge enfileira a reversao como enfileira a cobranca: o valor
+        # revertido so existe quando o adquirente responder.
         return ProviderResult(status=ProviderTransactionStatusEnum.PROCESSING, external_transaction_id=request.external_transaction_id)
 
 
@@ -82,6 +88,13 @@ class ContractTestAdapter:
                 acquirer="CONTRACT_TEST", card_brand="TEST",
                 sanitized_payload={"contract_fixture": True},
             )
+        if status == ProviderTransactionStatusEnum.REFUNDED:
+            # Um provider que cumpre o contrato declara a quantia revertida.
+            return ProviderResult(
+                status=status, external_transaction_id=external_id,
+                refunded_amount=request.amount,
+                sanitized_payload={"contract_fixture": True},
+            )
         return ProviderResult(
             status=status, external_transaction_id=external_id,
             failure_code="TEST_OUTCOME" if status == ProviderTransactionStatusEnum.FAILED else None,
@@ -92,7 +105,7 @@ class ContractTestAdapter:
     def start(self, request: ProviderRequest) -> ProviderResult: return self._result(request)
     def query(self, request: ProviderRequest) -> ProviderResult: return self._result(request)
     def cancel(self, request: ProviderRequest) -> ProviderResult: return ProviderResult(status=ProviderTransactionStatusEnum.CANCELED, external_transaction_id=request.external_transaction_id)
-    def refund(self, request: ProviderRequest) -> ProviderResult: return ProviderResult(status=ProviderTransactionStatusEnum.REFUNDED, external_transaction_id=request.external_transaction_id)
+    def refund(self, request: ProviderRequest) -> ProviderResult: return ProviderResult(status=ProviderTransactionStatusEnum.REFUNDED, external_transaction_id=request.external_transaction_id, refunded_amount=request.amount)
 
 
 def resolve_adapter(provider_code: str) -> PaymentProviderAdapter:

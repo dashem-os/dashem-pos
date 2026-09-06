@@ -471,6 +471,33 @@ export interface NegotiationPaymentIntent {
   provider_status?: string | null
   can_cancel: boolean
   can_query_provider: boolean
+  /** How much of this parcel already came back to the customer, how much was
+   *  asked and still waits for proof, and how much may still be given back.
+   *  A refund that was only *requested* moves no balance — it holds it. */
+  refunded_amount: number
+  refund_pending_amount: number
+  refundable_amount: number
+  can_refund: boolean
+  awaiting_refund: boolean
+}
+
+/** Money that came back, written beside the money that came in (ADR-030).
+ *
+ *  `amount` is what was asked; `reverted_amount` is what was proven. Only the
+ *  second moves the bill, and a pending refund deliberately shows the two
+ *  numbers differing: that is what the operator needs to see while waiting. */
+export interface PaymentIntentRefund {
+  id: string
+  payment_intent_id: string
+  amount: number
+  reverted_amount: number
+  status: 'PENDING' | 'CONFIRMED' | 'FAILED'
+  route: 'CASH' | 'PROVIDER' | 'MANUAL'
+  reason: string
+  failure_code?: string | null
+  failure_reason?: string | null
+  created_at: string
+  confirmed_at?: string | null
 }
 
 /** A provider answer that could not be applied and was not discarded. */
@@ -512,6 +539,12 @@ export interface CheckoutNegotiation {
   /** What each item of the account still owes, resolved by the server. */
   item_settlements: ItemSettlement[]
   divergences: SettlementDivergence[]
+  refunds: PaymentIntentRefund[]
+  /** What was confirmed before any reversal, and what has been reverted. The
+   *  screen can then say the money came in *and* went back, instead of
+   *  pretending it never came in. */
+  gross_confirmed_amount: number
+  refunded_amount: number
   /** Money paid against the bill without naming an item. */
   unassigned_settled_amount: number
   unassigned_reserved_amount: number
@@ -535,6 +568,9 @@ export interface ItemSettlement {
   reserved_amount: number
   available_amount: number
   is_paid: boolean
+  /** How much of this line has been given back. It stops counting as settled,
+   *  so the line becomes payable again by whoever wants it. */
+  refunded_amount: number
   /** Who settled part of this line, and who is settling it right now. Empty
    *  when the parcel carried no declared payer — unknown, not anonymous. */
   settled_by: string[]
@@ -3468,6 +3504,22 @@ export async function cancelNegotiationPaymentIntent(
     method: 'POST', headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(data),
   })
   if (!res.ok) throw await apiError(res, 'Não foi possível cancelar a reserva.')
+  return res.json()
+}
+
+/** Give back money that was already taken, without pretending it never was.
+ *
+ *  Not a cancellation: the parcel stays confirmed, and the refund is written
+ *  beside it. Nothing moves on the bill until the reversal is proven — cash
+ *  leaves the drawer, or the acquirer answers with the amount it reverted. */
+export async function refundNegotiationPaymentIntent(
+  headers: Record<string, string>, intentId: string, idempotencyKey: string,
+  data: { amount: number; reason: string; actor_id?: string; allocations?: Array<{ order_item_id: string; amount: number }> },
+): Promise<CheckoutNegotiation> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/negotiations/intents/${intentId}/refund`, {
+    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(data),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível estornar a parcela.')
   return res.json()
 }
 

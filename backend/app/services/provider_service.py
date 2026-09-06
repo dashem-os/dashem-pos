@@ -15,7 +15,8 @@ from app.core.config import settings
 from app.core.context import TenantContext, resolve_actor, scope_tenant_query
 from app.core.tenancy import set_tenant_db_context
 from app.models.negotiation import (
-    PaymentIntent, PaymentIntentStatusEnum, SettlementDivergenceKindEnum,
+    PaymentIntent, PaymentIntentStatusEnum, PaymentIntentRefundStatusEnum,
+    SettlementDivergenceKindEnum,
 )
 from app.models.identity import OperationalSession, OperationalSessionStatusEnum, RoleEnum, Register
 from app.models.payment import PaymentMethodEnum
@@ -605,32 +606,60 @@ def _apply_result(
         # ever sent, which is false. It is closed as failed, which is what it is:
         # an attempt that produced no payment here. The reversal itself is
         # recorded so it stays visible.
+        declared = result.refunded_amount
+        if declared is not None:
+            transaction.refunded_amount = Decimal(declared)
         if intent.status in negotiation_service.OPEN_INTENTS:
             # The second review refused this one twice, and it was right both
             # times. Closing the parcel as cancelled claimed nothing was sent;
             # closing it as failed released the whole reserve on the strength of
-            # a word — and a refund can be partial. The adapter contract carries
-            # no reversed amount, so there is no evidence the reversal was
-            # integral, and releasing a line without that evidence is a
-            # financial decision this code is not entitled to make.
+            # a word — and a refund can be partial.
             #
-            # The reserve is held, the fact is written down, and a person
-            # decides. That is the same declared blockage as a refund over a
-            # confirmed parcel: no write-off is improvised here.
-            divergence = negotiation_service.record_divergence(
-                session, intent, kind=SettlementDivergenceKindEnum.REFUND_WITHOUT_CAPTURE,
-                provider_status=result.status.value, transaction_id=transaction.id,
-                detail=(
-                    "Estorno no provider sobre parcela ainda aberta. Sem evidência de reversão "
-                    "integral, o saldo do item permanece reservado até conciliação."
-                ),
-            )
+            # ADR-030 changed exactly one thing: the contract now carries the
+            # reversed amount. A reserve is all or nothing — it holds a whole
+            # line of the bill — so only a reversal proven to be *integral*
+            # closes the parcel. Anything less, or anything unquantified, is
+            # held and written down, as before.
+            integral = declared is not None and Decimal(declared) >= Decimal(intent.amount)
+            if integral:
+                negotiation_service.record_divergence(
+                    session, intent, kind=SettlementDivergenceKindEnum.REFUND_WITHOUT_CAPTURE,
+                    provider_status=result.status.value, transaction_id=transaction.id,
+                    detail=(
+                        f"Estorno integral de {declared} no provider sobre parcela ainda aberta; "
+                        "nenhuma captura chegou a esta conta e a linha volta a ficar disponível."
+                    ),
+                )
+                negotiation = negotiation_service.fail_intent(
+                    session, context, intent.id, failure_code="REFUND_WITHOUT_CAPTURE",
+                    reason="Estorno integral no provider antes de qualquer captura nesta conta.",
+                    actor_id=actor_id, idempotency_key=f"provider-refund-{transaction.id}",
+                    external=True,
+                )
+            else:
+                divergence = negotiation_service.record_divergence(
+                    session, intent, kind=SettlementDivergenceKindEnum.REFUND_WITHOUT_CAPTURE,
+                    provider_status=result.status.value, transaction_id=transaction.id,
+                    detail=(
+                        "Estorno no provider sobre parcela ainda aberta. Sem evidência de reversão "
+                        "integral, o saldo do item permanece reservado até conciliação."
+                    ),
+                )
+                negotiation = negotiation_service.projection(session, context, intent.negotiation_id, validate=False)
+        elif negotiation_service.settle_provider_reversal(
+            session, context, intent, transaction=transaction,
+            declared=declared, actor_id=actor_id,
+        ):
+            # O valor voltou e foi provado: o estorno tem onde pousar (ADR-030).
             negotiation = negotiation_service.projection(session, context, intent.negotiation_id, validate=False)
         else:
             divergence = negotiation_service.record_divergence(
                 session, intent, kind=SettlementDivergenceKindEnum.REFUND_REQUIRES_REVERSAL,
                 provider_status=result.status.value, transaction_id=transaction.id,
-                detail="Estorno no provider sobre parcela confirmada; baixa financeira exige fluxo de estorno.",
+                detail=(
+                    "Estorno no provider sobre parcela confirmada, sem valor revertido declarado; "
+                    "baixa financeira exige valor comprovado."
+                ),
             )
             negotiation = negotiation_service.projection(session, context, intent.negotiation_id, validate=False)
     else:
@@ -767,6 +796,7 @@ def report_bridge_result(
     status_value: ProviderTransactionStatusEnum,
     external_transaction_id: Optional[str], nsu: Optional[str], authorization_code: Optional[str],
     acquirer: Optional[str], card_brand: Optional[str], failure_code: Optional[str], failure_reason: Optional[str],
+    refunded_amount: Optional[Decimal] = None,
 ) -> dict:
     set_tenant_db_context(session, tenant_id, store_id, None)
     terminal = _terminal_by_secret(session, terminal_id, pairing_secret)
@@ -795,8 +825,56 @@ def report_bridge_result(
         nsu=nsu, authorization_code=authorization_code, acquirer=acquirer,
         card_brand=card_brand, failure_code=failure_code,
         failure_reason=(failure_reason or "")[:300] or None,
+        refunded_amount=refunded_amount,
         sanitized_payload={"reported_by_bridge": True, "protocol_version": terminal.protocol_version},
     ), terminal.id)
+
+
+def request_reversal(
+    session: Session, context: TenantContext, transaction: ProviderTransaction,
+    refund, *, actor_id: uuid.UUID,
+) -> None:
+    """Pedir ao adquirente que devolva o dinheiro desta cobranca (ADR-030).
+
+    Nao abre uma segunda transacao: a reversao anda sobre a cobranca que existe,
+    que e como o proprio contrato do adapter foi desenhado — `refund` recebe o
+    identificador externo da transacao original. `CONFIRMED -> REFUNDED` ja era
+    a unica passagem terminal permitida em `_apply_result`.
+
+    O que esta funcao nao faz e liberar saldo. Enquanto o adquirente nao
+    declarar a quantia revertida, o estorno segue pendente e a conta nao muda.
+    """
+    intent = session.get(PaymentIntent, transaction.payment_intent_id)
+    try:
+        adapter = resolve_adapter(transaction.provider_code)
+    except LookupError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    _event(session, transaction, actor_id, "payment.provider.refund_requested", {
+        "payment_intent_id": str(transaction.payment_intent_id),
+        "payment_intent_refund_id": str(refund.id), "amount": str(refund.amount),
+    })
+    result = adapter.refund(ProviderRequest(
+        transaction_id=transaction.id, amount=Decimal(refund.amount),
+        method=intent.method.value if intent else "CREDIT_CARD",
+        correlation_id=transaction.correlation_id,
+        external_transaction_id=transaction.external_transaction_id,
+    ))
+    if result.status == ProviderTransactionStatusEnum.REFUNDED and result.refunded_amount is not None:
+        # O adquirente respondeu na hora e disse quanto reverteu.
+        declared = Decimal(result.refunded_amount)
+        transaction.refunded_amount = declared
+        transaction.status = ProviderTransactionStatusEnum.REFUNDED
+        transaction.updated_at = datetime.utcnow()
+        negotiation_service.mark_refund_reverted(
+            session, refund, reverted=min(declared, Decimal(refund.amount)), actor=actor_id,
+        )
+    elif result.status == ProviderTransactionStatusEnum.FAILED:
+        # Recusado: o estorno nao fica segurando dinheiro que ninguem devolveu.
+        refund.status = PaymentIntentRefundStatusEnum.FAILED
+        refund.failure_code = result.failure_code or "PROVIDER_REFUSED_REFUND"
+        refund.failure_reason = result.failure_reason or "Provider recusou o estorno."
+        refund.updated_at = datetime.utcnow()
+    session.flush()
 
 
 def assert_executable_binding(

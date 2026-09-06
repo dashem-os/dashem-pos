@@ -14,7 +14,8 @@ from app.models.catalog import Product
 from app.models.negotiation import (
     CheckoutNegotiation, CheckoutNegotiationStatusEnum, NegotiationEvent,
     NegotiationOrder, PaymentAllocation, PaymentIntent, PaymentIntentStatusEnum,
-    PaymentSettlementDivergence, SettlementDivergenceKindEnum,
+    PaymentIntentRefund, PaymentIntentRefundAllocation, PaymentIntentRefundRouteEnum,
+    PaymentIntentRefundStatusEnum, PaymentSettlementDivergence, SettlementDivergenceKindEnum,
 )
 from app.models.provider import ProviderTransaction, ProviderTransactionStatusEnum
 from app.models.order import Order, OrderItem, OrderItemStatusEnum, OrderStatusEnum
@@ -126,6 +127,42 @@ def _order_amount(session: Session, order: Order) -> Decimal:
 # flight. A failed or cancelled intent releases what it held.
 SETTLED_INTENTS = {PaymentIntentStatusEnum.CONFIRMED}
 RESERVED_INTENTS = {PaymentIntentStatusEnum.PENDING, PaymentIntentStatusEnum.PROCESSING}
+# Um estorno pedido nao move saldo; so o comprovadamente revertido move (ADR-030).
+PROVEN_REFUNDS = {PaymentIntentRefundStatusEnum.CONFIRMED}
+# E um estorno em curso nao pode ser pedido duas vezes sobre o mesmo dinheiro.
+HOLDING_REFUNDS = {PaymentIntentRefundStatusEnum.PENDING, PaymentIntentRefundStatusEnum.CONFIRMED}
+
+
+def reverted_by_item(
+    session: Session, negotiation: CheckoutNegotiation, item_ids: Iterable[uuid.UUID],
+) -> dict[uuid.UUID, Decimal]:
+    """Quanto ja voltou para o cliente, por linha da conta.
+
+    Le apenas estorno **confirmado**: o que foi pedido e ainda espera prova nao
+    devolve saldo nenhum, senao a linha ficaria pagavel duas vezes enquanto o
+    adquirente ainda nem respondeu.
+    """
+    wanted = list(item_ids)
+    if not wanted:
+        return {}
+    rows = session.exec(
+        select(PaymentIntentRefundAllocation.order_item_id, func.sum(PaymentIntentRefundAllocation.amount))
+        .join(PaymentIntentRefund, PaymentIntentRefund.id == PaymentIntentRefundAllocation.payment_intent_refund_id)
+        .where(
+            PaymentIntentRefundAllocation.tenant_id == negotiation.tenant_id,
+            PaymentIntentRefund.status.in_(list(PROVEN_REFUNDS)),
+            PaymentIntentRefundAllocation.order_item_id.in_(wanted),
+        )
+        .group_by(PaymentIntentRefundAllocation.order_item_id)
+    ).all()
+    return {item_id: _money(total or 0) for item_id, total in rows}
+
+
+def refunds_for_intent(session: Session, intent: PaymentIntent) -> list[PaymentIntentRefund]:
+    return list(session.exec(select(PaymentIntentRefund).where(
+        PaymentIntentRefund.tenant_id == intent.tenant_id,
+        PaymentIntentRefund.payment_intent_id == intent.id,
+    ).order_by(PaymentIntentRefund.created_at)).all())
 
 
 def item_settlement(
@@ -190,18 +227,23 @@ def item_settlement(
             bucket["reserved"] += _money(total or 0)
             if payer and payer not in bucket["reserved_by"]:
                 bucket["reserved_by"].append(payer)
+    # O que voltou para o cliente deixa de quitar a linha. Sem esta subtracao o
+    # item seguiria pago por um dinheiro que ja saiu de volta (ADR-030).
+    reverted = reverted_by_item(session, negotiation, [item.id for item in items])
     settlement = {}
     for item in items:
         bucket = taken.get(
             item.id, {"settled": Decimal("0"), "reserved": Decimal("0"), "settled_by": [], "reserved_by": []},
         )
         item_total = _money(_money(item.unit_price) * _money(item.quantity))
-        settled, reserved = _money(bucket["settled"]), _money(bucket["reserved"])
+        settled = max(Decimal("0"), _money(bucket["settled"] - reverted.get(item.id, Decimal("0"))))
+        reserved = _money(bucket["reserved"])
         settlement[item.id] = {
             "order_item_id": item.id, "order_id": item.order_id,
             "product_name": item.product_name, "quantity": item.quantity,
             "unit_price": item.unit_price, "item_total": item_total,
             "settled_amount": settled, "reserved_amount": reserved,
+            "refunded_amount": _money(reverted.get(item.id, Decimal("0"))),
             "available_amount": max(Decimal("0"), _money(item_total - settled - reserved)),
             "is_paid": item_total > 0 and settled >= item_total,
             # Who paid, when they said so. A parcel with no declared payer adds
@@ -375,7 +417,17 @@ def _totals(session: Session, negotiation: CheckoutNegotiation) -> dict:
         PaymentIntent.tenant_id == negotiation.tenant_id,
         PaymentIntent.negotiation_id == negotiation.id,
     ).order_by(PaymentIntent.created_at)).all())
-    confirmed = _money(sum((item.amount for item in intents if item.status == PaymentIntentStatusEnum.CONFIRMED), Decimal("0")))
+    gross_confirmed = _money(sum((item.amount for item in intents if item.status == PaymentIntentStatusEnum.CONFIRMED), Decimal("0")))
+    # O dinheiro que voltou nao cobre mais a conta. Uma conta estornada ate zero
+    # volta a dever o que devia, e e assim que `finalize_negotiation` a le.
+    reverted = _money(session.exec(select(
+        func.coalesce(func.sum(PaymentIntentRefund.reverted_amount), 0)
+    ).where(
+        PaymentIntentRefund.tenant_id == negotiation.tenant_id,
+        PaymentIntentRefund.negotiation_id == negotiation.id,
+        PaymentIntentRefund.status.in_(list(PROVEN_REFUNDS)),
+    )).one())
+    confirmed = max(Decimal("0"), _money(gross_confirmed - reverted))
     processing = _money(sum((item.amount for item in intents if item.status in {
         PaymentIntentStatusEnum.PENDING, PaymentIntentStatusEnum.PROCESSING,
     }), Decimal("0")))
@@ -390,6 +442,7 @@ def _totals(session: Session, negotiation: CheckoutNegotiation) -> dict:
     return {
         "confirmed_amount": confirmed, "processing_amount": processing,
         "failed_amount": failed, "receivable_amount": receivable_covered,
+        "gross_confirmed_amount": gross_confirmed, "refunded_amount": reverted,
         "remaining_amount": remaining, "intents": intents,
     }
 
@@ -425,15 +478,37 @@ def projection(session: Session, context: TenantContext, negotiation_id: uuid.UU
     assigned_reserved = _money(sum((row["reserved_amount"] for row in settlement.values()), Decimal("0")))
     # Each parcel says what can still be done with it, so the screen never has
     # to guess whether cancelling would be refused. The answer is the server's.
+    refunds = list(session.exec(select(PaymentIntentRefund).where(
+        PaymentIntentRefund.tenant_id == context.tenant_id,
+        PaymentIntentRefund.negotiation_id == negotiation.id,
+    ).order_by(PaymentIntentRefund.created_at)).all())
+    by_intent: dict[uuid.UUID, list[PaymentIntentRefund]] = {}
+    for refund in refunds:
+        by_intent.setdefault(refund.payment_intent_id, []).append(refund)
     parcels = []
     for row in totals["intents"]:
         charge = unresolved_charge(session, row) if row.status in OPEN_INTENTS else None
+        mine = by_intent.get(row.id, [])
+        reverted = _money(sum((item.reverted_amount for item in mine
+                               if item.status in PROVEN_REFUNDS), Decimal("0")))
+        held = _money(sum((item.amount for item in mine
+                           if item.status == PaymentIntentRefundStatusEnum.PENDING), Decimal("0")))
         parcels.append({
             **row.model_dump(),
             "awaiting_provider": charge is not None,
             "provider_status": charge.status.value if charge is not None else None,
             "can_cancel": row.status in OPEN_INTENTS and charge is None,
             "can_query_provider": charge is not None,
+            # Quanto ja voltou, quanto esta pedido a espera de prova, e quanto
+            # ainda pode ser estornado. A tela nao deduz autoridade sozinha.
+            "refunded_amount": reverted,
+            "refund_pending_amount": held,
+            "refundable_amount": max(Decimal("0"), _money(row.amount - reverted - held)),
+            "can_refund": (
+                row.status == PaymentIntentStatusEnum.CONFIRMED
+                and _money(row.amount - reverted - held) > 0
+            ),
+            "awaiting_refund": held > 0,
         })
     divergences = list(session.exec(scope_tenant_query(
         select(PaymentSettlementDivergence).where(
@@ -445,6 +520,7 @@ def projection(session: Session, context: TenantContext, negotiation_id: uuid.UU
     return {
         "item_settlements": list(settlement.values()),
         "divergences": divergences,
+        "refunds": refunds,
         # Money paid against the account without naming an item: whoever settled
         # the whole bill rather than their own share.
         "unassigned_settled_amount": max(Decimal("0"), _money(totals["confirmed_amount"] - assigned_settled)),
@@ -1032,6 +1108,374 @@ def cancel_intent(
     )
     session.commit()
     return projection(session, context, negotiation.id)
+
+
+def _refund_holdings(session: Session, intent: PaymentIntent) -> Decimal:
+    """Quanto do valor da parcela ja esta comprometido por estornos.
+
+    Confirmado conta pelo que foi provado; pendente conta pelo que foi pedido,
+    porque dois pedidos nao podem disputar o mesmo dinheiro enquanto o
+    adquirente ainda nem respondeu ao primeiro.
+    """
+    total = Decimal("0")
+    for refund in refunds_for_intent(session, intent):
+        if refund.status == PaymentIntentRefundStatusEnum.CONFIRMED:
+            total += _money(refund.reverted_amount)
+        elif refund.status == PaymentIntentRefundStatusEnum.PENDING:
+            total += _money(refund.amount)
+    return _money(total)
+
+
+def _held_by_item(session: Session, intent: PaymentIntent) -> dict[uuid.UUID, Decimal]:
+    rows = session.exec(
+        select(PaymentIntentRefundAllocation.order_item_id, func.sum(PaymentIntentRefundAllocation.amount))
+        .join(PaymentIntentRefund, PaymentIntentRefund.id == PaymentIntentRefundAllocation.payment_intent_refund_id)
+        .where(
+            PaymentIntentRefund.tenant_id == intent.tenant_id,
+            PaymentIntentRefund.payment_intent_id == intent.id,
+            PaymentIntentRefund.status.in_(list(HOLDING_REFUNDS)),
+        )
+        .group_by(PaymentIntentRefundAllocation.order_item_id)
+    ).all()
+    return {item_id: _money(total or 0) for item_id, total in rows if item_id is not None}
+
+
+def _resolve_refund_allocations(
+    session: Session, intent: PaymentIntent, amount: Decimal,
+    requested: Optional[list[dict]],
+) -> list[dict]:
+    """Onde o dinheiro devolvido pousa, item a item.
+
+    Por item, o revertido nunca passa do que **esta parcela** alocou nele. Quem
+    pagou a conta toda sem nomear item estorna sem alocacao, e o valor sai do
+    montante nao atribuido.
+    """
+    parcel = list(session.exec(select(PaymentAllocation).where(
+        PaymentAllocation.tenant_id == intent.tenant_id,
+        PaymentAllocation.payment_intent_id == intent.id,
+    ).order_by(PaymentAllocation.created_at)).all())
+    if not parcel:
+        if requested:
+            raise HTTPException(status_code=422, detail=(
+                "Esta parcela nao foi alocada a itens; o estorno tambem nao pode ser."
+            ))
+        return []
+    held = _held_by_item(session, intent)
+    room = {}
+    for allocation in parcel:
+        if allocation.order_item_id is None:
+            continue
+        left = _money(allocation.amount - held.get(allocation.order_item_id, Decimal("0")))
+        if left > 0:
+            room[allocation.order_item_id] = {"amount": left, "order_id": allocation.order_id}
+    if requested:
+        resolved, total = [], Decimal("0")
+        for line in requested:
+            item_id = line.get("order_item_id")
+            value = _money(line.get("amount") or 0)
+            if item_id is None or value <= 0:
+                raise HTTPException(status_code=422, detail="Alocacao de estorno invalida.")
+            available = room.get(item_id)
+            if available is None or value > available["amount"]:
+                raise HTTPException(status_code=409, detail={
+                    "code": "REFUND_EXCEEDS_ITEM",
+                    "message": "O estorno de um item nao pode passar do que esta parcela pagou nele.",
+                    "order_item_id": str(item_id),
+                })
+            resolved.append({"order_item_id": item_id, "order_id": available["order_id"], "amount": value})
+            total += value
+        if _money(total) != amount:
+            raise HTTPException(status_code=422, detail=(
+                "A soma das alocacoes do estorno precisa ser igual ao valor estornado."
+            ))
+        return resolved
+    # Sem alocacao declarada, o estorno preenche as linhas da propria parcela na
+    # ordem em que foram pagas. Para estorno integral isso reproduz exatamente as
+    # alocacoes da parcela; para parcial, e deterministico e sem arredondamento.
+    resolved, left = [], amount
+    for allocation in parcel:
+        if left <= 0:
+            break
+        available = room.get(allocation.order_item_id)
+        if not available:
+            continue
+        take = min(available["amount"], left)
+        resolved.append({
+            "order_item_id": allocation.order_item_id,
+            "order_id": available["order_id"], "amount": _money(take),
+        })
+        left = _money(left - take)
+    return resolved
+
+
+def _open_register(session: Session, context: TenantContext, store_id: uuid.UUID) -> CashSession:
+    """O caixa aberto desta unidade, porque o dinheiro sai de uma gaveta real."""
+    cash = session.exec(select(CashSession).where(
+        CashSession.tenant_id == context.tenant_id,
+        CashSession.store_id == store_id,
+        CashSession.status == CashSessionStatusEnum.OPEN,
+    ).order_by(CashSession.opened_at.desc()).with_for_update()).first()
+    if not cash:
+        raise HTTPException(status_code=409, detail={
+            "code": "REFUND_NEEDS_OPEN_REGISTER",
+            "message": (
+                "Estorno em dinheiro exige caixa aberto nesta unidade: o valor sai "
+                "da gaveta e precisa aparecer no fechamento."
+            ),
+        })
+    return cash
+
+
+def mark_refund_reverted(
+    session: Session, refund: PaymentIntentRefund, *, reverted: Decimal, actor: uuid.UUID,
+) -> None:
+    """Marcar o que o mundo devolveu. Chamado so quando existe prova.
+
+    Publica de proposito: quem recebe a resposta do adquirente e o
+    provider_service, e a prova nasce la.
+    """
+    refund.reverted_amount = _money(reverted)
+    refund.status = PaymentIntentRefundStatusEnum.CONFIRMED
+    refund.confirmed_by = actor
+    refund.confirmed_at = datetime.utcnow()
+    refund.updated_at = datetime.utcnow()
+
+
+def _restate_coverage(session: Session, negotiation: CheckoutNegotiation) -> dict:
+    totals = _totals(session, negotiation)
+    if totals["remaining_amount"] == 0:
+        negotiation.status = CheckoutNegotiationStatusEnum.COVERED
+    elif totals["confirmed_amount"] > 0 or totals["receivable_amount"] > 0:
+        negotiation.status = CheckoutNegotiationStatusEnum.PARTIALLY_COVERED
+    else:
+        # Uma conta estornada ate zero volta a dever o que devia.
+        negotiation.status = CheckoutNegotiationStatusEnum.OPEN
+    negotiation.version += 1
+    negotiation.updated_at = datetime.utcnow()
+    return totals
+
+
+def refund_intent(
+    session: Session, context: TenantContext, intent_id: uuid.UUID, *,
+    amount: Decimal, reason: str, allocations: Optional[list[dict]],
+    actor_id: Optional[uuid.UUID], idempotency_key: str,
+) -> dict:
+    """Devolver dinheiro de uma parcela confirmada, com a conta ainda aberta.
+
+    ADR-030. A parcela confirmada continua confirmada: o estorno e escrito ao
+    lado, e o saldo passa a ser lido como confirmado menos revertido. Um estorno
+    *pedido* nao move saldo nenhum; so o comprovadamente revertido move, e o que
+    conta como prova depende da rota pela qual o dinheiro entrou.
+    """
+    actor = _actor(context, actor_id)
+    amount = _money(amount)
+    reason = (reason or "").strip()
+    if not reason:
+        raise HTTPException(status_code=422, detail="Estorno exige motivo.")
+    if amount <= 0:
+        raise HTTPException(status_code=422, detail="Valor de estorno precisa ser positivo.")
+    request_hash = reliability_service.compute_request_hash({
+        "intent_id": str(intent_id), "amount": str(amount), "reason": reason,
+        "actor_id": str(actor),
+        "allocations": sorted(
+            [f"{line.get('order_item_id')}:{_money(line.get('amount') or 0)}"
+             for line in (allocations or [])]
+        ),
+    })
+    existing = session.exec(scope_tenant_query(select(PaymentIntentRefund).where(
+        PaymentIntentRefund.idempotency_key == idempotency_key,
+    ), PaymentIntentRefund, context)).first()
+    if existing:
+        if existing.request_hash != request_hash:
+            raise HTTPException(status_code=409, detail="Estorno ja registrado com outro comando.")
+        return projection(session, context, existing.negotiation_id, validate=False)
+
+    intent = session.exec(scope_tenant_query(select(PaymentIntent).where(
+        PaymentIntent.id == intent_id,
+    ).with_for_update(), PaymentIntent, context)).first()
+    if not intent:
+        raise HTTPException(status_code=404, detail="Parcela nao encontrada.")
+    if intent.status in OPEN_INTENTS:
+        raise HTTPException(status_code=409, detail={
+            "code": "PARCEL_NOT_SETTLED",
+            "message": (
+                "Esta parcela ainda nao foi confirmada; nao ha o que estornar. "
+                "Cancele a reserva ou consulte a cobranca."
+            ),
+        })
+    if intent.status != PaymentIntentStatusEnum.CONFIRMED:
+        raise HTTPException(status_code=409, detail={
+            "code": "PARCEL_NOT_SETTLED",
+            "message": "Somente parcela confirmada pode ser estornada.",
+        })
+    negotiation = _locked_negotiation(session, context, intent.negotiation_id)
+    if negotiation.status not in ACTIVE_NEGOTIATIONS:
+        raise HTTPException(status_code=409, detail={
+            "code": "NEGOTIATION_CLOSED",
+            "message": (
+                "A conta ja foi encerrada; o estorno da venda finalizada tem fluxo proprio."
+            ),
+        })
+    taken = _refund_holdings(session, intent)
+    if _money(amount + taken) > _money(intent.amount):
+        raise HTTPException(status_code=409, detail={
+            "code": "REFUND_EXCEEDS_PARCEL",
+            "message": "O estorno passa do que esta parcela recebeu.",
+            "already_refunded": str(taken), "parcel_amount": str(intent.amount),
+        })
+    resolved = _resolve_refund_allocations(session, intent, amount, allocations)
+
+    charge = None
+    if intent.method != PaymentMethodEnum.CASH:
+        charge = session.exec(select(ProviderTransaction).where(
+            ProviderTransaction.tenant_id == intent.tenant_id,
+            ProviderTransaction.payment_intent_id == intent.id,
+            ProviderTransaction.status == ProviderTransactionStatusEnum.CONFIRMED,
+        ).order_by(ProviderTransaction.created_at.desc()).with_for_update()).first()
+    if intent.method == PaymentMethodEnum.CASH:
+        route = PaymentIntentRefundRouteEnum.CASH
+    elif charge is not None:
+        route = PaymentIntentRefundRouteEnum.PROVIDER
+    else:
+        route = PaymentIntentRefundRouteEnum.MANUAL
+
+    # Caixa fechado nao e um estorno esperando: e uma condicao a satisfazer.
+    # Conferir antes de escrever evita deixar um pedido pendente que nao pode
+    # avancar e que ainda por cima segura saldo da parcela.
+    cash = _open_register(session, context, negotiation.store_id) if route == PaymentIntentRefundRouteEnum.CASH else None
+
+    refund = PaymentIntentRefund(
+        tenant_id=context.tenant_id, store_id=negotiation.store_id,
+        negotiation_id=negotiation.id, payment_intent_id=intent.id,
+        amount=amount, reverted_amount=Decimal("0"),
+        status=PaymentIntentRefundStatusEnum.PENDING, route=route, reason=reason,
+        requested_by=actor, provider_transaction_id=charge.id if charge else None,
+        idempotency_key=idempotency_key, request_hash=request_hash,
+    )
+    session.add(refund)
+    session.flush()
+    for line in resolved:
+        session.add(PaymentIntentRefundAllocation(
+            tenant_id=context.tenant_id, negotiation_id=negotiation.id,
+            payment_intent_refund_id=refund.id, order_id=line["order_id"],
+            order_item_id=line["order_item_id"], amount=line["amount"],
+        ))
+
+    if route == PaymentIntentRefundRouteEnum.CASH:
+        movement = CashMovement(
+            tenant_id=context.tenant_id, store_id=negotiation.store_id,
+            cash_session_id=cash.id, actor_id=actor,
+            movement_type=CashMovementTypeEnum.REFUND, amount=amount,
+            notes=f"Estorno de parcela da negociacao {negotiation.id}: {reason}",
+            source_type="PAYMENT_REFUND", source_id=str(refund.id),
+            idempotency_key=f"payment-refund:{refund.id}:cash",
+        )
+        session.add(movement)
+        session.flush()
+        refund.cash_movement_id = movement.id
+        # O dinheiro saiu da gaveta; a prova e o proprio movimento.
+        mark_refund_reverted(session, refund, reverted=amount, actor=actor)
+    elif route == PaymentIntentRefundRouteEnum.MANUAL:
+        # Entrou pela palavra de uma pessoa, sai pela palavra de uma pessoa —
+        # com nome, motivo e auditoria.
+        mark_refund_reverted(session, refund, reverted=amount, actor=actor)
+    else:
+        # Cartao so volta pela resposta do adquirente, e so com valor declarado.
+        # Ate la o estorno espera e nada e liberado.
+        from app.services import provider_service
+
+        provider_service.request_reversal(session, context, charge, refund, actor_id=actor)
+
+    session.flush()
+    totals = _restate_coverage(session, negotiation)
+    _event(session, negotiation, actor, "payment.intent.refunded", {
+        "payment_intent_id": str(intent.id), "payment_intent_refund_id": str(refund.id),
+        "amount": str(amount), "route": route.value, "status": refund.status.value,
+        "reverted_amount": str(refund.reverted_amount), "reason": reason,
+        "confirmed_amount": str(totals["confirmed_amount"]),
+        "remaining_amount": str(totals["remaining_amount"]),
+    })
+    reliability_service.write_audit_and_outbox(
+        session, context.tenant_id, negotiation.store_id, actor,
+        "checkout.payment.refunded", f"REFUND-{refund.id}",
+        {
+            "amount": str(amount), "reason": reason, "route": route.value,
+            "status": refund.status.value, "payment_intent_id": str(intent.id),
+        },
+        "payment_intent_refund", str(refund.id), "checkout.payment.refunded",
+        {
+            "negotiation_id": str(negotiation.id), "payment_intent_id": str(intent.id),
+            "amount": str(amount), "reverted_amount": str(refund.reverted_amount),
+        },
+    )
+    session.commit()
+    return projection(session, context, negotiation.id)
+
+
+def settle_provider_reversal(
+    session: Session, context: TenantContext, intent: PaymentIntent, *,
+    transaction: ProviderTransaction, declared: Optional[Decimal], actor_id: uuid.UUID,
+) -> bool:
+    """Aplicar um estorno que o provider declarou com valor.
+
+    Sem quantia nao ha prova, e o chamador segue para a divergencia. Com quantia,
+    o estorno pendente que a pediu e confirmado; se ninguem pediu, o fato externo
+    vira um estorno proprio, porque o dinheiro voltou de qualquer forma.
+    """
+    if declared is None or _money(declared) <= 0:
+        return False
+    declared = _money(declared)
+    transaction.refunded_amount = declared
+    pending = [row for row in refunds_for_intent(session, intent)
+               if row.status == PaymentIntentRefundStatusEnum.PENDING]
+    negotiation = session.exec(select(CheckoutNegotiation).where(
+        CheckoutNegotiation.id == intent.negotiation_id,
+        CheckoutNegotiation.tenant_id == intent.tenant_id,
+    ).with_for_update()).first()
+    if negotiation is None:
+        return False
+    if pending:
+        refund = pending[0]
+        # O adquirente pode reverter menos do que se pediu, e quem manda e ele.
+        mark_refund_reverted(session, refund, reverted=min(declared, _money(refund.amount)), actor=actor_id)
+    else:
+        taken = _refund_holdings(session, intent)
+        room = _money(intent.amount - taken)
+        if room <= 0:
+            return False
+        value = min(declared, room)
+        refund = PaymentIntentRefund(
+            tenant_id=intent.tenant_id, store_id=intent.store_id,
+            negotiation_id=intent.negotiation_id, payment_intent_id=intent.id,
+            amount=value, reverted_amount=Decimal("0"),
+            status=PaymentIntentRefundStatusEnum.PENDING,
+            route=PaymentIntentRefundRouteEnum.PROVIDER,
+            reason="Estorno informado pelo provider.",
+            requested_by=actor_id, provider_transaction_id=transaction.id,
+            idempotency_key=f"provider-refund:{transaction.id}",
+            request_hash=reliability_service.compute_request_hash({
+                "transaction_id": str(transaction.id), "amount": str(value),
+            }),
+        )
+        session.add(refund)
+        session.flush()
+        for line in _resolve_refund_allocations(session, intent, value, None):
+            session.add(PaymentIntentRefundAllocation(
+                tenant_id=intent.tenant_id, negotiation_id=intent.negotiation_id,
+                payment_intent_refund_id=refund.id, order_id=line["order_id"],
+                order_item_id=line["order_item_id"], amount=line["amount"],
+            ))
+        mark_refund_reverted(session, refund, reverted=value, actor=actor_id)
+    session.flush()
+    totals = _restate_coverage(session, negotiation)
+    _event(session, negotiation, actor_id, "payment.intent.refunded", {
+        "payment_intent_id": str(intent.id), "payment_intent_refund_id": str(refund.id),
+        "amount": str(refund.amount), "route": refund.route.value,
+        "status": refund.status.value, "reverted_amount": str(refund.reverted_amount),
+        "origin": "PROVIDER", "confirmed_amount": str(totals["confirmed_amount"]),
+    })
+    session.commit()
+    return True
 
 
 def expire_abandoned_reserves(session: Session, *, now: Optional[datetime] = None) -> list[uuid.UUID]:

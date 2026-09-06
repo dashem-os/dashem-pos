@@ -173,6 +173,10 @@ class ProviderTransaction(SQLModel, table=True):
     authorization_code: Optional[str] = Field(default=None, max_length=80)
     acquirer: Optional[str] = Field(default=None, max_length=120)
     card_brand: Optional[str] = Field(default=None, max_length=80)
+    # Quanto o provider declarou ter revertido. Sem quantia, "estornado" e uma
+    # palavra: estorno pode ser parcial, e foi por isso que a terceira rodada do
+    # S25.1 recusou liberar a reserva inteira pela palavra do provider (ADR-030).
+    refunded_amount: Optional[Decimal] = Field(default=None, sa_column=Column(Numeric(14, 4), nullable=True))
     correlation_id: str = Field(max_length=160, index=True)
     idempotency_key: str = Field(max_length=160, index=True)
     request_hash: str = Field(max_length=64)

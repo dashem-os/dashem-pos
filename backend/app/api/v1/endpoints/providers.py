@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from decimal import Decimal
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header
@@ -175,6 +176,9 @@ class BridgeResultDTO(BaseModel):
     card_brand: Optional[str] = Field(default=None, max_length=80)
     failure_code: Optional[str] = Field(default=None, max_length=80)
     failure_reason: Optional[str] = Field(default=None, max_length=300)
+    # Quanto foi revertido, quando o resultado for um estorno. Sem quantia
+    # nenhuma baixa acontece: "estornado" sem valor não é prova (ADR-030).
+    refunded_amount: Optional[Decimal] = Field(default=None, gt=0)
 
 
 @router.post("/configurations", response_model=ProviderConfigurationDTO)
@@ -271,5 +275,5 @@ def bridge_result_endpoint(terminal_id: uuid.UUID, transaction_id: uuid.UUID, da
         external_transaction_id=data.external_transaction_id, nsu=data.nsu,
         authorization_code=data.authorization_code, acquirer=data.acquirer,
         card_brand=data.card_brand, failure_code=data.failure_code,
-        failure_reason=data.failure_reason,
+        failure_reason=data.failure_reason, refunded_amount=data.refunded_amount,
     )
