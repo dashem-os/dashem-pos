@@ -15,7 +15,7 @@ com provider**, que não foi feita e não pode ser deduzida daqui.
 | Nunca cancelar pagamento confirmado para liberar saldo | recusa `CONFIRMED_PAYMENT_NEEDS_REVERSAL` em `cancel_intent` | `test_s25_1_a_confirmed_payment_is_never_cancelled_to_free_a_line` | **local ✓** |
 | `fail_intent` protegido contra liberação incompatível com cobrança externa | `_refuse_over_external_charge` em `fail_intent`, com `external=True` só para o resultado do provider | `test_s25_1_a_charge_in_flight_blocks_release_and_hand_confirmation` | **local ✓** — 409 `EXTERNAL_CHARGE_IN_FLIGHT` |
 | Confirmação manual incompatível com transação externa | mesma guarda em `confirm_intent` | idem | **local ✓** |
-| Expiração só com evidência de que nada foi cobrado | `expire_abandoned_reserves`: exige `reserve_expires_at` vencido **e** nenhuma `ProviderTransaction`; varredura no `outbox_worker` a cada 60 s | `test_s25_1_expiry_needs_evidence_that_nothing_was_ever_charged` | **local ✓** — a reserva sem cobrança expira; a que foi enviada não expira nem com o relógio forçado ao passado |
+| Expiração só com evidência de que nada foi cobrado | `expire_abandoned_reserves`: exige prazo vencido, **rota declarada e não usada** (`payment_device_binding_id`) e nenhuma `ProviderTransaction` | `test_s25_1_expiry_needs_evidence_that_nothing_was_ever_charged` | **local ✓ após a segunda revisão** — a evidência correta é a rota declarada, não a ausência de transação; recebimento manual nunca é expirado |
 | Recuperação de `PROCESSING`/desconhecido por consulta, mantendo a reserva | `POST /negotiations/intents/{id}/query` → `provider_service.reconcile_transaction` | `test_s25_1_a_charge_in_flight_blocks_release_and_hand_confirmation` | **local ✓** — resposta `UNKNOWN` mantém a reserva; só o resultado do bridge devolve o item |
 | Propagação do cancelamento externo | `CANCELED` passa a chamar `cancel_intent(external=True)` | `test_s25_1_the_provider_closing_the_charge_closes_the_parcel` | **local ✓** — antes caía no `else` e deixava o item preso |
 | Estorno não é cancelamento de reserva | confirmada → `REFUND_REQUIRES_REVERSAL`, dinheiro intocado; aberta → `FAILED` com `REFUND_WITHOUT_CAPTURE`, **nunca** `cancel_intent` | `test_s25_1_a_refund_is_a_reversal_and_never_a_released_reserve`, `test_s25_1_a_refund_without_capture_frees_the_line_but_is_not_a_cancellation` | **local ✓ após a revisão** — a primeira rodada convertia estorno em cancelamento de reserva |
@@ -99,3 +99,35 @@ publicado** seguem por fazer, e o **bloqueio de estorno sobre parcela confirmada
 segue declarado, sem baixa financeira improvisada. `REFUND_WITHOUT_CAPTURE` é
 caso diferente — nada foi capturado nesta conta — e não abre exceção àquele
 bloqueio.
+
+## Terceira rodada — segunda revisão, 05/09/2026
+
+Três pendências, todas confirmadas. Duas delas corrigem correções da rodada
+anterior: eu havia trocado um erro por outro.
+
+| Achado | O que estava errado | Correção | Teste |
+|---|---|---|---|
+| 1. Expiração de recebimento manual ambíguo | a rodada anterior deu prazo a **toda** reserva aberta. Para dinheiro ou PIX manual, "nenhuma `ProviderTransaction`" não é evidência de coisa alguma — nunca ia existir uma, e o dinheiro pode estar na gaveta com a parcela por confirmar | a parcela passa a registrar a rota para a qual foi criada (`payment_device_binding_id`, migração `078`). Só reserva que **declarou dispositivo e não usou** ganha prazo e é varrida; manual espera uma pessoa, que já tem cancelamento explícito, permissionado e auditado | `..._expiry_needs_evidence_that_nothing_was_ever_charged` — três reservas, e mesmo forçando prazo na manual a varredura a recusa |
+| 2. `REFUNDED` liberando saldo sem prova de reversão integral | trocar `cancel_intent` por `fail_intent` mudou o rótulo e manteve o problema: liberava a reserva inteira pela palavra do provider, e estorno pode ser parcial. O contrato do adapter **não carrega valor revertido** | a reserva **permanece**, a divergência `REFUND_WITHOUT_CAPTURE` é registrada, e o cancelamento manual continua recusado pelo mesmo motivo. Nenhuma baixa é improvisada | `..._a_refund_on_an_open_parcel_holds_the_line_until_someone_reconciles` |
+| 3. Varredura filtrando depois do `LIMIT` | pegava as transações terminais mais **recentes** e só então descartava as já aplicadas: um backlog maior que a página nunca era alcançado, e a parcela presa há mais tempo era a primeira a ser ignorada | o filtro foi para dentro da consulta, com `join` na parcela, e a ordem passou a ser da **mais antiga** para a mais nova, para o backlog drenar | `..._the_sweep_reaches_the_oldest_stuck_parcel_not_only_the_newest` — pede uma linha só e recebe a mais antiga |
+
+### Achado que só apareceu ao consertar o terceiro
+
+Com o filtro correto, a varredura passou a enxergar o backlog real — e **uma
+linha danificada derrubava a fila inteira**. Uma transação sem cadeia de
+auditoria levantava exceção e nada atrás dela era processado. Agora cada linha é
+isolada: falha é registrada em log, a sessão volta atrás e a fila segue.
+Provado em `..._one_damaged_row_does_not_block_the_queue_behind_it`.
+
+### Correção de duas linhas da matriz acima
+
+A linha "Expiração só com evidência" descrevia a evidência errada: ausência de
+transação. A evidência correta é **rota declarada e não usada**. E a linha de
+estorno dizia que a linha voltava a ficar disponível; ela não volta.
+
+### O que continua não provado
+
+Sem mudança: **homologação real de provider**, **aceite em ambiente publicado**,
+**estorno sobre parcela confirmada** e **reinício encenado**. O bloqueio de
+estorno agora cobre também a parcela aberta com estorno externo — mesma razão,
+mesma recusa em improvisar baixa financeira.

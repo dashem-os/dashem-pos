@@ -672,12 +672,16 @@ def create_intent(
         method=method, amount=normalized_amount, tendered_amount=tendered,
         change_amount=change, provider="MANUAL_OPERATOR",
         payer_label=payload["payer_label"], payer_customer_id=payer_customer_id,
-        # Every open reserve carries a clock, including one bound to a device.
-        # A parcel abandoned *before* being sent to the TEF was unreachable by
-        # the first cut of this sprint, and held its line forever. What protects
-        # a charge that did leave is the evidence rule inside the sweep — no
-        # provider transaction — and never the absence of a deadline.
-        reserve_expires_at=datetime.utcnow() + timedelta(seconds=settings.PAYMENT_RESERVE_TTL_SECONDS),
+        payment_device_binding_id=payment_device_binding_id,
+        # Only a reserve that declared a device carries a clock. For that one,
+        # "no provider transaction" proves it was never sent. For cash or a
+        # manual PIX nothing was ever going to be sent, so the same absence
+        # proves nothing about the money and the server must not act on it —
+        # that reserve waits for a person, who has an explicit cancellation.
+        reserve_expires_at=(
+            datetime.utcnow() + timedelta(seconds=settings.PAYMENT_RESERVE_TTL_SECONDS)
+            if payment_device_binding_id is not None else None
+        ),
         idempotency_key=idempotency_key, request_hash=request_hash, created_by=actor,
     )
     session.add(intent)
@@ -906,15 +910,21 @@ def unapplied_results(session: Session, limit: int = 200) -> list[ProviderTransa
     the parcel, so a crash in between leaves the two disagreeing. This is what
     the worker sweeps, and what a query on the bill resolves on the spot.
     """
-    rows = session.exec(select(ProviderTransaction).where(
-        ProviderTransaction.status.in_(list(TERMINAL_PROVIDER)),
-    ).order_by(ProviderTransaction.updated_at.desc()).limit(limit)).all()
-    pending = []
-    for transaction in rows:
-        intent = session.get(PaymentIntent, transaction.payment_intent_id)
-        if intent is not None and intent.status in OPEN_INTENTS:
-            pending.append(transaction)
-    return pending
+    # The filter belongs in the query, not after it. Taking the newest terminal
+    # transactions and *then* keeping the unapplied ones meant a backlog older
+    # than the page was never reached — the oldest stuck parcel, which is
+    # exactly the one that has been holding a line the longest, was the first
+    # to be ignored. Oldest first, so the backlog drains instead of growing.
+    return list(session.exec(
+        select(ProviderTransaction)
+        .join(PaymentIntent, PaymentIntent.id == ProviderTransaction.payment_intent_id)
+        .where(
+            ProviderTransaction.status.in_(list(TERMINAL_PROVIDER)),
+            PaymentIntent.status.in_(list(OPEN_INTENTS)),
+        )
+        .order_by(ProviderTransaction.updated_at)
+        .limit(limit)
+    ).all())
 
 
 def _refuse_over_external_charge(session: Session, intent: PaymentIntent, action: str) -> None:
@@ -1027,16 +1037,23 @@ def cancel_intent(
 def expire_abandoned_reserves(session: Session, *, now: Optional[datetime] = None) -> list[uuid.UUID]:
     """Take back reserves the server can prove were never sent.
 
-    Two conditions, and both are evidence rather than time alone: the clock ran
-    out, and the parcel has **no provider transaction at all**. A parcel that
-    reached a provider is queried by reconciliation, never expired — a lost
-    answer is not a lost charge.
+    Three conditions, and none of them is time alone: the clock ran out, the
+    parcel declared a device it never used, and it has no provider transaction.
+
+    The middle one is what the second review added, and it matters. A reserve
+    with no transaction is only *provably* unsent when a transaction was due in
+    the first place. Cash and manual PIX never produce one, so their absence
+    says nothing — the money may be in the drawer with the parcel unconfirmed.
+    Those wait for a person.
     """
     moment = now or datetime.utcnow()
     candidates = list(session.exec(select(PaymentIntent).where(
         PaymentIntent.status == PaymentIntentStatusEnum.PENDING,
         PaymentIntent.reserve_expires_at.is_not(None),
         PaymentIntent.reserve_expires_at <= moment,
+        # Belt and braces: the clock is only ever set for a declared route, and
+        # the sweep refuses to touch anything else even if one appeared.
+        PaymentIntent.payment_device_binding_id.is_not(None),
     ).with_for_update(skip_locked=True)).all())
     expired = []
     for intent in candidates:
@@ -1055,8 +1072,8 @@ def expire_abandoned_reserves(session: Session, *, now: Optional[datetime] = Non
         # never charged by the system; it does not claim nobody handed money
         # over the counter, and a manual receipt still has to be entered.
         intent.cancel_reason = (
-            "Reserva expirada: nenhuma cobrança foi iniciada por este registro. "
-            "Recebimento fora do sistema, se houve, precisa ser lançado."
+            "Reserva expirada: o pagamento por dispositivo foi declarado e nunca "
+            "enviado ao provider. Nenhuma cobrança externa existiu para esta parcela."
         )
         intent.canceled_by = intent.created_by
         intent.canceled_at = moment

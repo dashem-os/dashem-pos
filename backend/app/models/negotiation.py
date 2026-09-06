@@ -131,6 +131,13 @@ class PaymentIntent(SQLModel, table=True):
     # When the server may take an abandoned reserve back on its own — and even
     # then only if no provider transaction exists for it.
     reserve_expires_at: Optional[datetime] = Field(default=None, index=True)
+    # The route this parcel was created for. Its presence is what makes "no
+    # provider transaction" mean something: a card that was going to leave and
+    # did not. Cash and manual PIX never declare one, and their absence of a
+    # charge proves nothing about the money.
+    payment_device_binding_id: Optional[uuid.UUID] = Field(
+        default=None, foreign_key="payment_device_bindings.id", index=True,
+    )
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     confirmed_at: Optional[datetime] = Field(default=None, index=True)
