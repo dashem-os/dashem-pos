@@ -448,3 +448,34 @@ def test_s25_2_giving_money_back_needs_its_own_permission():
     assert cancel.permission == "checkout.payment.cancel"
     assert create.permission == "checkout.payment"
     assert len({refund.permission, cancel.permission, create.permission}) == 3
+
+
+def test_giving_money_back_is_not_seeded_to_the_cashier_profile():
+    """Uma decisão comercial em aberto não vira padrão por cópia.
+
+    `checkout.payment.cancel` foi concedida a CASHIER, e a primeira versão da
+    migração `079` copiou aquela lista. O argumento que dispensa a segunda
+    pessoa protege a revendedora que trabalha sozinha — e ela não é um CASHIER,
+    é a dona. Esse perfil só existe onde há equipe, que é exatamente quando
+    dinheiro saindo da gaveta por uma mão só merece decisão explícita.
+
+    A migração `080` limpa a concessão em bancos que aplicaram a `079` antes da
+    correção, então esta asserção vale para qualquer base na revisão atual.
+    """
+    from app.models.identity import RoleProfile, RoleProfilePermission
+
+    with Session(engine) as db:
+        set_platform_db_context(db)
+        granted = db.exec(
+            select(RoleProfile.code)
+            .join(RoleProfilePermission, RoleProfilePermission.role_profile_id == RoleProfile.id)
+            .where(
+                RoleProfilePermission.permission_key == "checkout.payment.refund",
+                RoleProfile.is_system.is_(True),
+            )
+        ).all()
+    assert "CASHIER" not in set(granted), (
+        "CASHIER não recebe estorno por semeadura; conceder é decisão comercial explícita."
+    )
+    # E quem recebeu continua recebendo: a limpeza é cirúrgica.
+    assert {"OWNER", "TENANT_OWNER", "ADMIN", "MANAGER"} <= set(granted)
