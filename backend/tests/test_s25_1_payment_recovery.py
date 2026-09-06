@@ -94,9 +94,11 @@ async def test_s25_1_a_reserve_never_sent_is_given_back_and_the_command_is_idemp
         held = _by_name(created.json())["Whisky"]
         assert float(held["available_amount"]) == 0 and held["reserved_by"] == ["Astra"]
         intent = await _pending(created)
-        # Nothing was sent, so the parcel says so and offers the way out.
+        # Nothing was sent, so the parcel says so and offers the way out. A PIX
+        # taken by hand carries no clock: the server cannot prove money did not
+        # change hands, so only a person releases it.
         assert intent["can_cancel"] is True and intent["awaiting_provider"] is False
-        assert intent["reserve_expires_at"] is not None
+        assert intent["reserve_expires_at"] is None
 
         key = f"cancel-{uuid.uuid4()}"
         body = {"reason": "Cliente desistiu antes de passar o cartão", "actor_id": actor}
@@ -240,9 +242,11 @@ async def test_s25_1_a_charge_in_flight_blocks_release_and_hand_confirmation():
 async def test_s25_1_expiry_needs_evidence_that_nothing_was_ever_charged():
     """A clock alone never releases money.
 
-    The sweep takes back a reserve that has no provider transaction at all. One
-    that reached a provider is left to reconciliation even when its answer is
-    lost, because a lost answer is not a lost charge.
+    Three reserves, and only one of them is provably unsent: the card that
+    declared a device and never used it. The card already sent is left to
+    reconciliation, because a lost answer is not a lost charge. The manual PIX
+    is left to a person, because nobody ever promised the system a transaction
+    and its absence says nothing about what happened at the counter.
     """
     from app.services.negotiation_service import expire_abandoned_reserves
 
@@ -254,9 +258,18 @@ async def test_s25_1_expiry_needs_evidence_that_nothing_was_ever_charged():
         lines = _by_name(negotiation)
         tef = await _tef(client, headers, {"id": tenant_id}, store, actor, register_id, "CLK")
 
-        abandoned = await _reserve(client, headers, negotiation["id"], actor, 60, lines["Pizza"]["order_item_id"], "Ninguem")
+        abandoned = await _reserve(client, headers, negotiation["id"], actor, 60,
+                                   lines["Pizza"]["order_item_id"], "Ninguem",
+                                   binding=tef["binding"]["id"])
         assert abandoned.status_code == 200, abandoned.text
         abandoned_id = (await _pending(abandoned))["id"]
+
+        # A manual receipt: no device was ever declared, so no clock and no sweep.
+        manual = await _reserve(client, headers, negotiation["id"], actor, 10,
+                                lines["Coca-Cola"]["order_item_id"], "Balcao")
+        assert manual.status_code == 200, manual.text
+        manual_id = (await _pending(manual))["id"]
+        assert (await _pending(manual))["reserve_expires_at"] is None
 
         sent_intent = await _reserve(
             client, headers, negotiation["id"], actor, 40, lines["Whisky"]["order_item_id"], "Astra",
@@ -272,7 +285,7 @@ async def test_s25_1_expiry_needs_evidence_that_nothing_was_ever_charged():
     with Session(engine) as db:
         set_platform_db_context(db)
         past = datetime.utcnow() - timedelta(minutes=1)
-        for intent_id in (abandoned_id, sent_id):
+        for intent_id in (abandoned_id, sent_id, manual_id):
             row = db.get(PaymentIntent, uuid.UUID(intent_id))
             row.reserve_expires_at = past
             db.add(row)
@@ -280,7 +293,11 @@ async def test_s25_1_expiry_needs_evidence_that_nothing_was_ever_charged():
         expired = expire_abandoned_reserves(db)
         assert uuid.UUID(abandoned_id) in expired
         assert uuid.UUID(sent_id) not in expired
+        # Forcing a clock onto a manual reserve is not enough: the sweep still
+        # refuses it, because no charge was ever due for it.
+        assert uuid.UUID(manual_id) not in expired
         assert db.get(PaymentIntent, uuid.UUID(sent_id)).status.value == "PROCESSING"
+        assert db.get(PaymentIntent, uuid.UUID(manual_id)).status.value == "PENDING"
         assert db.get(PaymentIntent, uuid.UUID(abandoned_id)).status.value == "CANCELED"
 
     async with httpx.AsyncClient(base_url=BASE_URL) as client:
@@ -288,6 +305,7 @@ async def test_s25_1_expiry_needs_evidence_that_nothing_was_ever_charged():
         rows = _by_name(state)
         assert float(rows["Pizza"]["available_amount"]) == 60
         assert float(rows["Whisky"]["available_amount"]) == 0
+        assert float(rows["Coca-Cola"]["available_amount"]) == 0, "reserva manual continua de pé"
 
 
 @pytest.mark.asyncio
@@ -636,9 +654,15 @@ async def test_s25_1_a_crash_between_the_two_commits_never_frees_an_approved_car
 
 
 @pytest.mark.asyncio
-async def test_s25_1_a_refund_without_capture_frees_the_line_but_is_not_a_cancellation():
-    """Money left and came back: the attempt produced nothing here, and saying
-    it was "cancelled" would claim nothing was ever sent."""
+async def test_s25_1_a_refund_on_an_open_parcel_holds_the_line_until_someone_reconciles():
+    """The second review refused the easy answer twice, and was right.
+
+    Cancelling claimed nothing was sent. Failing released the whole reserve on
+    the strength of a word — and a refund can be partial, while the adapter
+    contract carries no reversed amount. With no evidence of an integral
+    reversal, releasing the line is a financial decision this code does not get
+    to make. The reserve is held and the fact is written down.
+    """
     async with httpx.AsyncClient(base_url=BASE_URL) as client:
         headers, store, actor, table_session = await _table_with_menu(client, "RefundOpen")
         tenant_id = headers["X-Tenant-ID"]
@@ -662,11 +686,19 @@ async def test_s25_1_a_refund_without_capture_frees_the_line_but_is_not_a_cancel
         assert refunded.status_code == 200, refunded.text
         body = refunded.json()["negotiation"]
         parcel = next(row for row in body["intents"] if row["id"] == intent["id"])
-        assert parcel["status"] == "FAILED", "estorno não vira cancelamento de reserva"
+        assert parcel["status"] == "PROCESSING", "estorno sem prova de reversão não encerra a parcela"
         assert parcel["cancel_reason"] is None and parcel["canceled_at"] is None
         assert [str(row["kind"]) for row in body["divergences"]] == ["REFUND_WITHOUT_CAPTURE"]
-        # The line is payable again, and the movement stayed on the record.
-        assert float(_by_name(body)["Whisky"]["available_amount"]) == 40
+        # The line stays held: no saldo is released without evidence.
+        assert float(_by_name(body)["Whisky"]["available_amount"]) == 0
+
+        # And it cannot be released by hand either, for the same reason.
+        blocked = await client.post(
+            f"/api/v1/negotiations/intents/{intent['id']}/cancel",
+            headers={**headers, "Idempotency-Key": f"cancel-{uuid.uuid4()}"},
+            json={"reason": "Quero liberar mesmo assim", "actor_id": actor},
+        )
+        assert blocked.status_code == 409, blocked.text
 
 
 @pytest.mark.asyncio
@@ -790,10 +822,105 @@ async def test_s25_1_a_reserve_abandoned_before_reaching_the_tef_still_expires()
         db.add(row); db.commit()
         assert uuid.UUID(intent["id"]) in expire_abandoned_reserves(db)
         reason = db.get(PaymentIntent, uuid.UUID(intent["id"])).cancel_reason
-        # The wording never claims money was not handed over the counter.
-        assert "nenhuma cobrança foi iniciada por este registro" in reason
-        assert "fora do sistema" in reason
+        # The wording is about the declared route, never about the drawer.
+        assert "declarado e nunca enviado ao provider" in reason
 
     async with httpx.AsyncClient(base_url=BASE_URL) as client:
         state = (await client.get(f"/api/v1/negotiations/{negotiation['id']}", headers=headers)).json()
         assert float(_by_name(state)["Whisky"]["available_amount"]) == 40
+
+
+@pytest.mark.asyncio
+async def test_s25_1_the_sweep_reaches_the_oldest_stuck_parcel_not_only_the_newest():
+    """The filter has to be in the query.
+
+    Taking the newest terminal transactions and *then* keeping the unapplied
+    ones meant a backlog older than one page was never reached — and the oldest
+    stuck parcel is precisely the one that has been holding a line the longest.
+    """
+    from app.services.negotiation_service import unapplied_results
+
+    async with httpx.AsyncClient(base_url=BASE_URL) as client:
+        headers, store, actor, table_session = await _table_with_menu(client, "Backlog")
+        tenant_id = headers["X-Tenant-ID"]
+        register_id = await _register(client, headers, store, actor)
+        negotiation = await _open(client, headers, store, table_session, actor)
+        whisky = _by_name(negotiation)["Whisky"]["order_item_id"]
+        tef = await _tef(client, headers, {"id": tenant_id}, store, actor, register_id, "BKL")
+        created = await _reserve(client, headers, negotiation["id"], actor, 40, whisky, "Astra",
+                                 binding=tef["binding"]["id"])
+        intent_id = (await _pending(created))["id"]
+        sent = await client.post("/api/v1/providers/transactions", headers={
+            **headers, "Idempotency-Key": f"exec-{uuid.uuid4()}",
+        }, json={"payment_intent_id": intent_id, "payment_device_binding_id": tef["binding"]["id"],
+                 "actor_id": actor})
+        transaction_id = sent.json()["transaction"]["id"]
+
+    with Session(engine) as db:
+        set_platform_db_context(db)
+        from app.models.provider import ProviderTransaction, ProviderTransactionStatusEnum
+        row = db.get(ProviderTransaction, uuid.UUID(transaction_id))
+        row.status = ProviderTransactionStatusEnum.CONFIRMED
+        # Old enough to fall off any page ordered by recency.
+        row.updated_at = datetime.utcnow() - timedelta(days=30)
+        db.add(row); db.commit()
+
+        # Even asking for a single row, the oldest stuck one comes first.
+        found = unapplied_results(db, limit=1)
+        assert [item.id for item in found] == [uuid.UUID(transaction_id)], found
+        # And every row it returns really is unapplied, filtered by the database.
+        for item in unapplied_results(db, limit=50):
+            assert db.get(PaymentIntent, item.payment_intent_id).status.value in {"PENDING", "PROCESSING"}
+
+
+@pytest.mark.asyncio
+async def test_s25_1_one_damaged_row_does_not_block_the_queue_behind_it():
+    """A sweep that aborts on the first bad row never drains a backlog."""
+    from app.services.provider_service import recover_unapplied_results
+
+    async with httpx.AsyncClient(base_url=BASE_URL) as client:
+        headers, store, actor, table_session = await _table_with_menu(client, "Damaged")
+        tenant_id = headers["X-Tenant-ID"]
+        register_id = await _register(client, headers, store, actor)
+        negotiation = await _open(client, headers, store, table_session, actor)
+        whisky = _by_name(negotiation)["Whisky"]["order_item_id"]
+        tef = await _tef(client, headers, {"id": tenant_id}, store, actor, register_id, "DMG")
+        created = await _reserve(client, headers, negotiation["id"], actor, 40, whisky, "Astra",
+                                 binding=tef["binding"]["id"])
+        intent_id = (await _pending(created))["id"]
+        sent = await client.post("/api/v1/providers/transactions", headers={
+            **headers, "Idempotency-Key": f"exec-{uuid.uuid4()}",
+        }, json={"payment_intent_id": intent_id, "payment_device_binding_id": tef["binding"]["id"],
+                 "actor_id": actor})
+        good_transaction = sent.json()["transaction"]["id"]
+
+    with Session(engine) as db:
+        set_platform_db_context(db)
+        from app.models.provider import ProviderTransaction, ProviderTransactionStatusEnum
+        from app.models.provider import PaymentExecutionEvent
+        good = db.get(ProviderTransaction, uuid.UUID(good_transaction))
+        good.status = ProviderTransactionStatusEnum.CONFIRMED
+        db.add(good)
+        # A row whose audit chain is gone: unreplayable, and older than the
+        # healthy one so the sweep meets it first.
+        damaged = ProviderTransaction(
+            tenant_id=good.tenant_id, store_id=good.store_id,
+            payment_intent_id=good.payment_intent_id,
+            payment_device_binding_id=good.payment_device_binding_id,
+            provider_configuration_id=good.provider_configuration_id,
+            bridge_terminal_id=good.bridge_terminal_id, provider_code=good.provider_code,
+            adapter_version=good.adapter_version, correlation_id=str(uuid.uuid4()),
+            idempotency_key=f"damaged-{uuid.uuid4()}", request_hash="0" * 64,
+            created_by=good.created_by, status=ProviderTransactionStatusEnum.CONFIRMED,
+        )
+        damaged.updated_at = datetime.utcnow() - timedelta(days=60)
+        db.add(damaged); db.commit()
+        assert db.exec(select(PaymentExecutionEvent).where(
+            PaymentExecutionEvent.provider_transaction_id == damaged.id,
+        )).all() == []
+
+        recovered = recover_unapplied_results(db, limit=50)
+        # The damaged row is skipped and the healthy one behind it is applied.
+        assert damaged.id not in recovered
+        assert uuid.UUID(good_transaction) in recovered
+        assert db.get(PaymentIntent, uuid.UUID(intent_id)).status.value == "CONFIRMED"

@@ -1,4 +1,5 @@
 import hashlib
+import logging
 import hmac
 import base64
 import secrets
@@ -29,6 +30,7 @@ from app.providers.adapter import ProviderRequest, ProviderResult, resolve_adapt
 from app.services import negotiation_service, payment_audit_service, reliability_service
 
 
+logger = logging.getLogger("dashem_pos.provider")
 CARD_METHODS = {PaymentMethodEnum.CREDIT_CARD, PaymentMethodEnum.DEBIT_CARD}
 RECONCILABLE = {
     ProviderTransactionStatusEnum.CREATED,
@@ -604,16 +606,26 @@ def _apply_result(
         # an attempt that produced no payment here. The reversal itself is
         # recorded so it stays visible.
         if intent.status in negotiation_service.OPEN_INTENTS:
+            # The second review refused this one twice, and it was right both
+            # times. Closing the parcel as cancelled claimed nothing was sent;
+            # closing it as failed released the whole reserve on the strength of
+            # a word — and a refund can be partial. The adapter contract carries
+            # no reversed amount, so there is no evidence the reversal was
+            # integral, and releasing a line without that evidence is a
+            # financial decision this code is not entitled to make.
+            #
+            # The reserve is held, the fact is written down, and a person
+            # decides. That is the same declared blockage as a refund over a
+            # confirmed parcel: no write-off is improvised here.
             divergence = negotiation_service.record_divergence(
                 session, intent, kind=SettlementDivergenceKindEnum.REFUND_WITHOUT_CAPTURE,
                 provider_status=result.status.value, transaction_id=transaction.id,
-                detail="Estorno no provider sem captura confirmada nesta conta; a linha volta a ficar disponível.",
+                detail=(
+                    "Estorno no provider sobre parcela ainda aberta. Sem evidência de reversão "
+                    "integral, o saldo do item permanece reservado até conciliação."
+                ),
             )
-            negotiation = negotiation_service.fail_intent(
-                session, context, intent.id, failure_code="PROVIDER_REFUNDED",
-                reason="Cobrança estornada no provider; nenhum pagamento foi recebido por esta parcela.",
-                actor_id=actor_id, idempotency_key=f"provider-refund-{transaction.id}", external=True,
-            )
+            negotiation = negotiation_service.projection(session, context, intent.negotiation_id, validate=False)
         else:
             divergence = negotiation_service.record_divergence(
                 session, intent, kind=SettlementDivergenceKindEnum.REFUND_REQUIRES_REVERSAL,
@@ -833,7 +845,20 @@ def recover_unapplied_results(session: Session, limit: int = 50) -> list[uuid.UU
             failure_code=transaction.failure_code, failure_reason=transaction.failure_reason,
             sanitized_payload=transaction.sanitized_payload,
         )
-        _apply_result(session, context, transaction, result, transaction.created_by)
+        try:
+            _apply_result(session, context, transaction, result, transaction.created_by)
+        except Exception:
+            # One row that cannot be replayed — a broken audit chain, a scope
+            # that no longer resolves — must not stop the queue behind it. Once
+            # the filter moved into the query the sweep began seeing the real
+            # backlog, and the oldest rows are exactly the ones most likely to
+            # be damaged. It is skipped, logged, and left for a person.
+            session.rollback()
+            logger.warning(
+                "Could not replay provider result transaction=%s status=%s",
+                transaction.id, transaction.status.value, exc_info=True,
+            )
+            continue
         recovered.append(transaction.id)
     return recovered
 

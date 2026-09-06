@@ -578,6 +578,8 @@ const divergenceLabel: Record<api.SettlementDivergence['kind'], string> = {
   LATE_FAILURE: 'Provider recusou uma parcela já confirmada',
   EXTERNAL_CANCEL_AFTER_CONFIRM: 'Cancelamento externo sobre parcela confirmada',
   REFUND_REQUIRES_REVERSAL: 'Estorno no provider exige baixa por estorno',
+  REFUND_WITHOUT_CAPTURE: 'Estorno sem prova de reversão integral; o saldo segue reservado',
+  STATE_REGRESSION_REFUSED: 'Resposta atrasada recusada para não reabrir a cobrança',
   UNEXPECTED_RESULT: 'Resposta inesperada do provider',
 }
 

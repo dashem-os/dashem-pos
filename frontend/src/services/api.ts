@@ -477,7 +477,7 @@ export interface NegotiationPaymentIntent {
 export interface SettlementDivergence {
   id: string
   payment_intent_id: string
-  kind: 'LATE_CONFIRMATION' | 'LATE_FAILURE' | 'EXTERNAL_CANCEL_AFTER_CONFIRM' | 'REFUND_REQUIRES_REVERSAL' | 'UNEXPECTED_RESULT'
+  kind: 'LATE_CONFIRMATION' | 'LATE_FAILURE' | 'EXTERNAL_CANCEL_AFTER_CONFIRM' | 'REFUND_REQUIRES_REVERSAL' | 'REFUND_WITHOUT_CAPTURE' | 'STATE_REGRESSION_REFUSED' | 'UNEXPECTED_RESULT'
   intent_status: string
   provider_status: string
   amount: number
