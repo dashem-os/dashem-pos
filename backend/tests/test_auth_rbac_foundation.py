@@ -136,3 +136,82 @@ def test_platform_membership_does_not_grant_implicit_tenant_access():
                 "GET", "/api/v1/catalog/products",
             )
         assert exc.value.status_code == 403
+
+
+def _settings(**overrides):
+    from app.core.config import Settings
+
+    return Settings(
+        _env_file=None,
+        DATABASE_URL="postgresql://test:test@localhost/test",
+        SECRET_KEY="test-secret-key-with-at-least-32-characters",
+        **overrides,
+    )
+
+
+def test_relaxed_authentication_is_allowed_only_where_it_was_declared():
+    """A proteção é por allowlist, e um ambiente novo nasce fechado.
+
+    Bloquear `production` e `prod` pelo nome exigia acertar o futuro: qualquer
+    ambiente chamado de outra coisa aceitava `AUTH_MODE=disabled`, e com ele o
+    cabeçalho `X-User-ID` impersona qualquer usuário sem token nenhum.
+    """
+    from app.core.config import RELAXED_AUTH_ENVIRONMENTS
+
+    assert RELAXED_AUTH_ENVIRONMENTS == {"development", "test"}
+    # Os dois ambientes que de fato existem no repositório continuam abrindo.
+    for environment in RELAXED_AUTH_ENVIRONMENTS:
+        assert _settings(ENVIRONMENT=environment, AUTH_MODE="disabled").AUTH_MODE == "disabled"
+
+
+@pytest.mark.parametrize(
+    "environment",
+    ["production", "prod", "staging", "qa", "uat", "homologacao", "producton", " Production "],
+)
+def test_an_environment_nobody_listed_refuses_to_relax_authentication(environment):
+    """Inclui o nome digitado errado e o que veio com espaço: os dois passavam."""
+    with pytest.raises(ValueError, match="AUTH_MODE must be 'required'"):
+        _settings(ENVIRONMENT=environment, AUTH_MODE="disabled")
+    with pytest.raises(ValueError, match="AUTH_MODE must be 'required'"):
+        _settings(ENVIRONMENT=environment, AUTH_MODE="test", AUTH_TEST_SECRET="x" * 32)
+
+
+@pytest.mark.parametrize("environment", ["production", "staging", "qa"])
+def test_identity_provider_is_required_wherever_authentication_is(environment):
+    """Exigir autenticação sem provedor de identidade seria exigir o impossível."""
+    with pytest.raises(ValueError, match="SUPABASE_URL is required"):
+        _settings(ENVIRONMENT=environment, AUTH_MODE="required")
+    configured = _settings(
+        ENVIRONMENT=environment, AUTH_MODE="required",
+        SUPABASE_URL="https://project.supabase.co",
+    )
+    assert configured.AUTH_MODE == "required"
+
+
+def test_the_security_core_does_not_lean_on_assert():
+    """`assert` some com `python -O`, e decisão de acesso não pode sumir junto.
+
+    Os que existiam aqui eram narrowing depois de chamadas que já levantam, então
+    o efeito de removê-los seria um 500 no meio da autorização — não um bypass.
+    Mesmo assim a classe é fácil de fechar e cara de reaprender: nada garante que
+    o próximo `assert` escrito neste caminho também seja inofensivo.
+
+    O escopo é o núcleo. Os endpoints ainda usam `assert actor is not None` para
+    estreitar tipo depois de `require_platform_role`, que levanta sozinha; isso é
+    ruído de tipagem, não controle de acesso.
+    """
+    import ast
+    from pathlib import Path
+
+    core = Path(__file__).resolve().parents[1] / "app" / "core"
+    offenders = []
+    for path in sorted(core.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        offenders += [
+            f"{path.name}:{node.lineno}"
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Assert)
+        ]
+    assert offenders == [], (
+        "O núcleo de segurança voltou a depender de `assert`: " + ", ".join(offenders)
+    )

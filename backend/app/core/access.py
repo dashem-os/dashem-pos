@@ -1,6 +1,6 @@
 from typing import Iterable, Optional
 
-from fastapi import HTTPException
+from fastapi import HTTPException, status
 from sqlmodel import Session, select
 
 from app.core.context import resolve_internal_user
@@ -19,13 +19,31 @@ def get_request_user(session: Session, principal: AuthPrincipal) -> Optional[Use
     return user
 
 
+def _identified(user: Optional[User]) -> User:
+    """Recusar em vez de seguir sem identidade resolvida.
+
+    Aqui havia `assert user is not None`. Na prática ele nunca dispara — o
+    caminho de bypass já retornou antes, e `resolve_internal_user` levanta para
+    identidade não provisionada. Mas `assert` some com `python -O`, e o que
+    sobraria seria `user.id` sobre `None`: um 500 no meio de uma decisão de
+    autorização, no lugar de uma recusa clara.
+
+    Uma decisão de acesso não deve depender de a otimização estar desligada.
+    """
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Authenticated identity could not be resolved.",
+        )
+    return user
+
+
 def get_platform_membership(
     session: Session, principal: AuthPrincipal
 ) -> Optional[PlatformMembership]:
     if principal.bypass:
         return None
-    user = resolve_internal_user(session, principal)
-    assert user is not None
+    user = _identified(resolve_internal_user(session, principal))
     return session.exec(
         select(PlatformMembership).where(
             PlatformMembership.user_id == user.id,
@@ -68,8 +86,7 @@ def require_platform_permission(
     if membership is None:
         raise HTTPException(status_code=403, detail="Platform access is required.")
 
-    user = resolve_internal_user(session, principal)
-    assert user is not None
+    user = _identified(resolve_internal_user(session, principal))
     set_platform_db_context(session, user.id)
 
     definition = session.get(PlatformPermissionDefinition, permission_key)
@@ -111,8 +128,7 @@ def require_tenant_admin(
     if principal.bypass:
         set_tenant_db_context(session, tenant_id, user_id=principal.legacy_user_id)
         return resolve_internal_user(session, principal)
-    user = resolve_internal_user(session, principal)
-    assert user is not None
+    user = _identified(resolve_internal_user(session, principal))
     set_tenant_db_context(session, tenant_id, user_id=user.id)
     membership = session.exec(
         select(Membership).where(

@@ -7,6 +7,12 @@ MANAGED_STORAGE_BUCKETS = (
     "tenant-assets", "tenant-documents", "tenant-exports", "tenant-integrations",
 )
 
+# Os únicos ambientes em que a autenticação pode ser relaxada. Ambos existem no
+# repositório: `development` é o contêiner local, `test` é o CI. Qualquer outro
+# nome — inclusive um digitado errado — exige `AUTH_MODE=required`.
+RELAXED_AUTH_ENVIRONMENTS = frozenset({"development", "test"})
+
+
 class Settings(BaseSettings):
     model_config = ConfigDict(env_file=".env", extra="ignore")
     PROJECT_NAME: str = "Dashem POS"
@@ -99,10 +105,26 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_auth_configuration(self):
-        if self.ENVIRONMENT.lower() in {"production", "prod"} and self.AUTH_MODE != "required":
-            raise ValueError("AUTH_MODE must be 'required' in production")
-        if self.ENVIRONMENT.lower() in {"production", "prod"} and not self.SUPABASE_URL:
-            raise ValueError("SUPABASE_URL is required in production")
+        # Uma allowlist, e não uma denylist. A regra anterior bloqueava
+        # `production` e `prod` **pelo nome**, então qualquer ambiente que se
+        # chamasse diferente — `staging`, `qa`, `uat`, `homolog`, ou um nome que
+        # ninguém previu — aceitava `AUTH_MODE=disabled`. E com ele o cabeçalho
+        # `X-User-ID` passa a impersonar qualquer usuário, sem token nenhum.
+        #
+        # Proteger por lista de exceções exige acertar o futuro. Proteger por
+        # lista de permissões exige apenas listar o presente: um ambiente novo
+        # nasce fechado, e abri-lo é um ato deliberado neste arquivo.
+        environment = self.ENVIRONMENT.strip().lower()
+        if self.AUTH_MODE != "required" and environment not in RELAXED_AUTH_ENVIRONMENTS:
+            allowed = ", ".join(sorted(RELAXED_AUTH_ENVIRONMENTS))
+            raise ValueError(
+                f"AUTH_MODE must be 'required' in ENVIRONMENT='{self.ENVIRONMENT}'. "
+                f"Relaxed authentication exists only for: {allowed}."
+            )
+        if environment not in RELAXED_AUTH_ENVIRONMENTS and not self.SUPABASE_URL:
+            raise ValueError(
+                f"SUPABASE_URL is required in ENVIRONMENT='{self.ENVIRONMENT}'"
+            )
         if self.AUTH_MODE == "test" and not self.AUTH_TEST_SECRET:
             raise ValueError("AUTH_TEST_SECRET is required in test auth mode")
         if not 1 <= self.STORAGE_TENANT_WARNING_PERCENT < self.STORAGE_TENANT_CRITICAL_PERCENT < 100:

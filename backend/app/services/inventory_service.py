@@ -68,7 +68,12 @@ def adjust_stock(
         "tenant_id": str(context.tenant_id),
         "store_id": str(store_id),
         "product_id": str(product_id),
-        "quantity": float(qty_dec),
+        # `Decimal`, não `float`. A linha acima monta `qty_dec` justamente para
+        # não perder precisão, e converter aqui jogaria esse cuidado fora na
+        # borda do banco — a coluna é `Numeric(14,4)` e psycopg2 adapta Decimal
+        # nativamente. É o único float deste repositório que **escreve** saldo;
+        # os demais são serialização de projeção.
+        "quantity": qty_dec,
         "now": now
     }).first()
 
