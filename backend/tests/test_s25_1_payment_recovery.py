@@ -179,8 +179,9 @@ async def test_s25_1_a_charge_in_flight_blocks_release_and_hand_confirmation():
         )
         assert created.status_code == 200, created.text
         intent = await _pending(created)
-        # It is about to leave through a device, so it carries no expiry clock.
-        assert intent["reserve_expires_at"] is None
+        # It carries a clock while it has not been sent — a parcel abandoned
+        # before reaching the TEF used to be unreachable by the sweep.
+        assert intent["reserve_expires_at"] is not None
 
         sent = await client.post("/api/v1/providers/transactions", headers={
             **headers, "Idempotency-Key": f"exec-{uuid.uuid4()}",
@@ -192,6 +193,8 @@ async def test_s25_1_a_charge_in_flight_blocks_release_and_hand_confirmation():
         state = await client.get(f"/api/v1/negotiations/{negotiation['id']}", headers=headers)
         parcel = next(row for row in state.json()["intents"] if row["id"] == intent["id"])
         assert parcel["status"] == "PROCESSING"
+        # And once it left, the clock stops: from here only an answer decides.
+        assert parcel["reserve_expires_at"] is None
         assert parcel["awaiting_provider"] is True and parcel["can_cancel"] is False
         assert parcel["can_query_provider"] is True
 
@@ -558,3 +561,239 @@ def test_s25_1_releasing_money_needs_its_own_permission():
     for path in ("/api/v1/negotiations/intents/abc/confirm", "/api/v1/negotiations/intents/abc/fail"):
         assert route_requirement("POST", path).permission == "checkout.payment"
     assert route_requirement("GET", "/api/v1/negotiations/abc").permission == "checkout.read"
+
+
+@pytest.mark.asyncio
+async def test_s25_1_a_crash_between_the_two_commits_never_frees_an_approved_card():
+    """The window the review found.
+
+    `_apply_result` persists the provider answer and only then touches the
+    parcel. A process dying in between leaves a CONFIRMED charge beside an open
+    parcel — and the first cut of this sprint, which looked only for charges
+    *in flight*, would have let an operator cancel that reserve and hand the
+    line to somebody else while the customer's card had been approved.
+    """
+    from app.services.provider_service import recover_unapplied_results
+
+    async with httpx.AsyncClient(base_url=BASE_URL) as client:
+        headers, store, actor, table_session = await _table_with_menu(client, "Crash")
+        tenant_id = headers["X-Tenant-ID"]
+        register_id = await _register(client, headers, store, actor)
+        negotiation = await _open(client, headers, store, table_session, actor)
+        whisky = _by_name(negotiation)["Whisky"]["order_item_id"]
+        tef = await _tef(client, headers, {"id": tenant_id}, store, actor, register_id, "CRS")
+        created = await _reserve(client, headers, negotiation["id"], actor, 40, whisky, "Astra",
+                                 binding=tef["binding"]["id"])
+        intent_id = (await _pending(created))["id"]
+        sent = await client.post("/api/v1/providers/transactions", headers={
+            **headers, "Idempotency-Key": f"exec-{uuid.uuid4()}",
+        }, json={"payment_intent_id": intent_id, "payment_device_binding_id": tef["binding"]["id"],
+                 "actor_id": actor})
+        transaction_id = sent.json()["transaction"]["id"]
+
+    # Exactly the crash: the answer is on the row, the parcel never heard it.
+    with Session(engine) as db:
+        set_platform_db_context(db)
+        from app.models.provider import ProviderTransaction, ProviderTransactionStatusEnum
+        row = db.get(ProviderTransaction, uuid.UUID(transaction_id))
+        row.status = ProviderTransactionStatusEnum.CONFIRMED
+        row.nsu, row.authorization_code = "NSU-CRASH", "OK"
+        db.add(row)
+        db.commit()
+        assert db.get(PaymentIntent, uuid.UUID(intent_id)).status.value == "PROCESSING"
+
+    async with httpx.AsyncClient(base_url=BASE_URL) as client:
+        state = (await client.get(f"/api/v1/negotiations/{negotiation['id']}", headers=headers)).json()
+        parcel = next(row for row in state["intents"] if row["id"] == intent_id)
+        assert parcel["can_cancel"] is False, "não se libera reserva de cartão aprovado"
+        assert parcel["awaiting_provider"] is True and parcel["can_query_provider"] is True
+
+        for path, body in (
+            ("cancel", {"reason": "Liberar o item", "actor_id": actor}),
+            ("fail", {"failure_code": "MANUAL", "reason": "Marcando falha", "actor_id": actor}),
+        ):
+            blocked = await client.post(
+                f"/api/v1/negotiations/intents/{intent_id}/{path}",
+                headers={**headers, "Idempotency-Key": f"{path}-{uuid.uuid4()}"}, json=body,
+            )
+            assert blocked.status_code == 409, blocked.text
+            assert blocked.json()["detail"]["code"] == "EXTERNAL_CHARGE_IN_FLIGHT"
+
+        # Consulting replays the answer already on the row: no second charge.
+        recovered = await client.post(f"/api/v1/negotiations/intents/{intent_id}/query",
+                                      headers=headers, json={"actor_id": actor})
+        assert recovered.status_code == 200, recovered.text
+        parcel = next(row for row in recovered.json()["intents"] if row["id"] == intent_id)
+        assert parcel["status"] == "CONFIRMED"
+        assert _by_name(recovered.json())["Whisky"]["settled_by"] == ["Astra"]
+
+    # And the worker's sweep does the same unattended, for parcels nobody opens.
+    # This one is already settled, so the sweep has nothing left to do with it.
+    with Session(engine) as db:
+        set_platform_db_context(db)
+        assert uuid.UUID(transaction_id) not in recover_unapplied_results(db)
+        assert db.get(PaymentIntent, uuid.UUID(intent_id)).status.value == "CONFIRMED"
+
+
+@pytest.mark.asyncio
+async def test_s25_1_a_refund_without_capture_frees_the_line_but_is_not_a_cancellation():
+    """Money left and came back: the attempt produced nothing here, and saying
+    it was "cancelled" would claim nothing was ever sent."""
+    async with httpx.AsyncClient(base_url=BASE_URL) as client:
+        headers, store, actor, table_session = await _table_with_menu(client, "RefundOpen")
+        tenant_id = headers["X-Tenant-ID"]
+        register_id = await _register(client, headers, store, actor)
+        negotiation = await _open(client, headers, store, table_session, actor)
+        whisky = _by_name(negotiation)["Whisky"]["order_item_id"]
+        tef = await _tef(client, headers, {"id": tenant_id}, store, actor, register_id, "RFO")
+        created = await _reserve(client, headers, negotiation["id"], actor, 40, whisky, "Astra",
+                                 binding=tef["binding"]["id"])
+        intent = await _pending(created)
+        sent = await client.post("/api/v1/providers/transactions", headers={
+            **headers, "Idempotency-Key": f"exec-{uuid.uuid4()}",
+        }, json={"payment_intent_id": intent["id"], "payment_device_binding_id": tef["binding"]["id"],
+                 "actor_id": actor})
+
+        refunded = await client.post(
+            f"/api/v1/providers/bridge/terminals/{tef['terminal']['id']}/transactions/{sent.json()['transaction']['id']}/result",
+            json={"tenant_id": tenant_id, "store_id": store["id"], "pairing_code": tef["pairing_code"],
+                  "status": "REFUNDED", "failure_reason": "Estornado no adquirente"},
+        )
+        assert refunded.status_code == 200, refunded.text
+        body = refunded.json()["negotiation"]
+        parcel = next(row for row in body["intents"] if row["id"] == intent["id"])
+        assert parcel["status"] == "FAILED", "estorno não vira cancelamento de reserva"
+        assert parcel["cancel_reason"] is None and parcel["canceled_at"] is None
+        assert [str(row["kind"]) for row in body["divergences"]] == ["REFUND_WITHOUT_CAPTURE"]
+        # The line is payable again, and the movement stayed on the record.
+        assert float(_by_name(body)["Whisky"]["available_amount"]) == 40
+
+
+@pytest.mark.asyncio
+async def test_s25_1_a_settled_parcel_is_never_sent_to_the_card_machine_again():
+    """Retries and queries stay valid; a closed parcel stops being executable."""
+    async with httpx.AsyncClient(base_url=BASE_URL) as client:
+        headers, store, actor, table_session = await _table_with_menu(client, "NoReExec")
+        tenant_id = headers["X-Tenant-ID"]
+        register_id = await _register(client, headers, store, actor)
+        negotiation = await _open(client, headers, store, table_session, actor)
+        lines = _by_name(negotiation)
+        tef = await _tef(client, headers, {"id": tenant_id}, store, actor, register_id, "NRX")
+
+        given_back = await _reserve(client, headers, negotiation["id"], actor, 60,
+                                    lines["Pizza"]["order_item_id"], "Ninguem",
+                                    binding=tef["binding"]["id"])
+        canceled_id = (await _pending(given_back))["id"]
+        assert (await client.post(
+            f"/api/v1/negotiations/intents/{canceled_id}/cancel",
+            headers={**headers, "Idempotency-Key": f"cancel-{uuid.uuid4()}"},
+            json={"reason": "Desistiu antes de enviar", "actor_id": actor},
+        )).status_code == 200
+        refused = await client.post("/api/v1/providers/transactions", headers={
+            **headers, "Idempotency-Key": f"exec-{uuid.uuid4()}",
+        }, json={"payment_intent_id": canceled_id, "payment_device_binding_id": tef["binding"]["id"],
+                 "actor_id": actor})
+        assert refused.status_code == 409, refused.text
+        assert refused.json()["detail"]["code"] == "INTENT_NOT_EXECUTABLE"
+
+        settled = await _reserve(client, headers, negotiation["id"], actor, 40,
+                                 lines["Whisky"]["order_item_id"], "Astra", binding=tef["binding"]["id"])
+        settled_id = (await _pending(settled))["id"]
+        first = await client.post("/api/v1/providers/transactions", headers={
+            **headers, "Idempotency-Key": f"exec-{uuid.uuid4()}",
+        }, json={"payment_intent_id": settled_id, "payment_device_binding_id": tef["binding"]["id"],
+                 "actor_id": actor})
+        transaction_id = first.json()["transaction"]["id"]
+        await client.post(
+            f"/api/v1/providers/bridge/terminals/{tef['terminal']['id']}/transactions/{transaction_id}/result",
+            json={"tenant_id": tenant_id, "store_id": store["id"], "pairing_code": tef["pairing_code"],
+                  "status": "CONFIRMED", "nsu": "NSU-1", "authorization_code": "OK"},
+        )
+        again = await client.post("/api/v1/providers/transactions", headers={
+            **headers, "Idempotency-Key": f"exec-{uuid.uuid4()}",
+        }, json={"payment_intent_id": settled_id, "payment_device_binding_id": tef["binding"]["id"],
+                 "actor_id": actor})
+        assert again.status_code == 409, again.text
+        assert again.json()["detail"]["code"] in {"INTENT_NOT_EXECUTABLE", "CHARGE_ALREADY_SETTLED"}
+
+        query = await client.post(f"/api/v1/negotiations/intents/{settled_id}/query",
+                                  headers=headers, json={"actor_id": actor})
+        assert query.status_code == 200, query.text
+        assert float(_by_name(query.json())["Whisky"]["settled_amount"]) == 40
+
+
+@pytest.mark.asyncio
+async def test_s25_1_a_stale_answer_never_walks_the_charge_backwards():
+    """A queued UNKNOWN arriving after the acquirer already said CONFIRMED would
+    reopen a closed charge and, with it, the reserve on the line."""
+    async with httpx.AsyncClient(base_url=BASE_URL) as client:
+        headers, store, actor, table_session = await _table_with_menu(client, "Stale")
+        tenant_id = headers["X-Tenant-ID"]
+        register_id = await _register(client, headers, store, actor)
+        negotiation = await _open(client, headers, store, table_session, actor)
+        whisky = _by_name(negotiation)["Whisky"]["order_item_id"]
+        tef = await _tef(client, headers, {"id": tenant_id}, store, actor, register_id, "STL")
+        created = await _reserve(client, headers, negotiation["id"], actor, 40, whisky, "Astra",
+                                 binding=tef["binding"]["id"])
+        intent = await _pending(created)
+        sent = await client.post("/api/v1/providers/transactions", headers={
+            **headers, "Idempotency-Key": f"exec-{uuid.uuid4()}",
+        }, json={"payment_intent_id": intent["id"], "payment_device_binding_id": tef["binding"]["id"],
+                 "actor_id": actor})
+        transaction_id = sent.json()["transaction"]["id"]
+        result_url = f"/api/v1/providers/bridge/terminals/{tef['terminal']['id']}/transactions/{transaction_id}/result"
+        base = {"tenant_id": tenant_id, "store_id": store["id"], "pairing_code": tef["pairing_code"]}
+
+        confirmed = await client.post(result_url, json={**base, "status": "CONFIRMED", "nsu": "NSU-1"})
+        assert confirmed.status_code == 200, confirmed.text
+
+        stale = await client.post(result_url, json={**base, "status": "UNKNOWN"})
+        assert stale.status_code == 200, stale.text
+        assert stale.json()["transaction"]["status"] == "CONFIRMED", "a transação não retrocede"
+        body = stale.json()["negotiation"]
+        parcel = next(row for row in body["intents"] if row["id"] == intent["id"])
+        assert parcel["status"] == "CONFIRMED"
+        assert float(_by_name(body)["Whisky"]["settled_amount"]) == 40
+        assert [str(row["kind"]) for row in body["divergences"]] == ["STATE_REGRESSION_REFUSED"]
+
+        await client.post(result_url, json={**base, "status": "UNKNOWN"})
+        with Session(engine) as db:
+            set_platform_db_context(db)
+            rows = db.exec(select(PaymentSettlementDivergence).where(
+                PaymentSettlementDivergence.payment_intent_id == uuid.UUID(intent["id"]),
+            )).all()
+            assert len(rows) == 1, rows
+
+
+@pytest.mark.asyncio
+async def test_s25_1_a_reserve_abandoned_before_reaching_the_tef_still_expires():
+    """The eligibility hole: a parcel bound to a device but never executed had
+    no clock at all, so it held its line forever."""
+    from app.services.negotiation_service import expire_abandoned_reserves
+
+    async with httpx.AsyncClient(base_url=BASE_URL) as client:
+        headers, store, actor, table_session = await _table_with_menu(client, "BeforeTef")
+        tenant_id = headers["X-Tenant-ID"]
+        register_id = await _register(client, headers, store, actor)
+        negotiation = await _open(client, headers, store, table_session, actor)
+        whisky = _by_name(negotiation)["Whisky"]["order_item_id"]
+        tef = await _tef(client, headers, {"id": tenant_id}, store, actor, register_id, "BTF")
+        created = await _reserve(client, headers, negotiation["id"], actor, 40, whisky, "Astra",
+                                 binding=tef["binding"]["id"])
+        intent = await _pending(created)
+        assert intent["reserve_expires_at"] is not None
+
+    with Session(engine) as db:
+        set_platform_db_context(db)
+        row = db.get(PaymentIntent, uuid.UUID(intent["id"]))
+        row.reserve_expires_at = datetime.utcnow() - timedelta(minutes=1)
+        db.add(row); db.commit()
+        assert uuid.UUID(intent["id"]) in expire_abandoned_reserves(db)
+        reason = db.get(PaymentIntent, uuid.UUID(intent["id"])).cancel_reason
+        # The wording never claims money was not handed over the counter.
+        assert "nenhuma cobrança foi iniciada por este registro" in reason
+        assert "fora do sistema" in reason
+
+    async with httpx.AsyncClient(base_url=BASE_URL) as client:
+        state = (await client.get(f"/api/v1/negotiations/{negotiation['id']}", headers=headers)).json()
+        assert float(_by_name(state)["Whisky"]["available_amount"]) == 40

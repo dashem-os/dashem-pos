@@ -144,6 +144,38 @@ cases.push({ name: 'checkout-recovery', screen: 'tables', steps: [...openBill, a
     assert.equal(await page.getByRole('button', { name: /marcar falha/i }).count(), 0);
     await page.getByText(/Estorno no provider exige baixa por estorno/).waitFor();
 }] });
+// S25.1 review: the screen must declare the device *with* the parcel, so the
+// server proves the chain before a line of the bill is held. This asserts the
+// real call, not the source text — the first cut had the backend guard and no
+// caller that ever reached it.
+const withTef = async (page) => {
+    await page.evaluate(() => {
+        window.__captured = [];
+        window.__handlers = {
+            fetchPaymentDeviceBindings: async () => [{ id: 'binding-1', register_id: 'register-1', status: 'ACTIVE', execution_mode: 'TEF_BRIDGE', tef_bridge_terminal_id: 'terminal-1' }],
+            fetchTefBridgeTerminals: async () => [{ id: 'terminal-1', status: 'ONLINE', terminal_code: 'PINPAD-01', bridge_version: '1.0.0' }],
+            createNegotiationPaymentIntent: async (_h, _id, _key, data) => {
+                window.__captured.push(data);
+                throw new Error('parada proposital do teste');
+            },
+        };
+    });
+};
+cases.push({ name: 'checkout-tef-declared-upfront', screen: 'tables', steps: [
+    page => page.getByRole('button', { name: /^Mesa 01/ }).click(),
+    withTef,
+    click('Fechar conta completa'),
+    async page => {
+        await page.getByText(/TEF online/).waitFor();
+        await page.getByLabel('Meio de pagamento').selectOption('TEF_CREDIT');
+        await page.getByRole('button', { name: /^Registrar parcela/ }).click();
+        await page.waitForTimeout(300);
+        const calls = await page.evaluate(() => window.__captured || []);
+        assert.equal(calls.length, 1, 'a parcela foi tentada uma vez');
+        assert.equal(calls[0].payment_device_binding_id, 'binding-1', 'o dispositivo viaja com a parcela');
+        assert.equal(calls[0].method, 'CREDIT_CARD');
+    },
+] });
 const out = path.resolve('../.tmp/responsive-audit');
 cases.push({ name: 'pos-search', screen: 'pos', steps: [async page => {
     await page.evaluate(() => {

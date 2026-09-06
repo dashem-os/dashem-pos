@@ -451,7 +451,55 @@ def _apply_result(
     session: Session, context: TenantContext, transaction: ProviderTransaction,
     result: ProviderResult, actor_id: uuid.UUID,
 ) -> dict:
-    transaction.status = result.status
+    # A late or out-of-order answer must never walk the transaction backwards.
+    # The bridge can repeat itself, and a queued UNKNOWN can arrive after the
+    # acquirer already said CONFIRMED; applying it would reopen a closed charge
+    # and, with it, the parcel's reserve.
+    previous_status = transaction.status
+    if previous_status in negotiation_service.TERMINAL_PROVIDER:
+        # Repeating an answer changes nothing, and a confirmed charge may still
+        # be refunded — that is the story moving forward, not backwards.
+        allowed = (
+            result.status == previous_status
+            or (previous_status == ProviderTransactionStatusEnum.CONFIRMED
+                and result.status == ProviderTransactionStatusEnum.REFUNDED)
+        )
+        # A confirmation contradicting an earlier terminal answer is not a
+        # regression: it means the money went through after we were told it had
+        # not. The transaction still does not move, but the fact is classified
+        # by what happened to the money, and the parcel logic below sees it.
+        contradiction = (
+            result.status == ProviderTransactionStatusEnum.CONFIRMED
+            and previous_status != ProviderTransactionStatusEnum.CONFIRMED
+        )
+        if not allowed and not contradiction:
+            intent = session.exec(select(PaymentIntent).where(
+                PaymentIntent.id == transaction.payment_intent_id,
+                PaymentIntent.tenant_id == context.tenant_id,
+            )).first()
+            if intent is not None:
+                negotiation_service.record_divergence(
+                    session, intent, kind=SettlementDivergenceKindEnum.STATE_REGRESSION_REFUSED,
+                    provider_status=result.status.value, transaction_id=transaction.id,
+                    detail=(
+                        f"Resposta {result.status.value} chegou depois de {previous_status.value}; "
+                        "a transação não retrocede."
+                    ),
+                )
+            transaction.last_queried_at = datetime.utcnow()
+            session.commit()
+            return {
+                "transaction": transaction,
+                "negotiation": negotiation_service.projection(
+                    session, context, intent.negotiation_id, validate=False,
+                ) if intent is not None else {},
+            }
+    if previous_status in negotiation_service.TERMINAL_PROVIDER and result.status != previous_status and result.status != ProviderTransactionStatusEnum.REFUNDED:
+        # Contradiction: keep the transaction where it is and let the parcel
+        # logic below record what the money did.
+        transaction.last_queried_at = datetime.utcnow()
+    else:
+        transaction.status = result.status
     transaction.external_transaction_id = result.external_transaction_id
     transaction.nsu = result.nsu
     transaction.authorization_code = result.authorization_code
@@ -547,17 +595,24 @@ def _apply_result(
                 )
             negotiation = negotiation_service.projection(session, context, intent.negotiation_id, validate=False)
     elif result.status == ProviderTransactionStatusEnum.REFUNDED:
-        # A refund is not a cancellation. Money left and came back, which is a
-        # financial reversal and not a reserve being handed over. Where nothing
-        # had been captured the parcel is closed as cancelled; where it had, the
-        # reversal needs a flow this product does not have yet, so the fact is
-        # recorded and the money is left exactly where it is.
+        # A refund is never a cancelled reserve. Money left the customer and came
+        # back at the acquirer, which is a movement, not an absence of one.
+        #
+        # Where the capture never reached this bill the line has to become
+        # payable again — but closing it as *cancelled* would assert nothing was
+        # ever sent, which is false. It is closed as failed, which is what it is:
+        # an attempt that produced no payment here. The reversal itself is
+        # recorded so it stays visible.
         if intent.status in negotiation_service.OPEN_INTENTS:
-            negotiation = negotiation_service.cancel_intent(
-                session, context, intent.id,
-                reason="Cobrança estornada no provider antes de ser confirmada aqui.",
-                actor_id=actor_id, idempotency_key=f"provider-refund-{transaction.id}",
-                external=True, external_status=result.status.value,
+            divergence = negotiation_service.record_divergence(
+                session, intent, kind=SettlementDivergenceKindEnum.REFUND_WITHOUT_CAPTURE,
+                provider_status=result.status.value, transaction_id=transaction.id,
+                detail="Estorno no provider sem captura confirmada nesta conta; a linha volta a ficar disponível.",
+            )
+            negotiation = negotiation_service.fail_intent(
+                session, context, intent.id, failure_code="PROVIDER_REFUNDED",
+                reason="Cobrança estornada no provider; nenhum pagamento foi recebido por esta parcela.",
+                actor_id=actor_id, idempotency_key=f"provider-refund-{transaction.id}", external=True,
             )
         else:
             divergence = negotiation_service.record_divergence(
@@ -616,6 +671,28 @@ def execute_transaction(
     ).order_by(ProviderTransaction.created_at.desc())).first()
     if previous:
         return reconcile_transaction(session, context, previous.id, actor_id=actor, test_outcome=test_outcome)
+    # Only here, after the idempotent replay and the in-flight reconciliation,
+    # does a *new* charge get considered — so retries and queries keep working
+    # while a closed parcel can never be sent to a card machine again.
+    if intent.status not in negotiation_service.OPEN_INTENTS:
+        raise HTTPException(status_code=409, detail={
+            "code": "INTENT_NOT_EXECUTABLE",
+            "message": "Parcela cancelada, expirada ou já concluída não pode gerar nova cobrança.",
+            "payment_intent_id": str(intent.id), "intent_status": intent.status.value,
+        })
+    settled = session.exec(select(ProviderTransaction).where(
+        ProviderTransaction.tenant_id == context.tenant_id,
+        ProviderTransaction.payment_intent_id == intent.id,
+        ProviderTransaction.status.in_([
+            ProviderTransactionStatusEnum.CONFIRMED, ProviderTransactionStatusEnum.REFUNDED,
+        ]),
+    )).first()
+    if settled is not None:
+        raise HTTPException(status_code=409, detail={
+            "code": "CHARGE_ALREADY_SETTLED",
+            "message": "Esta parcela já possui cobrança concluída no provider; consulte em vez de cobrar de novo.",
+            "provider_transaction_id": str(settled.id), "provider_status": settled.status.value,
+        })
     try:
         adapter = resolve_adapter(configuration.provider_code)
     except LookupError as exc:
@@ -629,6 +706,9 @@ def execute_transaction(
         idempotency_key=idempotency_key, request_hash=request_hash, created_by=actor,
     )
     session.add(transaction); session.flush()
+    # It is leaving now, so the abandonment clock stops: from here the answer
+    # comes from reconciliation, never from a timeout.
+    intent.reserve_expires_at = None
     payment_audit_service.record_request_and_approval(
         session, context, transaction=transaction, intent=intent,
         binding=binding, device=device, actor_id=actor,
@@ -727,3 +807,51 @@ def assert_executable_binding(
     _resolve_execution_binding(
         session, context, payment_device_binding_id=payment_device_binding_id, store_id=store_id,
     )
+
+
+def recover_unapplied_results(session: Session, limit: int = 50) -> list[uuid.UUID]:
+    """Finish applying provider answers whose parcel never heard them.
+
+    `_apply_result` persists the transaction and only then touches the parcel,
+    so a crash between the two commits leaves a CONFIRMED charge beside an open
+    parcel. Nothing is re-asked of the provider here: the answer is already on
+    the row, and this replays it.
+    """
+    recovered = []
+    for transaction in negotiation_service.unapplied_results(session, limit=limit):
+        # Authorship is the principal that started the charge, not an invented
+        # one: the sweep finishes that person's operation (ADR-020).
+        context = TenantContext(
+            tenant_id=transaction.tenant_id, store_id=transaction.store_id,
+            user_id=transaction.created_by,
+        )
+        result = ProviderResult(
+            status=transaction.status,
+            external_transaction_id=transaction.external_transaction_id,
+            nsu=transaction.nsu, authorization_code=transaction.authorization_code,
+            acquirer=transaction.acquirer, card_brand=transaction.card_brand,
+            failure_code=transaction.failure_code, failure_reason=transaction.failure_reason,
+            sanitized_payload=transaction.sanitized_payload,
+        )
+        _apply_result(session, context, transaction, result, transaction.created_by)
+        recovered.append(transaction.id)
+    return recovered
+
+
+def recover_transaction(session: Session, context: TenantContext, transaction_id: uuid.UUID) -> dict:
+    """Replay one persisted answer onto its parcel, without asking again."""
+    transaction = session.exec(scope_tenant_query(select(ProviderTransaction).where(
+        ProviderTransaction.id == transaction_id,
+    ).with_for_update(), ProviderTransaction, context)).first()
+    if not transaction:
+        raise HTTPException(status_code=404, detail="Transação do provider não encontrada.")
+    result = ProviderResult(
+        status=transaction.status, external_transaction_id=transaction.external_transaction_id,
+        nsu=transaction.nsu, authorization_code=transaction.authorization_code,
+        acquirer=transaction.acquirer, card_brand=transaction.card_brand,
+        failure_code=transaction.failure_code, failure_reason=transaction.failure_reason,
+        sanitized_payload=transaction.sanitized_payload,
+    )
+    # The author of the replay is whoever is consulting: they are finishing the
+    # operation, and `resolve_actor` refuses any claim that is not theirs.
+    return _apply_result(session, context, transaction, result, resolve_actor(context))["negotiation"]

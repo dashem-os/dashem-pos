@@ -270,6 +270,10 @@ def query_payment_intent_endpoint(
     charge = negotiation_service.unresolved_charge(session, intent)
     if charge is None:
         return negotiation_service.projection(session, context, intent.negotiation_id, validate=False)
+    if charge.status in negotiation_service.TERMINAL_PROVIDER:
+        # The provider already answered and the parcel never heard it. Nothing
+        # is asked again: the answer on the row is replayed onto the parcel.
+        return provider_service.recover_transaction(session, context, charge.id)
     return provider_service.reconcile_transaction(
         session, context, charge.id, actor_id=data.actor_id,
     )["negotiation"]

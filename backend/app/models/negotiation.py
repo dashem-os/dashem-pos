@@ -172,6 +172,12 @@ class SettlementDivergenceKindEnum(str, Enum):
     LATE_FAILURE = "LATE_FAILURE"
     EXTERNAL_CANCEL_AFTER_CONFIRM = "EXTERNAL_CANCEL_AFTER_CONFIRM"
     REFUND_REQUIRES_REVERSAL = "REFUND_REQUIRES_REVERSAL"
+    # A refund whose capture never reached this bill: the attempt produced no
+    # payment here, but money did move outside and that stays on the record.
+    REFUND_WITHOUT_CAPTURE = "REFUND_WITHOUT_CAPTURE"
+    # A late or out-of-order answer that would have walked a transaction
+    # backwards. Refused, and written down instead of applied.
+    STATE_REGRESSION_REFUSED = "STATE_REGRESSION_REFUSED"
     UNEXPECTED_RESULT = "UNEXPECTED_RESULT"
 
 
@@ -194,7 +200,8 @@ class PaymentSettlementDivergence(SQLModel, table=True):
         ),
         CheckConstraint(
             "kind IN ('LATE_CONFIRMATION', 'LATE_FAILURE', 'EXTERNAL_CANCEL_AFTER_CONFIRM', "
-            "'REFUND_REQUIRES_REVERSAL', 'UNEXPECTED_RESULT')",
+            "'REFUND_REQUIRES_REVERSAL', 'REFUND_WITHOUT_CAPTURE', 'STATE_REGRESSION_REFUSED', "
+            "'UNEXPECTED_RESULT')",
             name="ck_settlement_divergence_kind",
         ),
     )
