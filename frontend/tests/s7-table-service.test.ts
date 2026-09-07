@@ -34,3 +34,28 @@ test('renders real empty state and server-composed totals without fixtures', () 
   assert.match(workspace, /consolidated_total/)
   assert.doesNotMatch(workspace, /mock|fixture|Mesa 2.*120/)
 })
+
+
+test('the table selector scope is fixed to TABLE/FOOD_SERVICE and never follows the operated activity', () => {
+  const selector = readFileSync(join(root, 'components', 'tables', 'TableProductSelector.tsx'), 'utf8')
+
+  // Num tenant misto — varejo e food service no mesmo contrato — a pessoa troca
+  // de atividade no PDV para vender balcão. Isso não pode reescrever o cardápio
+  // da mesa: mesa é food service por definição, não pela aba selecionada.
+  assert.match(selector, /sales_context: 'TABLE', activity: 'FOOD_SERVICE'/)
+  assert.doesNotMatch(
+    selector,
+    /activity:\s*(activeActivity|operationMode|scope\.)/,
+    'o escopo do seletor de mesa passou a seguir a atividade operada',
+  )
+  assert.doesNotMatch(
+    selector,
+    /sales_context:\s*(activeActivity|operationMode)/,
+    'o contexto de venda do seletor de mesa deixou de ser fixo em TABLE',
+  )
+
+  // A vitrine do balcão, essa sim, segue a atividade operada — as duas telas
+  // divergem de propósito, e é isso que o teste registra.
+  const showcase = readFileSync(join(root, 'components', 'pos', 'ProductShowcase.tsx'), 'utf8')
+  assert.match(showcase, /business_activity: activeActivity/)
+})

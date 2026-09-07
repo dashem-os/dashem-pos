@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlmodel import Session, select
 
+from activity_fixtures import declare_food_service
 from app.core.database import engine
 from app.core.context import TenantContext, authorize_tenant_context, resolve_actor
 from app.core.security import AuthPrincipal
@@ -212,16 +213,29 @@ async def test_missing_capabilities_rejected_on_catalog_and_orders():
         assert ecom_cat.status_code == 403
         assert "e-commerce não contratada" in ecom_cat.json()["detail"]
 
-        # 2. TABLE context without table_service capability -> 403 on catalog and order
+        # 2. TABLE sem atividade declarada -> 403, e a recusa aponta a raiz.
+        # Este tenant não declarou atividade nenhuma. A falta que importa não é a
+        # capability: é a atividade, porque conceder a capability sem ela não
+        # abriria a jornada de qualquer forma.
         table_cat = await client.get("/api/v1/catalog/sellable-products?sales_context=TABLE", headers=headers)
         assert table_cat.status_code == 403
-        assert "table_service" in table_cat.json()["detail"]
+        assert "FOOD_SERVICE" in table_cat.json()["detail"]
 
         table_ord = await client.post("/api/v1/orders", headers={**headers, "Idempotency-Key": f"ord-tbl-{suffix}"}, json={
             "store_id": store["id"], "origin": "POS", "fulfillment": "DINE_IN",
         })
         assert table_ord.status_code == 403
-        assert "table_service" in table_ord.json()["detail"]
+        assert "FOOD_SERVICE" in table_ord.json()["detail"]
+
+        # 2b. Declarada a atividade e ainda sem a capability, a recusa muda de
+        # motivo — são duas exigências, e a mensagem diz qual delas falta.
+        with Session(engine) as db:
+            set_platform_db_context(db)
+            declare_food_service(db, tenant["id"])
+
+        table_cat_no_cap = await client.get("/api/v1/catalog/sellable-products?sales_context=TABLE", headers=headers)
+        assert table_cat_no_cap.status_code == 403
+        assert "table_service" in table_cat_no_cap.json()["detail"]
 
         # 3. DELIVERY context without delivery_orders capability -> 403 on catalog and order
         deliv_cat = await client.get("/api/v1/catalog/sellable-products?sales_context=DELIVERY", headers=headers)
@@ -242,7 +256,8 @@ async def test_missing_capabilities_rejected_on_catalog_and_orders():
         no_store = await client.get("/api/v1/catalog/sellable-products?sales_context=COUNTER", headers={"X-Tenant-ID": tenant["id"]})
         assert no_store.status_code == 400
 
-        # 6. Once table_service is granted, TABLE journey succeeds
+        # 6. Com atividade **e** capability, a jornada abre. Nenhuma das duas
+        # sozinha basta, que é a regra inteira num teste só.
         with Session(engine) as db:
             set_platform_db_context(db)
             db.add(TenantCapability(

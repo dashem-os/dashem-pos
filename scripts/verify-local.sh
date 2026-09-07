@@ -35,7 +35,7 @@ docker exec -e TEST_BASE_URL="$IN_CONTAINER_API" "$BACKEND_CONTAINER" python -m 
   --ignore=tests/test_frontend_api_contract.py \
   --ignore=tests/test_supabase_storage_adapter.py \
   --ignore=tests/test_surface_reachability.py \
-  --ignore=tests/test_capability_readiness.py
+  --ignore=tests/test_capability_readiness.py \n  --ignore=tests/test_food_rule_impact_report.py
 
 step "Backend: testes que leem o repositório inteiro"
 # The running container only mounts backend/, so these read frontend/, docs/ and
@@ -53,7 +53,7 @@ MSYS_NO_PATHCONV=1 docker run --rm --network "$NETWORK" -v "$ROOT:/repo" -w /rep
   -e SECRET_KEY="local-verify-secret-key-with-at-least-32-chars" \
   -e ENVIRONMENT=development -e AUTH_MODE=disabled \
   -e TEST_BASE_URL="http://${BACKEND_CONTAINER}:8000" \
-  "$IMAGE" python -m pytest tests/test_frontend_api_contract.py tests/test_supabase_storage_adapter.py tests/test_surface_reachability.py tests/test_capability_readiness.py -q
+  "$IMAGE" python -m pytest tests/test_frontend_api_contract.py tests/test_supabase_storage_adapter.py tests/test_surface_reachability.py tests/test_capability_readiness.py tests/test_food_rule_impact_report.py -q
 
 step "Frontend: tipos, testes e build"
 cd frontend

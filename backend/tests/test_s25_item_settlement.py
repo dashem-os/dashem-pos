@@ -16,6 +16,7 @@ import httpx
 import pytest
 from sqlmodel import Session
 
+from activity_fixtures import declare_food_service
 from app.core.database import engine
 from app.core.tenancy import set_platform_db_context
 
@@ -36,6 +37,9 @@ async def _table_with_menu(client: httpx.AsyncClient, prefix: str):
     with Session(engine) as db:
         set_platform_db_context(db)
         from app.models.platform import TenantCapability, EntitlementStatusEnum
+        # Atender mesa é assunto de food service, e o tenant precisa dizer que é
+        # isso — inclusive o legado, que deixou de ser exceção à regra.
+        declare_food_service(db, tenant["id"])
         for key in ("counter_order", "table_service"):
             db.add(TenantCapability(
                 tenant_id=uuid.UUID(tenant["id"]), key=key,

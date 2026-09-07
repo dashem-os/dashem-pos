@@ -5,6 +5,7 @@ import httpx
 import pytest
 from sqlmodel import Session
 
+from activity_fixtures import declare_food_service
 from app.core.database import engine
 from app.core.tenancy import set_platform_db_context
 from app.models.catalog import SalesChannel, SalesChannelTypeEnum
@@ -18,6 +19,7 @@ async def _base(client: httpx.AsyncClient, label: str):
     with Session(engine) as db:
         set_platform_db_context(db)
         from app.models.platform import TenantCapability, EntitlementStatusEnum
+        declare_food_service(db, tenant["id"])
         db.add(TenantCapability(tenant_id=uuid.UUID(tenant["id"]), key="counter_order", enabled=True, status=EntitlementStatusEnum.ACTIVE))
         db.add(TenantCapability(tenant_id=uuid.UUID(tenant["id"]), key="table_service", enabled=True, status=EntitlementStatusEnum.ACTIVE))
         db.add(TenantCapability(tenant_id=uuid.UUID(tenant["id"]), key="delivery_orders", enabled=True, status=EntitlementStatusEnum.ACTIVE))
