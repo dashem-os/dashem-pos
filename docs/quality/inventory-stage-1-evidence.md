@@ -168,12 +168,12 @@ massa transformaria histórico errado em histórico falsificado.
 
 | O quê | Resultado |
 |---|---|
-| `backend/tests` completo | 510 passaram, 1 pulado (a guarda de CI, fora de CI) |
+| `backend/tests` completo | 511 passaram, 1 pulado (a guarda de CI, fora de CI) |
 | `test_inventory_movement_integrity.py` | 30 passaram (eram 16 falhas em `07ae804`) |
 | `test_negotiation_sale_stock.py` | 7 passaram |
 | `test_inventory_count.py` | 37 passaram |
 | `test_linked_sale_return.py` | 35 passaram |
-| `test_inventory_http_contract.py` | 13 passaram, contra servidor autenticado |
+| `test_inventory_http_contract.py` | 14 passaram, contra servidor autenticado |
 | `test_inventory_integrity_diagnosis.py` | 7 passaram |
 | `frontend` — `npm test` | 137 passaram |
 | `tsc --noEmit` | limpo |
@@ -340,6 +340,13 @@ arredondar em silêncio — `0,00005` virava `0,0001` sem ninguém ficar sabendo
 Agora a quantidade além da quarta casa é recusada com a régua explícita, na
 movimentação e na contagem. Um teste confere que contado, diferença e movimento
 batem até a última casa, e que a aritmética do livro fecha nelas.
+
+Uma correção do meu próprio relato: eu escrevi que dois desses achados "não
+seriam encontrados por teste de backend nenhum". **Está errado.** A versão
+incorreta do saldo ausente é alcançável por um `GET /inventory/balance` sobre
+produto sem movimento — e esse teste agora existe, em
+`test_inventory_http_contract.py`. Era lacuna de cobertura, não impossibilidade.
+Só a chave de idempotência recriada a cada clique exige exercitar o cliente.
 
 **Conflito na tela.** Reler o saldo transformava a contagem antiga em confirmação
 válida: um clique mandava o número contado *antes* da movimentação contra a
@@ -712,6 +719,52 @@ próxima — produziria um vínculo que ninguém verificou, com a aparência de 
 A migração 084 cria a coluna e deixa o histórico nulo de propósito: **ausência de
 vínculo é a verdade sobre o que se sabe**, e é por isso que a recusa pede
 conferência em vez de afirmar que a mercadoria ficou.
+
+### Proposta de decisão sobre os sete achados
+
+O tratamento acima descreve *como* mexer. Isto é o que proponho **fazer**, para
+sua decisão:
+
+| Achado | Proposta | Quando |
+|---|---|---|
+| 6 saldos com livro vazio, tenant TRIAL | **Não corrigir.** Contar a prateleira quando o tenant voltar a operar, o que registra conferência com data e responsável sem inventar movimento | Na próxima operação do tenant, não antes do merge |
+| 1 item vendido sem vínculo, tenant TRIAL | **Não fazer nada.** Se devolverem, a tela pede conferência de 1 unidade | Nenhuma ação prévia |
+
+**Nenhum dos sete bloqueia o merge**, e a razão é verificável: todos estão em
+`Test Tenant - McMarcelo's`, que é TRIAL; o único tenant `ACTIVE` não tem venda
+nem achado. Não há cliente exposto ao comportamento novo.
+
+**O que essa proposta assume, e que você pode recusar:** que dado de tenant TRIAL
+não precisa de correção retroativa. Se a intenção for tratar o ambiente publicado
+como se fosse produção plena, a alternativa é contar os seis produtos antes do
+merge — o que é meia hora de trabalho de alguém com acesso à unidade, e não muda
+nada no código.
+
+### Um achado fora do escopo desta branch, encontrado ao investigar
+
+Investigando uma falha local de `test_s25_1_payment_recovery`, encontrei um
+mecanismo real na varredura de recuperação de pagamento — **anterior a esta
+branch** e não introduzido por ela:
+
+`recover_unapplied_results` devolve como "recuperadas" linhas que continuam na
+fila. No banco local, 42 transações `REFUNDED` com parcela `PROCESSING` são
+reprocessadas a cada varredura e nunca saem: aplicar o resultado não move a
+parcela para fora do conjunto aberto. Como a fila é varrida **da mais antiga para
+a mais nova** e com lote limitado, um acúmulo dessas linhas **inanição as mais
+novas** — que é exatamente o que quebrava o teste.
+
+As 42 linhas são artefato das minhas execuções, e o ambiente publicado não tem
+nenhuma. O mecanismo, porém, não depende de quem criou as linhas: qualquer par
+`REFUNDED` + `PROCESSING` fica na fila para sempre e consome um lugar do lote.
+
+**Não corrigi**, e a razão é de escopo: mexer na recuperação de pagamento dentro
+de uma branch de estoque escaparia da revisão que esta entrega recebeu. Fica
+registrado para uma decisão própria.
+
+O teste teve o isolamento corrigido sem perder cobertura: em vez de um lote fixo
+de 50, ele mede a fila e pede um lote que a cubra. Continua provando o mesmo — a
+linha danificada é pulada, a saudável atrás dela é aplicada — sem depender de
+quantas linhas alheias existem no banco.
 
 ### O que este diagnóstico não decide
 

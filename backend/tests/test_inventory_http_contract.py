@@ -468,3 +468,44 @@ async def test_a_forged_actor_is_refused_over_http():
         )
     assert response.status_code == 403, response.text
     assert _balance(fixture) == Decimal("8.0000")
+
+
+@requires_server
+@pytest.mark.asyncio
+async def test_the_balance_of_a_product_never_moved_reports_version_zero_over_http():
+    """A lacuna que a revisão consolidada expôs, fechada onde ela existia.
+
+    Eu havia dito que este defeito não seria alcançável por teste de backend
+    nenhum. Estava errado: a leitura do saldo de um produto sem movimento é uma
+    chamada HTTP, e ela devolvia versão 1 enquanto a contagem trata ausência
+    como 0 — o suficiente para a primeira contagem de um produto novo entrar em
+    conflito para sempre. Era lacuna de cobertura, não impossibilidade.
+
+    Só a chave de idempotência recriada a cada clique exige exercitar o cliente;
+    esta metade sempre coube aqui.
+    """
+    fixture = _tenant_with(RoleEnum.MANAGER, stock="")
+    async with _client(fixture) as client:
+        leitura = await client.get(
+            f"/api/v1/inventory/balance"
+            f"?store_id={fixture['store_id']}&product_id={fixture['product_id']}"
+        )
+        assert leitura.status_code == 200, leitura.text
+        saldo = leitura.json()
+        assert Decimal(str(saldo["quantity"])) == Decimal("0.00")
+        assert saldo["version"] == 0, (
+            "o saldo ausente reportou versão 1, e a contagem trata ausência como 0"
+        )
+
+        # E a contagem aceita exatamente a versão que a leitura devolveu.
+        contagem = await client.post(
+            "/api/v1/inventory/count",
+            headers={"Idempotency-Key": f"count-{uuid.uuid4().hex[:10]}"},
+            json={
+                "store_id": fixture["store_id"], "product_id": fixture["product_id"],
+                "actor_id": fixture["user_id"], "counted_quantity": 5,
+                "expected_version": saldo["version"],
+            },
+        )
+    assert contagem.status_code == 200, contagem.text
+    assert _balance(fixture) == Decimal("5.0000")

@@ -876,6 +876,7 @@ async def test_s25_1_the_sweep_reaches_the_oldest_stuck_parcel_not_only_the_newe
 @pytest.mark.asyncio
 async def test_s25_1_one_damaged_row_does_not_block_the_queue_behind_it():
     """A sweep that aborts on the first bad row never drains a backlog."""
+    from app.services import negotiation_service
     from app.services.provider_service import recover_unapplied_results
 
     async with httpx.AsyncClient(base_url=BASE_URL) as client:
@@ -919,7 +920,17 @@ async def test_s25_1_one_damaged_row_does_not_block_the_queue_behind_it():
             PaymentExecutionEvent.provider_transaction_id == damaged.id,
         )).all() == []
 
-        recovered = recover_unapplied_results(db, limit=50)
+        # A fila é global e não drena sozinha: uma linha cujo resultado é
+        # aplicável mas cuja parcela continua aberta permanece nela para sempre
+        # e ocupa um lugar do lote. Com lote fixo de 50, bastavam 49 linhas
+        # alheias para que a linha saudável deste teste — a mais nova, e a fila
+        # é varrida da mais antiga para a mais nova — ficasse fora da janela, e
+        # o teste falhava por volume de banco, não por regressão.
+        #
+        # Medir a fila e pedir um lote que a cubra mantém exatamente o que este
+        # teste prova: a danificada é pulada, e a saudável atrás dela é aplicada.
+        backlog = len(negotiation_service.unapplied_results(db, limit=10_000))
+        recovered = recover_unapplied_results(db, limit=backlog)
         # The damaged row is skipped and the healthy one behind it is applied.
         assert damaged.id not in recovered
         assert uuid.UUID(good_transaction) in recovered
