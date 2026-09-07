@@ -49,7 +49,20 @@ const inventory = readFileSync(
 )
 
 test('a tela manda a versão que a pessoa tinha à vista', () => {
-  assert.match(inventory, /expected_version: countBase\?\.version \?\? 0/)
+  // E não uma versão inventada: enquanto o saldo não chega, `countBase` é nulo,
+  // e nem o envio nem o botão aceitam substituto. Antes o `?? 0` mandava zero
+  // por conta própria, e a pessoa levava um conflito que não causou.
+  assert.match(inventory, /expected_version: countBase\.version/)
+  assert.doesNotMatch(inventory, /countBase\?\.version \?\? 0/)
+  assert.match(inventory, /counted === '' \|\| countBase === null/)
+})
+
+test('saldo ainda não lido não é exibido como zero', () => {
+  // A instância hiberna: essa espera pode durar quase um minuto, e um "0 UN"
+  // afirmado nesse intervalo é um número que ninguém verificou.
+  assert.match(inventory, /countBase === null \? \(/)
+  assert.match(inventory, /Lendo o saldo registrado/)
+  assert.doesNotMatch(inventory, /Number\(countBase\?\.quantity \?\? 0\)/)
 })
 
 test('o conflito preserva o que foi digitado e pede nova conferência', () => {
@@ -70,7 +83,7 @@ test('depois do conflito, confirmar exige um ato deliberado', () => {
   // a versão recém-lida, que é a aceitação silenciosa que a versão impede.
   assert.match(inventory, /const \[recounted, setRecounted\] = useState\(false\)/)
   assert.match(inventory, /setCountConflict\(reason\.message\)\s+setRecounted\(false\)/)
-  assert.match(inventory, /disabled=\{busy \|\| counted === '' \|\| \(Boolean\(countConflict\) && !recounted\)\}/)
+  assert.match(inventory, /disabled=\{busy \|\| countBase === null \|\| counted === '' \|\| \(Boolean\(countConflict\) && !recounted\)\}/)
   assert.match(inventory, /Voltei à prateleira/)
 })
 
@@ -195,8 +208,13 @@ test('o formulário de contagem não abre mostrando o saldo do produto anterior'
 test('falha ao salvar o mínimo não vira mensagem de sucesso', () => {
   const envio = inventory.slice(inventory.indexOf('const submit = async'))
   const corpo = envio.slice(0, envio.indexOf('// -------'))
-  assert.match(corpo, /minimoSalvo = false/)
-  assert.match(corpo, /if \(minimoSalvo\) showToast\('success'/)
+  // O sucesso da movimentação é anunciado por `adjustStock`, depois de a API
+  // aceitar. O mínimo é outra chamada: quando ela falha, a pessoa é avisada, e
+  // esta tela não emite sucesso por conta própria.
+  assert.match(corpo, /catch \(reason\)[\s\S]*?showToast\('error'/)
+  assert.doesNotMatch(corpo, /showToast\('success'/)
+  // E a mesma falha, na outra tela que salva mínimo, também é dita.
+  assert.match(catalog, /O estoque mínimo não foi salvo/)
 })
 
 test('nenhuma tela oferece o ajuste assinado que a rota comum recusa', () => {

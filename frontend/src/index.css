@@ -61,7 +61,17 @@
 @layer base {
   body {
     @apply min-h-screen bg-dashem-bg font-sans text-dashem-strong antialiased selection:bg-brand selection:text-brand-contrast;
-    overflow-wrap: anywhere;
+    /*
+      `break-word`, not `anywhere`. Both break a word that would overflow its
+      line, but `anywhere` also lets a box shrink to one character wide, and
+      auto-layout tables take that literally: a tight column split "Produto"
+      into "PRODUT / O" and "Ativo" into "ATIV / O". With `break-word` the
+      narrowest a column can get is its longest word, which is what a person
+      reading a table expects. Wide tables scroll inside their own container,
+      and opaque strings — keys, ids, access codes — ask for `break-all` where
+      they appear.
+    */
+    overflow-wrap: break-word;
   }
 
   /* Let content shrink inside grids and flex rows, including long names/IDs. */

@@ -1,4 +1,5 @@
 import { ResponsiveTable } from '../common/DataTable'
+import { RowAction, RowActions } from '../common/RowActions'
 import React, { useState, useEffect, useCallback } from 'react'
 import {
   Layers, Plus, Search, RefreshCw, AlertCircle,
@@ -41,6 +42,7 @@ export const AssortmentManager: React.FC = () => {
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('')
+  const [mostrarExplicacao, setMostrarExplicacao] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [conflictError, setConflictError] = useState<string | null>(null)
@@ -333,12 +335,28 @@ export const AssortmentManager: React.FC = () => {
         )}
       </div>
 
-      <section className="rounded-2xl border border-dashem-border bg-dashem-surface p-4">
-        <p className="text-sm font-black text-dashem-strong">Aqui você organiza a publicação, não o cadastro do produto.</p>
-        <p className="mt-1 text-xs leading-5 text-dashem-muted">
-          Produtos, fotos, preços e estoque são mantidos em “Produtos e preços”. Neste módulo, um sortimento reúne esses produtos e define em quais unidades, atividades e jornadas eles aparecem.
-        </p>
-      </section>
+      {/*
+        A distinção entre publicar e cadastrar é verdadeira e vale a pena — uma
+        vez. Fixa no topo, ela ocupa todo dia o espaço da lista que a pessoa
+        veio ver. Aparece sozinha quando ainda não há sortimento nenhum, e
+        depois disso fica a um clique.
+      */}
+      {(mostrarExplicacao || assortments.length === 0) && (
+        <section className="rounded-2xl border border-dashem-border bg-dashem-surface p-4">
+          <p className="text-sm font-black text-dashem-strong">Aqui você organiza a publicação, não o cadastro do produto.</p>
+          <p className="mt-1 text-xs leading-5 text-dashem-muted">
+            Produtos, fotos, preços e estoque são mantidos em “Produtos e preços”. Neste módulo, um sortimento reúne esses produtos e define em quais unidades, atividades e jornadas eles aparecem.
+          </p>
+        </section>
+      )}
+      {assortments.length > 0 && (
+        <button
+          type="button" onClick={() => setMostrarExplicacao((visivel) => !visivel)}
+          className="self-start text-xs font-black text-dashem-muted underline decoration-dotted underline-offset-4 hover:text-dashem-strong"
+        >
+          {mostrarExplicacao ? 'Ocultar o que é um sortimento' : 'O que é um sortimento?'}
+        </button>
+      )}
 
       {/* Error alert */}
       {error && (
@@ -459,11 +477,10 @@ export const AssortmentManager: React.FC = () => {
             <ResponsiveTable className="w-full text-left text-xs">
               <thead className="bg-dashem-surface-elevated text-dashem-muted font-extrabold uppercase tracking-wider text-[10px] border-b border-dashem-border">
                 <tr>
-                  <th className="px-5 py-3.5">Código / Nome</th>
-                  <th className="px-4 py-3.5">Contextos Atribuídos</th>
+                  <th className="px-5 py-3.5">Sortimento</th>
+                  <th className="px-4 py-3.5">Onde é vendido</th>
                   <th className="px-4 py-3.5 text-center">Produtos</th>
-                  <th className="px-4 py-3.5 text-center">Versão</th>
-                  <th className="px-4 py-3.5 text-center">Estado</th>
+                  <th className="px-4 py-3.5 text-center">Situação</th>
                   <th className="px-5 py-3.5 text-right">Ações</th>
                 </tr>
               </thead>
@@ -488,15 +505,12 @@ export const AssortmentManager: React.FC = () => {
                           </span>
                         ))}
                         {ass.scopes.length === 0 && (
-                          <span className="text-xs text-amber-700 font-semibold italic">Sem escopos</span>
+                          <span className="text-xs font-bold text-amber-700">Ainda não publicado</span>
                         )}
                       </div>
                     </td>
                     <td className="px-4 py-4 text-center">
                       <span className="font-bold text-dashem-strong">{ass.product_count}</span>
-                    </td>
-                    <td className="px-4 py-4 text-center font-mono text-dashem-muted text-xs">
-                      v{ass.version}
                     </td>
                     <td className="px-4 py-4 text-center">
                       <span
@@ -509,10 +523,16 @@ export const AssortmentManager: React.FC = () => {
                         {ass.status === 'ACTIVE' ? 'Ativo' : 'Inativo'}
                       </span>
                     </td>
-                    <td className="px-5 py-4 text-right space-x-2">
+                    <td className="px-5 py-4">
+                      <div className="flex flex-nowrap items-center justify-end gap-2">
+                      {/*
+                        Mexer nos produtos do sortimento é o que se faz toda
+                        semana; renomear é ocasional; excluir é raro e não deve
+                        ficar a um clique de distância do resto.
+                      */}
                       <button
                         onClick={() => openManageProducts(ass)}
-                        className="px-3 py-1.5 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-dashem-strong text-xs font-bold hover:border-dashem-red transition"
+                        className="inline-flex min-h-11 items-center rounded-xl border border-dashem-border bg-dashem-surface-elevated px-3 text-xs font-black text-dashem-strong transition hover:border-dashem-red"
                       >
                         Produtos ({ass.product_count})
                       </button>
@@ -520,20 +540,18 @@ export const AssortmentManager: React.FC = () => {
                         <>
                           <button
                             onClick={() => openEditModal(ass)}
-                            className="p-1.5 rounded-lg text-dashem-muted hover:text-dashem-strong transition"
-                            title="Editar sortimento"
+                            className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-dashem-border px-3 text-xs font-black text-dashem-strong transition hover:border-dashem-red"
                           >
-                            <Edit3 className="h-4 w-4" />
+                            <Edit3 className="h-4 w-4" />Editar
                           </button>
-                          <button
-                            onClick={() => handleDelete(ass)}
-                            className="p-1.5 rounded-lg text-dashem-muted hover:text-red-700 transition"
-                            title="Excluir sortimento"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
+                          <RowActions label={`Mais ações de ${ass.name}`}>
+                            <RowAction icon={Trash2} tone="critical" onClick={() => handleDelete(ass)}>
+                              Excluir sortimento
+                            </RowAction>
+                          </RowActions>
                         </>
                       )}
+                      </div>
                     </td>
                   </tr>
                 ))}

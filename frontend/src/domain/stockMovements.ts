@@ -12,6 +12,31 @@
 
 export type StockMovementType = 'PURCHASE' | 'LOSS' | 'RETURN' | 'ADJUSTMENT'
 
+/**
+ * O histórico é lido por quem opera, não por quem programou.
+ *
+ * `PURCHASE`, `ADJUSTMENT` e `SALE` são nomes internos do movimento. Na tela
+ * eles precisam dizer o que aconteceu com a mercadoria, na palavra de quem
+ * trabalha com ela.
+ */
+export const MOVEMENT_LABELS: Record<string, string> = {
+  PURCHASE: 'Entrada',
+  LOSS: 'Perda',
+  RETURN: 'Devolução',
+  ADJUSTMENT: 'Conferência',
+  SALE: 'Venda',
+}
+
+export function movementLabel(type: string): string {
+  return MOVEMENT_LABELS[type] || type
+}
+
+/** Quanto entrou ou saiu, com sinal, na unidade da mercadoria. */
+export function movementAmount(quantity: number, unit = 'un'): string {
+  const sinal = quantity > 0 ? '+' : ''
+  return `${sinal}${quantity} ${unit}`
+}
+
 export const DEFAULT_STOCK_REASONS: Record<StockMovementType, string> = {
   PURCHASE: 'Entrada de mercadoria',
   LOSS: 'Perda, avaria ou vencimento',

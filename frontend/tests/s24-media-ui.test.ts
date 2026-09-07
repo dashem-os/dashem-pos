@@ -18,10 +18,16 @@ test('keeps product registration legible and makes publication an explicit choic
   assert.match(manager, /maxWidth="2xl"/)
   assert.match(manager, /Todos os produtos/)
   assert.match(manager, /Publicados por contexto/)
-  assert.match(manager, /Publicação no PDV/)
+  // A escolha continua explícita; o que saiu foi a explicação do modelo de
+  // dados no meio do cadastro — "tenant", "cota" e "produto é o cadastro" são
+  // vocabulário nosso, não de quem cadastra mercadoria.
+  assert.match(manager, /Onde este item será vendido/)
   assert.match(manager, /Não publicar agora/)
+  assert.doesNotMatch(manager, /Produto é o cadastro/)
   assert.match(picker, /sm:grid-cols-\[6rem_minmax\(0,1fr\)\]/)
-  assert.match(picker, /privada para este tenant/)
+  assert.match(picker, /só o seu negócio a vê/)
+  assert.doesNotMatch(picker, /privada para este tenant/)
+  assert.doesNotMatch(picker, /consome a sua cota/)
   assert.match(picker, /somente leitura/)
 })
 

@@ -32,17 +32,29 @@ test('o cadastro de produtos não fecha o formulário sobre uma recusa', () => {
 })
 
 test('a tela de estoque só comemora depois de o servidor aceitar', () => {
-  // Recortado no handler da movimentação: a tela também conta estoque hoje, e
-  // o aviso de sucesso daquela outra operação não responde por esta.
+  // O aviso de sucesso saiu daqui: quem o emite é `adjustStock`, e só depois de
+  // a API responder. Duas mensagens para uma ação diziam a mesma coisa duas
+  // vezes; o que esta tela não pode fazer é anunciar por conta própria.
   const submit = inventory.slice(inventory.indexOf('const submit = async'))
-  const corpo = submit.slice(0, submit.indexOf('return <div'))
-  assert.ok(corpo.indexOf('await adjustStock(') < corpo.indexOf("showToast('success'"))
-  assert.match(corpo, /\} catch \{/)
+  const corpo = submit.slice(0, submit.indexOf('// -------'))
+  assert.doesNotMatch(corpo, /showToast\('success'/)
+})
+
+test('a recusa do servidor fica no formulário, não só no aviso que some', () => {
+  // O aviso flutuante dura poucos segundos. Quem digitou 999 e viu o aviso
+  // passar não descobre mais por que nada foi registrado.
+  const submit = inventory.slice(inventory.indexOf('const submit = async'))
+  const corpo = submit.slice(0, submit.indexOf('// -------'))
+  assert.match(corpo, /catch \(reason\) \{[\s\S]*setMovementError\(/)
+  assert.match(corpo, /setMovementError\([\s\S]*?\)\s+setBusy\(false\)\s+return/)
+  assert.match(inventory, /role="alert"[\s\S]*?\{movementError\}/)
 })
 
 test('a mensagem de sucesso fala a língua do lojista', () => {
   assert.doesNotMatch(inventory, /ledger/i)
-  assert.match(inventory, /histórico do estoque/)
+  // A frase vive onde o aviso é emitido: no contexto, depois da resposta da API.
+  assert.match(context, /histórico do estoque/)
+  assert.doesNotMatch(context, /Estoque ajustado com sucesso/)
 })
 
 test('nenhuma tela inventa sinal negativo para representar saída', () => {

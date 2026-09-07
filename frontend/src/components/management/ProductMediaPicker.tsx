@@ -143,8 +143,7 @@ export const ProductMediaPicker: React.FC<Props> = ({ headers, activity, current
             )}
           </div>
           <p className="text-xs leading-5 text-dashem-muted">
-            Sua foto fica privada para este tenant e pode ser usada em todas as suas unidades e dispositivos.
-            A biblioteca DASHEM é compartilhada somente para escolha e não consome a sua cota.
+            A sua foto vale para todas as suas unidades, e só o seu negócio a vê.
           </p>
         </div>
       </div>
