@@ -289,7 +289,7 @@ liberação seguem pendentes.
 |---|---|---|
 | 1 — Corrigir movimentos | Contrato de quantidade, transação composta, concorrência, idempotência, propagação de erro e diagnóstico histórico | Gate de integridade aprovado |
 | 2 — Completar o fluxo básico | Acervo de estoque independente, ações explícitas, formulários compartilhados, histórico completo, mínimo e correção visual das quatro superfícies | Gates de operação e apresentação aprovados |
-| 3 — Disponibilidade, risco e reposição | Quatro incrementos independentes, especificados abaixo: 3.1 disponibilidade prometida, 3.2 ponto de reposição, 3.3 previsão por padrão de demanda, 3.4 sugestão de compra | Gate específico de cada incremento; capacidade incompleta não anunciada como pronta |
+| 3 — Disponibilidade, risco e reposição | Cinco incrementos independentes: 3.0 linguagem e hierarquia, 3.1 disponibilidade prometida, 3.2 ponto de reposição, 3.3 previsão por padrão de demanda, 3.4 sugestão de compra | Gate específico de cada incremento; capacidade incompleta não anunciada como pronta |
 | 4 — Ampliar por cenário | Depósitos, compras, lotes, receitas e consumo | Gate específico de cada cenário |
 
 Antes da etapa 1, executor registra commit-base, caminhos de venda, contrato dos
@@ -324,6 +324,28 @@ ordem entra.
 | Aviso de falta acontece no pagamento | Percepção a cada item; o pagamento continua sendo a barreira final |
 | Mínimo manual é a inteligência | Mínimo manual é **piso**; ROP é a inteligência |
 
+### 3.0 — Linguagem e hierarquia da tela
+
+Não depende de ATP nem de previsão, e vem primeiro porque decide onde tudo o
+que vier depois vai aparecer. Regra em
+[ADR-034](../architecture/adr-034-interface-hierarchy.md).
+
+| Superfície | O que muda |
+|---|---|
+| Estoque — lista | Uma pergunta por coluna: **Disponível**, **Situação**, **Ação**. `Mínimo desejado` sai da lista |
+| Estoque — topo | Os três cartões viram uma faixa que conclui: "2 produtos precisam de atenção" ou "Estoque saudável — nenhum item requer ação agora" |
+| Estoque — detalhe | Composição, mínimo atual, ações e *Configurações avançadas* |
+| Produtos | Um número por linha; faixa 1‑2‑3 fechada por padrão e ausente depois do primeiro produto publicado |
+| Sortimentos | "Catálogos e cardápios"; "Onde este cardápio será usado?" no lugar de contextos operacionais; versão fora da jornada diária |
+| Todas | Vocabulário da tabela do ADR-034 |
+
+O modal do mínimo passa a se chamar **Estoque de referência**, com uma linha
+dizendo que ele vale enquanto não houver histórico — o que prepara a troca por
+regime automático em 3.2 sem mudar de nome de novo.
+
+Condição de saída: navegação real na resolução real, nas quatro superfícies,
+com dados reais. Componente isolado não homologa tela.
+
 ### 3.1 — Disponibilidade prometida (ATP)
 
 Resolve o defeito do PDV. Sem previsão, sem estatística: só contabilidade do
@@ -352,8 +374,10 @@ disponíveis:
 | tenta a décima | **bloqueia** | "Indisponível. Disponível: 9" |
 | folga confortável | aceita | nada — silêncio é informação |
 
-**Na tela de Estoque**, a coluna deixa de ser só saldo: `40 un` com `2
-comprometidos` quando houver reserva ativa.
+**Na tela de Estoque**, a coluna **Disponível** passa a mostrar o ATP — um
+número só. Físico e comprometido vivem no detalhe
+([ADR-034](../architecture/adr-034-interface-hierarchy.md)); na linha, quando
+houver razão operacional, cabe no máximo um sinal discreto como "2 em vendas".
 
 Condição de saída: gate de integridade (concorrência entre duas comandas sobre
 a mesma mercadoria, cancelamento devolvendo reserva, conclusão consumindo sem
@@ -369,6 +393,7 @@ dupla contagem) e gate de operação pela tela.
 | Permissão | `inventory.policy.manage`, concedida a OWNER/TENANT_OWNER/ADMIN — quem ajusta política não é quem conta prateleira |
 | Fórmulas | `ROP = d̄ × L + SS`; `SS = z × √(L·σd² + d̄²·σL²)`; `cobertura = ATP / d̄` |
 | Nível de serviço | escolhido por nome — **Econômica** (z≈1,28), **Balanceada** (z≈1,65), **Alta disponibilidade** (z≈2,05) — nunca pedindo `z` ao comerciante |
+| Na tela | *Reposição: ○ Automática (recomendada) · ● Manual — mínimo de 10 un*. O comerciante escolhe regime, não fórmula |
 
 Enquanto `d̄` não existir, `risk_state` usa a faixa sobre o mínimo manual do
 ADR-033, e o produto aparece como **Atenção** em vez de Regular. Quando faltar
