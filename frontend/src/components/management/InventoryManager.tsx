@@ -84,6 +84,21 @@ export function InventoryManager() {
   })
   const [movementError, setMovementError] = useState('')
 
+  // Receber mercadoria e registrar perda são duas intenções, e quem clica já
+  // sabe qual é a sua. Um seletor entre as duas obrigava quem só queria repor a
+  // passar por uma escolha que ele já tinha feito antes de abrir a tela.
+  const abrirMovimentacao = (item: api.StockHolding, tipo: 'PURCHASE' | 'LOSS') => {
+    setSelected(item)
+    setMovementError('')
+    setForm({
+      quantity: '', movement_type: tipo,
+      reason: DEFAULT_STOCK_REASONS[tipo],
+      // `5.0000` é como o banco guarda, não como se escreve numa prateleira.
+      minimum_stock: item.has_minimum ? String(Number(item.minimum_stock)) : '',
+    })
+  }
+  const recebendo = form.movement_type === 'PURCHASE'
+
   const submit = async (event: React.FormEvent) => {
     event.preventDefault()
     if (!selected || !store) return
@@ -298,20 +313,10 @@ export function InventoryManager() {
                 <div className="flex flex-nowrap items-center justify-end gap-2">
                   {canAdjust && (
                     <button
-                      onClick={() => {
-                        setSelected(item)
-                        setMovementError('')
-                        setForm({
-                          quantity: '', movement_type: 'PURCHASE',
-                          reason: DEFAULT_STOCK_REASONS.PURCHASE,
-                          // `5.0000` é como o banco guarda, não como se escreve
-                          // numa prateleira.
-                          minimum_stock: item.has_minimum ? String(Number(item.minimum_stock)) : '',
-                        })
-                      }}
+                      onClick={() => abrirMovimentacao(item, 'PURCHASE')}
                       className="inline-flex min-h-11 items-center rounded-xl border border-dashem-border px-3 text-xs font-black text-dashem-strong"
                     >
-                      <ArrowDownToLine className="mr-1.5 inline h-4 w-4 text-emerald-700" />Entrada ou perda
+                      <ArrowDownToLine className="mr-1.5 inline h-4 w-4 text-emerald-700" />Receber
                     </button>
                   )}
                   {canCount && (
@@ -319,11 +324,18 @@ export function InventoryManager() {
                       <ClipboardCheck className="mr-1.5 inline h-4 w-4 text-emerald-700" />Contar
                     </button>
                   )}
-                  {canAdjustTechnically && (
+                  {(canAdjust || canAdjustTechnically) && (
                     <RowActions label={`Mais ações de ${item.name}`}>
-                      <RowAction icon={Scale} onClick={() => { setTechnical(item); setTechnicalForm({ difference: '', reason: '' }) }}>
-                        Ajuste técnico
-                      </RowAction>
+                      {canAdjust && (
+                        <RowAction icon={PackageX} onClick={() => abrirMovimentacao(item, 'LOSS')}>
+                          Registrar perda
+                        </RowAction>
+                      )}
+                      {canAdjustTechnically && (
+                        <RowAction icon={Scale} onClick={() => { setTechnical(item); setTechnicalForm({ difference: '', reason: '' }) }}>
+                          Ajuste técnico
+                        </RowAction>
+                      )}
                     </RowActions>
                   )}
                 </div>
@@ -343,7 +355,7 @@ export function InventoryManager() {
             <div key={item.id} className="grid gap-1 py-3 text-xs sm:grid-cols-[1fr_auto_auto] sm:items-center sm:gap-4">
               <span className="font-bold text-dashem-strong">{nameOf(item.product_id)}</span>
               <span className="font-black text-dashem-strong">
-                {movementLabel(item.movement_type)}
+                {movementLabel(item.movement_type, item.origin)}
                 <span className={`ml-2 font-black ${Number(item.quantity) < 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
                   {movementAmount(Number(item.quantity), unitOf(item.product_id))}
                 </span>
@@ -427,26 +439,16 @@ export function InventoryManager() {
 
       <Modal
         isOpen={Boolean(selected)} onClose={() => setSelected(null)}
-        title={`Entrada ou perda — ${selected?.name || ''}`}
-        subtitle="Quanto chegou, ou quanto se perdeu. A operação define o sinal."
+        title={`${recebendo ? 'Receber mercadoria' : 'Registrar perda'} — ${selected?.name || ''}`}
+        subtitle={recebendo
+          ? 'Quanto chegou na unidade.'
+          : 'Quanto se perdeu: avaria, vencimento ou quebra.'}
       >
         <form onSubmit={submit} className="space-y-4">
-          <label className="block text-xs font-black text-dashem-strong">
-            Tipo
-            <select
-              value={form.movement_type}
-              onChange={(event) => setForm({
-                ...form, movement_type: event.target.value,
-                reason: reasonForMovement(form.reason, event.target.value as StockMovementType),
-              })}
-              className="mt-2 h-11 w-full rounded-xl border border-dashem-border bg-dashem-surface-elevated px-3 text-sm text-dashem-strong"
-            >
-              <option value="PURCHASE">Entrada / compra</option>
-              <option value="LOSS">Perda</option>
-            </select>
-          </label>
-          <Field label="Quantidade" type="number" value={form.quantity} onChange={(value) => setForm({ ...form, quantity: value })} />
-          <Field label="Mínimo desejado (opcional)" type="number" value={form.minimum_stock} onChange={(value) => setForm({ ...form, minimum_stock: value })} required={false} />
+          <Field label={recebendo ? 'Quantidade recebida' : 'Quantidade perdida'} type="number" value={form.quantity} onChange={(value) => setForm({ ...form, quantity: value })} />
+          {recebendo && (
+            <Field label="Mínimo desejado (opcional)" type="number" value={form.minimum_stock} onChange={(value) => setForm({ ...form, minimum_stock: value })} required={false} />
+          )}
           <Field label="Motivo" value={form.reason} onChange={(value) => setForm({ ...form, reason: value })} />
           {movementError && (
             <p role="alert" className="rounded-xl border border-red-300 bg-red-50 p-3 text-xs font-bold text-red-800">
@@ -454,7 +456,7 @@ export function InventoryManager() {
             </p>
           )}
           <button disabled={busy || !form.quantity || form.reason.length < 3} className="h-12 w-full rounded-xl bg-dashem-red text-sm font-black text-brand-contrast disabled:opacity-40">
-            {busy ? 'Registrando...' : 'Registrar movimentação'}
+            {busy ? 'Registrando...' : recebendo ? 'Confirmar recebimento' : 'Registrar perda'}
           </button>
         </form>
       </Modal>

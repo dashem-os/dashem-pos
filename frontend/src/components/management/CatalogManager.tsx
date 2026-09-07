@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { Archive, Pencil, Trash2, Package, Plus, Search, ArrowUpDown, CheckCircle2, Star, AlertCircle, Layers, Store } from 'lucide-react'
+import { Archive, Pencil, Trash2, Package, Plus, Search, ArrowDownToLine, PackageX, CheckCircle2, Star, AlertCircle, Layers, Store } from 'lucide-react'
 import { usePos } from '../../context/PosContext'
 import { Modal } from '../common/Modal'
 import * as api from '../../services/api'
@@ -61,6 +61,17 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
   const [adjustReason, setAdjustReason] = useState(DEFAULT_STOCK_REASONS.PURCHASE)
   const [minimumStock, setMinimumStock] = useState('')
   const [mostrarPassos, setMostrarPassos] = useState(false)
+
+  // A mesma separacao da tela de Estoque: quem clica ja decidiu se esta
+  // recebendo ou registrando perda, e o formulario nao repete a pergunta.
+  const abrirMovimentacao = (prod: api.SellableProduct, tipo: 'PURCHASE' | 'LOSS') => {
+    setSelectedProductForStock(prod.id)
+    setMinimumStock(String(Number(prod.minimum_stock) || ''))
+    setAdjustType(tipo)
+    setAdjustQty('')
+    setAdjustReason(DEFAULT_STOCK_REASONS[tipo])
+    setIsStockModalOpen(true)
+  }
   const [viewMode, setViewMode] = useState<'MASTER' | 'PROJECTION'>('MASTER')
   const [salesContext, setSalesContext] = useState<api.SalesContext>('COUNTER')
   const [contextError, setContextError] = useState<string | null>(null)
@@ -477,22 +488,18 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
               cell: (prod) => (
                 <div className="inline-flex flex-nowrap items-center justify-end gap-2">
                   {prod.item_type !== 'SERVICE' && (
-                    <Button variant="secondary" size="sm" icon={ArrowUpDown} onClick={() => {
-                      setSelectedProductForStock(prod.id)
-                      setMinimumStock(String(prod.minimum_stock))
-                      // Cada movimentação começa limpa: a operação anterior não
-                      // deve deixar tipo, quantidade nem motivo para a próxima.
-                      setAdjustType('PURCHASE')
-                      setAdjustQty('')
-                      setAdjustReason(DEFAULT_STOCK_REASONS.PURCHASE)
-                      setIsStockModalOpen(true)
-                    }}>Estoque</Button>
+                    <Button variant="secondary" size="sm" icon={ArrowDownToLine} onClick={() => abrirMovimentacao(prod, 'PURCHASE')}>Receber</Button>
                   )}
                   <Button variant="secondary" size="sm" icon={Pencil} onClick={() => openEditProduct(prod)}>Editar</Button>
                   <RowActions label={`Mais ações de ${prod.name}`}>
                     <RowAction icon={Star} onClick={() => handleQuickAccess(prod)}>
                       {prod.quick_position != null ? 'Remover do acesso rápido' : 'Adicionar ao acesso rápido'}
                     </RowAction>
+                    {prod.item_type !== 'SERVICE' && (
+                      <RowAction icon={PackageX} onClick={() => abrirMovimentacao(prod, 'LOSS')}>
+                        Registrar perda
+                      </RowAction>
+                    )}
                     <RowAction icon={Archive} onClick={() => setProductToArchive(prod)}>
                       Arquivar e retirar do PDV
                     </RowAction>
@@ -563,17 +570,12 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
             </div>
           </div>
 
-          {mediaHeaders && (
-            <ProductMediaPicker
-              key={editingProduct?.id || 'new'}
-              headers={mediaHeaders}
-              activity={activeActivity}
-              current={editingProduct?.image || (editingProduct?.image_url ? { source: 'LEGACY_URL', url: editingProduct.image_url, expires_at: null } : null)}
-              onChange={setPendingMedia}
-              onBusyChange={setMediaBusy}
-            />
-          )}
-
+          {/*
+            Preco e tipo antes da foto. A foto ajuda a reconhecer o item na
+            tela de venda; o preco e o que decide se ele pode ser vendido.
+            O bloco de midia ocupava metade do formulario antes de a pessoa
+            chegar ao campo que ela veio preencher.
+          */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-dashem-strong block">Tipo</label>
@@ -606,6 +608,17 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
               />
             </div>
           </div>
+
+          {mediaHeaders && (
+            <ProductMediaPicker
+              key={editingProduct?.id || 'new'}
+              headers={mediaHeaders}
+              activity={activeActivity}
+              current={editingProduct?.image || (editingProduct?.image_url ? { source: 'LEGACY_URL', url: editingProduct.image_url, expires_at: null } : null)}
+              onChange={setPendingMedia}
+              onBusyChange={setMediaBusy}
+            />
+          )}
 
           {itemType === 'PRODUCT' && !editingProduct && (
             <div className="space-y-1.5">
@@ -675,33 +688,14 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
       <Modal
         isOpen={isStockModalOpen}
         onClose={() => setIsStockModalOpen(false)}
-        title="Ajustar Inventário de Estoque"
-        subtitle="Registra movimentação de entrada ou baixa com auditoria"
+        title={adjustType === 'PURCHASE' ? 'Receber mercadoria' : 'Registrar perda'}
+        subtitle={adjustType === 'PURCHASE'
+          ? 'Quanto chegou nesta unidade.'
+          : 'Quanto se perdeu: avaria, vencimento ou quebra.'}
       >
         <form onSubmit={handleAdjustStock} className="space-y-4">
           <div className="space-y-1.5">
-            <label className="text-xs font-bold text-dashem-strong block">Tipo de Movimentação</label>
-            <select
-              value={adjustType}
-              onChange={(e) => {
-                const next = e.target.value as 'PURCHASE' | 'LOSS'
-                setAdjustType(next)
-                setAdjustReason((current) => reasonForMovement(current, next))
-              }}
-              className="w-full h-11 px-3.5 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-dashem-strong text-xs font-semibold focus:border-dashem-red outline-none"
-            >
-              <option value="PURCHASE">Entrada / Compra de Mercadoria</option>
-              <option value="LOSS">Perda / Avaria / Vencimento</option>
-            </select>
-          </div>
-
-          <p className="rounded-xl border border-dashem-border bg-dashem-surface-elevated p-3 text-xs text-dashem-muted">
-            Diferença de balanço se registra em <b className="text-dashem-strong">Estoque</b>,
-            contando a prateleira: você informa o total encontrado e o sistema calcula a diferença.
-          </p>
-
-          <div className="space-y-1.5">
-            <label className="text-xs font-bold text-dashem-strong block">Quantidade</label>
+            <label className="text-xs font-bold text-dashem-strong block">{adjustType === 'PURCHASE' ? 'Quantidade recebida' : 'Quantidade perdida'}</label>
             <input
               type="number"
               step="1"

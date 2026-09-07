@@ -12,6 +12,24 @@ class ItemTypeEnum(str, Enum):
     PRODUCT = "PRODUCT"
     SERVICE = "SERVICE"
 
+class MovementOriginEnum(str, Enum):
+    """De onde veio um `ADJUSTMENT`, quando isso é sabido.
+
+    O tipo do movimento diz o efeito; ele não diz o caminho. Duas operações
+    diferentes produzem `ADJUSTMENT`: a conferência da prateleira, que compara o
+    que foi encontrado com o registrado, e a diferença lançada à mão, que
+    contorna a conferência e por isso exige autoridade própria. Chamar as duas
+    de "conferência" no histórico apaga exatamente a separação que a permissão
+    existe para manter.
+
+    Fica nulo no histórico anterior a esta marca: ali a origem não foi gravada,
+    e afirmar uma seria inventá-la.
+    """
+
+    COUNT = "COUNT"
+    TECHNICAL_ADJUSTMENT = "TECHNICAL_ADJUSTMENT"
+
+
 class MovementTypeEnum(str, Enum):
     PURCHASE = "PURCHASE"
     SALE = "SALE"
@@ -151,6 +169,12 @@ class InventoryMovement(SQLModel, table=True):
     quantity: Decimal = Field(sa_column=Column(Numeric(14, 4), nullable=False))
     previous_balance: Decimal = Field(sa_column=Column(Numeric(14, 4), nullable=False))
     new_balance: Decimal = Field(sa_column=Column(Numeric(14, 4), nullable=False))
+    # Qual caminho produziu este movimento, quando o caminho importa. Hoje só
+    # `ADJUSTMENT` tem mais de um, e é onde o histórico mentia.
+    origin: Optional[MovementOriginEnum] = Field(
+        default=None,
+        sa_column=Column(EnumString(MovementOriginEnum), nullable=True, index=True),
+    )
     reason: Optional[str] = None
     correlation_id: Optional[str] = Field(default=None, index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)

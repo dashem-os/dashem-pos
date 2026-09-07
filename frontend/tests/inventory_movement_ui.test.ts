@@ -25,10 +25,14 @@ test('a falha ao movimentar estoque chega a quem chamou', () => {
 })
 
 test('o cadastro de produtos não fecha o formulário sobre uma recusa', () => {
-  assert.match(catalog, /try \{\s*await adjustStock\(/)
-  assert.match(catalog, /\} catch \{\s*return\s*\}/)
+  // Recortado no handler: abrir o formulário também zera campos, e isso é
+  // outra coisa — o que não pode acontecer é limpar depois de uma recusa.
+  const handler = catalog.slice(catalog.indexOf('const handleAdjustStock'))
+  const corpo = handler.slice(0, handler.indexOf('const handleQuickAccess'))
+  assert.match(corpo, /try \{\s*await adjustStock\(/)
+  assert.match(corpo, /\} catch \{\s*return\s*\}/)
   // Os campos só são limpos depois do catch, nunca antes dele.
-  assert.ok(catalog.indexOf('} catch {') < catalog.indexOf("setAdjustQty('')"))
+  assert.ok(corpo.indexOf('} catch {') < corpo.indexOf("setAdjustQty('')"))
 })
 
 test('a tela de estoque só comemora depois de o servidor aceitar', () => {

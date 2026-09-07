@@ -249,6 +249,9 @@ export interface InventoryMovement {
   product_id: string
   actor_id: string
   movement_type: 'PURCHASE' | 'SALE' | 'LOSS' | 'RETURN' | 'ADJUSTMENT'
+  // De que caminho veio um ajuste. Nulo no histórico anterior à marca, onde a
+  // origem não foi gravada e não pode ser deduzida.
+  origin?: 'COUNT' | 'TECHNICAL_ADJUSTMENT' | null
   quantity: number
   reason?: string
   created_at: string

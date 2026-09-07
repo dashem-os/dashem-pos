@@ -1,0 +1,162 @@
+[
+  {
+    "tamanho": "celular-390x844",
+    "nota": "celular em retrato",
+    "tela": "produtos",
+    "partidas": [],
+    "transbordo": 0,
+    "largura": 390
+  },
+  {
+    "tamanho": "celular-390x844",
+    "nota": "celular em retrato",
+    "tela": "estoque",
+    "partidas": [],
+    "transbordo": 0,
+    "largura": 390
+  },
+  {
+    "tamanho": "celular-390x844",
+    "nota": "celular em retrato",
+    "tela": "sortimentos",
+    "partidas": [],
+    "transbordo": 0,
+    "largura": 390
+  },
+  {
+    "tamanho": "celular-390x844",
+    "nota": "celular em retrato",
+    "tela": "categorias",
+    "partidas": [],
+    "transbordo": 0,
+    "largura": 390
+  },
+  {
+    "tamanho": "celular-390x844",
+    "nota": "celular em retrato",
+    "tela": "formulario-receber",
+    "partidas": [],
+    "transbordo": 0,
+    "largura": 390
+  },
+  {
+    "tamanho": "tablet-834x1112",
+    "nota": "tablet em retrato",
+    "tela": "produtos",
+    "partidas": [],
+    "transbordo": 0,
+    "largura": 834
+  },
+  {
+    "tamanho": "tablet-834x1112",
+    "nota": "tablet em retrato",
+    "tela": "estoque",
+    "partidas": [],
+    "transbordo": 0,
+    "largura": 834
+  },
+  {
+    "tamanho": "tablet-834x1112",
+    "nota": "tablet em retrato",
+    "tela": "sortimentos",
+    "partidas": [],
+    "transbordo": 0,
+    "largura": 834
+  },
+  {
+    "tamanho": "tablet-834x1112",
+    "nota": "tablet em retrato",
+    "tela": "categorias",
+    "partidas": [],
+    "transbordo": 0,
+    "largura": 834
+  },
+  {
+    "tamanho": "tablet-834x1112",
+    "nota": "tablet em retrato",
+    "tela": "formulario-receber",
+    "partidas": [],
+    "transbordo": 0,
+    "largura": 834
+  },
+  {
+    "tamanho": "desktop-baixo-1366x640",
+    "nota": "altura reduzida",
+    "tela": "produtos",
+    "partidas": [],
+    "transbordo": 0,
+    "largura": 1366
+  },
+  {
+    "tamanho": "desktop-baixo-1366x640",
+    "nota": "altura reduzida",
+    "tela": "estoque",
+    "partidas": [],
+    "transbordo": 0,
+    "largura": 1366
+  },
+  {
+    "tamanho": "desktop-baixo-1366x640",
+    "nota": "altura reduzida",
+    "tela": "sortimentos",
+    "partidas": [],
+    "transbordo": 0,
+    "largura": 1366
+  },
+  {
+    "tamanho": "desktop-baixo-1366x640",
+    "nota": "altura reduzida",
+    "tela": "categorias",
+    "partidas": [],
+    "transbordo": 0,
+    "largura": 1366
+  },
+  {
+    "tamanho": "desktop-baixo-1366x640",
+    "nota": "altura reduzida",
+    "tela": "formulario-receber",
+    "partidas": [],
+    "transbordo": 0,
+    "largura": 1366
+  },
+  {
+    "tamanho": "zoom-150-1107x573",
+    "nota": "zoom de 150% sobre 1660x860",
+    "tela": "produtos",
+    "partidas": [],
+    "transbordo": 0,
+    "largura": 1107
+  },
+  {
+    "tamanho": "zoom-150-1107x573",
+    "nota": "zoom de 150% sobre 1660x860",
+    "tela": "estoque",
+    "partidas": [],
+    "transbordo": 0,
+    "largura": 1107
+  },
+  {
+    "tamanho": "zoom-150-1107x573",
+    "nota": "zoom de 150% sobre 1660x860",
+    "tela": "sortimentos",
+    "partidas": [],
+    "transbordo": 0,
+    "largura": 1107
+  },
+  {
+    "tamanho": "zoom-150-1107x573",
+    "nota": "zoom de 150% sobre 1660x860",
+    "tela": "categorias",
+    "partidas": [],
+    "transbordo": 0,
+    "largura": 1107
+  },
+  {
+    "tamanho": "zoom-150-1107x573",
+    "nota": "zoom de 150% sobre 1660x860",
+    "tela": "formulario-receber",
+    "partidas": [],
+    "transbordo": 0,
+    "largura": 1107
+  }
+]

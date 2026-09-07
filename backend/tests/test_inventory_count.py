@@ -40,7 +40,8 @@ from app.core.permissions import route_requirement
 from app.core.security import AuthPrincipal
 from app.core.tenancy import set_platform_db_context, set_tenant_db_context
 from app.models.catalog import (
-    InventoryBalance, InventoryCount, InventoryMovement, MovementTypeEnum, Product,
+    InventoryBalance, InventoryCount, InventoryMovement, MovementOriginEnum,
+    MovementTypeEnum, Product,
 )
 from app.models.identity import (
     AuthIdentity, Membership, MembershipStatusEnum, RoleEnum, Store, Tenant,
@@ -930,3 +931,91 @@ def test_an_impossible_quantity_is_refused_not_a_server_error(quantidade):
 
     assert refused.value.status_code == 400
     assert "excede o máximo" in refused.value.detail
+
+
+# ------------------------------------------------------- de onde veio o ajuste
+def test_a_count_and_a_technical_adjustment_do_not_look_alike_in_the_history():
+    """Mesmo efeito no saldo, caminhos diferentes — e o dado guarda qual foi.
+
+    `ADJUSTMENT` é produzido por duas operações: conferir a prateleira e lançar
+    a diferença à mão. A segunda contorna a conferência e exige autoridade
+    própria. Sem a origem gravada, o histórico chamava as duas da mesma coisa e
+    apagava na tela a separação que a permissão mantém no servidor.
+    """
+    with _session() as session:
+        context = _context(session)
+        product_id = _product(session, context)
+        inventory_service.adjust_stock(
+            session=session, context=context, store_id=context.store_id,
+            product_id=product_id, actor_id=context.user_id,
+            movement_type=MovementTypeEnum.PURCHASE, quantity=Decimal("10"),
+            reason="Carga inicial",
+        )
+        session.commit()
+
+        count_stock_endpoint(
+            data=StockCountDTO(
+                store_id=context.store_id, product_id=product_id,
+                actor_id=context.user_id, counted_quantity=Decimal("12"),
+                expected_version=1,
+            ),
+            context=context, idempotency_key=f"conferencia-{uuid.uuid4()}",
+            x_correlation_id=None, session=session,
+        )
+        technical_adjustment_endpoint(
+            data=TechnicalAdjustmentDTO(
+                store_id=context.store_id, product_id=product_id,
+                actor_id=context.user_id, difference=Decimal("-2"),
+                reason="Perda histórica sem conferência possível",
+            ),
+            context=context, x_idempotency_key=f"tecnico-{uuid.uuid4()}",
+            x_correlation_id=None, session=session,
+        )
+
+    ajustes = [
+        movimento for movimento in _movements(context, product_id)
+        if movimento.movement_type is MovementTypeEnum.ADJUSTMENT
+    ]
+    origens = {movimento.origin for movimento in ajustes}
+    assert origens == {MovementOriginEnum.COUNT, MovementOriginEnum.TECHNICAL_ADJUSTMENT}, (
+        "os dois caminhos gravaram a mesma origem, e o histórico volta a confundi-los"
+    )
+
+    # A entrada não é ajuste e não recebe origem: o tipo já diz tudo dela.
+    entrada = [
+        movimento for movimento in _movements(context, product_id)
+        if movimento.movement_type is MovementTypeEnum.PURCHASE
+    ]
+    assert entrada and entrada[0].origin is None
+
+
+def test_the_count_that_signs_its_movement_is_the_one_linked_to_it():
+    """A origem não é declaração solta: ela combina com o vínculo já existente.
+
+    `inventory_counts.movement_id` aponta para o movimento que a conferência
+    produziu. A origem gravada nesse movimento tem de ser `COUNT` — se as duas
+    coisas divergirem, uma delas está mentindo.
+    """
+    with _session() as session:
+        context = _context(session)
+        product_id = _product(session, context)
+        count_stock_endpoint(
+            data=StockCountDTO(
+                store_id=context.store_id, product_id=product_id,
+                actor_id=context.user_id, counted_quantity=Decimal("7"),
+                expected_version=0,
+            ),
+            context=context, idempotency_key=f"conferencia-{uuid.uuid4()}",
+            x_correlation_id=None, session=session,
+        )
+
+    with Session(engine) as leitura:
+        set_tenant_db_context(leitura, context.tenant_id, context.store_id, None)
+        conferencia = leitura.exec(select(InventoryCount).where(
+            InventoryCount.product_id == product_id,
+        )).one()
+        assert conferencia.movement_id is not None
+        movimento = leitura.exec(select(InventoryMovement).where(
+            InventoryMovement.id == conferencia.movement_id,
+        )).one()
+    assert movimento.origin is MovementOriginEnum.COUNT

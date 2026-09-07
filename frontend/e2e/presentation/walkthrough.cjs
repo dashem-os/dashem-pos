@@ -87,22 +87,25 @@ async function run() {
   await shot(page, 'estoque-lista')
 
   // Entrada de mercadoria, preenchida.
-  await page.getByRole('button', { name: 'Entrada ou perda' }).first().click()
+  await page.getByRole('button', { name: 'Receber' }).first().click()
   await page.waitForTimeout(700)
-  await page.getByLabel('Quantidade').first().fill('24')
+  await page.getByLabel('Quantidade recebida').fill('24')
   await page.waitForTimeout(300)
   await shot(page, 'estoque-entrada-preenchida')
-  await page.getByRole('button', { name: /Registrar movimentação|Registrando/ }).click()
+  await page.getByRole('button', { name: /Confirmar recebimento|Registrar perda|Registrando/ }).click()
   await page.waitForTimeout(2000)
   await shot(page, 'estoque-entrada-concluida')
 
-  // Erro real: perda maior do que existe na prateleira. Quem recusa é o servidor.
-  await page.getByRole('button', { name: 'Entrada ou perda' }).first().click()
-  await page.waitForTimeout(700)
-  await page.locator('select').first().selectOption('LOSS')
-  await page.getByLabel('Quantidade').first().fill('999')
+  // Erro real: perda maior do que existe na prateleira. Quem recusa é o
+  // servidor, e a perda vem do menu — não de um seletor dentro do formulário.
+  await page.getByRole('button', { name: /^Mais ações de Alicate/ }).click()
+  await page.waitForTimeout(400)
+  await shot(page, 'estoque-mais-acoes')
+  await page.getByRole('menuitem', { name: 'Registrar perda' }).click()
+  await page.waitForTimeout(800)
+  await page.getByLabel('Quantidade perdida').fill('999')
   await page.waitForTimeout(300)
-  await page.getByRole('button', { name: /Registrar movimentação|Registrando/ }).click()
+  await page.getByRole('button', { name: /Confirmar recebimento|Registrar perda|Registrando/ }).click()
   await page.waitForTimeout(2500)
   await shot(page, 'estoque-erro-recusa-do-servidor')
   await page.keyboard.press('Escape')
@@ -127,6 +130,16 @@ async function run() {
   await abrirModulo(page, /^Sortimentos/)
   await page.waitForTimeout(1500)
   await shot(page, 'sortimentos-lista')
+
+  // ----------------------------------------------------------- Categorias
+  await abrirModulo(page, /^Categorias$/)
+  await page.waitForTimeout(1500)
+  await shot(page, 'categorias-lista')
+  await page.getByRole('button', { name: /Nova categoria/ }).click()
+  await page.waitForTimeout(700)
+  await page.getByLabel('Nome').fill('Bebidas geladas')
+  await page.waitForTimeout(400)
+  await shot(page, 'categorias-nova-sem-slug')
 
   await navegador.close()
 }

@@ -23,11 +23,28 @@ export const MOVEMENT_LABELS: Record<string, string> = {
   PURCHASE: 'Entrada',
   LOSS: 'Perda',
   RETURN: 'Devolução',
-  ADJUSTMENT: 'Conferência',
   SALE: 'Venda',
 }
 
-export function movementLabel(type: string): string {
+export type MovementOrigin = 'COUNT' | 'TECHNICAL_ADJUSTMENT'
+
+/**
+ * `ADJUSTMENT` não tem um nome só, porque não tem um caminho só.
+ *
+ * Conferir a prateleira e lançar diferença à mão produzem o mesmo efeito no
+ * saldo e são operações distintas — a segunda contorna a conferência e exige
+ * autoridade própria. Chamar as duas de "Conferência" apagava no histórico a
+ * separação que a permissão mantém no servidor.
+ *
+ * Sem origem gravada não se afirma origem: o histórico anterior à marca lê
+ * "Ajuste", que é o que se sabe dele.
+ */
+export function movementLabel(type: string, origin?: MovementOrigin | string | null): string {
+  if (type === 'ADJUSTMENT') {
+    if (origin === 'COUNT') return 'Contagem de estoque'
+    if (origin === 'TECHNICAL_ADJUSTMENT') return 'Ajuste técnico'
+    return 'Ajuste'
+  }
   return MOVEMENT_LABELS[type] || type
 }
 
