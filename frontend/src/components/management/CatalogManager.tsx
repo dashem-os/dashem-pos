@@ -8,6 +8,7 @@ import { DataTable } from '../common/DataTable'
 import { formatCurrency, maskCurrencyInput, parseCurrencyInput } from '../../utils/format'
 import { navigateTo } from '../../utils/navigation'
 import { PendingMedia, ProductMediaPicker } from './ProductMediaPicker'
+import { DEFAULT_STOCK_REASONS, reasonForMovement, type StockMovementType } from '../../domain/stockMovements'
 
 /** The product photo, falling back to the initial when a tenant has not set one. */
 function ProductThumb({ name, imageUrl }: { name: string; imageUrl?: string | null }) {
@@ -55,8 +56,8 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
 
   // Adjust Stock Form
   const [adjustQty, setAdjustQty] = useState('')
-  const [adjustType, setAdjustType] = useState<'PURCHASE' | 'LOSS' | 'ADJUSTMENT'>('PURCHASE')
-  const [adjustReason, setAdjustReason] = useState('Entrada de Mercadoria')
+  const [adjustType, setAdjustType] = useState<StockMovementType>('PURCHASE')
+  const [adjustReason, setAdjustReason] = useState(DEFAULT_STOCK_REASONS.PURCHASE)
   const [minimumStock, setMinimumStock] = useState('')
   const [viewMode, setViewMode] = useState<'MASTER' | 'PROJECTION'>('MASTER')
   const [salesContext, setSalesContext] = useState<api.SalesContext>('COUNTER')
@@ -452,6 +453,11 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
                     <Button variant="secondary" size="sm" icon={ArrowUpDown} onClick={() => {
                       setSelectedProductForStock(prod.id)
                       setMinimumStock(String(prod.minimum_stock))
+                      // Cada movimentação começa limpa: a operação anterior não
+                      // deve deixar tipo, quantidade nem motivo para a próxima.
+                      setAdjustType('PURCHASE')
+                      setAdjustQty('')
+                      setAdjustReason(DEFAULT_STOCK_REASONS.PURCHASE)
                       setIsStockModalOpen(true)
                     }}>Ajustar</Button>
                   )}
@@ -641,7 +647,11 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
             <label className="text-xs font-bold text-dashem-strong block">Tipo de Movimentação</label>
             <select
               value={adjustType}
-              onChange={(e) => setAdjustType(e.target.value as any)}
+              onChange={(e) => {
+                const next = e.target.value as StockMovementType
+                setAdjustType(next)
+                setAdjustReason((current) => reasonForMovement(current, next))
+              }}
               className="w-full h-11 px-3.5 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-dashem-strong text-xs font-semibold focus:border-dashem-red outline-none"
             >
               <option value="PURCHASE">Entrada / Compra de Mercadoria</option>

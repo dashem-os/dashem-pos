@@ -53,8 +53,17 @@ await page.getByText('Ajustar Inventário de Estoque').waitFor({ timeout: 10000 
 await page.locator('select').first().selectOption('LOSS')
 const quantidade = page.locator('input[type="number"]').first()
 await quantidade.fill('50')
-const motivo = page.getByPlaceholder(/motivo/i).first()
-if (await motivo.count()) await motivo.fill('Perda maior que o saldo')
+// O motivo precisa ter acompanhado a troca de operacao: uma perda gravada como
+// "Entrada de mercadoria" deixa o historico contradizendo o proprio movimento.
+const motivo = page.locator('input[type="text"]').filter({ hasNot: page.locator('[readonly]') })
+const motivoAtual = await page.evaluate(() => {
+  const campos = Array.from(document.querySelectorAll('input[type=text]'))
+  return campos.map(c => c.value)
+})
+assert.ok(
+  motivoAtual.includes('Perda, avaria ou vencimento'),
+  `o motivo nao acompanhou a operacao: ${JSON.stringify(motivoAtual)}`,
+)
 
 await page.screenshot({ path: `${outDir}/recusa-1-antes-de-confirmar.png` })
 await page.getByRole('button', { name: /Confirmar|Registrar|Salvar/i }).first().click()

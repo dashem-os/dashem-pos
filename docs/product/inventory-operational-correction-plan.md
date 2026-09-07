@@ -272,9 +272,11 @@ Nenhum gate declarado aprovado.** A etapa 1 responde "recebi, vendi ou perdi:
 quanto ficou?" — e nada além disso. Ela não é, e não deve ser apresentada como,
 entrega da etapa 3.
 
-Falta para fechá-la: a operação "Contar estoque" com verificação de versão, a
-devolução física vinculada à venda, e a apresentação que hoje soma unidades
-diferentes num cartão só.
+Falta para fechá-la: a operação "Contar estoque" com verificação de versão e a
+devolução física vinculada à venda — **as duas são requisitos do gate de
+integridade**, e executá-las junto com a etapa 2 muda a sequência, não a
+pendência. A apresentação que soma unidades diferentes num cartão só continua
+aberta no gate de apresentação.
 
 | Etapa | Entrega | Condição de saída |
 |---|---|---|

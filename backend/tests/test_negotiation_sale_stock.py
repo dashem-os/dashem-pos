@@ -9,9 +9,16 @@ o `OrderItem`. É a `Sale` criada na finalização que registra a saída, com it
 venda, ator e motivo, pelo mesmo serviço que a venda de balcão usa. Nenhum
 consumo é atribuído ao item de pedido.
 
-Os cinco cenários que o caminho precisa responder estão aqui: mesa, comanda,
-repetição da finalização, falha no meio da operação composta e crediário. Todos
-pelos endpoints autenticados, e a falha lida por uma sessão nova.
+Os cenários que o caminho precisa responder estão aqui: mesa, comanda, serviço
+sem saldo físico, repetição da finalização, crediário, falha no meio da operação
+composta, e a retomada depois de resolvida a falta. Todos pelos endpoints
+autenticados, e o que ficou gravado é sempre lido por uma sessão nova.
+
+Uma precisão sobre a falha: **o que não sobrevive é a transação da finalização**,
+e só ela. O dinheiro recebido antes é fato anterior e consumado — a intenção de
+pagamento confirmada e o movimento de caixa que ela gerou continuam de pé, como
+têm de continuar. Desfazer recebimento por causa de falta de estoque seria
+apagar dinheiro que entrou.
 """
 
 import os
@@ -26,7 +33,11 @@ from activity_fixtures import declare_food_service
 from app.core.database import engine
 from app.core.tenancy import set_platform_db_context, set_tenant_db_context
 from app.models.catalog import InventoryBalance, InventoryMovement, MovementTypeEnum
-from app.models.negotiation import CheckoutNegotiation, CheckoutNegotiationStatusEnum
+from app.models.negotiation import (
+    CheckoutNegotiation, CheckoutNegotiationStatusEnum, PaymentIntent,
+    PaymentIntentStatusEnum,
+)
+from app.models.payment import CashMovement, CashMovementTypeEnum, Payment
 from app.models.order import Order, OrderStatusEnum
 from app.models.platform import EntitlementStatusEnum, TenantCapability
 from app.models.sale import Sale, SaleStatusEnum
@@ -385,3 +396,95 @@ async def test_a_service_sold_at_the_table_moves_no_stock():
         assert finalized.status_code == 200, finalized.text
 
     assert _sale_movements(tenant["id"], store["id"], service["id"]) == []
+
+
+def _rows(model, tenant_id, store_id, **where):
+    with Session(engine) as session:
+        set_tenant_db_context(session, uuid.UUID(tenant_id), uuid.UUID(store_id), None)
+        query = select(model).where(model.tenant_id == uuid.UUID(tenant_id))
+        for field, value in where.items():
+            query = query.where(getattr(model, field) == value)
+        return session.exec(query).all()
+
+
+@pytest.mark.asyncio
+async def test_money_already_received_survives_a_failed_finalization():
+    """Falta de estoque desfaz a finalização, nunca o recebimento anterior.
+
+    O pagamento foi confirmado antes, em transação própria: a intenção ficou
+    `CONFIRMED` e o caixa registrou a entrada. Se a finalização falhar por falta
+    de mercadoria, é ela que volta atrás. Apagar o recebimento junto seria fazer
+    sumir dinheiro que entrou no caixa, e o cliente pagou.
+    """
+    async with httpx.AsyncClient(base_url=BASE_URL, timeout=60) as client:
+        tenant, store, headers, actor, cash, suffix, assortment = await _tenant(client, "Retoma")
+        disponivel = await _stocked_product(
+            client, headers, store, suffix, 1, stock=10, assortment=assortment,
+        )
+        vazio = await _stocked_product(
+            client, headers, store, suffix, 2, stock=0, assortment=assortment,
+        )
+        _, order_id = await _table_order(client, headers, store, actor, suffix)
+        await _launch(client, headers, order_id, disponivel, 2, actor, f"item-a-{suffix}")
+        await _launch(client, headers, order_id, vazio, 1, actor, f"item-b-{suffix}")
+
+        negotiation = (await client.post("/api/v1/negotiations", headers={
+            **headers, "Idempotency-Key": f"neg-{suffix}",
+        }, json={"store_id": store["id"], "order_ids": [order_id], "actor_id": actor})).json()
+        covered = await _cover_with_cash(
+            client, headers, negotiation, actor, cash, float(negotiation["total_due"]),
+        )
+
+        refused = await client.post(
+            f"/api/v1/negotiations/{negotiation['id']}/finalize",
+            headers={**headers, "Idempotency-Key": f"final-{suffix}"},
+            json={"expected_version": covered["version"], "actor_id": actor},
+        )
+        assert refused.status_code == 400, refused.text
+
+        # O recebimento continua de pé: intenção confirmada e caixa com a entrada.
+        intents = _rows(PaymentIntent, tenant["id"], store["id"])
+        confirmados = [i for i in intents if i.status == PaymentIntentStatusEnum.CONFIRMED]
+        assert len(confirmados) == 1, "a recusa desfez o pagamento já confirmado"
+        entradas = [
+            m for m in _rows(CashMovement, tenant["id"], store["id"])
+            if m.movement_type == CashMovementTypeEnum.SALE_PAYMENT
+        ]
+        assert len(entradas) == 1, "a entrada de caixa sumiu ou foi duplicada"
+
+        # A finalização, essa sim, não deixou nada.
+        assert _rows(Sale, tenant["id"], store["id"]) == []
+        assert _rows(Payment, tenant["id"], store["id"]) == []
+        assert _balance(tenant["id"], store["id"], disponivel["id"]) == Decimal("10.0000")
+
+        # Resolvida a falta, a conta fecha — e fecha uma vez só.
+        reposto = await client.post("/api/v1/inventory/adjust", headers=headers, json={
+            "store_id": store["id"], "product_id": vazio["id"], "actor_id": actor,
+            "movement_type": "PURCHASE", "quantity": 5,
+            "reason": "Reposição para concluir a conta",
+        })
+        assert reposto.status_code == 200, reposto.text
+
+        atual = (await client.get(
+            f"/api/v1/negotiations/{negotiation['id']}", headers=headers,
+        )).json()
+        assert atual["status"] == "COVERED", atual["status"]
+        finalizada = await client.post(
+            f"/api/v1/negotiations/{negotiation['id']}/finalize",
+            headers={**headers, "Idempotency-Key": f"final-2-{suffix}"},
+            json={"expected_version": atual["version"], "actor_id": actor},
+        )
+        assert finalizada.status_code == 200, finalizada.text
+
+    # Uma venda, um pagamento registrado, uma entrada de caixa, uma baixa de cada item.
+    assert len(_rows(Sale, tenant["id"], store["id"])) == 1
+    assert len(_rows(Payment, tenant["id"], store["id"])) == 1, "o cliente foi cobrado duas vezes"
+    entradas = [
+        m for m in _rows(CashMovement, tenant["id"], store["id"])
+        if m.movement_type == CashMovementTypeEnum.SALE_PAYMENT
+    ]
+    assert len(entradas) == 1, "a entrada de caixa foi contada duas vezes"
+    assert len(_sale_movements(tenant["id"], store["id"], disponivel["id"])) == 1
+    assert len(_sale_movements(tenant["id"], store["id"], vazio["id"])) == 1
+    assert _balance(tenant["id"], store["id"], disponivel["id"]) == Decimal("8.0000")
+    assert _balance(tenant["id"], store["id"], vazio["id"]) == Decimal("4.0000")

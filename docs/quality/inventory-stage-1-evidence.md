@@ -45,6 +45,18 @@ itens de venda serem criados. Cobertura pelos endpoints autenticados em
 | Falta de saldo no segundo item | Nada sobrevive: sem venda, sem baixa do primeiro item, pedido aberto e negociação não finalizada — lido por sessão nova |
 | Crediário | Venda sai `COMPLETED` e baixa igual: o prazo muda quando o dinheiro entra, não se a mercadoria saiu |
 | Serviço na mesa | Nenhum movimento; a finalização não inventa saldo físico |
+| Retomada depois da falta coberta | Recebimento anterior intacto; ao repor e finalizar de novo, uma venda, um pagamento, uma entrada de caixa e uma baixa de cada item |
+
+São sete, e o primeiro relato disse cinco enquanto listava seis — a contagem
+estava errada nos dois sentidos.
+
+**O que não sobrevive à falha é a transação da finalização, e só ela.** O
+dinheiro recebido antes é fato anterior e consumado: a intenção de pagamento
+confirmada e o movimento de caixa que ela gerou continuam de pé, porque desfazer
+recebimento por falta de estoque seria apagar dinheiro que entrou. O teste
+confere as duas metades — o que precisa desaparecer e o que precisa permanecer —
+e depois repõe a mercadoria, finaliza de novo e verifica que ninguém foi cobrado
+nem baixado duas vezes.
 
 Reserva durante o pedido e consumo por ficha técnica continuam fora: são a
 extensão da etapa 3 e exigem decisão arquitetural própria.
@@ -115,6 +127,9 @@ baixa de venda.
 | A recusa chega a quem chamou, em vez de virar sucesso silencioso | `PosContext.adjustStock` |
 | O formulário não fecha nem limpa sobre uma recusa | `CatalogManager.handleAdjustStock` |
 | A mensagem de sucesso só aparece depois de o servidor aceitar, e sem vocabulário interno | `InventoryManager.submit` |
+| O motivo sugerido acompanha a operação, em vez de gravar "Entrada de mercadoria" numa perda | `domain/stockMovements.ts`, lido pelas duas telas |
+| A recusa do servidor chega inteira à tela, com mercadoria e números | `api.adjustInventory`, via `apiError` |
+| A frase de recusa deixou de carregar o código interno `INSUFFICIENT_STOCK` | `inventory_service.adjust_stock` |
 
 Invariante preservada em toda a cadeia: `saldo anterior + variação assinada =
 saldo posterior`. A coluna `quantity` do movimento guarda a **variação assinada**,
@@ -153,11 +168,11 @@ massa transformaria histórico errado em histórico falsificado.
 
 | O quê | Resultado |
 |---|---|
-| `backend/tests` completo | 420 passaram |
+| `backend/tests` completo | 421 passaram |
 | `test_inventory_movement_integrity.py` | 30 passaram (eram 16 falhas em `07ae804`) |
-| `test_negotiation_sale_stock.py` | 6 passaram |
+| `test_negotiation_sale_stock.py` | 7 passaram |
 | `test_inventory_integrity_diagnosis.py` | 5 passaram |
-| `frontend` — `npm test` | 108 passaram |
+| `frontend` — `npm test` | 113 passaram |
 | `tsc --noEmit` | limpo |
 | `npm run build` | construído |
 | Recusa exercitada na tela | `npm run e2e:stock-refusal` |
@@ -180,11 +195,20 @@ entrar pela porta da frente exige `VITE_SUPABASE_URL` e
 `VITE_SUPABASE_PUBLISHABLE_KEY` do projeto de homologação, mais um usuário com
 `inventory.adjust` no tenant de homologação.
 
-O exercício encontrou um defeito que nenhum teste de backend pegaria: a camada
-de API do frontend descartava o `detail` do servidor e lançava um texto fixo,
-"Erro ao ajustar estoque". A pessoa via a recusa sem o motivo. Corrigido com o
-`apiError` que o resto do arquivo já usava. E a mensagem do servidor deixou de
-carregar o código interno `INSUFFICIENT_STOCK`, que ia inteiro para a tela.
+O exercício encontrou dois defeitos que nenhum teste de backend pegaria.
+
+O primeiro: a camada de API do frontend descartava o `detail` do servidor e
+lançava um texto fixo, "Erro ao ajustar estoque". A pessoa via a recusa sem o
+motivo. Corrigido com o `apiError` que o resto do arquivo já usava, e a mensagem
+do servidor deixou de carregar `INSUFFICIENT_STOCK`, que ia inteiro para a tela.
+
+O segundo apareceu na captura: com "Perda / Avaria / Vencimento" selecionado, o
+campo Motivo continuava com "Entrada de mercadoria". Não é acabamento — esse
+texto vai para o histórico, e uma perda justificada como entrada é um livro que
+contradiz o próprio movimento. Corrigido em `domain/stockMovements.ts`, um lugar
+só, lido pelas duas telas que movimentam estoque: o motivo sugerido acompanha a
+operação, e o que a pessoa escreveu de próprio punho nunca é sobrescrito. A
+bancada confere isso junto com a recusa.
 
 ## Gates
 
@@ -225,11 +249,13 @@ Por isso a etapa é **parcial**, e o gate não é declarado aprovado:
   ainda não é executável como o plano o descreve;
 - **soma de unidades diferentes.** O cartão "Unidades em saldo" da tela de
   estoque ainda soma quilo, litro e unidade num número só, contra a invariante 8.
-  A precisão por movimento está provada; a apresentação, não;
-- **motivo padrão contradiz a operação.** Observado na captura do exercício: ao
-  escolher "Perda / Avaria / Vencimento", o campo Motivo permanece com "Entrada
-  de Mercadoria". O texto vai para o histórico, então um livro correto passa a
-  carregar uma justificativa errada. É achado da etapa 2, registrado aqui.
+  A precisão por movimento está provada; a apresentação, não.
+
+Os dois primeiros são **requisitos do gate de integridade**, não itens de
+acabamento. Implementá-los na etapa 2 é decisão de sequência: ela não transfere a
+pendência para outro gate nem a dispensa, e o gate de integridade só é declarado
+aprovado quando os dois estiverem cobertos. O terceiro pertence ao gate de
+apresentação, e continua aberto lá.
 
 ## Dependências registradas
 
