@@ -54,3 +54,8 @@ frontend/tests_e2e/
 
 # Artefatos de geração (render, modelagem) não pertencem ao repositório do produto.
 outputs/
+
+# Levantamentos sobre dados reais: identificadores de tenant e loja
+# não pertencem ao repositório.
+diagnostico-*.csv
+impacto-*.csv

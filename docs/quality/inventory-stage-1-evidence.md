@@ -630,6 +630,97 @@ ser avaliado**. Não está aprovado por mim: quem aprova é quem confere as
 evidências. E ter evidência para cada exigência não é o mesmo que ter todos os
 caminhos alternativos protegidos — foi por um deles que a devolução vazava.
 
+## Diagnóstico no banco publicado — 07/09/2026
+
+Executado com o código deste commit, por papel `SELECT`-only criado no Supabase
+para esta finalidade. O ambiente publicado está na migração
+`081_plan_revision_no_nfce` — três migrações atrás desta entrega.
+
+### O que o levantamento encontrou
+
+| Assinatura | Ocorrências |
+|---|---|
+| Saída com variação positiva | **nenhuma encontrada** |
+| Aritmética quebrada na própria linha | **nenhuma encontrada** |
+| Venda paga com item controlado sem baixa | **nenhuma encontrada** |
+| Saldo divergente da soma do livro | 6 produtos, 1 loja |
+| Item vendido sem vínculo de baixa | 1 item, 1 loja |
+
+**"Nenhuma encontrada" não é "nunca aconteceu".** O levantamento procura marcas
+que sobreviveram até hoje; ele não reconstrói o passado. Um movimento com sinal
+invertido pode ter sido corrigido depois, um saldo pode ter sido reescrito por
+outro caminho, e um dado pode ter sido apagado. O que está provado é que **as
+assinaturas não estão lá agora** — e é sobre isso, e só sobre isso, que a decisão
+de liberar se apoia.
+
+### A conta não é exclusivamente de homologação
+
+Foi verificado, porque a conclusão mudaria conforme a resposta:
+
+| Tenant | Situação | Vendas | Movimentos |
+|---|---|---|---|
+| Dashem Retail Store | **ACTIVE** | 0 | 12 |
+| Test Tenant - McMarcelo's | TRIAL | 5 | 10 |
+| Tenant de Homologação | TRIAL | 2 | 1 |
+
+Há um tenant **ACTIVE**, e portanto não se pode dizer que o ambiente contém
+apenas dado de teste. O que se pode dizer é mais estreito: ele não registrou
+venda nenhuma, e **os sete achados estão todos em `Test Tenant - McMarcelo's`**,
+que é TRIAL. Nenhum achado toca o tenant ativo.
+
+### Tratamento dos seis saldos iniciais
+
+Os seis são o mesmo padrão: saldo positivo — 40, 40, 60, 120, 60 e 30 unidades —
+com **zero movimentos** por trás. É estoque escrito por fora do livro, anterior à
+disciplina de movimentação, e não é sintoma de nenhum defeito desta entrega.
+
+**Eles não podem ser "corrigidos" sem falsificar alguma coisa**, e é importante
+dizer por quê:
+
+* lançar um movimento de entrada para explicar o saldo **somaria ao saldo** —
+  40 viraria 80. Isso duplica estoque que já está lá;
+* editar os movimentos para que a soma bata é reescrever o livro, que esta
+  entrega inteira existe para impedir;
+* zerar e relançar destrói a única informação verdadeira que existe ali, que é o
+  saldo.
+
+O tratamento é **documentar, não consertar**: contar a prateleira pela operação
+de contagem. Se o contado bater com o saldo, a diferença é zero, nenhum movimento
+é criado, e fica registrada uma conferência com data, quantidade encontrada e
+responsável. Se não bater, a diferença vira um ajuste com origem explicada. Nos
+dois casos o saldo passa a ter alguém respondendo por ele a partir daquela data —
+que é o máximo que se pode obter honestamente sobre um número cuja origem
+ninguém observou.
+
+A divergência continuará aparecendo no levantamento, porque a soma do livro
+seguirá menor que o saldo. Isso é correto: ela descreve um fato histórico, e
+apagá-la seria o mesmo que apagar o próprio problema.
+
+### Tratamento do item sem vínculo
+
+Um item: venda `COMPLETED` de 22/08 com 1 unidade de *Fita Isolante 3M Imperial
+20m*, no tenant TRIAL. É a única devolução que passaria a exigir conferência.
+
+**Não há nada a fazer antes da liberação.** Se alguém devolver essa unidade, a
+tela pede conferência — e conferir uma unidade é o que qualquer loja faz sem
+esforço. Não é necessária janela de tolerância, migração de dados nem exceção no
+código.
+
+**E o vínculo histórico não deve ser preenchido por migração.** Casar movimentos
+antigos a itens de venda por semelhança — mesmo produto, mesma quantidade, data
+próxima — produziria um vínculo que ninguém verificou, com a aparência de prova.
+A migração 084 cria a coluna e deixa o histórico nulo de propósito: **ausência de
+vínculo é a verdade sobre o que se sabe**, e é por isso que a recusa pede
+conferência em vez de afirmar que a mercadoria ficou.
+
+### O que este diagnóstico não decide
+
+* **Não mede comportamento sob volume.** Sete vendas no ambiente inteiro. Os
+  números dizem que ninguém está exposto hoje; não dizem como o sistema se
+  comporta com movimento real;
+* **Não substitui a homologação pela interface.** Continua pendente, e continua
+  dependendo das credenciais listadas abaixo.
+
 ## Dependências registradas
 
 1. **Acesso ao ambiente publicado.** O diagnóstico histórico precisa rodar contra

@@ -39,6 +39,13 @@ movimento compensatório vinculado, com justificativa e responsável, tomado
 tenant a tenant pelos fluxos autenticados. Inverter linhas em massa
 transformaria um histórico errado em um histórico falsificado.
 
+**Ele lê o schema que existe, não o que vai existir.** Um levantamento que roda
+*antes* da liberação encontra o banco sem as colunas que a própria mudança cria —
+`inventory_balances.version` e `inventory_movements.sale_item_id` são delas. Por
+isso as consultas nomeiam as colunas em vez de pedir o modelo inteiro, e a
+ausência de `sale_item_id` é tratada como o que ela significa: **nenhum item tem
+vínculo de baixa comprovável**, que é justamente a resposta que a decisão precisa.
+
 **E ele não presume a origem.** Uma saída com variação positiva *pode* ser o
 defeito; pode também ser importação, correção manual antiga ou dado de teste.
 O roteiro entrega identificador e evidência por loja para que alguém olhe.
@@ -53,7 +60,7 @@ import argparse
 import csv
 from decimal import Decimal
 
-from sqlmodel import Session, select
+from sqlmodel import Session, select, text
 
 from app.core.database import engine
 from app.core.tenancy import set_platform_db_context
@@ -72,6 +79,19 @@ VENDA_SEM_BAIXA = "venda_paga_sem_baixa"
 
 OUTGOING = {MovementTypeEnum.LOSS, MovementTypeEnum.SALE}
 VENDIDAS = {SaleStatusEnum.PAID, SaleStatusEnum.COMPLETED}
+
+
+def _tem_coluna(session: Session, tabela: str, coluna: str) -> bool:
+    """A coluna existe neste banco?
+
+    O roteiro roda contra o ambiente publicado, que está uma ou mais migrações
+    atrás. Perguntar ao schema é mais honesto do que assumir que ele acompanha o
+    modelo — e é o que permite dizer a verdade sobre o que se pode ou não medir.
+    """
+    return session.exec(text(
+        "SELECT 1 FROM information_schema.columns "
+        "WHERE table_name = :tabela AND column_name = :coluna"
+    ), params={"tabela": tabela, "coluna": coluna}).first() is not None
 
 
 def _nomes(session: Session) -> tuple[dict, dict]:
@@ -93,10 +113,19 @@ def _achado(tipo, movimento_ou_saldo, tenants, lojas, evidencia) -> dict:
     }
 
 
+MOVIMENTO_COLUNAS = (
+    InventoryMovement.id, InventoryMovement.tenant_id, InventoryMovement.store_id,
+    InventoryMovement.product_id, InventoryMovement.movement_type,
+    InventoryMovement.quantity, InventoryMovement.previous_balance,
+    InventoryMovement.new_balance, InventoryMovement.reason,
+    InventoryMovement.created_at,
+)
+
+
 def movimentos_suspeitos(session: Session, tenants, lojas) -> list[dict]:
     """As duas procuras que cabem numa linha só do livro."""
     achados = []
-    for movimento in session.exec(select(InventoryMovement)).all():
+    for movimento in session.exec(select(*MOVIMENTO_COLUNAS)).all():
         quantidade = Decimal(str(movimento.quantity))
         anterior = Decimal(str(movimento.previous_balance))
         posterior = Decimal(str(movimento.new_balance))
@@ -118,12 +147,18 @@ def movimentos_suspeitos(session: Session, tenants, lojas) -> list[dict]:
 def saldos_divergentes(session: Session, tenants, lojas) -> list[dict]:
     """O saldo atual contra a soma do que o livro registra."""
     somas: dict[tuple, Decimal] = {}
-    for movimento in session.exec(select(InventoryMovement)).all():
+    for movimento in session.exec(select(
+        InventoryMovement.tenant_id, InventoryMovement.store_id,
+        InventoryMovement.product_id, InventoryMovement.quantity,
+    )).all():
         chave = (movimento.tenant_id, movimento.store_id, movimento.product_id)
         somas[chave] = somas.get(chave, Decimal("0")) + Decimal(str(movimento.quantity))
 
     achados = []
-    for saldo in session.exec(select(InventoryBalance)).all():
+    for saldo in session.exec(select(
+        InventoryBalance.id, InventoryBalance.tenant_id, InventoryBalance.store_id,
+        InventoryBalance.product_id, InventoryBalance.quantity,
+    )).all():
         chave = (saldo.tenant_id, saldo.store_id, saldo.product_id)
         # Abertura zero: o produto nasce sem saldo e todo acréscimo é movimento.
         esperado = somas.get(chave, Decimal("0"))
@@ -140,17 +175,24 @@ def vendas_sem_baixa(session: Session, tenants, lojas) -> list[dict]:
     """A marca que a falha transacional deixaria: venda paga, estoque intacto."""
     baixados = {
         (movimento.tenant_id, movimento.store_id, movimento.product_id)
-        for movimento in session.exec(select(InventoryMovement).where(
-            InventoryMovement.movement_type == MovementTypeEnum.SALE,
-        )).all()
+        for movimento in session.exec(select(
+            InventoryMovement.tenant_id, InventoryMovement.store_id,
+            InventoryMovement.product_id,
+        ).where(InventoryMovement.movement_type == MovementTypeEnum.SALE)).all()
     }
     controlados = {
-        produto.id for produto in session.exec(select(Product)).all()
-        if produto.tracks_inventory
+        produto.id for produto in session.exec(select(
+            Product.id, Product.tracks_inventory,
+        )).all() if produto.tracks_inventory
     }
     achados = []
-    for venda in session.exec(select(Sale).where(Sale.status.in_(VENDIDAS))).all():
-        itens = session.exec(select(SaleItem).where(SaleItem.sale_id == venda.id)).all()
+    for venda in session.exec(select(
+        Sale.id, Sale.tenant_id, Sale.store_id, Sale.status, Sale.occurred_at,
+    ).where(Sale.status.in_(VENDIDAS))).all():
+        itens = session.exec(select(
+            SaleItem.id, SaleItem.product_id, SaleItem.product_name,
+            SaleItem.quantity, SaleItem.tracks_inventory_snapshot,
+        ).where(SaleItem.sale_id == venda.id)).all()
         for item in itens:
             if not item.tracks_inventory_snapshot and item.product_id not in controlados:
                 continue
@@ -183,16 +225,29 @@ def vendas_sem_vinculo(session: Session, tenants, lojas) -> list[dict]:
     O número que sai daqui é o tamanho do problema operacional: quantas
     devoluções passarão a exigir conferência antes de serem registradas.
     """
-    com_vinculo = {
-        movimento.sale_item_id
-        for movimento in session.exec(select(InventoryMovement).where(
-            InventoryMovement.movement_type == MovementTypeEnum.SALE,
-        )).all()
-        if movimento.sale_item_id is not None
-    }
+    # Sem a coluna, nenhum item tem vínculo — e isso não é uma limitação do
+    # levantamento, é o fato que ele precisa relatar: no schema publicado de hoje
+    # **toda** devolução ao saldo vendável passaria a exigir conferência.
+    if _tem_coluna(session, "inventory_movements", "sale_item_id"):
+        # Coluna única devolve o valor, não uma linha.
+        com_vinculo = {
+            vinculo
+            for vinculo in session.exec(select(InventoryMovement.sale_item_id).where(
+                InventoryMovement.movement_type == MovementTypeEnum.SALE,
+            )).all()
+            if vinculo is not None
+        }
+    else:
+        com_vinculo = set()
+
     achados = []
-    for venda in session.exec(select(Sale).where(Sale.status.in_(VENDIDAS))).all():
-        itens = session.exec(select(SaleItem).where(SaleItem.sale_id == venda.id)).all()
+    for venda in session.exec(select(
+        Sale.id, Sale.tenant_id, Sale.store_id, Sale.status, Sale.occurred_at,
+    ).where(Sale.status.in_(VENDIDAS))).all():
+        itens = session.exec(select(
+            SaleItem.id, SaleItem.product_id, SaleItem.product_name,
+            SaleItem.quantity, SaleItem.tracks_inventory_snapshot,
+        ).where(SaleItem.sale_id == venda.id)).all()
         for item in itens:
             # O critério é o mesmo que `return_sold_item` aplica: o snapshot do
             # item, e só ele. Usar também o produto de hoje contaria itens que a
@@ -237,7 +292,15 @@ def main() -> int:
 
     with Session(engine) as session:
         set_platform_db_context(session)
+        vinculo_existe = _tem_coluna(session, "inventory_movements", "sale_item_id")
         achados = diagnose(session)
+
+    if not vinculo_existe:
+        print("Este banco ainda não tem a coluna `inventory_movements.sale_item_id`.")
+        print("Sem ela nenhum item de venda tem baixa comprovável, e a contagem")
+        print("abaixo é a população inteira — o que a correção passará a recusar")
+        print("enquanto o histórico não for tratado.")
+        print()
 
     rotulos = {
         SAIDA_POSITIVA: "Saída com variação positiva (assinatura do defeito de sinal)",
