@@ -57,12 +57,19 @@ em quatro tamanhos e **mede**, no layout já renderizado:
   visível, que é o outro lado da moeda: o que impede a palavra de partir pode
   empurrar a página.
 
-| Tamanho | Situação |
-|---|---|
-| 390 × 844 (celular em retrato) | 5 medições, 0 achados |
-| 834 × 1112 (tablet em retrato) | 5 medições, 0 achados |
-| 1366 × 640 (altura reduzida) | 5 medições, 0 achados |
-| 1107 × 573 (zoom de 150% sobre 1660 × 860) | 5 medições, 0 achados |
+| Tamanho | Largura CSS | Densidade | Situação |
+|---|---|---|---|
+| celular em retrato | 390 | 2 | 5 medições, 0 achados |
+| tablet em retrato | 834 | 2 | 5 medições, 0 achados |
+| desktop de altura reduzida | 1366 | 1 | 5 medições, 0 achados |
+| zoom de 150% sobre 1660 × 860 | 1107 | **1.5** | 5 medições, 0 achados |
+
+A densidade está na tabela porque **zoom de navegador não é só janela menor**:
+a 150% o documento passa a ter 1660/1.5 pixels CSS de largura *e* cada pixel CSS
+passa a valer 1.5 pixels de dispositivo. A primeira versão emulava só a
+primeira metade. Agora a auditoria aplica `deviceScaleFactor`, grava
+`devicePixelRatio` medido em cada tela e **reprova se a densidade não for a
+esperada** — para "zoom" não ser apenas uma palavra no nome do arquivo.
 
 **E a medida foi validada contra o defeito conhecido.** Uma medição que nunca
 acusa não prova nada, então rodei a mesma auditoria com o CSS anterior
@@ -77,10 +84,38 @@ No controle as mais frequentes foram `Receber` (45), `Contar` (30), `Editar`
 (21), `Produto` (15) e `Ativo` (6) — exatamente as palavras das suas capturas.
 Os dois relatórios estão em `responsivo/`.
 
+**Nenhuma medição é opcional.** A primeira versão media o formulário de
+recebimento apenas se encontrasse o botão: se a ação sumisse da tela, o roteiro
+terminaria com menos medições e mesmo assim verde. Agora o plano é exigido — 4
+tamanhos × 5 superfícies = **20 medições** — e a auditoria reprova quando uma
+superfície prevista não é alcançada.
+
+**As duas guardas foram verificadas contra falha provocada**, pelo mesmo motivo
+que o controle de CSS existe:
+
+| Controle | O que foi quebrado de propósito | Resultado |
+|---|---|---|
+| Superfície inalcançável | o botão procurado passou a ser um nome inexistente | reprova em 15s, com o alvo no erro, saída `1` |
+| Densidade errada | o caso de zoom passou a rodar com densidade 1 | `FALHA … densidade 1, esperada 1.5`, saída `1` |
+
+O segundo controle produziu as 20 medições e ainda assim reprovou, que é
+exatamente o comportamento pedido: contar certo não basta se a condição estava
+errada.
+
+O primeiro controle achou um defeito no próprio roteiro: ao reprovar, ele
+deixava o Chromium aberto e o processo pendurado — acusava e nunca chegava a
+dizer em voz alta. Corrigido com `finally`.
+
 O que isso demonstra e o que não demonstra: **nestas quatro telas, nestes quatro
 tamanhos, com este conteúdo, nenhuma palavra parte e nenhuma página transborda**.
 Não é prova de que nenhuma largura futura parta nenhuma palavra — a auditoria
 fica no repositório para ser executada de novo quando a tela mudar.
+
+**E a medida não substitui o olho.** "Parei de olhar e passei a medir" foi frase
+errada da minha parte: a medida encontra o que o olho deixa passar em vinte
+telas, e o olho encontra o que a medida não sabe perguntar — hierarquia,
+sequência, o que ocupa espaço demais. Por isso a auditoria grava captura de toda
+medição, e elas estão em `responsivo/`, para serem olhadas.
 
 ### 4. Categorias entrou nesta rodada
 
@@ -91,6 +126,27 @@ mostrando o valor derivado. O cartão parou de exibir a referência técnica ao
 lado do nome, e o cabeçalho trocou "Estruture a navegação do PDV sem depender da
 ordem dos produtos ou de nomes implícitos" por "Agrupe o que é parecido para
 achar mais rápido na hora de vender".
+
+### 4.1 A regressão: renomear mudava a referência de integração
+
+Encontrada na revisão desta rodada, e era real. Com `mostrarReferencia` em
+`false`, editar o nome recalculava o slug **também para categoria já existente**
+— o identificador que um sistema de fora usa mudava sozinho, e o defeito só
+apareceria do outro lado.
+
+A regra saiu do componente e virou função testável em
+`frontend/src/domain/categoryReference.ts`, com três casos em vez de dois:
+
+| Situação | Referência |
+|---|---|
+| Categoria nova | nasce do nome, enquanto ele é digitado |
+| Categoria existente | **preservada ao renomear** |
+| Qualquer uma, depois de a pessoa abrir o campo | preservada: a escolha passou a ser dela |
+
+Quatro testes em `frontend/tests/category_reference.test.ts` sustentam a regra,
+sendo um deles a reprodução exata do defeito relatado. E o link agora diz o que
+está em jogo: numa categoria existente ele lê "Referência usada por integrações:
+`bebidas` — não muda ao renomear. Ajustar".
 
 ### 5. A imagem vinha antes do preço
 

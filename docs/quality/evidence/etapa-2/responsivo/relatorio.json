@@ -5,7 +5,8 @@
     "tela": "produtos",
     "partidas": [],
     "transbordo": 0,
-    "largura": 390
+    "largura": 390,
+    "densidade": 2
   },
   {
     "tamanho": "celular-390x844",
@@ -13,7 +14,8 @@
     "tela": "estoque",
     "partidas": [],
     "transbordo": 0,
-    "largura": 390
+    "largura": 390,
+    "densidade": 2
   },
   {
     "tamanho": "celular-390x844",
@@ -21,7 +23,8 @@
     "tela": "sortimentos",
     "partidas": [],
     "transbordo": 0,
-    "largura": 390
+    "largura": 390,
+    "densidade": 2
   },
   {
     "tamanho": "celular-390x844",
@@ -29,7 +32,8 @@
     "tela": "categorias",
     "partidas": [],
     "transbordo": 0,
-    "largura": 390
+    "largura": 390,
+    "densidade": 2
   },
   {
     "tamanho": "celular-390x844",
@@ -37,7 +41,8 @@
     "tela": "formulario-receber",
     "partidas": [],
     "transbordo": 0,
-    "largura": 390
+    "largura": 390,
+    "densidade": 2
   },
   {
     "tamanho": "tablet-834x1112",
@@ -45,7 +50,8 @@
     "tela": "produtos",
     "partidas": [],
     "transbordo": 0,
-    "largura": 834
+    "largura": 834,
+    "densidade": 2
   },
   {
     "tamanho": "tablet-834x1112",
@@ -53,7 +59,8 @@
     "tela": "estoque",
     "partidas": [],
     "transbordo": 0,
-    "largura": 834
+    "largura": 834,
+    "densidade": 2
   },
   {
     "tamanho": "tablet-834x1112",
@@ -61,7 +68,8 @@
     "tela": "sortimentos",
     "partidas": [],
     "transbordo": 0,
-    "largura": 834
+    "largura": 834,
+    "densidade": 2
   },
   {
     "tamanho": "tablet-834x1112",
@@ -69,7 +77,8 @@
     "tela": "categorias",
     "partidas": [],
     "transbordo": 0,
-    "largura": 834
+    "largura": 834,
+    "densidade": 2
   },
   {
     "tamanho": "tablet-834x1112",
@@ -77,7 +86,8 @@
     "tela": "formulario-receber",
     "partidas": [],
     "transbordo": 0,
-    "largura": 834
+    "largura": 834,
+    "densidade": 2
   },
   {
     "tamanho": "desktop-baixo-1366x640",
@@ -85,7 +95,8 @@
     "tela": "produtos",
     "partidas": [],
     "transbordo": 0,
-    "largura": 1366
+    "largura": 1366,
+    "densidade": 1
   },
   {
     "tamanho": "desktop-baixo-1366x640",
@@ -93,7 +104,8 @@
     "tela": "estoque",
     "partidas": [],
     "transbordo": 0,
-    "largura": 1366
+    "largura": 1366,
+    "densidade": 1
   },
   {
     "tamanho": "desktop-baixo-1366x640",
@@ -101,7 +113,8 @@
     "tela": "sortimentos",
     "partidas": [],
     "transbordo": 0,
-    "largura": 1366
+    "largura": 1366,
+    "densidade": 1
   },
   {
     "tamanho": "desktop-baixo-1366x640",
@@ -109,7 +122,8 @@
     "tela": "categorias",
     "partidas": [],
     "transbordo": 0,
-    "largura": 1366
+    "largura": 1366,
+    "densidade": 1
   },
   {
     "tamanho": "desktop-baixo-1366x640",
@@ -117,46 +131,52 @@
     "tela": "formulario-receber",
     "partidas": [],
     "transbordo": 0,
-    "largura": 1366
+    "largura": 1366,
+    "densidade": 1
   },
   {
-    "tamanho": "zoom-150-1107x573",
-    "nota": "zoom de 150% sobre 1660x860",
+    "tamanho": "zoom-150-em-1660x860",
+    "nota": "zoom de 150% sobre 1660x860: 1107x573 pixels CSS com densidade 1.5",
     "tela": "produtos",
     "partidas": [],
     "transbordo": 0,
-    "largura": 1107
+    "largura": 1107,
+    "densidade": 1.5
   },
   {
-    "tamanho": "zoom-150-1107x573",
-    "nota": "zoom de 150% sobre 1660x860",
+    "tamanho": "zoom-150-em-1660x860",
+    "nota": "zoom de 150% sobre 1660x860: 1107x573 pixels CSS com densidade 1.5",
     "tela": "estoque",
     "partidas": [],
     "transbordo": 0,
-    "largura": 1107
+    "largura": 1107,
+    "densidade": 1.5
   },
   {
-    "tamanho": "zoom-150-1107x573",
-    "nota": "zoom de 150% sobre 1660x860",
+    "tamanho": "zoom-150-em-1660x860",
+    "nota": "zoom de 150% sobre 1660x860: 1107x573 pixels CSS com densidade 1.5",
     "tela": "sortimentos",
     "partidas": [],
     "transbordo": 0,
-    "largura": 1107
+    "largura": 1107,
+    "densidade": 1.5
   },
   {
-    "tamanho": "zoom-150-1107x573",
-    "nota": "zoom de 150% sobre 1660x860",
+    "tamanho": "zoom-150-em-1660x860",
+    "nota": "zoom de 150% sobre 1660x860: 1107x573 pixels CSS com densidade 1.5",
     "tela": "categorias",
     "partidas": [],
     "transbordo": 0,
-    "largura": 1107
+    "largura": 1107,
+    "densidade": 1.5
   },
   {
-    "tamanho": "zoom-150-1107x573",
-    "nota": "zoom de 150% sobre 1660x860",
+    "tamanho": "zoom-150-em-1660x860",
+    "nota": "zoom de 150% sobre 1660x860: 1107x573 pixels CSS com densidade 1.5",
     "tela": "formulario-receber",
     "partidas": [],
     "transbordo": 0,
-    "largura": 1107
+    "largura": 1107,
+    "densidade": 1.5
   }
 ]
