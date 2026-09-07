@@ -289,7 +289,8 @@ liberação seguem pendentes.
 |---|---|---|
 | 1 — Corrigir movimentos | Contrato de quantidade, transação composta, concorrência, idempotência, propagação de erro e diagnóstico histórico | Gate de integridade aprovado |
 | 2 — Completar o fluxo básico | Acervo de estoque independente, ações explícitas, formulários compartilhados, histórico completo, mínimo e correção visual das quatro superfícies | Gates de operação e apresentação aprovados |
-| 3 — Ampliar por cenário | Reposição assistida e, em incrementos independentes, depósitos, compras, lotes, receitas e consumo | Gate específico de cada cenário; capacidades incompletas não anunciadas como prontas |
+| 3 — Disponibilidade, risco e reposição | Quatro incrementos independentes, especificados abaixo: 3.1 disponibilidade prometida, 3.2 ponto de reposição, 3.3 previsão por padrão de demanda, 3.4 sugestão de compra | Gate específico de cada incremento; capacidade incompleta não anunciada como pronta |
+| 4 — Ampliar por cenário | Depósitos, compras, lotes, receitas e consumo | Gate específico de cada cenário |
 
 Antes da etapa 1, executor registra commit-base, caminhos de venda, contrato dos
 clientes da API e evidência de reprodução. Antes da etapa 2, apresenta desenho das
@@ -301,6 +302,119 @@ divergência aritmética, duplicações e discrepância entre saldo e movimentos
 considerando saldo de abertura. Exporta identificadores e evidência por loja.
 Não presume que toda linha possa ser invertida: investigar origem e preservar
 histórico. Correção de dados reais exige decisão nominal e movimentos compensatórios.
+
+## Etapa 3 — disponibilidade, risco e reposição
+
+Especificação concreta, escrita depois de dois defeitos vistos na tela em
+07/09/2026: "15 un com mínimo 14" anunciado como **Regular**, e sete Coca-Colas
+de nove entrando na venda sem aviso, com a falta aparecendo só no pagamento.
+
+As decisões estruturais estão em [ADR-032](../architecture/adr-032-available-to-promise.md)
+— cinco números e compromisso de estoque — e em
+[ADR-033](../architecture/adr-033-stock-risk-state.md) — estado de risco
+derivado. Este plano diz **onde cada peça encaixa no que já existe** e em que
+ordem entra.
+
+### O que muda de premissa
+
+| Hoje | A partir da etapa 3 |
+|---|---|
+| Estoque é um número: `quantity` | Cinco: `on_hand`, `reserved`, `atp`, `on_order`, `inventory_position` |
+| Risco é `quantity <= minimum_stock` | Estado derivado, olhando ATP para venda e posição para compra |
+| Aviso de falta acontece no pagamento | Percepção a cada item; o pagamento continua sendo a barreira final |
+| Mínimo manual é a inteligência | Mínimo manual é **piso**; ROP é a inteligência |
+
+### 3.1 — Disponibilidade prometida (ATP)
+
+Resolve o defeito do PDV. Sem previsão, sem estatística: só contabilidade do
+que já foi prometido.
+
+| Peça | Nome e lugar |
+|---|---|
+| Modelo | `InventoryReservation` em `app/models/catalog.py` |
+| Migração | `086_inventory_reservation` — tabela, índices por `(tenant_id, store_id, product_id, status)`, RLS forçada |
+| Serviço | `inventory_service.reserve`, `release`, `consume`, `available_to_promise` |
+| Quem chama | `sale_service` ao adicionar/alterar/remover item; `order_service` para comanda; a conclusão que já baixa estoque passa a consumir a reserva na mesma transação |
+| Rota | `GET /api/v1/inventory/availability?product_ids=…` — leitura em lote para o PDV |
+| Contrato de leitura | `StockHolding` ganha `reserved`, `available`, `on_order`; `is_low_stock`/`is_out_of_stock` saem em favor de `risk_state` (3.2) |
+| Expiração | reserva de venda sem atividade expira; o varredor roda no fechamento de caixa e na abertura da tela, **não** exige worker contratado |
+
+**Na tela do PDV**, a cada adição ou alteração de quantidade:
+
+| Situação | O que o operador vê |
+|---|---|
+| Folga confortável | nada — silêncio é informação |
+| Disponível ≤ 5 e > 1 | "Restam N disponíveis" ao lado do item |
+| Disponível = 1 | "Última unidade disponível" |
+| Pedido > disponível | recusa imediata, dizendo quanto há |
+
+**Na tela de Estoque**, a coluna deixa de ser só saldo: `40 un` com `2
+comprometidos` quando houver reserva ativa.
+
+Condição de saída: gate de integridade (concorrência entre duas comandas sobre
+a mesma mercadoria, cancelamento devolvendo reserva, conclusão consumindo sem
+dupla contagem) e gate de operação pela tela.
+
+### 3.2 — Ponto de reposição e cobertura
+
+| Peça | Nome e lugar |
+|---|---|
+| Modelo | `ReplenishmentPolicy` — por tenant/loja/produto: `lead_time_days`, `lead_time_stddev`, `service_level`, `review_period_days`, `minimum_floor` |
+| Migração | `087_replenishment_policy` |
+| Serviço | `replenishment_service` em `catalog` — `safety_stock`, `reorder_point`, `days_of_cover` |
+| Permissão | `inventory.policy.manage`, concedida a OWNER/TENANT_OWNER/ADMIN — quem ajusta política não é quem conta prateleira |
+| Fórmulas | `ROP = d̄ × L + SS`; `SS = z × √(L·σd² + d̄²·σL²)`; `cobertura = ATP / d̄` |
+| Nível de serviço | escolhido por nome — **Econômica** (z≈1,28), **Balanceada** (z≈1,65), **Alta disponibilidade** (z≈2,05) — nunca pedindo `z` ao comerciante |
+
+Enquanto `d̄` não existir, `risk_state` usa a faixa sobre o mínimo manual do
+ADR-033, e o produto aparece como **Atenção** em vez de Regular. Quando faltar
+apenas o lead time, o sistema **pede o lead time** — um campo, uma vez, por
+fornecedor — em vez de inventar recomendação.
+
+Condição de saída: gate de integridade da fórmula (testes com séries
+conhecidas) e apresentação da linha única com detalhe sob demanda.
+
+### 3.3 — Previsão por padrão de demanda
+
+| Peça | Nome e lugar |
+|---|---|
+| Modelo | `DemandProfile` (padrão classificado por SKU) e `DemandForecast` (previsão vigente + erro medido) |
+| Migração | `088_demand_forecast` |
+| Serviço | `demand_forecast_service` em `catalog`, alimentado por `sale_items` já existentes |
+| Classificação | ADI e CV² decidem o padrão: `SMOOTH`, `ERRATIC`, `INTERMITTENT`, `LUMPY` |
+| Método por padrão | regular → ETS; com sazonalidade semanal → Holt‑Winters; intermitente → TSB (preferido a Croston); sem histórico → mínimo manual, depois expectativa por categoria |
+| Backtesting | erro medido e guardado; previsão que não bate melhor que a ingênua não é publicada |
+
+O comerciante **não escolhe algoritmo**. A tela mostra "venda média por dia" e,
+no detalhe, desde quando o sistema calcula e com que confiança.
+
+Condição de saída: backtesting com histórico real do tenant de homologação, e
+recusa explícita de previsão quando o histórico for insuficiente.
+
+### 3.4 — Sugestão de compra
+
+| Peça | Nome e lugar |
+|---|---|
+| Serviço | `replenishment_service.suggest_order` |
+| Modelo | `PurchaseSuggestion` (sugestão vigente, aceita ou recusada, com o porquê) |
+| Migração | `089_purchase_suggestion` |
+| Fórmula | `Alvo = previsão(L + período de revisão) + SS`; `sugestão = Alvo − inventory_position` |
+| Tela | uma lista "Repor agora", ordenada por risco, com quantidade sugerida editável |
+
+Compras pendentes alimentam `on_order` e removem o item de "Repor agora" para
+**Reposição a caminho** — sem isso o sistema pede duas vezes a mesma compra.
+
+Condição de saída: gate de operação com pessoa representativa do cliente
+decidindo uma compra a partir da sugestão.
+
+### O que fica fora, e por quê
+
+Nenhum destes incrementos depende de LLM. A disponibilidade e o estado de risco
+são determinísticos, calculados no domínio de estoque. A camada de inteligência
+pode, depois, explicar e priorizar — jamais decidir se uma venda pode acontecer.
+
+FOOD acrescenta validade e ficha técnica; isso entra na etapa 4, e não bloqueia
+nenhum dos quatro incrementos acima.
 
 ## Gates de homologação
 
