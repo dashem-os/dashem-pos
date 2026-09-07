@@ -175,7 +175,6 @@ ORPHAN_CLIENT_FUNCTIONS = {
     "createTenant",
     "deleteTenantStorageObject",
     "fetchCashSessions",
-    "fetchInventoryBalance",
     "fetchOrders",
     "fetchProductPrices",
     "fetchReconciliations",

@@ -219,6 +219,27 @@ export interface InventoryBalance {
   product_id: string
   quantity: number
   minimum_stock: number
+  // Muda a cada movimentação. É o que a contagem devolve ao servidor para ele
+  // saber se o saldo mudou entre a leitura da prateleira e a confirmação.
+  version: number
+}
+
+export interface InventoryCount {
+  id: string
+  product_id: string
+  counted_quantity: number
+  previous_balance: number
+  difference: number
+  movement_id: string | null
+  created_at: string
+}
+
+/** O 409 da contagem carrega o estado atual, para a tela poder explicar. */
+export interface StockCountConflict {
+  message: string
+  expected_version: number
+  current_version: number
+  current_quantity: string
 }
 
 export interface InventoryMovement {
@@ -3113,6 +3134,39 @@ export async function adjustInventory(
   // quanto foi pedido. Trocar isso por um texto fixo devolve à pessoa a única
   // informação que ela não tem: o motivo. `apiError` preserva o `detail`.
   if (!res.ok) throw await apiError(res, 'Não foi possível movimentar o estoque.')
+  return res.json()
+}
+
+export async function countStock(
+  headers: Record<string, string>,
+  idempotencyKey: string,
+  data: {
+    store_id: string; product_id: string; actor_id: string
+    counted_quantity: number; expected_version: number; reason?: string
+  },
+): Promise<{ count: InventoryCount; balance: InventoryBalance; movement: InventoryMovement | null }> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/inventory/count`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível registrar a contagem.')
+  return res.json()
+}
+
+export async function adjustStockTechnically(
+  headers: Record<string, string>,
+  data: {
+    store_id: string; product_id: string; actor_id: string
+    difference: number; reason: string
+  },
+): Promise<{ movement: InventoryMovement | null; balance: InventoryBalance; movement_created: boolean }> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/inventory/technical-adjustment`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível lançar o ajuste técnico.')
   return res.json()
 }
 

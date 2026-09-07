@@ -32,8 +32,12 @@ test('o cadastro de produtos não fecha o formulário sobre uma recusa', () => {
 })
 
 test('a tela de estoque só comemora depois de o servidor aceitar', () => {
-  assert.ok(inventory.indexOf('await adjustStock(') < inventory.indexOf("showToast('success'"))
-  assert.match(inventory, /\} catch \{/)
+  // Recortado no handler da movimentação: a tela também conta estoque hoje, e
+  // o aviso de sucesso daquela outra operação não responde por esta.
+  const submit = inventory.slice(inventory.indexOf('const submit = async'))
+  const corpo = submit.slice(0, submit.indexOf('return <div'))
+  assert.ok(corpo.indexOf('await adjustStock(') < corpo.indexOf("showToast('success'"))
+  assert.match(corpo, /\} catch \{/)
 })
 
 test('a mensagem de sucesso fala a língua do lojista', () => {

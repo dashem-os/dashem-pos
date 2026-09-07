@@ -5,7 +5,9 @@ from typing import List, Optional, Tuple, Union
 from sqlmodel import Session, select, text
 from fastapi import HTTPException, status
 from app.core.context import TenantContext, resolve_actor, scope_tenant_query
-from app.models.catalog import Product, InventoryMovement, InventoryBalance, MovementTypeEnum
+from app.models.catalog import (
+    InventoryBalance, InventoryCount, InventoryMovement, MovementTypeEnum, Product,
+)
 from app.services import reliability_service
 
 # Cada tipo de movimento tem uma direção, e é ela que decide o efeito no saldo.
@@ -107,13 +109,19 @@ def adjust_stock(
 
     # 3. ATOMIC POSTGRESQL UPSERT: Handles first-balance creation & concurrent updates with zero race conditions
     now = datetime.utcnow()
+    # A versão sobe aqui, junto com o saldo e na mesma instrução: qualquer
+    # movimento — venda, entrada, perda, devolução, ajuste — invalida a
+    # expectativa de quem estava contando. Separar as duas escritas abriria
+    # exatamente a janela que a contagem precisa fechar.
     upsert_query = text("""
-        INSERT INTO inventory_balances (id, tenant_id, store_id, product_id, quantity, minimum_stock, updated_at)
-        VALUES (:id, :tenant_id, :store_id, :product_id, :quantity, 0.0, :now)
+        INSERT INTO inventory_balances (id, tenant_id, store_id, product_id, quantity, minimum_stock, version, updated_at)
+        VALUES (:id, :tenant_id, :store_id, :product_id, :quantity, 0.0, 1, :now)
         ON CONFLICT (tenant_id, store_id, product_id) DO UPDATE
         SET quantity = inventory_balances.quantity + EXCLUDED.quantity,
+            version = inventory_balances.version + 1,
             updated_at = :now
-        RETURNING inventory_balances.quantity AS new_balance;
+        RETURNING inventory_balances.quantity AS new_balance,
+                  inventory_balances.version AS new_version;
     """)
 
     result = session.exec(upsert_query, params={
@@ -217,6 +225,150 @@ def adjust_stock(
     session.refresh(balance)
 
     return movement, balance, True
+
+class StockCountConflict(HTTPException):
+    """O saldo mudou enquanto a prateleira era contada.
+
+    Carrega o estado atual junto da recusa, porque a tela precisa dizer o que
+    aconteceu e pedir nova conferência — nunca aceitar em silêncio com a versão
+    nova, que seria apagar do estoque a venda que entrou no meio.
+    """
+
+    def __init__(self, balance: InventoryBalance, expected_version: int):
+        super().__init__(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": (
+                    "O estoque foi movimentado durante a contagem. "
+                    "Confira a prateleira novamente antes de confirmar."
+                ),
+                "expected_version": expected_version,
+                "current_version": balance.version,
+                "current_quantity": str(balance.quantity),
+            },
+        )
+
+
+def count_stock(
+    session: Session,
+    context: TenantContext,
+    store_id: uuid.UUID,
+    product_id: uuid.UUID,
+    actor_id: uuid.UUID,
+    counted_quantity: Union[float, Decimal],
+    expected_version: int,
+    idempotency_key: str,
+    reason: Optional[str] = None,
+    correlation_id: Optional[str] = None,
+) -> tuple[InventoryCount, InventoryBalance, Optional[InventoryMovement]]:
+    """A contagem cotidiana: informe o total encontrado, o servidor faz a conta.
+
+    Zero é uma contagem válida e diferente de não preencher — a prateleira vazia
+    é um achado. Contagem igual ao saldo registra a conferência e não inventa
+    entrada nem saída.
+    """
+    actor_id = resolve_actor(context, actor_id)
+    counted = Decimal(str(counted_quantity))
+    if not counted.is_finite() or counted < 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A quantidade contada não pode ser negativa.",
+        )
+    if context.store_id and store_id != context.store_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Contagem fora da unidade ativa.",
+        )
+
+    # Reenvio: a mesma confirmação não registra outra diferença. A guarda é a
+    # linha já gravada, não um cache — ela sobrevive a qualquer expiração.
+    existing = session.exec(scope_tenant_query(select(InventoryCount).where(
+        InventoryCount.idempotency_key == idempotency_key,
+    ), InventoryCount, context)).first()
+    if existing is not None:
+        balance = get_balance(session, context, store_id, existing.product_id)
+        movement = (session.get(InventoryMovement, existing.movement_id)
+                    if existing.movement_id else None)
+        return existing, balance, movement
+
+    product_query = scope_tenant_query(
+        select(Product).where(Product.id == product_id), Product, context,
+    )
+    product = session.exec(product_query).first()
+    if not product:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Produto não encontrado nesta unidade.",
+        )
+    if not product.tracks_inventory:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"'{product.name}' não controla estoque e não pode ser contado.",
+        )
+
+    # O bloqueio é o que fecha a janela entre conferir e gravar: uma venda
+    # concorrente espera esta linha, e quando a obtiver a versão já terá mudado.
+    locked = session.exec(scope_tenant_query(select(InventoryBalance).where(
+        InventoryBalance.store_id == store_id,
+        InventoryBalance.product_id == product_id,
+    ), InventoryBalance, context).with_for_update()).first()
+
+    # Sem linha de saldo, a versão esperada é 0: nada foi movimentado ainda.
+    current_quantity = Decimal("0.0000") if locked is None else Decimal(str(locked.quantity))
+    current_version = 0 if locked is None else locked.version
+    if expected_version != current_version:
+        raise StockCountConflict(
+            locked if locked is not None else InventoryBalance(
+                tenant_id=context.tenant_id, store_id=store_id, product_id=product_id,
+                quantity=current_quantity, version=current_version,
+            ),
+            expected_version,
+        )
+
+    difference = counted - current_quantity
+    movement = None
+    if difference != 0:
+        movement, _balance, _created = adjust_stock(
+            session=session, context=context, store_id=store_id, product_id=product_id,
+            actor_id=actor_id, movement_type=MovementTypeEnum.ADJUSTMENT,
+            quantity=difference,
+            reason=reason or f"Contagem de estoque: {counted} encontrado(s)",
+            correlation_id=correlation_id,
+        )
+
+    balance = get_balance(session, context, store_id, product_id)
+    record = InventoryCount(
+        tenant_id=context.tenant_id, store_id=store_id, product_id=product_id,
+        actor_id=actor_id, counted_quantity=counted,
+        previous_balance=current_quantity, difference=difference,
+        movement_id=movement.id if movement else None,
+        balance_version_before=current_version,
+        balance_version_after=balance.version if balance.id else current_version,
+        reason=reason, idempotency_key=idempotency_key,
+    )
+    session.add(record)
+
+    reliability_service.write_audit_and_outbox(
+        session=session, tenant_id=context.tenant_id, store_id=store_id,
+        actor_id=actor_id, action="inventory.counted",
+        target=f"PRODUCT-{product_id}",
+        audit_payload={
+            "product_id": str(product_id), "counted_quantity": str(counted),
+            "previous_balance": str(current_quantity), "difference": str(difference),
+            "movement_id": str(movement.id) if movement else None,
+        },
+        aggregate_type="product", aggregate_id=str(product_id),
+        event_type="inventory.counted",
+        outbox_payload={
+            "tenant_id": str(context.tenant_id), "store_id": str(store_id),
+            "product_id": str(product_id), "counted_quantity": str(counted),
+            "difference": str(difference),
+        },
+        correlation_id=correlation_id,
+    )
+    session.flush()
+    return record, balance, movement
+
 
 def get_balance(session: Session, context: TenantContext, store_id: uuid.UUID, product_id: uuid.UUID) -> InventoryBalance:
     query = select(InventoryBalance).where(

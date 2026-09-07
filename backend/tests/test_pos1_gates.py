@@ -81,13 +81,16 @@ async def test_pos1_gates_1_to_11():
         assert srv["requires_fulfillment"] is True
 
         # --- GATE 3: Non-Tracked Inventory Bypass ---
+        # Entrada, e não ajuste: a rota comum deixou de aceitar diferença
+        # assinada, que tem rota e autorização próprias. O que este gate mede é
+        # outra coisa — item sem controle de estoque não gera movimento.
         srv_adjust = await client.post(
             "/api/v1/inventory/adjust",
             json={
                 "store_id": sA["id"],
                 "product_id": srv["id"],
                 "actor_id": actor_id,
-                "movement_type": "ADJUSTMENT",
+                "movement_type": "PURCHASE",
                 "quantity": 5.0,
                 "reason": "Test Service Bypass"
             },

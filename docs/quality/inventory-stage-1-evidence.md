@@ -168,11 +168,11 @@ massa transformaria histórico errado em histórico falsificado.
 
 | O quê | Resultado |
 |---|---|
-| `backend/tests` completo | 421 passaram |
+| `backend/tests` completo | 444 passaram |
 | `test_inventory_movement_integrity.py` | 30 passaram (eram 16 falhas em `07ae804`) |
 | `test_negotiation_sale_stock.py` | 7 passaram |
 | `test_inventory_integrity_diagnosis.py` | 5 passaram |
-| `frontend` — `npm test` | 113 passaram |
+| `frontend` — `npm test` | 120 passaram |
 | `tsc --noEmit` | limpo |
 | `npm run build` | construído |
 | Recusa exercitada na tela | `npm run e2e:stock-refusal` |
@@ -238,11 +238,6 @@ bancada confere isso junto com a recusa.
 
 Por isso a etapa é **parcial**, e o gate não é declarado aprovado:
 
-- **contagem de estoque com verificação de versão.** A operação "Contar estoque"
-  não existe — hoje só há `ADJUSTMENT` por diferença, que é a operação técnica.
-  Sem ela não há como exercitar "contagem com versão desatualizada não apaga
-  movimento concorrente". É entrega da etapa 2, e o gate de integridade só fecha
-  quando ela existir;
 - **devolução física vinculada à venda.** `RETURN` entra no saldo e está testado
   como fato separado do estorno, mas não há vínculo com a venda de origem nem
   verificação de aptidão do item devolvido — o passo 7 do ciclo de operação
@@ -251,11 +246,78 @@ Por isso a etapa é **parcial**, e o gate não é declarado aprovado:
   estoque ainda soma quilo, litro e unidade num número só, contra a invariante 8.
   A precisão por movimento está provada; a apresentação, não.
 
-Os dois primeiros são **requisitos do gate de integridade**, não itens de
-acabamento. Implementá-los na etapa 2 é decisão de sequência: ela não transfere a
-pendência para outro gate nem a dispensa, e o gate de integridade só é declarado
-aprovado quando os dois estiverem cobertos. O terceiro pertence ao gate de
-apresentação, e continua aberto lá.
+O primeiro é **requisito do gate de integridade**, não item de acabamento:
+implementá-lo junto da etapa 2 é decisão de sequência, e o gate só é declarado
+aprovado quando ele estiver coberto. O segundo pertence ao gate de apresentação,
+e continua aberto lá.
+
+## Contar estoque — 07/09/2026
+
+A operação cotidiana passou a existir. Ela informa **o total encontrado** e o
+servidor calcula a diferença; `ADJUSTMENT` continua sendo a diferença assinada, e
+deixou de ser alcançável por quem apenas movimenta estoque.
+
+### O desenho
+
+Três rotas, porque são três autoridades. Chamar `ADJUSTMENT` de "operação técnica
+restrita" na documentação não restringia acesso nenhum — a separação agora está
+no motor de permissão:
+
+| Rota | Permissão | Operações |
+|---|---|---|
+| `POST /inventory/adjust` | `inventory.adjust` | `PURCHASE`, `LOSS`, `RETURN`, por magnitude |
+| `POST /inventory/count` | `inventory.count` | total encontrado; o servidor calcula a diferença |
+| `POST /inventory/technical-adjustment` | `inventory.adjust.technical` | `ADJUSTMENT`, a diferença assinada |
+
+`inventory.count` foi para OWNER, TENANT_OWNER, ADMIN e MANAGER — quem já
+movimentava estoque. `inventory.adjust.technical` ficou em OWNER, TENANT_OWNER e
+ADMIN: lançar diferença à mão passa por cima da conferência da prateleira, e isso
+responde pela administração do tenant, não pela operação de loja. A migração 082
+cria as duas permissões e as concede; `CASHIER` e `OPERATOR` não alcançam nenhuma
+das duas rotas.
+
+### As cinco exigências, e como cada uma é provada
+
+| Exigência | Como |
+|---|---|
+| Versão alterada por **toda** movimentação | O `UPSERT` que grava o saldo incrementa `version` na mesma instrução. Teste parametrizado nos cinco tipos: venda, entrada, perda, devolução e ajuste |
+| Conferência e gravação **atômicas** | `SELECT … FOR UPDATE` no saldo, mantido até o fim da transação. Provado com duas sessões: enquanto a contagem não confirma, uma venda na mesma linha espera e estoura `lock_timeout`. O teste prova que **uma linha existente fica bloqueada neste cenário** — não ausência de janela em geral; o primeiro saldo é caso à parte, com teste próprio |
+| Contagem **zero** válida | Campo obrigatório e não negativo: `0` é achado, e não preencher é recusado pelo próprio contrato. Contar zero esvazia a prateleira e registra a saída |
+| Contagem **igual ao saldo** | Registra a conferência em `inventory_counts` com diferença zero, `movement_id` nulo, e **não** move a versão de quem não movimentou nada |
+| **Conflito** compreensível | `409` com o estado atual — versão esperada, versão atual e saldo atual. A tela mantém o número digitado, relê o saldo e pede nova conferência; nunca reenvia sozinha com a versão nova |
+| **Reenvio** sem duplicação | Chave de idempotência com unicidade por tenant na própria tabela de contagens: a guarda é a linha gravada, não um cache que expira |
+
+O bloqueio não é recusa: um segundo teste mostra a venda que esperou passando
+depois, sobre o saldo já conferido.
+
+### A conferência é fato próprio
+
+`inventory_counts` guarda o que foi encontrado, o que o sistema tinha, a
+diferença, o ator, o motivo e as versões antes e depois. Contar e bater é
+informação — alguém olhou a prateleira naquele dia — e não podia virar movimento
+inventado só para deixar rastro.
+
+### Na tela
+
+A tela de estoque ganhou **Contar estoque** ao lado de Movimentar, com o saldo
+registrado à vista e a prévia antes de confirmar: *"Você contou 10 un. O sistema
+registra 12 un. Diferença: −2 un."* Quando a contagem bate, a prévia diz que a
+conferência fica registrada sem movimentar estoque.
+
+O ajuste técnico também ganhou superfície, e não por escolha: o portão de
+alcançabilidade recusou a rota sem tela — "backend pronto e tela ausente" é
+exatamente o que ele existe para pegar, e ele pegou. A ação aparece apenas para
+quem tem `inventory.adjust.technical`, com o aviso de que ela não passa pela
+conferência da prateleira. `fetchInventoryBalance`, que estava na lista de
+funções órfãs do cliente, saiu dela: a contagem passou a usá-la.
+
+**Esta tela não foi exercitada na bancada**, e é limite declarado: a ação exige
+`inventory.count`, o bypass de desenvolvimento não devolve permissão nenhuma, e a
+tela esconder ações sem permissão é o comportamento correto. Exercitá-la depende
+das mesmas credenciais Supabase já listadas como dependência. O que está provado
+sem elas: o comportamento completo pelo caminho autenticado, a prévia por teste
+de unidade, e o tratamento do conflito por leitura do fonte — que é guarda, não
+prova de comportamento.
 
 ## Dependências registradas
 

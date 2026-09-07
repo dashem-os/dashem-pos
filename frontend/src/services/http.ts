@@ -7,7 +7,19 @@ export function setApiAccessTokenProvider(provider: () => Promise<string | null>
 }
 
 export class ApiError extends Error {
-  constructor(message: string, readonly status: number) {
+  /**
+   * `payload` guarda o `detail` estruturado quando o servidor manda um objeto.
+   *
+   * Nem toda recusa cabe numa frase. A contagem de estoque, por exemplo, precisa
+   * dizer também qual versão o cliente tinha e qual é a atual, para a tela pedir
+   * nova conferência em vez de aceitar por cima. Achatar isso em texto perderia
+   * justamente o que a tela usa para agir.
+   */
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly payload?: Record<string, unknown>,
+  ) {
     super(message)
     this.name = 'ApiError'
   }
@@ -38,6 +50,12 @@ export async function apiError(res: Response, fallback: string): Promise<ApiErro
         .filter(Boolean)
         .join(' · ')
     : ''
-  const detail = typeof body.detail === 'string' ? body.detail : validationMessages || fallback
-  return new ApiError(detail, res.status)
+  const structured = (
+    body.detail && typeof body.detail === 'object' && !Array.isArray(body.detail)
+  ) ? body.detail as Record<string, unknown> : undefined
+  const structuredMessage = typeof structured?.message === 'string' ? structured.message : ''
+  const detail = typeof body.detail === 'string'
+    ? body.detail
+    : structuredMessage || validationMessages || fallback
+  return new ApiError(detail, res.status, structured)
 }
