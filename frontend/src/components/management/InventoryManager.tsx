@@ -83,14 +83,28 @@ export function InventoryManager() {
     setBusy(true)
     try {
       await adjustStock(selected.product_id, Number(form.quantity), form.movement_type, form.reason)
-      if (form.minimum_stock !== '') {
+    } catch {
+      // O aviso de falha já foi dado por quem chamou a API; aqui só não
+      // seguimos adiante — e não anunciamos sucesso.
+      setBusy(false)
+      return
+    }
+    // O mínimo é outra operação e falha por conta própria. Engoli-la num
+    // `catch` só dizia "movimentação registrada" enquanto o mínimo não tinha
+    // sido salvo, que é a mesma mentira de anunciar sucesso após recusa.
+    let minimoSalvo = true
+    if (form.minimum_stock !== '') {
+      try {
         await api.setMinimumStock(headers, store.id, selected.product_id, Number(form.minimum_stock))
+      } catch (reason) {
+        minimoSalvo = false
+        showToast('error', reason instanceof Error ? reason.message : 'O estoque mínimo não foi salvo.')
       }
+    }
+    try {
       await load()
       setSelected(null)
-      showToast('success', 'Movimentação registrada no histórico do estoque.')
-    } catch {
-      /* o aviso de falha já foi dado por quem chamou a API; aqui só não seguimos adiante */
+      if (minimoSalvo) showToast('success', 'Movimentação registrada no histórico do estoque.')
     } finally { setBusy(false) }
   }
 
@@ -130,9 +144,22 @@ export function InventoryManager() {
   // voltou à prateleira.
   const [recounted, setRecounted] = useState(false)
 
+  // A chave nasce com a conferência e sobrevive ao reenvio. Gerar uma nova a
+  // cada clique tornava a guarda do servidor inalcançável: uma resposta perdida
+  // seguida de novo envio chegaria como comando diferente e registraria uma
+  // segunda contagem. A chave só muda quando a conferência muda.
+  const [countKey, setCountKey] = useState('')
+
   const openCount = async (item: api.StockHolding) => {
     if (!store) return
-    setCounting(item); setCounted(''); setCountConflict(''); setRecounted(false)
+    setCounting(item)
+    setCounted('')
+    setCountConflict('')
+    setRecounted(false)
+    // Zerar antes de buscar: sem isto o formulário abre exibindo o saldo do
+    // produto anterior, e a prévia calcula a diferença contra ele.
+    setCountBase(null)
+    setCountKey(`count-${item.product_id}-${crypto.randomUUID()}`)
     setCountBase(await api.fetchInventoryBalance(headers, store.id, item.product_id))
   }
 
@@ -141,7 +168,7 @@ export function InventoryManager() {
     if (!counting || !store || counted === '') return
     setBusy(true)
     try {
-      await api.countStock(headers, `count-${counting.product_id}-${crypto.randomUUID()}`, {
+      await api.countStock(headers, countKey, {
         store_id: store.id, product_id: counting.product_id, actor_id: operatorId,
         counted_quantity: Number(counted),
         expected_version: countBase?.version ?? 0,
@@ -157,6 +184,10 @@ export function InventoryManager() {
       if (reason instanceof ApiError && reason.status === 409) {
         setCountConflict(reason.message)
         setRecounted(false)
+        // Confirmar depois do conflito é outra conferência, sobre outra versão:
+        // reaproveitar a chave anterior seria reenvio de um comando que já foi
+        // recusado, e o servidor a trataria como conteúdo diferente.
+        setCountKey(`count-${counting.product_id}-${crypto.randomUUID()}`)
         setCountBase(await api.fetchInventoryBalance(headers, store.id, counting.product_id))
         // A tabela atrás do formulário também é relida. Dois saldos diferentes
         // na mesma tela, sem dizer qual está velho, comprometem a conferência:

@@ -201,6 +201,18 @@ def technical_adjustment_endpoint(
     autoridade de administração do tenant, não de operação de loja.
     """
     actor_id = resolve_actor(context, data.actor_id)
+    # A conferência vem antes de aplicar. Guardar a chave só depois deixava o
+    # retry aplicar a diferença uma segunda vez e ainda confirmá-la: a chave
+    # registrada não protege nada se o efeito já aconteceu.
+    if x_idempotency_key:
+        is_cached, status_code, body = reliability_service.check_idempotency(
+            session=session, tenant_id=context.tenant_id, actor_id=actor_id,
+            operation="POST /api/v1/inventory/technical-adjustment",
+            idempotency_key=x_idempotency_key, request_payload=data.dict(),
+        )
+        if is_cached and status_code and body:
+            return body
+
     movement, balance, created = inventory_service.adjust_stock(
         session=session, context=context, store_id=data.store_id,
         product_id=data.product_id, actor_id=actor_id,

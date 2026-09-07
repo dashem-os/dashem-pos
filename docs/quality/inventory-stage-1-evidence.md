@@ -168,14 +168,14 @@ massa transformaria histórico errado em histórico falsificado.
 
 | O quê | Resultado |
 |---|---|
-| `backend/tests` completo | 503 passaram, 1 pulado (a guarda de CI, fora de CI) |
+| `backend/tests` completo | 510 passaram, 1 pulado (a guarda de CI, fora de CI) |
 | `test_inventory_movement_integrity.py` | 30 passaram (eram 16 falhas em `07ae804`) |
 | `test_negotiation_sale_stock.py` | 7 passaram |
-| `test_inventory_count.py` | 32 passaram |
+| `test_inventory_count.py` | 37 passaram |
 | `test_linked_sale_return.py` | 35 passaram |
 | `test_inventory_http_contract.py` | 13 passaram, contra servidor autenticado |
-| `test_inventory_integrity_diagnosis.py` | 5 passaram |
-| `frontend` — `npm test` | 132 passaram |
+| `test_inventory_integrity_diagnosis.py` | 7 passaram |
+| `frontend` — `npm test` | 137 passaram |
 | `tsc --noEmit` | limpo |
 | `npm run build` | construído |
 | Recusa exercitada na tela | `npm run e2e:stock-refusal` |

@@ -18,6 +18,11 @@ export const SalesHistory: React.FC = () => {
   // limite do que pode voltar, e é ali que a pessoa encontra o item.
   const canReturn = permissions.includes('inventory.adjust')
   const [returning, setReturning] = useState<{ saleItemId: string; name: string; sold: number } | null>(null)
+  // A chave nasce quando a devolução é aberta e sobrevive ao reenvio. Gerar uma
+  // nova a cada clique tornava a guarda do servidor inalcançável: uma resposta
+  // perdida seguida de novo envio registraria uma segunda devolução e uma
+  // segunda entrada de estoque.
+  const [returnKey, setReturnKey] = useState('')
   const [returnForm, setReturnForm] = useState<{
     quantity: string; condition: ReturnCondition; destination: ReturnDestination; reason: string
   }>({ quantity: '', condition: 'RESALEABLE', destination: 'SELLABLE_STOCK', reason: '' })
@@ -30,7 +35,7 @@ export const SalesHistory: React.FC = () => {
     try {
       await api.returnSoldItem(
         { 'X-Tenant-ID': tenant.id, 'X-Store-ID': store.id },
-        `return-${returning.saleItemId}-${crypto.randomUUID()}`,
+        returnKey,
         {
           sale_item_id: returning.saleItemId, actor_id: operatorId,
           quantity: Number(returnForm.quantity), condition: returnForm.condition,
@@ -229,6 +234,7 @@ export const SalesHistory: React.FC = () => {
                                 onClick={() => {
                                   setReturning({ saleItemId: item.id, name: item.product_name, sold: Number(item.quantity) })
                                   setReturnForm({ quantity: '', condition: 'RESALEABLE', destination: 'SELLABLE_STOCK', reason: '' })
+                                  setReturnKey(`return-${item.id}-${crypto.randomUUID()}`)
                                 }}
                                 className="inline-flex min-h-11 items-center rounded-lg border border-dashem-border px-3 text-xs font-black text-dashem-strong"
                               >

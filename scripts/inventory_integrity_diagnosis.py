@@ -9,9 +9,11 @@ falha no segundo item deixava o primeiro baixado e a venda marcada como paga.
 
 **Existir o caminho não significa que alguém passou por ele.** Este roteiro
 procura as marcas que aqueles defeitos deixariam, para que a decisão sobre dados
-reais seja tomada sobre o que há, e não sobre o que poderia haver.
+reais seja tomada sobre o que há, e não sobre o que poderia haver. E mede a
+população que a correção passará a recusar, que é a outra metade da mesma
+decisão.
 
-Quatro procuras, cada uma com o seu significado:
+Cinco procuras, cada uma com o seu significado:
 
 * **saída com variação positiva** — movimento de `LOSS` ou `SALE` cuja variação
   aumentou o saldo. É a assinatura direta do defeito de sinal;
@@ -22,7 +24,14 @@ Quatro procuras, cada uma com o seu significado:
   desvio aqui é escrita que não passou pelo movimento, ou movimento perdido;
 * **venda paga sem baixa completa** — venda `PAID`/`COMPLETED` com item que
   declara controle de estoque e não tem movimento de venda correspondente. É a
-  marca que a falha transacional deixaria.
+  marca que a falha transacional deixaria;
+* **item vendido sem vínculo de baixa** — a população que **passará a ter
+  devolução recusada**. A devolução ao saldo vendável agora exige baixa
+  comprovada, e a prova é o vínculo entre o movimento de venda e o item. Todo
+  item anterior a esse vínculo não tem como comprová-la, mesmo tendo baixado de
+  fato. Esta contagem existe para dimensionar quantas devoluções passarão a
+  precisar de conferência antes de serem registradas — e, sem ela, a decisão
+  sobre liberar seria tomada às cegas.
 
 **Este roteiro só lê.** Ele não corrige, não inverte linha e não compensa nada.
 Movimento confirmado não é reescrito: a correção de um saldo errado é um
@@ -55,6 +64,7 @@ from app.models.identity import Store, Tenant
 from app.models.sale import Sale, SaleItem, SaleStatusEnum
 
 
+SEM_VINCULO_DE_BAIXA = "item_vendido_sem_vinculo_de_baixa"
 SAIDA_POSITIVA = "saida_com_variacao_positiva"
 ARITMETICA = "aritmetica_quebrada"
 SALDO_DIVERGENTE = "saldo_divergente_do_livro"
@@ -162,12 +172,60 @@ def vendas_sem_baixa(session: Session, tenants, lojas) -> list[dict]:
     return achados
 
 
+def vendas_sem_vinculo(session: Session, tenants, lojas) -> list[dict]:
+    """Itens vendidos cuja baixa não pode ser comprovada pelo vínculo.
+
+    Não é o mesmo que "venda paga sem baixa": aqui o movimento pode existir e
+    ter acontecido — ele só não aponta para o item que o causou, porque o
+    vínculo é posterior. A distinção importa, e a recusa da devolução diz
+    exatamente isso: não é possível comprovar, não que a mercadoria ficou.
+
+    O número que sai daqui é o tamanho do problema operacional: quantas
+    devoluções passarão a exigir conferência antes de serem registradas.
+    """
+    com_vinculo = {
+        movimento.sale_item_id
+        for movimento in session.exec(select(InventoryMovement).where(
+            InventoryMovement.movement_type == MovementTypeEnum.SALE,
+        )).all()
+        if movimento.sale_item_id is not None
+    }
+    achados = []
+    for venda in session.exec(select(Sale).where(Sale.status.in_(VENDIDAS))).all():
+        itens = session.exec(select(SaleItem).where(SaleItem.sale_id == venda.id)).all()
+        for item in itens:
+            # O critério é o mesmo que `return_sold_item` aplica: o snapshot do
+            # item, e só ele. Usar também o produto de hoje contaria itens que a
+            # devolução nem verifica, e o número deixaria de ser a população que
+            # será recusada — que é a única coisa que este levantamento decide.
+            if not item.tracks_inventory_snapshot:
+                continue
+            if item.id in com_vinculo:
+                continue
+            achados.append({
+                "tipo": SEM_VINCULO_DE_BAIXA,
+                "tenant_id": str(venda.tenant_id),
+                "tenant": tenants.get(venda.tenant_id, "(desconhecido)"),
+                "store_id": str(venda.store_id),
+                "loja": lojas.get(venda.store_id, "(desconhecida)"),
+                "product_id": str(item.product_id),
+                "referencia": str(item.id),
+                "evidencia": (
+                    f"venda {venda.status.value} de {venda.occurred_at:%Y-%m-%d} "
+                    f"com {item.quantity} de '{item.product_name}': devolução ao "
+                    "saldo vendável exigirá conferência"
+                ),
+            })
+    return achados
+
+
 def diagnose(session: Session) -> list[dict]:
     tenants, lojas = _nomes(session)
     return (
         movimentos_suspeitos(session, tenants, lojas)
         + saldos_divergentes(session, tenants, lojas)
         + vendas_sem_baixa(session, tenants, lojas)
+        + vendas_sem_vinculo(session, tenants, lojas)
     )
 
 
@@ -186,6 +244,7 @@ def main() -> int:
         ARITMETICA: "Aritmética quebrada na própria linha",
         SALDO_DIVERGENTE: "Saldo divergente da soma do livro",
         VENDA_SEM_BAIXA: "Venda paga com item controlado sem baixa",
+        SEM_VINCULO_DE_BAIXA: "Item vendido sem vínculo de baixa (devolução exigirá conferência)",
     }
     for tipo, rotulo in rotulos.items():
         do_tipo = [achado for achado in achados if achado["tipo"] == tipo]
@@ -219,7 +278,11 @@ def main() -> int:
     print("  · o saldo esperado assume abertura zero. Estoque carregado por outro")
     print("    caminho que não o movimento aparece aqui como divergência legítima;")
     print("  · corrigir dado real é movimento compensatório vinculado, com")
-    print("    justificativa e responsável, decidido tenant a tenant — nunca em massa.")
+    print("    justificativa e responsável, decidido tenant a tenant — nunca em massa;")
+    print("  · item sem vínculo de baixa NÃO é item sem baixa. O movimento pode ter")
+    print("    acontecido e apenas não apontar para o item, porque o vínculo é")
+    print("    posterior. O número mede quantas devoluções passarão a exigir")
+    print("    conferência, e não quantas vendas deixaram de baixar estoque.")
     return 0 if not achados else 2
 
 

@@ -29,6 +29,7 @@ from app.models.catalog import (
     InventoryBalance, InventoryMovement, MovementTypeEnum, Product,
 )
 from app.models.identity import Store, Tenant, TenantStatusEnum
+from app.models.sale import Sale, SaleItem, SaleStatusEnum
 
 
 def _diagnosis():
@@ -195,3 +196,77 @@ def test_the_diagnosis_leaves_the_rows_exactly_as_it_found_them():
         "o levantamento corrigiu a linha em vez de apenas apontá-la"
     )
     assert movimento.new_balance == Decimal("15.0000")
+
+
+def test_it_counts_the_sold_items_whose_decrement_cannot_be_proved():
+    """A população que passará a ter devolução recusada, dimensionada.
+
+    A devolução ao saldo vendável exige baixa comprovada, e a prova é o vínculo
+    entre o movimento de venda e o item. Todo item anterior a esse vínculo não
+    tem como comprová-la — **mesmo tendo baixado de fato**. Sem esta contagem, a
+    decisão sobre liberar seria tomada sem saber quantas devoluções passarão a
+    exigir conferência.
+    """
+    report = _diagnosis()
+    with Session(engine, expire_on_commit=False) as session:
+        tenant_id, store_id, product_id = _store(session)
+        sale = Sale(
+            tenant_id=tenant_id, store_id=store_id, status=SaleStatusEnum.COMPLETED,
+            gross_total=Decimal("2"), net_total=Decimal("2"),
+        )
+        session.add(sale)
+        session.flush()
+        sem_vinculo = SaleItem(
+            tenant_id=tenant_id, sale_id=sale.id, product_id=product_id,
+            product_name="Antiga", sku="ANT", tracks_inventory_snapshot=True,
+            unit_price=Decimal("1"), quantity=Decimal("2"),
+            gross_total=Decimal("2"), net_total=Decimal("2"),
+        )
+        session.add(sem_vinculo)
+        session.flush()
+        # A baixa existe, e é justamente por isso que o caso é sutil: ela
+        # aconteceu, só não aponta para o item que a causou.
+        session.add(InventoryMovement(
+            tenant_id=tenant_id, store_id=store_id, product_id=product_id,
+            actor_id=uuid.uuid4(), movement_type=MovementTypeEnum.SALE,
+            quantity=Decimal("-2"), previous_balance=Decimal("2"),
+            new_balance=Decimal("0"), reason="Venda antiga, sem vínculo",
+        ))
+        session.commit()
+        item_id = sem_vinculo.id
+
+    achados = _findings(report.SEM_VINCULO_DE_BAIXA, product_id)
+    assert len(achados) == 1
+    assert achados[0]["referencia"] == str(item_id)
+    assert "exigirá conferência" in achados[0]["evidencia"]
+
+
+def test_an_item_with_a_linked_decrement_is_not_counted():
+    """Vínculo presente é baixa comprovável: a devolução passa sem conferência."""
+    report = _diagnosis()
+    with Session(engine, expire_on_commit=False) as session:
+        tenant_id, store_id, product_id = _store(session)
+        sale = Sale(
+            tenant_id=tenant_id, store_id=store_id, status=SaleStatusEnum.PAID,
+            gross_total=Decimal("1"), net_total=Decimal("1"),
+        )
+        session.add(sale)
+        session.flush()
+        item = SaleItem(
+            tenant_id=tenant_id, sale_id=sale.id, product_id=product_id,
+            product_name="Nova", sku="NOV", tracks_inventory_snapshot=True,
+            unit_price=Decimal("1"), quantity=Decimal("1"),
+            gross_total=Decimal("1"), net_total=Decimal("1"),
+        )
+        session.add(item)
+        session.flush()
+        session.add(InventoryMovement(
+            tenant_id=tenant_id, store_id=store_id, product_id=product_id,
+            actor_id=uuid.uuid4(), movement_type=MovementTypeEnum.SALE,
+            quantity=Decimal("-1"), previous_balance=Decimal("1"),
+            new_balance=Decimal("0"), reason="Venda com vínculo",
+            sale_item_id=item.id,
+        ))
+        session.commit()
+
+    assert _findings(report.SEM_VINCULO_DE_BAIXA, product_id) == []

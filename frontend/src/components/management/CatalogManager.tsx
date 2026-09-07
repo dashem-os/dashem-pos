@@ -56,7 +56,7 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
 
   // Adjust Stock Form
   const [adjustQty, setAdjustQty] = useState('')
-  const [adjustType, setAdjustType] = useState<StockMovementType>('PURCHASE')
+  const [adjustType, setAdjustType] = useState<'PURCHASE' | 'LOSS'>('PURCHASE')
   const [adjustReason, setAdjustReason] = useState(DEFAULT_STOCK_REASONS.PURCHASE)
   const [minimumStock, setMinimumStock] = useState('')
   const [viewMode, setViewMode] = useState<'MASTER' | 'PROJECTION'>('MASTER')
@@ -648,7 +648,7 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
             <select
               value={adjustType}
               onChange={(e) => {
-                const next = e.target.value as StockMovementType
+                const next = e.target.value as 'PURCHASE' | 'LOSS'
                 setAdjustType(next)
                 setAdjustReason((current) => reasonForMovement(current, next))
               }}
@@ -656,9 +656,13 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
             >
               <option value="PURCHASE">Entrada / Compra de Mercadoria</option>
               <option value="LOSS">Perda / Avaria / Vencimento</option>
-              <option value="ADJUSTMENT">Ajuste de Balanço / Inventário</option>
             </select>
           </div>
+
+          <p className="rounded-xl border border-dashem-border bg-dashem-surface-elevated p-3 text-xs text-dashem-muted">
+            Diferença de balanço se registra em <b className="text-dashem-strong">Estoque</b>,
+            contando a prateleira: você informa o total encontrado e o sistema calcula a diferença.
+          </p>
 
           <div className="space-y-1.5">
             <label className="text-xs font-bold text-dashem-strong block">Quantidade</label>

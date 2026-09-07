@@ -31,7 +31,8 @@ from sqlalchemy.exc import DBAPIError
 from sqlmodel import Session, select
 
 from app.api.v1.endpoints.inventory import (
-    StockAdjustDTO, StockCountDTO, adjust_stock_endpoint, count_stock_endpoint,
+    StockAdjustDTO, StockCountDTO, TechnicalAdjustmentDTO, adjust_stock_endpoint,
+    count_stock_endpoint, technical_adjustment_endpoint,
 )
 from app.core.context import TenantContext, authorize_tenant_context
 from app.core.database import engine
@@ -798,3 +799,134 @@ def test_count_difference_and_movement_share_the_same_precision():
     assert movement.quantity == Decimal("-0.2469")
     assert movement.previous_balance + movement.quantity == movement.new_balance
     assert Decimal(str(balance.quantity)) == Decimal("9.8765")
+
+
+# ------------------------------------- achados da revisão consolidada
+
+def test_the_balance_of_a_product_never_moved_reports_version_zero():
+    """A leitura e a contagem precisam concordar sobre o que é "sem linha".
+
+    O modelo tem versão padrão 1, que é o que a primeira linha real recebe. Mas
+    o saldo sintetizado não é uma linha: ele representa a ausência de uma, e a
+    contagem trata ausência como versão 0. Enquanto a leitura devolvia 1, a
+    primeira contagem de um produto novo entrava em conflito para sempre — a
+    recusa desfaz a linha materializada, e a releitura devolvia 1 outra vez.
+    """
+    with _session() as session:
+        context = _context(session)
+        product_id = _product(session, context)
+
+        lido = inventory_service.get_balance(
+            session, context, context.store_id, product_id,
+        )
+        assert lido.version == 0
+
+        # E a contagem aceita exatamente essa expectativa.
+        record, balance, _ = inventory_service.count_stock(
+            session=session, context=context, store_id=context.store_id,
+            product_id=product_id, actor_id=context.user_id,
+            counted_quantity=Decimal("3"), expected_version=lido.version,
+            idempotency_key=f"count-{uuid.uuid4().hex[:10]}",
+        )
+        session.commit()
+
+    assert record.balance_version_before == 0
+    assert Decimal(str(balance.quantity)) == Decimal("3.0000")
+
+
+def test_the_first_count_survives_a_refused_attempt():
+    """Recusa não pode deixar o produto novo impossível de contar.
+
+    Depois de um conflito, a linha materializada é desfeita. A leitura seguinte
+    tem de continuar dizendo 0, senão a segunda tentativa nasce condenada.
+    """
+    with _session() as session:
+        context = _context(session)
+        product_id = _product(session, context)
+
+        with pytest.raises(HTTPException):
+            inventory_service.count_stock(
+                session=session, context=context, store_id=context.store_id,
+                product_id=product_id, actor_id=context.user_id,
+                counted_quantity=Decimal("3"), expected_version=7,
+                idempotency_key=f"count-{uuid.uuid4().hex[:10]}",
+            )
+        session.rollback()
+
+    with _session() as session:
+        set_tenant_db_context(session, context.tenant_id, context.store_id, context.user_id)
+        lido = inventory_service.get_balance(
+            session, context, context.store_id, product_id,
+        )
+        assert lido.version == 0
+        inventory_service.count_stock(
+            session=session, context=context, store_id=context.store_id,
+            product_id=product_id, actor_id=context.user_id,
+            counted_quantity=Decimal("3"), expected_version=lido.version,
+            idempotency_key=f"count-{uuid.uuid4().hex[:10]}",
+        )
+        session.commit()
+
+    assert Decimal(str(_balance(context, product_id).quantity)) == Decimal("3.0000")
+
+
+def test_repeating_the_technical_adjustment_applies_the_difference_once():
+    """Guardar a chave depois de aplicar não protege coisa nenhuma.
+
+    A conferência precisa vir antes do efeito: o retry chegava, a diferença era
+    aplicada de novo, e só então a chave era registrada — em cima de um estoque
+    que já tinha mudado duas vezes.
+    """
+    key = f"tech-{uuid.uuid4().hex[:10]}"
+    with _session() as session:
+        context = _context(session)
+        product_id = _product(session, context)
+        _receive(session, context, product_id, "10")
+
+        payload = TechnicalAdjustmentDTO(
+            store_id=context.store_id, product_id=product_id,
+            actor_id=context.user_id, difference=Decimal("-2"),
+            reason="Correção apurada fora do sistema",
+        )
+        technical_adjustment_endpoint(
+            data=payload, context=context, x_idempotency_key=key,
+            x_correlation_id=None, session=session,
+        )
+        technical_adjustment_endpoint(
+            data=payload, context=context, x_idempotency_key=key,
+            x_correlation_id=None, session=session,
+        )
+
+    assert Decimal(str(_balance(context, product_id).quantity)) == Decimal("8.0000"), (
+        "o reenvio aplicou a diferença duas vezes"
+    )
+    ajustes = [
+        movimento for movimento in _movements(context, product_id)
+        if movimento.movement_type is MovementTypeEnum.ADJUSTMENT
+    ]
+    assert len(ajustes) == 1
+
+
+@pytest.mark.parametrize("quantidade", ["1E+30", "99999999999999"])
+def test_an_impossible_quantity_is_refused_not_a_server_error(quantidade):
+    """Número que a pessoa digitou não pode virar erro do servidor.
+
+    `quantize` estoura com `InvalidOperation` acima do que a coluna guarda, e
+    isso subia como 500 — o servidor culpando a si mesmo por uma entrada que ele
+    deveria simplesmente recusar.
+    """
+    with _session() as session:
+        context = _context(session)
+        product_id = _product(session, context)
+
+        with pytest.raises(HTTPException) as refused:
+            inventory_service.adjust_stock(
+                session=session, context=context, store_id=context.store_id,
+                product_id=product_id, actor_id=context.user_id,
+                movement_type=MovementTypeEnum.PURCHASE, quantity=Decimal(quantidade),
+                reason="Quantidade impossível",
+            )
+        session.rollback()
+
+    assert refused.value.status_code == 400
+    assert "excede o máximo" in refused.value.detail

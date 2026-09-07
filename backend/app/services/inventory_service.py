@@ -1,5 +1,5 @@
 import uuid
-from decimal import Decimal, ROUND_DOWN
+from decimal import Decimal, InvalidOperation, ROUND_DOWN
 from datetime import datetime
 from typing import List, Optional, Tuple, Union
 from sqlalchemy import func
@@ -23,6 +23,7 @@ OUTGOING_MOVEMENTS = frozenset({MovementTypeEnum.SALE, MovementTypeEnum.LOSS})
 # A coluna é `Numeric(14,4)`. Aceitar mais casas e deixar o banco arredondar
 # perderia mercadoria em silêncio — e o silêncio é o problema, não a quarta casa.
 QUANTITY_PLACES = Decimal("0.0001")
+QUANTITY_CEILING = Decimal("10000000000")  # Numeric(14,4): dez dígitos inteiros
 
 
 def exact_quantity(value: Union[float, Decimal], field: str = "quantidade") -> Decimal:
@@ -37,7 +38,25 @@ def exact_quantity(value: Union[float, Decimal], field: str = "quantidade") -> D
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"A {field} precisa ser um número finito.",
         )
-    if quantity != quantity.quantize(QUANTITY_PLACES, rounding=ROUND_DOWN):
+    # `Numeric(14,4)` guarda dez dígitos inteiros. Acima disso o `quantize`
+    # estoura com `InvalidOperation`, que viraria 500 — erro do servidor por um
+    # número que a pessoa digitou. É recusa, e recusa é 400.
+    if abs(quantity) >= QUANTITY_CEILING:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"A {field} excede o máximo que o estoque registra "
+                f"({QUANTITY_CEILING - 1} unidades)."
+            ),
+        )
+    try:
+        exata = quantity.quantize(QUANTITY_PLACES, rounding=ROUND_DOWN)
+    except InvalidOperation:  # pragma: no cover - o teto acima já barra
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"A {field} não pode ser registrada com esta precisão.",
+        )
+    if quantity != exata:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
@@ -46,6 +65,22 @@ def exact_quantity(value: Union[float, Decimal], field: str = "quantidade") -> D
             ),
         )
     return quantity.quantize(QUANTITY_PLACES)
+
+
+def _absent_balance(tenant_id, store_id, product_id) -> InventoryBalance:
+    """O saldo de quem nunca foi movimentado: zero, e **versão zero**.
+
+    A versão padrão do modelo é 1, que é o que a primeira linha real recebe. Mas
+    esta instância não é uma linha: ela representa a ausência de uma, e a
+    contagem trata ausência como versão 0. Devolver 1 aqui fazia a tela mandar
+    uma expectativa que o servidor nunca podia satisfazer — a primeira contagem
+    de um produto novo entrava em conflito para sempre, porque a recusa desfaz a
+    linha materializada e a leitura seguinte devolvia 1 de novo.
+    """
+    return InventoryBalance(
+        tenant_id=tenant_id, store_id=store_id, product_id=product_id,
+        quantity=Decimal("0.00"), version=0,
+    )
 
 
 def _amount(value: Decimal) -> str:
@@ -124,12 +159,7 @@ def adjust_stock(
         balance_query = scope_tenant_query(balance_query, InventoryBalance, context)
         balance = session.exec(balance_query).first()
         if not balance:
-            balance = InventoryBalance(
-                tenant_id=context.tenant_id,
-                store_id=store_id,
-                product_id=product_id,
-                quantity=Decimal("0.00")
-            )
+            balance = _absent_balance(context.tenant_id, store_id, product_id)
         return None, balance, False
 
     # 3. ATOMIC POSTGRESQL UPSERT: Handles first-balance creation & concurrent updates with zero race conditions
@@ -496,12 +526,7 @@ def get_balance(session: Session, context: TenantContext, store_id: uuid.UUID, p
     query = scope_tenant_query(query, InventoryBalance, context)
     balance = session.exec(query).first()
     if not balance:
-        return InventoryBalance(
-            tenant_id=context.tenant_id,
-            store_id=store_id,
-            product_id=product_id,
-            quantity=Decimal("0.00")
-        )
+        return _absent_balance(context.tenant_id, store_id, product_id)
     return balance
 
 def list_movements(

@@ -69,7 +69,7 @@ test('depois do conflito, confirmar exige um ato deliberado', () => {
   // sem isto, um clique mandaria o número contado antes da movimentação contra
   // a versão recém-lida, que é a aceitação silenciosa que a versão impede.
   assert.match(inventory, /const \[recounted, setRecounted\] = useState\(false\)/)
-  assert.match(inventory, /setRecounted\(false\)\s+setCountBase/)
+  assert.match(inventory, /setCountConflict\(reason\.message\)\s+setRecounted\(false\)/)
   assert.match(inventory, /disabled=\{busy \|\| counted === '' \|\| \(Boolean\(countConflict\) && !recounted\)\}/)
   assert.match(inventory, /Voltei à prateleira/)
 })
@@ -152,4 +152,56 @@ test('a recusa do servidor fica na tela com o formulário aberto', () => {
   // Nada de fechar o formulário no catch: a recusa explica o limite.
   const doCatch = corpo.slice(corpo.indexOf('catch'))
   assert.doesNotMatch(doCatch, /setReturning\(null\)/)
+})
+
+
+/**
+ * Achados da revisão consolidada da branch, fixados para não voltarem.
+ */
+
+const catalog = readFileSync(
+  join(import.meta.dirname, '..', 'src', 'components', 'management', 'CatalogManager.tsx'),
+  'utf8',
+)
+
+test('a chave de idempotência sobrevive ao reenvio', () => {
+  // Gerar uma nova a cada clique torna a guarda do servidor inalcançável: a
+  // resposta perdida seguida de novo envio chega como comando diferente.
+  assert.match(inventory, /const \[countKey, setCountKey\] = useState\(''\)/)
+  assert.match(inventory, /await api\.countStock\(headers, countKey,/)
+  assert.match(sales, /const \[returnKey, setReturnKey\] = useState\(''\)/)
+  assert.match(sales, /returnKey,/)
+  // O caminho de sucesso usa a chave que veio da abertura, sem inventar outra.
+  const envio = inventory.slice(inventory.indexOf('const submitCount'))
+  const ateOCatch = envio.slice(0, envio.indexOf('} catch (reason)'))
+  assert.doesNotMatch(ateOCatch, /randomUUID/)
+})
+
+test('depois do conflito a chave muda, porque o comando mudou', () => {
+  // Reaproveitar a chave ali seria reenviar um comando já recusado com outra
+  // versão esperada — e o servidor a trataria como conteúdo diferente, que é
+  // justamente a recusa que ele dá para chave reusada.
+  const envio = inventory.slice(inventory.indexOf('const submitCount'))
+  const conflito = envio.slice(envio.indexOf('reason.status === 409'), envio.indexOf('} else {'))
+  assert.match(conflito, /setCountKey\(`count-\$\{counting\.product_id\}-\$\{crypto\.randomUUID\(\)\}`\)/)
+})
+
+test('o formulário de contagem não abre mostrando o saldo do produto anterior', () => {
+  const abertura = inventory.slice(inventory.indexOf('const openCount'))
+  const corpo = abertura.slice(0, abertura.indexOf('const submitCount'))
+  assert.ok(corpo.indexOf('setCountBase(null)') < corpo.indexOf('await api.fetchInventoryBalance'))
+})
+
+test('falha ao salvar o mínimo não vira mensagem de sucesso', () => {
+  const envio = inventory.slice(inventory.indexOf('const submit = async'))
+  const corpo = envio.slice(0, envio.indexOf('// -------'))
+  assert.match(corpo, /minimoSalvo = false/)
+  assert.match(corpo, /if \(minimoSalvo\) showToast\('success'/)
+})
+
+test('nenhuma tela oferece o ajuste assinado que a rota comum recusa', () => {
+  for (const fonte of [inventory, catalog]) {
+    assert.doesNotMatch(fonte, /<option value="ADJUSTMENT"/)
+    assert.doesNotMatch(fonte, /<option value="RETURN"/)
+  }
 })
