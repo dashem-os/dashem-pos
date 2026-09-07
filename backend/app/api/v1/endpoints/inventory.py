@@ -10,6 +10,15 @@ from app.services import inventory_service, reliability_service
 
 router = APIRouter()
 
+# A rota é o caminho do lojista, e nele não existe "dar baixa de venda". A baixa
+# pertence ao fluxo de venda, que a executa dentro da transação da quitação; um
+# `POST` manual com `SALE` era uma operação se passando por outra, com o mesmo
+# rótulo no histórico e nenhuma venda por trás.
+MANUAL_MOVEMENTS = frozenset({
+    MovementTypeEnum.PURCHASE, MovementTypeEnum.LOSS,
+    MovementTypeEnum.RETURN, MovementTypeEnum.ADJUSTMENT,
+})
+
 class StockAdjustDTO(BaseModel):
     store_id: uuid.UUID
     product_id: uuid.UUID
@@ -37,6 +46,14 @@ def adjust_stock_endpoint(
     x_correlation_id: Optional[str] = Header(None, alias="X-Correlation-ID"),
     session: Session = Depends(get_session)
 ):
+    if data.movement_type not in MANUAL_MOVEMENTS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Baixa de venda é registrada pela quitação da venda, não por "
+                "movimentação manual de estoque."
+            ),
+        )
     actor_id = resolve_actor(context, data.actor_id)
     # Check Idempotency if key header is provided
     if x_idempotency_key:

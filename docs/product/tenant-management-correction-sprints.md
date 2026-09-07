@@ -1,5 +1,13 @@
 # Trilha corretiva — Gestão do tenant
 
+## Aditivo de estoque e usabilidade — 06/09/2026
+
+A homologação do dono identificou falhas de movimentação e de apresentação nas
+superfícies de mercadorias. O [plano corretivo de estoque e almoxarifado](inventory-operational-correction-plan.md)
+registra o contrato proposto, a sequência de execução e os gates de integridade,
+operação pela interface, apresentação e liberação. Seus gates estão **pendentes**;
+os resultados históricos abaixo não homologam esse novo escopo.
+
 Status: **5.4.0–5.4.3 publicados com CI verde; 5.4.4 parcial — a frente de mídia saiu no S24; OA-4 concluído no deploy com `14/14` e Gate B `PASSED` em 04/09/2026**
 
 Data de referência: 1º de setembro de 2026 · última atualização de estado: 5 de setembro de 2026

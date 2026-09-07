@@ -725,6 +725,11 @@ export const PosProvider: React.FC<{
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Erro ao ajustar estoque'
       showToast('error', msg)
+      // O aviso é para a pessoa; o erro é para quem chamou. Sem relançar, o
+      // formulário chamador seguia adiante como se tivesse dado certo: limpava
+      // os campos, fechava o modal e — numa das telas — ainda emitia mensagem
+      // de sucesso por cima da mensagem de falha.
+      throw err instanceof Error ? err : new Error(msg)
     } finally {
       setActionLoading(false)
     }

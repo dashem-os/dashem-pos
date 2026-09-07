@@ -197,7 +197,15 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
     e.preventDefault()
     if (!selectedProductForStock || !adjustQty) return
 
-    await adjustStock(selectedProductForStock, parseFloat(adjustQty), adjustType, adjustReason)
+    // Fechar só depois de a movimentação ter sido aceita. Antes o formulário
+    // limpava e fechava incondicionalmente, então uma recusa do servidor —
+    // saldo insuficiente, por exemplo — sumia da tela junto com o que a pessoa
+    // tinha digitado, e ela não tinha como saber que nada foi registrado.
+    try {
+      await adjustStock(selectedProductForStock, parseFloat(adjustQty), adjustType, adjustReason)
+    } catch {
+      return
+    }
     if (tenant && store && minimumStock !== '') {
       await api.setMinimumStock(
         { 'X-Tenant-ID': tenant.id, 'X-Store-ID': store.id },

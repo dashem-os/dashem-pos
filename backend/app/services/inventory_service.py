@@ -8,6 +8,53 @@ from app.core.context import TenantContext, resolve_actor, scope_tenant_query
 from app.models.catalog import Product, InventoryMovement, InventoryBalance, MovementTypeEnum
 from app.services import reliability_service
 
+# Cada tipo de movimento tem uma direção, e é ela que decide o efeito no saldo.
+# Antes o serviço somava a quantidade recebida qualquer que fosse o tipo, e quem
+# informava o sinal era quem chamava — de modo que registrar perda de 5 unidades
+# acrescentava 5 ao estoque, com o movimento gravado dizendo `LOSS · 5` numa
+# linha em que o saldo subiu. O livro mentia junto com o saldo.
+INCOMING_MOVEMENTS = frozenset({MovementTypeEnum.PURCHASE, MovementTypeEnum.RETURN})
+OUTGOING_MOVEMENTS = frozenset({MovementTypeEnum.SALE, MovementTypeEnum.LOSS})
+
+
+def signed_variation(
+    movement_type: MovementTypeEnum, quantity: Union[float, Decimal],
+) -> Decimal:
+    """A variação assinada que esta operação aplica ao saldo.
+
+    `ADJUSTMENT` é a única operação que carrega o próprio sinal: ela *é* a
+    diferença apurada, e é a operação técnica restrita. Todas as outras recebem
+    magnitude e têm a direção decidida aqui.
+
+    Quantidade assinada numa operação direcional é recusada em vez de invertida.
+    Inverter em silêncio manteria a ambiguidade — não há como saber se quem
+    mandou `-3` numa perda estava dizendo o efeito ou a magnitude — e ainda
+    esconderia o cliente que precisa ser corrigido.
+    """
+    variation = Decimal(str(quantity))
+    if not variation.is_finite():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Quantidade inválida: informe um número finito.",
+        )
+    if variation == 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Quantidade zero não movimenta estoque e não gera movimento.",
+        )
+    if movement_type in INCOMING_MOVEMENTS or movement_type in OUTGOING_MOVEMENTS:
+        if variation < 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Informe a quantidade positiva: a operação é que define "
+                    "entrada ou saída de estoque."
+                ),
+            )
+        return variation if movement_type in INCOMING_MOVEMENTS else -variation
+    return variation
+
+
 def adjust_stock(
     session: Session,
     context: TenantContext,
@@ -20,7 +67,7 @@ def adjust_stock(
     correlation_id: Optional[str] = None
 ) -> Tuple[Optional[InventoryMovement], InventoryBalance, bool]:
     actor_id = resolve_actor(context, actor_id)
-    qty_dec = Decimal(str(quantity))
+    qty_dec = signed_variation(movement_type, quantity)
 
     if context.store_id and store_id != context.store_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Movimentação fora da unidade ativa.")
@@ -80,11 +127,16 @@ def adjust_stock(
     new_balance = Decimal(str(result[0]))
     previous_balance = new_balance - qty_dec
 
-    # STRICT STOCK POLICY: Reject stock decrement if balance becomes negative
-    if movement_type == MovementTypeEnum.SALE and new_balance < Decimal("0.00"):
+    # Não existe saldo negativo: uma saída maior que o disponível é recusada, seja
+    # ela venda, perda ou diferença apurada. Antes só a venda era barrada, o que
+    # deixava a perda cavar saldo negativo por um caminho paralelo.
+    if new_balance < Decimal("0.00"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"INSUFFICIENT_STOCK: Insufficient stock for product '{product.name}'. Available: {previous_balance}, Requested: {abs(qty_dec)}."
+            detail=(
+                f"INSUFFICIENT_STOCK: saldo insuficiente para '{product.name}'. "
+                f"Disponível: {previous_balance}, solicitado: {abs(qty_dec)}."
+            )
         )
 
     # 4. Create Immutable InventoryMovement (Source of Truth Ledger)
@@ -134,10 +186,17 @@ def adjust_stock(
         correlation_id=correlation_id
     )
 
-    session.commit()
-    session.refresh(movement)
+    # Sem commit aqui. Este serviço registra um movimento; quem confirma a
+    # transação é quem coordena a operação inteira — a rota, para o ajuste
+    # manual, e `payment_service` para a baixa da venda, que percorre vários
+    # itens. Enquanto o commit vivia aqui dentro, a falha no segundo item de uma
+    # venda deixava atrás de si o primeiro item baixado e a venda já marcada
+    # como paga, porque o commit do primeiro item levava junto tudo o que
+    # estivesse pendente na sessão.
+    session.flush()
 
-    # Read updated balance object AFTER commit (zero ORM insert collision)
+    # O UPSERT acima é SQL cru: a instância que o ORM tenha em memória para esta
+    # linha continua com o saldo anterior até ser relida.
     balance = session.exec(
         select(InventoryBalance).where(
             InventoryBalance.tenant_id == context.tenant_id,
@@ -145,6 +204,7 @@ def adjust_stock(
             InventoryBalance.product_id == product_id
         )
     ).one()
+    session.refresh(balance)
 
     return movement, balance, True
 
