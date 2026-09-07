@@ -38,6 +38,14 @@ async function abrirModulo(page, rotulo) {
 
 async function run() {
   const navegador = await chromium.launch()
+  try {
+    await percorrer(navegador)
+  } finally {
+    await navegador.close()
+  }
+}
+
+async function percorrer(navegador) {
   const contexto = await navegador.newContext({ viewport: VIEWPORT, deviceScaleFactor: 1, locale: 'pt-BR' })
 
   const agora = Math.floor(Date.now() / 1000)
@@ -70,7 +78,7 @@ async function run() {
   await abrirModulo(page, /^Produtos e pre/)
   await shot(page, 'produtos-lista')
 
-  await page.getByRole('button', { name: /Mais ações de Alicate/ }).click()
+  await page.getByRole('button', { name: /^Ações de Alicate/ }).click()
   await page.waitForTimeout(400)
   await shot(page, 'produtos-mais-acoes')
   await page.keyboard.press('Escape')
@@ -87,7 +95,19 @@ async function run() {
   await shot(page, 'estoque-lista')
 
   // Entrada de mercadoria, preenchida.
-  await page.getByRole('button', { name: 'Receber' }).first().click()
+  // Receber é a ação dominante só quando a situação pede; caso contrário ela
+  // vive no menu da linha. A travessia aceita as duas formas, porque as duas
+  // são o desenho (ADR-034).
+  const menuAlicate = page.getByRole('button', { name: /^Ações de Alicate/ })
+  await menuAlicate.click()
+  await page.waitForTimeout(400)
+  const noMenu = page.getByRole('menuitem', { name: 'Receber mercadoria' })
+  if (await noMenu.count() > 0) {
+    await noMenu.click()
+  } else {
+    await page.keyboard.press('Escape')
+    await page.getByRole('button', { name: /^Receber$/ }).first().click()
+  }
   await page.waitForTimeout(700)
   await page.getByLabel('Quantidade recebida').fill('24')
   await page.waitForTimeout(300)
@@ -98,7 +118,7 @@ async function run() {
 
   // Erro real: perda maior do que existe na prateleira. Quem recusa é o
   // servidor, e a perda vem do menu — não de um seletor dentro do formulário.
-  await page.getByRole('button', { name: /^Mais ações de Alicate/ }).click()
+  await page.getByRole('button', { name: /^Ações de Alicate/ }).click()
   await page.waitForTimeout(400)
   await shot(page, 'estoque-mais-acoes')
   await page.getByRole('menuitem', { name: 'Registrar perda' }).click()
@@ -112,7 +132,9 @@ async function run() {
   await page.waitForTimeout(600)
 
   // Contagem: saldo lido, diferença calculada à vista.
-  await page.getByRole('button', { name: 'Contar' }).first().click()
+  await page.getByRole('button', { name: /^Ações de Alicate/ }).click()
+  await page.waitForTimeout(400)
+  await page.getByRole('menuitem', { name: 'Contar estoque' }).click()
   await page.waitForTimeout(1500)
   await page.getByLabel('Quantidade encontrada').fill('31')
   await page.waitForTimeout(400)
@@ -127,7 +149,7 @@ async function run() {
   await shot(page, 'estoque-historico-legivel')
 
   // ---------------------------------------------------------- Sortimentos
-  await abrirModulo(page, /^Sortimentos/)
+  await abrirModulo(page, /^Cardápios$|^Catálogos$/)
   await page.waitForTimeout(1500)
   await shot(page, 'sortimentos-lista')
 
@@ -140,8 +162,6 @@ async function run() {
   await page.getByLabel('Nome').fill('Bebidas geladas')
   await page.waitForTimeout(400)
   await shot(page, 'categorias-nova-sem-slug')
-
-  await navegador.close()
 }
 
 run().catch((erro) => { console.error(erro); process.exitCode = 1 })

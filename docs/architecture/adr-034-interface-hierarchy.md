@@ -32,6 +32,31 @@ impacto e próxima ação.** Se o sistema sabe que 13 unidades são risco, ele n
 pede que a pessoa compare 13 com 14, entenda reserva e chegue sozinha à
 conclusão — ele conclui.
 
+### Regra da decisão única
+
+**Cada superfície operacional tem uma ação dominante.** Informação técnica,
+configuração e explicação nunca competem visualmente com ela. O sistema
+interpreta a complexidade; a pessoa recebe situação, consequência e próxima
+ação.
+
+| Superfície | A ação dominante |
+|---|---|
+| Frente de caixa | **Receber R$ 134,00** |
+| Estoque | **2 produtos precisam de reposição** |
+| Comanda | **Mesa 08 · R$ 186,00** |
+| Produtos | encontrar e corrigir um item |
+
+No PDV o operador faz quatro coisas: **encontrar produto → adicionar → conferir
+→ receber**. O que não serve diretamente a uma delas sai da frente de caixa ou
+fica subordinado.
+
+### Regra da ausência silenciosa
+
+**Nenhuma ausência de configuração vira mensagem permanente na operação**, salvo
+quando ela impede a ação atual. Some por esta regra: "vitrine não configurada",
+"sem categoria", "acesso rápido (0)", instruções permanentes, cartões vazios e
+rótulos internos.
+
 ### Três níveis que não competem na mesma jornada
 
 | Nível | O que é | Onde vive |

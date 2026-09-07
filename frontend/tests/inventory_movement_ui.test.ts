@@ -65,6 +65,9 @@ test('nenhuma tela inventa sinal negativo para representar saída', () => {
   // O sinal é do servidor: a tela informa magnitude e o tipo da operação.
   for (const source of [catalog, inventory]) {
     assert.doesNotMatch(source, /quantity:\s*-/)
-    assert.doesNotMatch(source, /-\s*(parseFloat|Number)\(/)
+    // O que se proíbe é enviar quantidade negativa, não subtrair dois números:
+    // a folga sobre a referência é uma subtração legítima na tela.
+    assert.doesNotMatch(source, /quantity:\s*-/)
+    assert.doesNotMatch(source, /:\s*-\s*(parseFloat|Number)\(/)
   }
 })

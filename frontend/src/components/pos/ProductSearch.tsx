@@ -175,7 +175,7 @@ export const ProductSearch: React.FC = () => {
               setQuery(e.target.value)
               if (isDropdownOpen) setIsDropdownOpen(false)
             }}
-            placeholder="Buscar nome / SKU (2 caracteres) ou escanear código + Enter..."
+            placeholder="Buscar produto ou escanear código"
             disabled={!isCashOpen || !canSell || actionLoading}
             className="h-full w-full bg-transparent pr-24 text-base font-semibold text-slate-900 outline-none placeholder:text-slate-400 disabled:opacity-50 sm:text-lg"
           />

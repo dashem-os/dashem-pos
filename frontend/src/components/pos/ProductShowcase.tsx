@@ -216,29 +216,32 @@ export const ProductShowcase: React.FC<Props> = ({ onPick, disabled }) => {
         />
       )}
 
-      <Band
-        title="Vitrine da unidade"
-        icon={<LayoutGrid className="h-4 w-4 text-rose-600" />}
-        ids={mode === 'STORE' ? draft : storeIds}
-        editing={mode === 'STORE'}
-        empty="A vitrine desta unidade ainda não foi montada. A gerência define os itens que aparecem primeiro."
-      />
+      {/*
+        Vitrine que não existe não ocupa espaço na venda. Antes, uma unidade sem
+        vitrine montada gastava um bloco inteiro do caixa para dizer que a
+        gerência ainda não tinha feito uma configuração — problema de quem
+        configura, exibido para quem vende (ADR-034).
+      */}
+      {(storeIds.length > 0 || mode === 'STORE') && (
+        <Band
+          title="Vitrine da unidade"
+          icon={<LayoutGrid className="h-4 w-4 text-rose-600" />}
+          ids={mode === 'STORE' ? draft : storeIds}
+          editing={mode === 'STORE'}
+          empty="Escolha os itens que aparecem primeiro nesta unidade."
+        />
+      )}
 
-      {mode === 'OFF' && (
-        <div className="flex flex-wrap gap-2">
-          {canPersonalize && (
-            <button type="button" onClick={() => startEditing('PERSONAL')}
-              className="h-10 rounded-xl border border-slate-300 bg-white px-3 text-xs font-black text-slate-600">
-              Personalizar meus atalhos
-            </button>
-          )}
-          {canManage && (
-            <button type="button" onClick={() => startEditing('STORE')}
-              className="h-10 rounded-xl border border-rose-200 bg-white px-3 text-xs font-black text-rose-700">
-              Personalizar vitrine da unidade
-            </button>
-          )}
-        </div>
+      {/*
+        Montar vitrine é decisão de gestão e não disputa espaço com a venda.
+        Fixar os próprios atalhos é do operador e continua aqui — mas discreto,
+        e só depois que houver o que fixar.
+      */}
+      {mode === 'OFF' && canPersonalize && products.length > 0 && (
+        <button type="button" onClick={() => startEditing('PERSONAL')}
+          className="self-start text-xs font-black text-slate-500 underline decoration-dotted underline-offset-4 hover:text-slate-800">
+          {personalIds.length > 0 ? 'Editar meus atalhos' : 'Fixar meus atalhos'}
+        </button>
       )}
     </div>
   )

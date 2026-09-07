@@ -98,9 +98,20 @@ test('a tela de estoque lê o acervo físico, não o catálogo vendável', () =>
 test('os indicadores não somam grandezas incompatíveis', () => {
   // Quilo, litro e unidade num número só produzem um total que não é de nada.
   assert.doesNotMatch(inventory, /reduce\(\(sum, item\) => sum \+ Number\(item\.quantity\)/)
-  assert.match(inventory, /Mercadorias controladas/)
-  assert.match(inventory, /Sem estoque/)
-  assert.match(inventory, /Abaixo do mínimo/)
+  // Os três contadores viraram uma faixa que conclui (ADR-034): o que ela conta
+  // continua sendo quantas mercadorias, nunca quanto de mercadoria.
+  assert.match(inventory, /acompanhados/)
+  assert.match(inventory, /sem estoque/)
+  assert.match(inventory, /precisam? de atenção/)
+})
+
+test('o resumo obedece ao pior risco, não à média', () => {
+  // Um item em falta entre cem saudáveis não pode virar "tudo regular".
+  const resumo = inventory.slice(inventory.indexOf('function Resumo'))
+  assert.match(inventory, /requiringAction\(filtered\)/)
+  assert.match(resumo, /exigindoAcao === 0/)
+  assert.match(resumo, /Estoque saudável/)
+  assert.match(resumo, /Nenhum item requer ação agora/)
 })
 
 test('o conflito relê também a lista atrás do formulário', () => {
@@ -114,13 +125,24 @@ test('falha de carregamento não se passa por prateleira vazia', () => {
   assert.match(inventory, /Tentar novamente/)
 })
 
-test('produto sem mínimo definido não é chamado de regular', () => {
-  assert.match(inventory, /Sem mínimo definido/)
+test('produto sem referência definida não é chamado de saudável', () => {
+  assert.match(inventory, /Sem referência/)
+})
+
+test('a tela não tem regra própria de situação', () => {
+  // A regra vive em `domain/stockSituation` e é a mesma para a linha e para o
+  // resumo — foi tê-la em dois lugares que fez o topo contar o mesmo item duas
+  // vezes. Aqui só se verifica que a tela consome a regra, e a regra tem teste
+  // próprio em `stock_situation.test.ts`.
+  assert.match(inventory, /stockSituation\(item\)/)
+  assert.match(inventory, /Atenção · folga de/)
 })
 
 test('a ação de contar só aparece para quem tem a permissão de contar', () => {
+  // Contar saiu da linha e foi para o menu de ações (ADR-034); o portão é o
+  // mesmo, e continua sendo a permissão.
   assert.match(inventory, /canCount = permissions\.includes\('inventory\.count'\)/)
-  assert.match(inventory, /\{canCount && \(\s*<button/)
+  assert.match(inventory, /\{canCount && \(\s*<RowAction/)
 })
 
 
@@ -232,13 +254,16 @@ test('o formulário de movimentação não carrega configuração', () => {
 })
 
 test('a lista oferece a ação que a leitura exige', () => {
-  // "Sem mínimo definido" sem caminho para definir é diagnóstico sem remédio.
+  // Diagnóstico sem remédio é o defeito: onde a tela diz que falta referência,
+  // existe caminho para defini-la. No Estoque ela vive no menu de ações; em
+  // Produtos, ao lado do número.
   for (const fonte of [inventory, catalog]) {
-    assert.match(fonte, /Definir mínimo/)
     assert.match(fonte, /abrirMinimo\(/)
   }
-  assert.match(inventory, /Editar/)
-  assert.match(catalog, /· Editar/)
+  // Nas duas telas a configuração vive no menu de ações, com o mesmo nome.
+  for (const fonte of [inventory, catalog]) {
+    assert.match(fonte, /Definir estoque de referência/)
+  }
 })
 
 test('a garantia do mínimo é comportamento, não texto na tela', () => {

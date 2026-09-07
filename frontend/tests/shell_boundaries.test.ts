@@ -22,7 +22,9 @@ test('lets Gestão open the terminal surface without granting management to oper
   const shell = await source('../src/shells/PosShell.tsx')
   const kds = await source('../src/shells/KdsShell.tsx')
   const management = await source('../src/layouts/ManagementLayout.tsx')
-  assert.match(pos, /managementAvailable && !managementValidation && <button/)
+  // A garantia é o portão, não a forma do botão: voltar à Gestão saiu do topo
+  // e virou item de menu (ADR-034), e continua condicionado ao modo de acesso.
+  assert.match(pos, /managementAvailable && !managementValidation && \(/)
   // The access mode decides, not the mere presence of a session in this browser.
   assert.match(pos, /canNavigateToManagement\(Boolean\(session\), permissions, accessMode\)/)
   assert.match(pos, /navigateTo\('\/manage'\)/)

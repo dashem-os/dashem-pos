@@ -1,108 +1,101 @@
 import React from 'react'
 import { Plus, Minus, Trash2, Edit3 } from 'lucide-react'
-import { SaleItem } from '../../services/api'
 import { usePos } from '../../context/PosContext'
 import { formatCurrency, formatQuantity } from '../../utils/format'
+import { CartGroup, itemToDecrease, itemToIncrease } from '../../domain/cartGrouping'
 
 interface CartItemProps {
-  item: SaleItem
-  index: number
+  group: CartGroup
 }
 
-export const CartItem: React.FC<CartItemProps> = ({ item, index }) => {
+/**
+ * Uma linha da venda: produto, quantidade e total.
+ *
+ * A conferência é uma das quatro coisas que o operador faz no caixa, e ela se
+ * faz com três informações. Número de ordem, SKU e preço unitário saíram da
+ * hierarquia principal: o SKU aparece pequeno, para desempatar homônimos, e o
+ * preço unitário só quando há mais de uma unidade — com uma, o total já é ele.
+ */
+export const CartItem: React.FC<CartItemProps> = ({ group }) => {
   const { updateItemQuantity, removeItemFromCart, openQuantityModal, actionLoading, permissions } = usePos()
   const canEdit = permissions.includes('sale.item.update')
 
   const handleDecrease = () => {
-    if (item.quantity > 1) {
-      updateItemQuantity(item.id, item.quantity - 1)
-    } else {
-      removeItemFromCart(item.id)
-    }
+    const alvo = itemToDecrease(group)
+    if (Number(alvo.quantity) > 1) updateItemQuantity(alvo.id, Number(alvo.quantity) - 1)
+    else removeItemFromCart(alvo.id)
   }
 
   const handleIncrease = () => {
-    updateItemQuantity(item.id, item.quantity + 1)
+    const alvo = itemToIncrease(group)
+    updateItemQuantity(alvo.id, Number(alvo.quantity) + 1)
   }
 
-  const unitPrice = Number(item.unit_price) || 0
-  const grossTotal = Number(item.gross_total) || unitPrice * item.quantity
-  const discountAmount = Number(item.discount_amount) || 0
-  const netTotal = Number(item.net_total) || grossTotal - discountAmount
+  // Remover o grupo remove tudo o que ele representa: deixar linhas para trás
+  // faria a mercadoria reaparecer com um total menor, sem explicação.
+  const handleRemove = () => {
+    for (const item of group.items) removeItemFromCart(item.id)
+  }
 
   return (
-    <div className="p-3 rounded-xl bg-white border border-slate-200/80 hover:border-slate-300 transition-all flex flex-col space-y-2 select-none">
-      {/* Top Row: Title, SKU, Unit Price, Trash */}
+    <div className="select-none rounded-xl border border-slate-200/80 bg-white p-3 transition-all hover:border-slate-300">
+      {/*
+        A coluna da venda é estreita. Nome em cima, com espaço para caber
+        inteiro; controles embaixo, onde o dedo alcança sem apertar o vizinho.
+      */}
       <div className="flex items-start justify-between gap-2">
-        <div className="flex items-start space-x-2 flex-1 min-w-0">
-          <span className="w-5 h-5 rounded-md bg-slate-100 text-slate-500 text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">
-            {index + 1}
-          </span>
-          <div className="min-w-0 flex-1">
-            <h4 className="text-xs sm:text-sm font-bold text-slate-900 leading-snug line-clamp-2">
-              {item.product_name}
-            </h4>
-            <div className="text-xs text-slate-400 font-mono flex flex-wrap items-center gap-x-2 mt-0.5">
-              <span>{item.sku}</span>
-              <span>•</span>
-              <span className="text-slate-600 font-semibold">{formatCurrency(unitPrice)} / un</span>
-            </div>
-          </div>
+        <div className="min-w-0">
+          <h4 className="line-clamp-2 text-sm font-bold leading-snug text-slate-900">{group.productName}</h4>
+          <p className="mt-0.5 truncate text-[11px] text-slate-400">
+            <span className="font-mono">{group.sku}</span>
+            {group.quantity > 1 && <span className="ml-2">{formatCurrency(group.unitPrice)} cada</span>}
+          </p>
         </div>
-
-        {/* Remove Button */}
         <button
-          onClick={() => removeItemFromCart(item.id)}
+          onClick={handleRemove}
           disabled={actionLoading || !canEdit}
-          aria-label="Remover item"
-          className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-rose-600 hover:bg-rose-50 active:scale-95 transition-all shrink-0"
+          aria-label={`Remover ${group.productName}`}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-300 transition-all hover:bg-rose-50 hover:text-rose-600 active:scale-95"
         >
-          <Trash2 className="w-4 h-4" />
+          <Trash2 className="h-4 w-4" />
         </button>
       </div>
 
-      {/* Bottom Row: Touch Quantity Stepper & Line Subtotal */}
-      <div className="flex flex-wrap gap-2 items-center justify-between pt-1.5 border-t border-slate-100">
-        {/* Quantity Controls (Touch Targets >= 44x44px) */}
-        <div className="flex items-center space-x-1 bg-slate-100 p-0.5 rounded-xl border border-slate-200">
-          <button
-            onClick={handleDecrease}
-            disabled={actionLoading || !canEdit}
-            className="w-8 h-8 rounded-lg bg-white hover:bg-slate-50 active:bg-slate-200 text-slate-700 flex items-center justify-center text-sm font-bold transition-all disabled:opacity-40 shadow-xs"
-          >
-            <Minus className="w-3.5 h-3.5" />
-          </button>
+      <div className="mt-2 flex items-center justify-between gap-2">
+      <div className="flex items-center gap-1 rounded-xl border border-slate-200 bg-slate-100 p-0.5">
+        <button
+          onClick={handleDecrease}
+          disabled={actionLoading || !canEdit}
+          aria-label={`Diminuir ${group.productName}`}
+          className="flex h-8 w-8 items-center justify-center rounded-lg bg-white text-slate-700 shadow-xs transition-all hover:bg-slate-50 active:bg-slate-200 disabled:opacity-40"
+        >
+          <Minus className="h-3.5 w-3.5" />
+        </button>
+        <button
+          onClick={() => openQuantityModal(itemToIncrease(group))}
+          disabled={!canEdit}
+          title="Toque para digitar a quantidade"
+          className="flex h-8 items-center justify-center gap-1 rounded-lg px-2.5 text-xs font-black text-slate-900 transition-all hover:bg-white"
+        >
+          <span>{formatQuantity(group.quantity)}</span>
+          <Edit3 className="h-2.5 w-2.5 text-slate-400" />
+        </button>
+        <button
+          onClick={handleIncrease}
+          disabled={actionLoading || !canEdit}
+          aria-label={`Aumentar ${group.productName}`}
+          className="flex h-8 w-8 items-center justify-center rounded-lg bg-white text-slate-700 shadow-xs transition-all hover:bg-slate-50 active:bg-slate-200 disabled:opacity-40"
+        >
+          <Plus className="h-3.5 w-3.5" />
+        </button>
+      </div>
 
-          <button
-            onClick={() => openQuantityModal(item)}
-            disabled={!canEdit}
-            className="px-2.5 h-8 hover:bg-white rounded-lg text-center font-black text-xs text-slate-900 flex items-center justify-center space-x-1 transition-all"
-            title="Toque para digitar quantidade"
-          >
-            <span>{formatQuantity(item.quantity)}</span>
-            <Edit3 className="w-2.5 h-2.5 text-slate-400 ml-0.5" />
-          </button>
-
-          <button
-            onClick={handleIncrease}
-            disabled={actionLoading || !canEdit}
-            className="w-8 h-8 rounded-lg bg-white hover:bg-slate-50 active:bg-slate-200 text-slate-700 flex items-center justify-center text-sm font-bold transition-all disabled:opacity-40 shadow-xs"
-          >
-            <Plus className="w-3.5 h-3.5" />
-          </button>
-        </div>
-
-        {/* Line Total Calculation */}
-        <div className="text-right">
-          {discountAmount > 0 && (
-            <span className="text-xs text-emerald-600 font-bold block">
-              - {formatCurrency(discountAmount)} desc.
-            </span>
-          )}
-          <span className="text-sm sm:text-base font-black text-slate-900">
-            {formatCurrency(netTotal)}
-          </span>
-        </div>
+      <div className="text-right">
+        {group.discountAmount > 0 && (
+          <span className="block text-[11px] font-bold text-emerald-600">− {formatCurrency(group.discountAmount)}</span>
+        )}
+        <span className="text-base font-black text-slate-900">{formatCurrency(group.netTotal)}</span>
+      </div>
       </div>
     </div>
   )

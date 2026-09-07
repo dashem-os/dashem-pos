@@ -15,7 +15,7 @@ router = APIRouter()
 # Food service speaks of menus; a retail shop or a beauty reseller does not.
 # The navigation label follows the contracted activity instead of assuming one.
 NON_FOOD_LABELS = {
-    "assortments": "Sortimentos e catálogos",
+    "assortments": "Catálogos",
 }
 
 

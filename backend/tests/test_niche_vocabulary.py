@@ -13,7 +13,7 @@ from app.models.platform import ModuleContribution
 def _assortments_contribution() -> ModuleContribution:
     return ModuleContribution(
         contribution_key="assortments",
-        label="Sortimentos e cardápios",
+        label="Cardápios",
         surface="MANAGEMENT_NAV",
         group_key="MERCADORIAS",
         route="/manage/assortments",
@@ -25,11 +25,11 @@ def _assortments_contribution() -> ModuleContribution:
 @pytest.mark.parametrize(
     "activities,expected",
     [
-        ({"FOOD_SERVICE"}, "Sortimentos e cardápios"),
-        ({"FOOD_SERVICE", "RETAIL"}, "Sortimentos e cardápios"),
-        ({"RETAIL"}, "Sortimentos e catálogos"),
-        ({"BEAUTY_RESELLER"}, "Sortimentos e catálogos"),
-        (set(), "Sortimentos e catálogos"),
+        ({"FOOD_SERVICE"}, "Cardápios"),
+        ({"FOOD_SERVICE", "RETAIL"}, "Cardápios"),
+        ({"RETAIL"}, "Catálogos"),
+        ({"BEAUTY_RESELLER"}, "Catálogos"),
+        (set(), "Catálogos"),
     ],
 )
 def test_assortment_label_follows_the_contracted_activity(activities: set[str], expected: str):

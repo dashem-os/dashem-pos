@@ -39,10 +39,9 @@ export const QuickProductGrid: React.FC = () => {
       {emptyCatalogue && (
         <div className="w-full py-10 px-6 flex flex-col items-center justify-center bg-white border border-slate-200 rounded-2xl text-center shadow-sm">
           <Package className="w-10 h-10 text-slate-300 mb-3" />
-          <h3 className="text-base font-bold text-slate-800">Nenhum produto neste contexto</h3>
-          <p className="text-xs text-slate-500 max-w-md mt-1">
-            O catálogo pode ter itens sem estarem publicados neste contexto de venda.
-            Publique-os em Sortimentos e cardápios, no Dashem Gestão, para que apareçam aqui.
+          <h3 className="text-base font-bold text-slate-800">Nenhum produto para vender aqui</h3>
+          <p className="mt-1 max-w-md text-xs text-slate-500">
+            Fale com a gestão para publicar itens neste ponto de venda.
           </p>
         </div>
       )}
@@ -51,7 +50,9 @@ export const QuickProductGrid: React.FC = () => {
       <>
       {/* Navigation Pills: Acesso Rápido, Todos, and Real Categories */}
       <div className="flex items-center space-x-2 overflow-x-auto pb-1 scrollbar-none select-none">
-        {/* Acesso Rápido (Favoritos) Tab */}
+        {/* Aba vazia não se anuncia: "Acesso Rápido (0)" era uma aba avisando
+            que não tem nada dentro (ADR-034). */}
+        {favoriteProducts.length > 0 && (
         <button
           type="button"
           onClick={() => setActiveTab('FAVORITES')}
@@ -62,8 +63,9 @@ export const QuickProductGrid: React.FC = () => {
           }`}
         >
           <Star className={`w-3.5 h-3.5 ${activeTab === 'FAVORITES' ? 'text-amber-300 fill-amber-300' : 'text-slate-400'}`} />
-          <span>Acesso Rápido ({favoriteProducts.length})</span>
+          <span>Acesso rápido</span>
         </button>
+        )}
 
         {/* Todos Tab */}
         <button
@@ -75,7 +77,7 @@ export const QuickProductGrid: React.FC = () => {
               : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
           }`}
         >
-          Todos ({products.length})
+          Todos
         </button>
 
         {/* Only categories present in the projection: the tenant may hold
@@ -108,7 +110,9 @@ export const QuickProductGrid: React.FC = () => {
           const price = Number(product.sale_price)
           const stock = Number(product.quantity)
           const isService = product.item_type === 'SERVICE'
-          const catName = product.category_name || (isService ? 'Serviço' : 'Sem categoria')
+          // Ausência de categoria não é informação (ADR-034). Serviço continua
+          // dito porque muda o que a pessoa espera do item.
+          const catName = product.category_name || (isService ? 'Serviço' : '')
 
           return (
             <button
@@ -119,21 +123,24 @@ export const QuickProductGrid: React.FC = () => {
             >
               {/* Header: Category & Stock */}
               <div className="flex items-center justify-between w-full mb-1">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider truncate max-w-[110px]">
+                <span className="max-w-[110px] truncate text-[10px] font-bold uppercase tracking-wider text-slate-400">
                   {catName}
                 </span>
 
-                {!isService && (
+                {/*
+                  Saber que há 40 não muda nada; saber que restam 2 muda tudo.
+                  O cartão só fala de estoque quando há risco, e fala em
+                  português — não em número solto (ADR-034).
+                */}
+                {!isService && product.is_low_stock && (
                   <span
-                    className={`text-xs font-bold px-2 py-0.5 rounded-md shrink-0 ${
-                      !product.is_low_stock
-                        ? 'bg-slate-100 text-slate-600'
-                        : stock > 0
-                        ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                        : 'bg-rose-50 text-rose-700 border border-rose-200'
+                    className={`shrink-0 rounded-md border px-2 py-0.5 text-xs font-bold ${
+                      stock > 0
+                        ? 'border-amber-200 bg-amber-50 text-amber-700'
+                        : 'border-rose-200 bg-rose-50 text-rose-700'
                     }`}
                   >
-                    {formatStock(stock)}
+                    {stock <= 0 ? 'Sem estoque' : stock === 1 ? 'Última unidade' : `Só restam ${formatStock(stock)}`}
                   </span>
                 )}
               </div>

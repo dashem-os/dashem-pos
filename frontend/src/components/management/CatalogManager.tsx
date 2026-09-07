@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { Archive, Pencil, Trash2, Package, Plus, Search, ArrowDownToLine, PackageX, CheckCircle2, Star, AlertCircle, Layers, Store } from 'lucide-react'
+import { Archive, Pencil, Trash2, Package, Plus, Search, ArrowDownToLine, PackageX, Target, CheckCircle2, Star, AlertCircle, Layers, Store } from 'lucide-react'
 import { usePos } from '../../context/PosContext'
 import { Modal } from '../common/Modal'
 import * as api from '../../services/api'
@@ -476,27 +476,15 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
               cell: (prod) => prod.item_type === 'SERVICE'
                 ? <span className="text-xs font-bold text-dashem-muted">Não controla estoque</span>
                 : (
-                  <div className="inline-flex flex-col items-end gap-1">
-                    <span className={`inline-block rounded-md px-2 py-0.5 text-sm font-black ${
-                      Number(prod.quantity) <= 0 ? 'text-rose-700 bg-rose-50'
-                        : prod.is_low_stock ? 'text-amber-700 bg-amber-50'
-                        // Verde afirma "está dentro do que você quer". Sem
-                        // mínimo definido não há o que afirmar, e a cor deixa
-                        // de dar uma garantia que ninguém pediu.
-                        : Number(prod.minimum_stock) > 0 ? 'text-emerald-700 bg-emerald-50'
-                        : 'text-dashem-strong bg-dashem-surface-elevated'
-                    }`}>
-                      {Number(prod.quantity)} {prod.unit.toLowerCase()}
-                    </span>
-                    <button
-                      type="button" onClick={() => abrirMinimo(prod)}
-                      className="text-xs font-bold text-dashem-muted underline decoration-dotted underline-offset-4 hover:text-dashem-red"
-                    >
-                      {Number(prod.minimum_stock) > 0
-                        ? `Mínimo ${Number(prod.minimum_stock)} ${prod.unit.toLowerCase()} · Editar`
-                        : 'Definir mínimo'}
-                    </button>
-                  </div>
+                  <span className={`inline-block rounded-md px-2 py-0.5 text-sm font-black ${
+                    Number(prod.quantity) <= 0 || prod.is_low_stock ? 'text-rose-700 bg-rose-50'
+                      // Verde afirma "está dentro do que você quer". Sem
+                      // referência definida não há o que afirmar.
+                      : Number(prod.minimum_stock) > 0 ? 'text-emerald-700 bg-emerald-50'
+                      : 'text-dashem-strong bg-dashem-surface-elevated'
+                  }`}>
+                    {Number(prod.quantity)} {prod.unit.toLowerCase()}
+                  </span>
                 ),
             },
             {
@@ -506,11 +494,20 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
               // quando e não precisam disputar espaço com eles todo dia.
               cell: (prod) => (
                 <div className="inline-flex flex-nowrap items-center justify-end gap-2">
-                  {prod.item_type !== 'SERVICE' && (
-                    <Button variant="secondary" size="sm" icon={ArrowDownToLine} onClick={() => abrirMovimentacao(prod, 'PURCHASE')}>Receber</Button>
-                  )}
                   <Button variant="secondary" size="sm" icon={Pencil} onClick={() => openEditProduct(prod)}>Editar</Button>
-                  <RowActions label={`Mais ações de ${prod.name}`}>
+                  <RowActions label={`Ações de ${prod.name}`}>
+                    {prod.item_type !== 'SERVICE' && (
+                      <RowAction icon={ArrowDownToLine} onClick={() => abrirMovimentacao(prod, 'PURCHASE')}>
+                        Receber mercadoria
+                      </RowAction>
+                    )}
+                    {prod.item_type !== 'SERVICE' && (
+                      <RowAction icon={Target} onClick={() => abrirMinimo(prod)}>
+                        {Number(prod.minimum_stock) > 0
+                          ? `Estoque de referência: ${Number(prod.minimum_stock)} ${prod.unit.toLowerCase()}`
+                          : 'Definir estoque de referência'}
+                      </RowAction>
+                    )}
                     <RowAction icon={Star} onClick={() => handleQuickAccess(prod)}>
                       {prod.quick_position != null ? 'Remover do acesso rápido' : 'Adicionar ao acesso rápido'}
                     </RowAction>
@@ -706,8 +703,8 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
       <Modal
         isOpen={Boolean(minimoProduto)}
         onClose={() => setMinimoProduto(null)}
-        title={`Mínimo desejado — ${minimoProduto?.name || ''}`}
-        subtitle="Quanto você quer ter sempre nesta unidade."
+        title={`Estoque de referência — ${minimoProduto?.name || ''}`}
+        subtitle="Usado enquanto não há histórico para calcular a reposição."
       >
         <form onSubmit={salvarMinimo} className="space-y-4">
           <div className="rounded-xl border border-dashem-border bg-dashem-surface-elevated p-3 text-xs text-dashem-muted">

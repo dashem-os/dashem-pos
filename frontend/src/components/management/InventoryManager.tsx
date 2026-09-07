@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, ArrowDownToLine, Boxes, ClipboardCheck, History, PackageX, Scale, Search } from 'lucide-react'
+import { AlertTriangle, ArrowDownToLine, CheckCircle2, ClipboardCheck, History, PackageX, Scale, Search, Target } from 'lucide-react'
 import { usePos } from '../../context/PosContext'
 import { Modal } from '../common/Modal'
 import { RowAction, RowActions } from '../common/RowActions'
@@ -7,6 +7,7 @@ import { DataTable } from '../common/DataTable'
 import * as api from '../../services/api'
 import { formatApiDateTime } from '../../utils/format'
 import { ApiError } from '../../services/http'
+import { requiringAction, stockSituation } from '../../domain/stockSituation'
 import { DEFAULT_STOCK_REASONS, countPreview, movementAmount, movementLabel, reasonForMovement, type StockMovementType } from '../../domain/stockMovements'
 
 /**
@@ -70,7 +71,9 @@ export function InventoryManager() {
       || item.sku.toLocaleLowerCase('pt-BR').includes(agulha)
   })
   const semEstoque = filtered.filter((item) => item.is_out_of_stock).length
-  const abaixoDoMinimo = filtered.filter((item) => item.is_low_stock).length
+  // Cada mercadoria conta uma vez: quem está sem estoque também está abaixo da
+  // referência, e somar os dois contadores inflava o resumo.
+  const exigindoAcao = requiringAction(filtered)
   // Somar quilo, litro e unidade num número só produz um total que não é de
   // nada. O que dá para contar sem conversão é quantas mercadorias existem, e
   // cada saldo aparece com a sua unidade na linha.
@@ -262,11 +265,11 @@ export function InventoryManager() {
         <p className="mt-2 max-w-2xl text-sm leading-6 text-dashem-muted">
           Quanto você tem de cada mercadoria nesta unidade.
         </p>
-        <div className="mt-6 grid gap-3 sm:grid-cols-3">
-          <Metric label="Mercadorias controladas" value={controlados} icon={Boxes} />
-          <Metric label="Sem estoque" value={semEstoque} icon={PackageX} attention={semEstoque > 0} />
-          <Metric label="Abaixo do mínimo" value={abaixoDoMinimo} icon={AlertTriangle} attention={abaixoDoMinimo > 0} />
-        </div>
+        {/*
+          Três contadores ocupavam um terço da tela sem dizer o que fazer. Uma
+          faixa conclui, e obedece ao pior risco (ADR-034).
+        */}
+        <Resumo controlados={controlados} semEstoque={semEstoque} exigindoAcao={exigindoAcao} />
       </section>
 
       <div className="relative">
@@ -309,28 +312,8 @@ export function InventoryManager() {
               ),
             },
             {
-              key: 'qty', header: 'Em estoque',
+              key: 'qty', header: 'Disponível',
               cell: (item) => <span className="text-base font-black text-dashem-strong">{Number(item.quantity)} {item.unit}</span>,
-            },
-            {
-              // Travessão não é resposta. Mínimo não definido é uma escolha que
-              // ainda não foi feita, e a tela diz isso com palavra.
-              // A coluna diz o que falta e oferece a ação que resolve. Informar
-              // "Não definido" sem caminho para definir é diagnóstico sem
-              // remédio.
-              key: 'min', header: 'Mínimo desejado',
-              cell: (item) => canAdjust ? (
-                <button
-                  type="button" onClick={() => abrirMinimo(item)}
-                  className="inline-flex min-h-11 items-center gap-2 rounded-lg px-2 text-left text-xs font-black text-dashem-strong underline decoration-dotted underline-offset-4 hover:text-dashem-red"
-                >
-                  {item.has_minimum
-                    ? <><span className="text-sm">{Number(item.minimum_stock)} {item.unit}</span><span className="text-dashem-muted">Editar</span></>
-                    : <span className="text-dashem-muted">Definir mínimo</span>}
-                </button>
-              ) : item.has_minimum
-                ? <span className="font-bold text-dashem-strong">{Number(item.minimum_stock)} {item.unit}</span>
-                : <span className="text-xs font-bold text-dashem-muted">Não definido</span>,
             },
             {
               key: 'state', header: 'Situação',
@@ -341,9 +324,13 @@ export function InventoryManager() {
               // Por frequência: mercadoria chega toda semana, prateleira se
               // confere de vez em quando, e ajuste técnico é excepcional — ele
               // sai da linha e vai para o menu, onde não é clicado por engano.
+              // Uma ação dominante por linha, e ela é a que a situação pede:
+              // mercadoria em falta quer receber. O resto — contar, perda,
+              // ajuste, estoque de referência — está no menu, a um clique, sem
+              // disputar a atenção de quem só passou os olhos na lista.
               cell: (item) => (
                 <div className="flex flex-nowrap items-center justify-end gap-2">
-                  {canAdjust && (
+                  {canAdjust && (item.is_out_of_stock || item.is_low_stock) && (
                     <button
                       onClick={() => abrirMovimentacao(item, 'PURCHASE')}
                       className="inline-flex min-h-11 items-center rounded-xl border border-dashem-border px-3 text-xs font-black text-dashem-strong"
@@ -351,25 +338,35 @@ export function InventoryManager() {
                       <ArrowDownToLine className="mr-1.5 inline h-4 w-4 text-emerald-700" />Receber
                     </button>
                   )}
-                  {canCount && (
-                    <button onClick={() => { void openCount(item) }} className="inline-flex min-h-11 items-center rounded-xl border border-dashem-border px-3 text-xs font-black text-dashem-strong">
-                      <ClipboardCheck className="mr-1.5 inline h-4 w-4 text-emerald-700" />Contar
-                    </button>
-                  )}
-                  {(canAdjust || canAdjustTechnically) && (
-                    <RowActions label={`Mais ações de ${item.name}`}>
-                      {canAdjust && (
-                        <RowAction icon={PackageX} onClick={() => abrirMovimentacao(item, 'LOSS')}>
-                          Registrar perda
-                        </RowAction>
-                      )}
-                      {canAdjustTechnically && (
-                        <RowAction icon={Scale} onClick={() => { setTechnical(item); setTechnicalForm({ difference: '', reason: '' }) }}>
-                          Ajuste técnico
-                        </RowAction>
-                      )}
-                    </RowActions>
-                  )}
+                  <RowActions label={`Ações de ${item.name}`}>
+                    {canAdjust && !(item.is_out_of_stock || item.is_low_stock) && (
+                      <RowAction icon={ArrowDownToLine} onClick={() => abrirMovimentacao(item, 'PURCHASE')}>
+                        Receber mercadoria
+                      </RowAction>
+                    )}
+                    {canCount && (
+                      <RowAction icon={ClipboardCheck} onClick={() => { void openCount(item) }}>
+                        Contar estoque
+                      </RowAction>
+                    )}
+                    {canAdjust && (
+                      <RowAction icon={PackageX} onClick={() => abrirMovimentacao(item, 'LOSS')}>
+                        Registrar perda
+                      </RowAction>
+                    )}
+                    {canAdjust && (
+                      <RowAction icon={Target} onClick={() => abrirMinimo(item)}>
+                        {item.has_minimum
+                          ? `Estoque de referência: ${Number(item.minimum_stock)} ${item.unit}`
+                          : 'Definir estoque de referência'}
+                      </RowAction>
+                    )}
+                    {canAdjustTechnically && (
+                      <RowAction icon={Scale} onClick={() => { setTechnical(item); setTechnicalForm({ difference: '', reason: '' }) }}>
+                        Ajuste técnico
+                      </RowAction>
+                    )}
+                  </RowActions>
                 </div>
               ),
             },
@@ -423,8 +420,8 @@ export function InventoryManager() {
 
       <Modal
         isOpen={Boolean(minimo)} onClose={() => setMinimo(null)}
-        title={`Mínimo desejado — ${minimo?.name || ''}`}
-        subtitle="Quanto você quer ter sempre nesta unidade."
+        title={`Estoque de referência — ${minimo?.name || ''}`}
+        subtitle="Usado enquanto não há histórico para calcular a reposição."
       >
         <form onSubmit={salvarMinimo} className="space-y-4">
           <div className="rounded-xl border border-dashem-border bg-dashem-surface-elevated p-3 text-xs text-dashem-muted">
@@ -522,34 +519,64 @@ export function InventoryManager() {
  * Chamar tudo isso de "Regular" escondia justamente o que precisa de decisão.
  */
 function Situation({ item }: { item: api.StockHolding }) {
-  if (item.is_out_of_stock) {
+  const situacao = stockSituation(item)
+  if (situacao === 'SEM_ESTOQUE') {
     return <span className="rounded-full bg-rose-50 px-2 py-1 text-xs font-black text-rose-700">Sem estoque</span>
   }
-  if (item.is_low_stock) {
-    return <span className="rounded-full bg-amber-50 px-2 py-1 text-xs font-black text-amber-700">Abaixo do mínimo</span>
+  if (situacao === 'REPOR') {
+    return <span className="rounded-full bg-rose-50 px-2 py-1 text-xs font-black text-rose-700">Repor</span>
   }
-  if (!item.has_minimum) {
-    return <span className="rounded-full bg-dashem-surface-elevated px-2 py-1 text-xs font-black text-dashem-muted">Sem mínimo definido</span>
+  if (situacao === 'ATENCAO') {
+    const folga = Number(item.quantity) - Number(item.minimum_stock)
+    return (
+      <span className="rounded-full bg-amber-50 px-2 py-1 text-xs font-black text-amber-700">
+        Atenção · folga de {folga} {item.unit.toLowerCase()}
+      </span>
+    )
   }
-  return <span className="rounded-full bg-emerald-50 px-2 py-1 text-xs font-black text-emerald-700">Regular</span>
+  if (situacao === 'SEM_REFERENCIA') {
+    return <span className="rounded-full bg-dashem-surface-elevated px-2 py-1 text-xs font-black text-dashem-muted">Sem referência</span>
+  }
+  return <span className="rounded-full bg-emerald-50 px-2 py-1 text-xs font-black text-emerald-700">Saudável</span>
 }
 
-function Metric({ label, value, icon: Icon, attention = false }: {
-  label: string; value: number
-  icon: React.ComponentType<{ className?: string }>; attention?: boolean
+/**
+ * O resumo conclui em vez de contar.
+ *
+ * Ele obedece ao pior risco relevante: havendo um item em falta entre cem
+ * saudáveis, a faixa não anuncia normalidade — ela diz que há um item exigindo
+ * ação (ADR-033, ADR-034).
+ */
+function Resumo({ controlados, semEstoque, exigindoAcao }: {
+  controlados: number; semEstoque: number; exigindoAcao: number
 }) {
-  return (
-    <div className="flex items-center gap-4 rounded-2xl bg-dashem-bg p-4">
-      <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${attention ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'}`}>
-        <Icon className="h-5 w-5" />
+  if (controlados === 0) return null
+  if (exigindoAcao === 0) {
+    return (
+      <div className="mt-6 flex items-center gap-3 rounded-2xl bg-emerald-50 p-4">
+        <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-700" />
+        <div>
+          <p className="text-sm font-black text-emerald-900">Estoque saudável</p>
+          <p className="text-xs text-emerald-800">Nenhum item requer ação agora · {controlados} acompanhados</p>
+        </div>
       </div>
+    )
+  }
+  return (
+    <div className="mt-6 flex items-center gap-3 rounded-2xl bg-amber-50 p-4">
+      <AlertTriangle className="h-5 w-5 shrink-0 text-amber-700" />
       <div>
-        <p className="text-2xl font-black text-dashem-strong">{value}</p>
-        <p className="text-xs font-bold text-dashem-muted">{label}</p>
+        <p className="text-sm font-black text-amber-900">
+          {exigindoAcao === 1 ? '1 produto precisa de atenção' : `${exigindoAcao} produtos precisam de atenção`}
+        </p>
+        <p className="text-xs text-amber-800">
+          {controlados} acompanhados · {semEstoque === 0 ? 'nenhum sem estoque' : semEstoque === 1 ? '1 sem estoque' : `${semEstoque} sem estoque`}
+        </p>
       </div>
     </div>
   )
 }
+
 
 function Field({ label, value, onChange, type = 'text', required = true, placeholder }: {
   label: string; value: string; onChange: (value: string) => void

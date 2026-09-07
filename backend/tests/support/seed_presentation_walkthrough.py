@@ -30,9 +30,10 @@ from app.models.assortment import (
     Assortment, AssortmentProduct, AssortmentScope, SalesContextEnum,
 )
 from app.models.catalog import ItemTypeEnum, InventoryBalance, Product, ProductPrice
+from app.models.device import OperationalDevice, OperationalDeviceTypeEnum
 from app.models.identity import (
-    AuthIdentity, Membership, MembershipStatusEnum, RoleEnum, Store, Tenant,
-    TenantStatusEnum, User,
+    AuthIdentity, Membership, MembershipStatusEnum, Register, RoleEnum, Store,
+    Tenant, TenantStatusEnum, User,
 )
 from app.models.platform import TenantCapability
 
@@ -97,6 +98,16 @@ def seed(output: Path) -> None:
         session.add(loja)
         session.flush()
 
+        # Sem caixa e terminal não se abre a frente de caixa, e é nela que a
+        # correção de linguagem precisa ser vista.
+        caixa = Register(tenant_id=tenant.id, store_id=loja.id, name="Caixa 01", code=f"CX-{sufixo}")
+        session.add(caixa)
+        session.flush()
+        session.add(OperationalDevice(
+            tenant_id=tenant.id, store_id=loja.id, code=f"POS-{sufixo}", name="Terminal do balcão",
+            device_type=OperationalDeviceTypeEnum.POS, register_id=caixa.id,
+        ))
+
         produtos: dict[str, uuid.UUID] = {}
         for nome, sku, unidade, tipo, preco, saldo, minimo, controla in CATALOGO:
             produto = Product(tenant_id=tenant.id, name=nome, sku=sku, unit=unidade,
@@ -104,7 +115,10 @@ def seed(output: Path) -> None:
             session.add(produto)
             session.flush()
             produtos[sku] = produto.id
-            session.add(ProductPrice(tenant_id=tenant.id, store_id=None, product_id=produto.id,
+            # O preço que a venda encontra é o da unidade: preço global não
+            # basta para vender no balcão, e foi assim que a homologação real
+            # está montada.
+            session.add(ProductPrice(tenant_id=tenant.id, store_id=loja.id, product_id=produto.id,
                                      sale_price=Decimal(preco), cost_price=Decimal(preco) / 2))
             if controla:
                 session.add(InventoryBalance(tenant_id=tenant.id, store_id=loja.id,
@@ -134,6 +148,7 @@ def seed(output: Path) -> None:
             "tenant_id": str(tenant.id), "tenant_name": tenant.name,
             "store_id": str(loja.id), "store_name": loja.name,
             "manager_email": email, "manager_token": _token(subject, email),
+            "register_id": str(caixa.id), "register_name": caixa.name,
             "products": {sku: str(pid) for sku, pid in produtos.items()},
         }
 
