@@ -168,7 +168,7 @@ massa transformaria histórico errado em histórico falsificado.
 
 | O quê | Resultado |
 |---|---|
-| `backend/tests` completo | 511 passaram, 1 pulado (a guarda de CI, fora de CI) |
+| `backend/tests` completo | 512 passaram, 1 pulado (a guarda de CI, fora de CI), 1 xfailed (o defeito do replay, registrado) |
 | `test_inventory_movement_integrity.py` | 30 passaram (eram 16 falhas em `07ae804`) |
 | `test_negotiation_sale_stock.py` | 7 passaram |
 | `test_inventory_count.py` | 37 passaram |
@@ -720,59 +720,181 @@ A migração 084 cria a coluna e deixa o histórico nulo de propósito: **ausên
 vínculo é a verdade sobre o que se sabe**, e é por isso que a recusa pede
 conferência em vez de afirmar que a mercadoria ficou.
 
-### Proposta de decisão sobre os sete achados
+### Proposta sobre os sete achados
 
-O tratamento acima descreve *como* mexer. Isto é o que proponho **fazer**, para
-sua decisão:
+Revisada. A versão anterior dizia que contar "regulariza" e tratava TRIAL como
+dado descartável. As duas coisas estavam erradas:
 
-| Achado | Proposta | Quando |
+* **contar não regulariza o histórico.** A conferência registra quantidade
+  encontrada, data e responsável. A soma do livro continua sem explicar o saldo,
+  e a divergência continua aparecendo no levantamento. O que se ganha é um marco
+  a partir do qual alguém responde pelo número — não uma reconciliação;
+* **TRIAL é fase comercial, não natureza do dado.** Um tenant em avaliação pode
+  ter mercadoria real na prateleira. "Está em TRIAL" não autoriza descartar o
+  histórico dele.
+
+| Achado | Proposta | Efeito real |
 |---|---|---|
-| 6 saldos com livro vazio, tenant TRIAL | **Não corrigir.** Contar a prateleira quando o tenant voltar a operar, o que registra conferência com data e responsável sem inventar movimento | Na próxima operação do tenant, não antes do merge |
-| 1 item vendido sem vínculo, tenant TRIAL | **Não fazer nada.** Se devolverem, a tela pede conferência de 1 unidade | Nenhuma ação prévia |
+| 6 saldos com livro vazio | Contar a prateleira quando o tenant voltar a operar | Passa a existir responsável a partir da data; **a divergência histórica permanece** |
+| 1 item vendido sem vínculo | Nenhuma ação prévia | Se devolverem, a tela pede conferência de 1 unidade |
 
-**Nenhum dos sete bloqueia o merge**, e a razão é verificável: todos estão em
-`Test Tenant - McMarcelo's`, que é TRIAL; o único tenant `ACTIVE` não tem venda
-nem achado. Não há cliente exposto ao comportamento novo.
+**O que sustenta "não bloqueia integrar" é atividade observada, não status
+comercial:**
 
-**O que essa proposta assume, e que você pode recusar:** que dado de tenant TRIAL
-não precisa de correção retroativa. Se a intenção for tratar o ambiente publicado
-como se fosse produção plena, a alternativa é contar os seis produtos antes do
-merge — o que é meia hora de trabalho de alguém com acesso à unidade, e não muda
-nada no código.
+| Tenant | Status | Vendas | Última venda | Movimentos | Último movimento |
+|---|---|---|---|---|---|
+| Dashem Retail Store | ACTIVE | **0** | nunca | 12, todos `PURCHASE` | **21/08** |
+| Tenant de Homologação | TRIAL | 2 | **06/09** | 1 | 06/09 |
+| Test Tenant - McMarcelo's | TRIAL | 5 | 03/09 | 10 | 22/08 |
 
-### Um achado fora do escopo desta branch, encontrado ao investigar
+O tenant `ACTIVE` foi carregado com estoque inicial num único dia e **nunca
+vendeu**; sua última atividade é de 21/08. O tenant com atividade mais recente é
+o de homologação, e ele não tem achado nenhum. Os sete achados estão no tenant
+cuja última venda é de 03/09 e cujo último movimento de estoque é de 22/08.
 
-Investigando uma falha local de `test_s25_1_payment_recovery`, encontrei um
-mecanismo real na varredura de recuperação de pagamento — **anterior a esta
-branch** e não introduzido por ela:
+Nada disso decorre de o tenant estar em TRIAL — decorre do que foi feito nele.
 
-`recover_unapplied_results` devolve como "recuperadas" linhas que continuam na
-fila. No banco local, 42 transações `REFUNDED` com parcela `PROCESSING` são
-reprocessadas a cada varredura e nunca saem: aplicar o resultado não move a
-parcela para fora do conjunto aberto. Como a fila é varrida **da mais antiga para
-a mais nova** e com lote limitado, um acúmulo dessas linhas **inanição as mais
-novas** — que é exatamente o que quebrava o teste.
+**O que a proposta não resolve.** Os seis saldos permanecem como **divergências
+históricas conhecidas** — registradas, visíveis no levantamento, e sem explicação
+no livro. Isso não é um estado final: é o estado até existir evidência da origem
+e um procedimento de regularização autorizado. O que não se deve fazer é inventar
+a origem para fechar a conta, porque um movimento compensatório precisa declarar
+de onde veio a mercadoria, e ninguém observou isso.
 
-As 42 linhas são artefato das minhas execuções, e o ambiente publicado não tem
-nenhuma. O mecanismo, porém, não depende de quem criou as linhas: qualquer par
-`REFUNDED` + `PROCESSING` fica na fila para sempre e consome um lugar do lote.
+### Um achado fora do escopo desta branch, reproduzido
 
-**Não corrigi**, e a razão é de escopo: mexer na recuperação de pagamento dentro
-de uma branch de estoque escaparia da revisão que esta entrega recebeu. Fica
-registrado para uma decisão própria.
+Investigando uma falha local de `test_s25_1_payment_recovery`, cheguei a um
+defeito real na recuperação de pagamento — **anterior a esta branch**. Errei a
+explicação três vezes antes de medir direito; o que está abaixo é o que os
+testes provam, não o que eu supunha.
 
-O teste teve o isolamento corrigido sem perder cobertura: em vez de um lote fixo
-de 50, ele mede a fila e pede um lote que a cubra. Continua provando o mesmo — a
-linha danificada é pulada, a saudável atrás dela é aplicada — sem depender de
-quantas linhas alheias existem no banco.
+**O defeito.** `recover_unapplied_results` remonta o `ProviderResult` a partir da
+linha gravada e **não copia `refunded_amount`**. Um estorno integral, cujo valor
+está na linha, é reentregue como não quantificado — e o ADR-030 manda reter o que
+não está quantificado, porque a reserva é tudo ou nada. A parcela que deveria
+fechar continua aberta. Provado em
+`test_s25_1_the_replay_drops_the_refunded_amount_it_has_on_the_row`: a primeira
+aplicação pela rota fecha; o replay não.
 
-### O que este diagnóstico não decide
+**A consequência na fila.** Uma parcela aberta com transação terminal satisfaz o
+filtro da fila para sempre, então a linha é reprocessada em toda varredura. Ela
+não sai da fila — vai para o **fim** dela, porque aplicar renova `updated_at` e a
+ordem é da mais antiga para a mais nova.
+
+**O impacto é atraso, não inanição indefinida.** Foi o que corrigi na minha
+própria leitura: com lote de tamanho `L` e `N` linhas nessa condição, uma linha
+saudável recém-chegada espera cerca de `N / L` varreduras até a fila girar até
+ela. Reproduzido em `test_s25_1_a_row_that_cannot_close_delays_the_one_behind_it`
+com o caso mínimo: lote de um, uma retida à frente, e a saudável alcançada só na
+segunda varredura.
+
+Enquanto espera, a parcela saudável fica aberta com a resposta do provedor já
+gravada na linha dela — dinheiro capturado e conta não liquidada.
+
+**No ambiente publicado o impacto hoje é nulo, e é verificável:** zero transações
+de provedor, fila vazia. E a varredura só é chamada pelo worker de outbox, que
+**não está contratado** — a decisão de 01/09/2026 postergou o Background Worker.
+Sem processo continuamente executável, a recuperação não roda no ambiente alvo.
+
+**Não corrigi**, e a correção pode ser separada porque o caminho está
+comprovadamente desabilitado no ambiente alvo: a varredura só é chamada pelo
+worker de outbox, e o Background Worker não está contratado. **A habilitação do
+worker fica condicionada à correção do replay** — habilitá-lo antes é o que
+tornaria o defeito alcançável.
+
+Os dois testes deixam claro o que cada um é, porque "dois testes passando" não
+distinguia:
+
+| Teste | O que é |
+|---|---|
+| `test_s25_1_a_replayed_integral_refund_closes_the_parcel` | **Registro de defeito.** Afirma o comportamento correto e está marcado `xfail(strict=True)` — falha de propósito hoje, e quando o replay for corrigido o `strict` obriga a remover o marcador |
+| `test_s25_1_a_row_that_cannot_close_delays_the_one_behind_it` | **Caracterização.** Fixa o comportamento atual da fila, que é em parte deliberado (reter estorno não quantificado é o ADR-030), para que a consequência na ordem fique visível |
+
+O teste que falhava teve o isolamento corrigido sem perder cobertura: em vez de
+lote fixo de 50, ele mede a fila e pede um lote que a cubra. Continua provando o
+mesmo — a linha danificada é pulada, a saudável atrás dela é aplicada.
+
+### O que este diagnóstico não decide### O que este diagnóstico não decide
 
 * **Não mede comportamento sob volume.** Sete vendas no ambiente inteiro. Os
   números dizem que ninguém está exposto hoje; não dizem como o sistema se
   comporta com movimento real;
 * **Não substitui a homologação pela interface.** Continua pendente, e continua
   dependendo das credenciais listadas abaixo.
+
+## O que impede integrar, e o que impede implantar e operar
+
+Três coisas diferentes, que eu vinha misturando numa lista só.
+
+### Integrar o código desta PR
+
+| Item | Estado |
+|---|---|
+| CI no commit exato | verde nos quatro jobs |
+| Revisão consolidada da branch | executada; sete achados corrigidos |
+| Conflito com a base | nenhum |
+| Achados de produção | nenhum em tenant com operação corrente |
+
+**Não identifiquei impedimento à integração.** Isso é o que eu observei; a
+decisão de integrar é sua, e nada aqui a antecipa.
+
+### Implantar
+
+**Frontend: o merge dispara implantação.** Verificado pela API de deployments —
+cada merge em `main` gera um deployment `Production` do `vercel[bot]`; o último
+foi `07ae804`, a `main` atual.
+
+**Migrações: quem as aplica é o entrypoint da imagem**, não o auto-deploy.
+`backend/entrypoint.sh` roda `alembic upgrade head` e só então inicia o uvicorn,
+e o `Dockerfile` o declara como `CMD`. Ou seja: **se o Render subir esta imagem,
+as migrações são aplicadas antes de a API atender**, e um erro de migração
+impede o processo de servir em vez de servir com schema errado.
+
+**O que eu não consigo verificar daqui**, e que precisa ser confirmado no painel
+do Render:
+
+1. se o serviço tem **Auto-Deploy** ligado para `main`;
+2. se ele usa **este Dockerfile** — um Start Command próprio no painel
+   substituiria o entrypoint e **as migrações não rodariam**.
+
+Auto-deploy sozinho não garante migração aplicada; é o entrypoint que garante, e
+só se ele for o que executa.
+
+### A ordem de publicação importa, e há dois pontos de exposição
+
+Se o frontend for publicado antes do backend, duas coisas quebram para quem já
+usa o sistema:
+
+| Ponto | O que acontece |
+|---|---|
+| Tela de estoque | `GET /inventory/holdings` não existe ainda; a tela mostra "não foi possível carregar o estoque" e a lista fica vazia — **regressão para todos os tenants** |
+| Botão "Devolver" no histórico de vendas | É liberado por `inventory.adjust`, permissão que **já existe**. Ele aparece e falha ao ser clicado, porque `/sales/returns` ainda não existe |
+
+Contagem e ajuste técnico **não** têm esse problema: dependem de
+`inventory.count` e `inventory.adjust.technical`, criadas pela migração 082.
+Antes dela ninguém tem essas permissões e os botões não aparecem — a degradação é
+correta por construção.
+
+**A ordem segura é backend primeiro, frontend depois.** Como o Vercel publica no
+merge e o Render é um serviço separado, a coordenação precisa ser deliberada: ou
+o backend implanta primeiro, ou se aceita uma janela em que a tela de estoque não
+carrega.
+
+### Operar
+
+| Fluxo | Estado no ambiente alvo |
+|---|---|
+| Contagem, devolução, acervo | Passam a existir com a implantação; **não homologados pela interface** |
+| Recuperação por provedor | **Não habilitada.** A varredura só roda no worker de outbox, e o Background Worker não está contratado. Habilitá-lo fica condicionado à correção do replay |
+
+O gate de operação exige o ciclo de oito passos pela navegação real, com pessoa
+representativa do cliente, e depende das credenciais listadas abaixo. Os gates de
+apresentação e liberação seguem sem execução.
+
+**A liberação do fluxo de pagamento é decisão separada desta PR.** O defeito do
+replay não é introduzido aqui, não é corrigido aqui, e não é alcançável no
+ambiente alvo enquanto o worker não existir. Habilitar o worker sem corrigir o
+replay é o que juntaria as duas coisas — e essa ordem é sua para decidir.
 
 ## Dependências registradas
 
