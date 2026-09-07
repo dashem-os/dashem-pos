@@ -258,6 +258,11 @@ quanto repor.
 
 ### Almoxarifado ampliado
 
+A devolução vinculada, entregue em 07/09/2026, registra `QUARANTINE` como destino
+e mantém a mercadoria fora do saldo vendável — **e é só isso que ela faz**. Não
+existe saldo de quarentena consultável, nem registro da destinação posterior do
+lote. Ambos pertencem a esta etapa.
+
 Etapa separada: depósitos por loja, recebimento parcial vinculado a compra,
 transferência com expedição/recebimento e trânsito, inventário, lote/validade,
 quarentena e consumo interno. Definir quem possui mercadoria em trânsito e como

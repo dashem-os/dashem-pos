@@ -214,6 +214,108 @@ def test_a_sale_from_another_store_is_not_found():
     assert refused.value.status_code == 404
 
 
+def test_an_open_sale_cannot_be_returned_into_existence():
+    """Venda aberta não entregou mercadoria, e devolver ali criaria saldo do nada.
+
+    Nada foi baixado do estoque enquanto a venda não foi quitada. Aceitar uma
+    "devolução" desse item seria inventar mercadoria: a entrada aconteceria sem
+    que nenhuma saída a tivesse precedido.
+    """
+    with _session() as session:
+        context = _context(session)
+        suffix = uuid.uuid4().hex[:8]
+        product = Product(
+            tenant_id=context.tenant_id, name=f"Aberta {suffix}", sku=f"ABE-{suffix}",
+        )
+        session.add(product)
+        session.commit()
+        product_id = product.id
+        inventory_service.adjust_stock(
+            session=session, context=context, store_id=context.store_id,
+            product_id=product_id, actor_id=context.user_id,
+            movement_type=MovementTypeEnum.PURCHASE, quantity=Decimal("10"),
+            reason="Recebimento",
+        )
+        sale = Sale(
+            tenant_id=context.tenant_id, store_id=context.store_id,
+            status=SaleStatusEnum.AWAITING_PAYMENT, seller_id=context.user_id,
+            gross_total=Decimal("2"), net_total=Decimal("2"),
+        )
+        session.add(sale)
+        session.flush()
+        item = SaleItem(
+            tenant_id=context.tenant_id, sale_id=sale.id, product_id=product_id,
+            product_name=product.name, sku=product.sku, unit_price=Decimal("1"),
+            quantity=Decimal("2"), gross_total=Decimal("2"), net_total=Decimal("2"),
+        )
+        session.add(item)
+        session.commit()
+        item_id = item.id
+
+        with pytest.raises(HTTPException) as refused:
+            sale_service.return_sold_item(
+                session=session, context=context, sale_item_id=item_id,
+                actor_id=context.user_id, quantity=Decimal("1"),
+                condition=RESALEABLE, destination=TO_STOCK, idempotency_key=_key(),
+            )
+        session.rollback()
+
+    assert refused.value.status_code == 409
+    assert "ainda não entregou" in refused.value.detail
+    assert _balance(context, product_id) == Decimal("10.0000")
+
+
+def test_a_cancelled_sale_cannot_become_a_fictitious_return():
+    """Cancelar antes da baixa não é devolver: nada saiu para poder voltar."""
+    with _session() as session:
+        context = _context(session)
+        item_id, product_id, _ = _sold(session, context, stock="10", quantity="3")
+
+        sale_item = session.get(SaleItem, item_id)
+        sale = session.get(Sale, sale_item.sale_id)
+        sale.status = SaleStatusEnum.CANCELED
+        session.add(sale)
+        session.commit()
+
+        with pytest.raises(HTTPException) as refused:
+            sale_service.return_sold_item(
+                session=session, context=context, sale_item_id=item_id,
+                actor_id=context.user_id, quantity=Decimal("1"),
+                condition=RESALEABLE, destination=TO_STOCK, idempotency_key=_key(),
+            )
+        session.rollback()
+
+    assert refused.value.status_code == 409
+    assert _balance(context, product_id) == Decimal("7.0000")
+
+
+@pytest.mark.parametrize("situacao", [
+    SaleStatusEnum.PAID, SaleStatusEnum.COMPLETED,
+    SaleStatusEnum.PARTIALLY_REFUNDED, SaleStatusEnum.REFUNDED,
+])
+def test_a_sale_that_delivered_the_goods_accepts_the_return(situacao):
+    """Estorno é fato financeiro: quem devolveu o dinheiro pode devolver o produto."""
+    with _session() as session:
+        context = _context(session)
+        item_id, product_id, _ = _sold(session, context, stock="10", quantity="3")
+
+        sale_item = session.get(SaleItem, item_id)
+        sale = session.get(Sale, sale_item.sale_id)
+        sale.status = situacao
+        session.add(sale)
+        session.commit()
+
+        record, _ = sale_service.return_sold_item(
+            session=session, context=context, sale_item_id=item_id,
+            actor_id=context.user_id, quantity=Decimal("1"),
+            condition=RESALEABLE, destination=TO_STOCK, idempotency_key=_key(),
+        )
+        session.commit()
+
+    assert record.quantity == Decimal("1.0000")
+    assert _balance(context, product_id) == Decimal("8.0000")
+
+
 # --------------------------------------------------------------------- 2. teto
 
 def test_a_return_cannot_exceed_what_was_sold():

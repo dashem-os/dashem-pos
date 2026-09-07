@@ -591,6 +591,20 @@ def get_sale(session: Session, context: TenantContext, sale_id: uuid.UUID) -> Sa
     return sale
 
 
+# Só volta o que saiu. Uma venda ainda aberta não entregou mercadoria nenhuma —
+# nada foi baixado do estoque —, então "devolver" ali criaria saldo do nada. E
+# uma venda cancelada também não entregou: o cancelamento antes da baixa não
+# pode virar devolução fictícia.
+#
+# `PARTIALLY_REFUNDED` e `REFUNDED` continuam elegíveis porque estorno é fato
+# financeiro: quem teve o dinheiro de volta pode não ter trazido a mercadoria, e
+# quando trouxer, é esta operação que a recebe.
+RETURNABLE_SALE_STATUSES = frozenset({
+    SaleStatusEnum.PAID, SaleStatusEnum.COMPLETED,
+    SaleStatusEnum.PARTIALLY_REFUNDED, SaleStatusEnum.REFUNDED,
+})
+
+
 # ---------------------------------------------------------------------------
 # Devolução de item vendido.
 #
@@ -694,6 +708,14 @@ def return_sold_item(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Venda de origem não encontrada neste contexto.",
+        )
+    if sale.status not in RETURNABLE_SALE_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"A venda ainda não entregou esta mercadoria (situação: "
+                f"{sale.status.value}). Só é devolvido o que saiu."
+            ),
         )
 
     already = session.exec(scope_tenant_query(select(SaleItemReturn).where(

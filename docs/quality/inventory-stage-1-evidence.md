@@ -168,11 +168,11 @@ massa transformaria histórico errado em histórico falsificado.
 
 | O quê | Resultado |
 |---|---|
-| `backend/tests` completo | 476 passaram |
+| `backend/tests` completo | 482 passaram |
 | `test_inventory_movement_integrity.py` | 30 passaram (eram 16 falhas em `07ae804`) |
 | `test_negotiation_sale_stock.py` | 7 passaram |
 | `test_inventory_count.py` | 32 passaram |
-| `test_linked_sale_return.py` | 23 passaram |
+| `test_linked_sale_return.py` | 29 passaram |
 | `test_inventory_integrity_diagnosis.py` | 5 passaram |
 | `frontend` — `npm test` | 127 passaram |
 | `tsc --noEmit` | limpo |
@@ -425,10 +425,35 @@ foi vendido. Ela nomeia o estado da mercadoria em vez do código interno, e diz 
 que vai acontecer antes de confirmar. A recusa do servidor permanece na tela com
 o formulário aberto, porque é ela que explica o limite.
 
+**Só volta o que saiu.** A primeira versão aceitava devolver item de venda em
+qualquer situação, inclusive venda ainda aberta — e como nada tinha sido baixado
+do estoque, a "devolução" criava saldo do nada. Venda aberta e venda cancelada
+passaram a ser recusadas com `409`: o cancelamento antes da baixa não vira
+devolução fictícia. `PARTIALLY_REFUNDED` e `REFUNDED` continuam elegíveis, porque
+estorno é fato financeiro — quem teve o dinheiro de volta pode trazer a
+mercadoria depois, e é esta operação que a recebe.
+
 **Devolução sem venda de origem continua existindo** pela rota comum, como
 `RETURN`. O plano prevê o caso ("venda quando aplicável"), e ali não há teto a
 aplicar porque não há origem. Isso é limite conhecido, não descuido: quem
 devolve sem vínculo não tem contra o que ser limitado.
+
+### Quarentena: o que existe e o que não existe
+
+Registrar `QUARANTINE` mantém a mercadoria fora do saldo vendável, e isso está
+provado. **Mas não constitui controle de mercadoria em quarentena**, e não deve
+ser lido como tal. Hoje:
+
+| O que existe | O que não existe |
+|---|---|
+| O fato registrado: quantidade, produto, venda de origem, ator, motivo e data | **Um saldo de quarentena** — não há onde consultar quanto está separado, por produto ou por unidade |
+| A garantia de que o saldo vendável não sobe | **Destinação posterior** — nada registra o que aconteceu com o lote depois: descarte formal, devolução ao fornecedor, retorno à venda após avaliação |
+| Uma linha por devolução, consultável apenas por consulta direta ao banco | **Qualquer superfície** que mostre isso a uma pessoa |
+
+Consultar hoje exige ler `sale_item_returns` filtrando `destination` no banco. Um
+saldo por destino, a tela que o mostra e o registro da destinação posterior são
+trabalho da etapa de almoxarifado ampliado, onde quarentena já está prevista.
+**Nada disso pode ser apresentado como almoxarifado completo.**
 
 ## Confronto com as exigências do plano
 
@@ -448,21 +473,27 @@ do gate de integridade contra a evidência que existe hoje.
 | Itens fracionados mantêm precisão | ✔ | Recusa além da quarta casa; contado, diferença e movimento na mesma casa |
 | Mudança de mínimo não cria movimento | ✔ | `test_changing_the_minimum_is_a_parameter_and_never_a_movement` |
 | Movimento confirmado não é reescrito; correção é compensatória | **✘ sem teste** | Não existe caminho de escrita que altere movimento, mas nenhum teste fixa isso |
-| Cancelamento antes da baixa não cria devolução fictícia | **✘ sem teste** | O caminho de cancelamento de venda não foi exercitado contra estoque |
+| Cancelamento antes da baixa não cria devolução fictícia | ✔ | Venda aberta e venda cancelada recusadas com `409`; o saldo não se move |
 | Testar pelos endpoints autenticados, além da unidade de serviço | **parcial** | Negociação, mesa e comanda por HTTP real; contagem e devolução pela função da rota com sessão real, mais `authorize_tenant_context` para a permissão — não por HTTP |
 | Não somar kg, litros e unidades num cartão | **✘** | O cartão "Unidades em saldo" ainda soma |
 
-E as duas exigências de operação que dependem de dado, não de código:
-
-| Exigência | Estado |
-|---|---|
-| Estoque lista o acervo físico, incluindo não publicados | **✘ obrigatório na próxima entrega** |
-| Tabela e modal coerentes após o conflito | **✘ obrigatório na próxima entrega** |
-
-**Portanto: gate de integridade PENDENTE.** Quatro itens sem evidência e um
-comportamento contrário à invariante 8. Gates de operação, apresentação e
+**Portanto: gate de integridade PENDENTE.** Um item sem evidência, um parcial e
+um comportamento contrário à invariante 8. Gates de operação, apresentação e
 liberação seguem intocados — o ciclo pela navegação real não foi executado por
 ninguém, e depende das credenciais listadas abaixo.
+
+## A próxima entrega, na ordem determinada
+
+1. **Estoque consulta o acervo físico**, incluindo itens não publicados.
+2. **Tabela e modal mostram saldos coerentes** após conflito.
+3. **Indicadores deixam de somar grandezas incompatíveis** — quantidade de
+   produtos, ou totais separados por unidade. Some com o cartão que hoje soma
+   quilo, litro e unidade num número só.
+4. **Testes cobrem preservação dos movimentos** e cancelamento antes da baixa.
+5. **Contagem e devolução passam por HTTP autenticado**, exercitando permissões e
+   validações reais da rota.
+
+Depois disso o gate **poderá ser avaliado** — não aprovado automaticamente.
 
 ## Dependências registradas
 
