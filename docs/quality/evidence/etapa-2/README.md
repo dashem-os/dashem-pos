@@ -66,10 +66,17 @@ em quatro tamanhos e **mede**, no layout já renderizado:
 
 A densidade está na tabela porque **zoom de navegador não é só janela menor**:
 a 150% o documento passa a ter 1660/1.5 pixels CSS de largura *e* cada pixel CSS
-passa a valer 1.5 pixels de dispositivo. A primeira versão emulava só a
+passa a valer 1.5 pixels de dispositivo. A primeira versão reproduzia só a
 primeira metade. Agora a auditoria aplica `deviceScaleFactor`, grava
 `devicePixelRatio` medido em cada tela e **reprova se a densidade não for a
-esperada** — para "zoom" não ser apenas uma palavra no nome do arquivo.
+esperada**.
+
+**Isto continua sendo emulação, não zoom de navegador.** Viewport reduzido mais
+`deviceScaleFactor` reproduz as duas condições que o zoom cria — menos pixel CSS
+e mais pixel de dispositivo — mas quem aplica não é o controle de zoom do
+navegador, e o que ele faz além disso não está coberto aqui. O nome do caso
+descreve a condição reproduzida; a verificação do zoom real, acionado pela
+pessoa, continua sendo inspeção manual.
 
 **E a medida foi validada contra o defeito conhecido.** Uma medição que nunca
 acusa não prova nada, então rodei a mesma auditoria com o CSS anterior
@@ -134,8 +141,12 @@ Encontrada na revisão desta rodada, e era real. Com `mostrarReferencia` em
 — o identificador que um sistema de fora usa mudava sozinho, e o defeito só
 apareceria do outro lado.
 
-A regra saiu do componente e virou função testável em
-`frontend/src/domain/categoryReference.ts`, com três casos em vez de dois:
+**A causa foi a regra estar incompleta**, não o lugar onde ela morava: derivar o
+slug do nome vale para categoria nova e não vale para categoria que já existe, e
+essa segunda metade nunca foi escrita. Mover a regra para
+`frontend/src/domain/categoryReference.ts` deixou-a testável em isolamento —
+arrumação útil, que não teria corrigido nada sozinha. O que corrigiu foi o
+terceiro caso:
 
 | Situação | Referência |
 |---|---|
