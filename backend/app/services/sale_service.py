@@ -727,8 +727,13 @@ def return_sold_item(
     # Status de venda não comprova saída de estoque. Uma venda pode estar `PAID`
     # e não ter baixado nada — foi o caso de toda venda fechada pela negociação
     # antes de 07/09/2026, e é o caso de qualquer linha anterior ao vínculo entre
-    # movimento e item de venda. Devolver ao saldo vendável sobre uma dessas
-    # criaria mercadoria: entrada sem saída que a preceda.
+    # movimento e item de venda.
+    #
+    # O que a ausência de vínculo diz é apenas que **não há como comprovar** a
+    # baixa por aqui: ela não prova que a mercadoria ficou. Por isso a recusa
+    # pede conferência, e não afirma um fato que ninguém verificou — e por isso
+    # também ela não manda direto para o ajuste técnico, que sem investigação
+    # vira rotina e desfaz a própria proteção.
     #
     # A verificação vale onde há estoque a criar. Devolução imprópria não soma
     # saldo, e a mercadoria voltou fisicamente de qualquer modo — registrar o
@@ -747,9 +752,9 @@ def return_sold_item(
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=(
-                    f"Não há baixa de estoque registrada para '{item.product_name}' "
-                    "nesta venda. Devolver ao saldo vendável criaria mercadoria que "
-                    "nunca saiu; use o ajuste técnico se a correção for essa."
+                    f"Não foi possível comprovar a baixa de estoque de "
+                    f"'{item.product_name}' nesta venda. É necessária uma "
+                    "conferência antes de registrar a devolução."
                 ),
             )
         vendido = min(vendido, baixado)

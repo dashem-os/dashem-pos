@@ -368,8 +368,8 @@ def test_a_finalised_sale_that_never_decremented_cannot_be_returned_to_stock():
         session.rollback()
 
     assert refused.value.status_code == 409
-    assert "Não há baixa de estoque registrada" in refused.value.detail
-    assert "ajuste técnico" in refused.value.detail
+    assert "Não foi possível comprovar a baixa" in refused.value.detail
+    assert "conferência" in refused.value.detail
     assert _balance(context, product_id) == Decimal("10.0000")
 
 
@@ -858,3 +858,152 @@ def test_a_return_beyond_the_stored_precision_is_refused():
 
     assert refused.value.status_code == 400
     assert "quatro casas" in refused.value.detail
+
+
+# ------------------------------- a devolução não tem caminho alternativo
+
+def test_the_common_route_cannot_be_used_as_a_return():
+    """Proteção com porta paralela não é proteção.
+
+    A devolução vinculada recusa o que não tem baixa comprovada e limita ao que
+    saiu. Se a rota comum de estoque continuasse aceitando `RETURN`, bastaria
+    outra chamada para acrescentar a mesma mercadoria — sem origem, sem teto e
+    sem prova. A recusa aponta onde a devolução se registra.
+    """
+    from app.api.v1.endpoints.inventory import StockAdjustDTO, adjust_stock_endpoint
+
+    with _session() as session:
+        context = _context(session)
+        item_id, product_id, _ = _sold(session, context, stock="10", quantity="3")
+
+        with pytest.raises(HTTPException) as refused:
+            adjust_stock_endpoint(
+                data=StockAdjustDTO(
+                    store_id=context.store_id, product_id=product_id,
+                    actor_id=context.user_id, movement_type=MovementTypeEnum.RETURN,
+                    quantity=50.0, reason="Devolução sem venda nenhuma",
+                ),
+                context=context, x_idempotency_key=None, x_correlation_id=None,
+                session=session,
+            )
+        session.rollback()
+
+    assert refused.value.status_code == 400
+    assert "histórico da venda de origem" in refused.value.detail
+    assert "ajuste técnico" not in refused.value.detail, (
+        "a recusa oferece a exceção na porta, e é assim que ela vira rotina"
+    )
+    assert _balance(context, product_id) == Decimal("7.0000")
+
+
+def test_what_the_linked_return_refuses_the_common_route_does_not_grant():
+    """O mesmo caso, pelos dois caminhos: recusado nos dois.
+
+    Uma venda finalizada sem baixa comprovada é recusada pela devolução
+    vinculada. Este teste tenta em seguida acrescentar a mesma quantidade pela
+    rota comum, que é exatamente o contorno que a proteção precisa não ter.
+    """
+    from app.api.v1.endpoints.inventory import StockAdjustDTO, adjust_stock_endpoint
+
+    with _session() as session:
+        context = _context(session)
+        suffix = uuid.uuid4().hex[:8]
+        product = Product(
+            tenant_id=context.tenant_id, name=f"Contorno {suffix}", sku=f"CTR-{suffix}",
+        )
+        session.add(product)
+        session.commit()
+        product_id = product.id
+        inventory_service.adjust_stock(
+            session=session, context=context, store_id=context.store_id,
+            product_id=product_id, actor_id=context.user_id,
+            movement_type=MovementTypeEnum.PURCHASE, quantity=Decimal("10"),
+            reason="Recebimento",
+        )
+        sale = Sale(
+            tenant_id=context.tenant_id, store_id=context.store_id,
+            status=SaleStatusEnum.COMPLETED, seller_id=context.user_id,
+            gross_total=Decimal("3"), net_total=Decimal("3"),
+        )
+        session.add(sale)
+        session.flush()
+        item = SaleItem(
+            tenant_id=context.tenant_id, sale_id=sale.id, product_id=product_id,
+            product_name=product.name, sku=product.sku, unit_price=Decimal("1"),
+            quantity=Decimal("3"), gross_total=Decimal("3"), net_total=Decimal("3"),
+        )
+        session.add(item)
+        session.commit()
+        item_id = item.id
+
+        with pytest.raises(HTTPException) as vinculada:
+            sale_service.return_sold_item(
+                session=session, context=context, sale_item_id=item_id,
+                actor_id=context.user_id, quantity=Decimal("3"),
+                condition=RESALEABLE, destination=TO_STOCK, idempotency_key=_key(),
+            )
+        session.rollback()
+
+        with pytest.raises(HTTPException) as comum:
+            adjust_stock_endpoint(
+                data=StockAdjustDTO(
+                    store_id=context.store_id, product_id=product_id,
+                    actor_id=context.user_id, movement_type=MovementTypeEnum.RETURN,
+                    quantity=3.0, reason="Mesma mercadoria, outro caminho",
+                ),
+                context=context, x_idempotency_key=None, x_correlation_id=None,
+                session=session,
+            )
+        session.rollback()
+
+    assert vinculada.value.status_code == 409
+    assert comum.value.status_code == 400
+    assert _balance(context, product_id) == Decimal("10.0000")
+
+
+def test_the_refusal_does_not_claim_the_goods_never_left():
+    """Ausência de vínculo não prova que a mercadoria ficou.
+
+    Dizer "criaria mercadoria que nunca saiu" afirmava um fato que ninguém
+    verificou. O que se sabe é menos: não há como comprovar a baixa por aqui. A
+    recusa pede conferência, e não manda direto para a exceção — apontar o ajuste
+    técnico sem investigação transformaria a exceção em rotina.
+    """
+    with _session() as session:
+        context = _context(session)
+        suffix = uuid.uuid4().hex[:8]
+        product = Product(
+            tenant_id=context.tenant_id, name=f"Antiga {suffix}", sku=f"ANT-{suffix}",
+        )
+        session.add(product)
+        session.commit()
+        product_id = product.id
+        sale = Sale(
+            tenant_id=context.tenant_id, store_id=context.store_id,
+            status=SaleStatusEnum.COMPLETED, seller_id=context.user_id,
+            gross_total=Decimal("1"), net_total=Decimal("1"),
+        )
+        session.add(sale)
+        session.flush()
+        item = SaleItem(
+            tenant_id=context.tenant_id, sale_id=sale.id, product_id=product_id,
+            product_name=product.name, sku=product.sku, unit_price=Decimal("1"),
+            quantity=Decimal("1"), gross_total=Decimal("1"), net_total=Decimal("1"),
+        )
+        session.add(item)
+        session.commit()
+        item_id = item.id
+
+        with pytest.raises(HTTPException) as refused:
+            sale_service.return_sold_item(
+                session=session, context=context, sale_item_id=item_id,
+                actor_id=context.user_id, quantity=Decimal("1"),
+                condition=RESALEABLE, destination=TO_STOCK, idempotency_key=_key(),
+            )
+        session.rollback()
+
+    detalhe = refused.value.detail
+    assert "Não foi possível comprovar a baixa" in detalhe
+    assert "conferência" in detalhe
+    assert "nunca saiu" not in detalhe, "a recusa afirma um fato que ninguém verificou"
+    assert "ajuste técnico" not in detalhe, "a recusa transforma a exceção em rotina"

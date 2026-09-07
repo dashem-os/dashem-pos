@@ -372,9 +372,12 @@ export function InventoryManager() {
             >
               <option value="PURCHASE">Entrada / compra</option>
               <option value="LOSS">Perda</option>
-              <option value="RETURN">Devolução</option>
             </select>
           </label>
+          <p className="rounded-xl border border-dashem-border bg-dashem-surface-elevated p-3 text-xs text-dashem-muted">
+            Devolução de cliente se registra na venda, em <b className="text-dashem-strong">Histórico
+            de vendas</b> — é de lá que saem o limite e o vínculo com o que foi vendido.
+          </p>
           <Field label="Quantidade" type="number" value={form.quantity} onChange={(value) => setForm({ ...form, quantity: value })} />
           <Field label="Estoque mínimo" type="number" value={form.minimum_stock} onChange={(value) => setForm({ ...form, minimum_stock: value })} />
           <Field label="Motivo" value={form.reason} onChange={(value) => setForm({ ...form, reason: value })} />

@@ -18,7 +18,7 @@ router = APIRouter()
 # `POST` manual com `SALE` era uma operação se passando por outra, com o mesmo
 # rótulo no histórico e nenhuma venda por trás.
 MANUAL_MOVEMENTS = frozenset({
-    MovementTypeEnum.PURCHASE, MovementTypeEnum.LOSS, MovementTypeEnum.RETURN,
+    MovementTypeEnum.PURCHASE, MovementTypeEnum.LOSS,
 })
 
 class StockAdjustDTO(BaseModel):
@@ -54,6 +54,22 @@ def adjust_stock_endpoint(
             detail=(
                 "Diferença de estoque se registra contando a prateleira. "
                 "O ajuste assinado tem rota e autorização próprias."
+            ),
+        )
+    if data.movement_type == MovementTypeEnum.RETURN:
+        # Aceitar devolução por aqui abriria uma porta paralela para o mesmo
+        # estoque: a devolução vinculada recusa o que não tem baixa comprovada,
+        # e uma chamada manual acrescentaria a mesma mercadoria sem origem, sem
+        # teto e sem prova. Proteção com caminho alternativo não é proteção.
+        # A recusa aponta o caminho normal. Nomear a exceção aqui teria o mesmo
+        # efeito que teve na devolução vinculada: oferecida na porta, ela vira
+        # rotina. O procedimento excepcional é apresentado ao responsável
+        # autorizado depois da conferência, não antes dela.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Devolução de cliente se registra no histórico da venda de "
+                "origem, que é de onde saem o limite e o histórico."
             ),
         )
     if data.movement_type not in MANUAL_MOVEMENTS:

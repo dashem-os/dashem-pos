@@ -46,10 +46,33 @@ from app.services import inventory_service, payment_service
 BASE_URL = os.getenv("TEST_AUTH_BASE_URL", "")
 SECRET = os.getenv("AUTH_TEST_SECRET", "")
 
-pytestmark = pytest.mark.skipif(
-    not (BASE_URL and SECRET),
+CONFIGURADO = bool(BASE_URL and SECRET)
+
+# Pular sem ninguém notar é pior do que não ter o teste: a suíte fica verde e a
+# cobertura some. Em CI isto é obrigatório; numa máquina de desenvolvimento,
+# opcional — e a guarda abaixo distingue os dois casos.
+requires_server = pytest.mark.skipif(
+    not CONFIGURADO,
     reason="exige um servidor em AUTH_MODE=test e o segredo de assinatura",
 )
+
+
+def test_the_authenticated_http_coverage_is_configured_where_it_is_required():
+    """Cobertura obrigatória que se pula em silêncio deixa de ser cobertura.
+
+    **Obrigatório em CI, opcional localmente.** Fora de CI este teste também é
+    pulado — o servidor autenticado é trabalho extra para uma máquina de
+    desenvolvimento. O que ele garante é o outro lado: em CI, a ausência das
+    variáveis significa que o job parou de exercitar a rota, e falhar ali é a
+    única forma de alguém perceber.
+    """
+    if not os.getenv("CI"):
+        pytest.skip("fora de CI a configuração é opcional; o aviso fica no arquivo")
+    assert CONFIGURADO, (
+        "TEST_AUTH_BASE_URL e AUTH_TEST_SECRET não estão configurados: a "
+        "cobertura de contagem e devolução por HTTP autenticado seria pulada "
+        "em silêncio. Suba o servidor em AUTH_MODE=test no job."
+    )
 
 
 def _token(subject: str) -> str:
@@ -147,6 +170,7 @@ def _version(fixture) -> int:
 
 # ------------------------------------------------------------------ contagem
 
+@requires_server
 @pytest.mark.asyncio
 async def test_a_manager_counts_the_shelf_over_http():
     fixture = _tenant_with(RoleEnum.MANAGER, stock="10")
@@ -167,6 +191,7 @@ async def test_a_manager_counts_the_shelf_over_http():
     assert _balance(fixture) == Decimal("8.0000")
 
 
+@requires_server
 @pytest.mark.asyncio
 async def test_a_cashier_is_refused_by_the_permission_engine_over_http():
     """A recusa vem do motor de permissão, não de um `if` dentro do teste."""
@@ -185,6 +210,7 @@ async def test_a_cashier_is_refused_by_the_permission_engine_over_http():
     assert _balance(fixture) == Decimal("10.0000")
 
 
+@requires_server
 @pytest.mark.asyncio
 async def test_without_a_token_the_route_answers_401():
     fixture = _tenant_with(RoleEnum.MANAGER, stock="10")
@@ -204,6 +230,7 @@ async def test_without_a_token_the_route_answers_401():
     assert response.status_code == 401, response.text
 
 
+@requires_server
 @pytest.mark.asyncio
 async def test_the_route_requires_the_idempotency_header():
     """A assinatura exige a chave; sem ela é o servidor que recusa, não o serviço."""
@@ -220,6 +247,7 @@ async def test_the_route_requires_the_idempotency_header():
     assert response.status_code == 422, response.text
 
 
+@requires_server
 @pytest.mark.asyncio
 async def test_a_negative_count_is_refused_by_the_body_validation():
     """`counted_quantity` não negativo é contrato da rota, e o Pydantic o aplica."""
@@ -238,6 +266,7 @@ async def test_a_negative_count_is_refused_by_the_body_validation():
     assert _balance(fixture) == Decimal("10.0000")
 
 
+@requires_server
 @pytest.mark.asyncio
 async def test_a_stale_version_conflicts_over_http_and_carries_the_current_state():
     fixture = _tenant_with(RoleEnum.MANAGER, stock="10")
@@ -269,6 +298,7 @@ async def test_a_stale_version_conflicts_over_http_and_carries_the_current_state
     assert _balance(fixture) == Decimal("13.0000")
 
 
+@requires_server
 @pytest.mark.asyncio
 async def test_resending_the_same_count_over_http_moves_the_stock_once():
     fixture = _tenant_with(RoleEnum.MANAGER, stock="10")
@@ -292,6 +322,7 @@ async def test_resending_the_same_count_over_http_moves_the_stock_once():
 
 # ------------------------------------------------------------------- acervo
 
+@requires_server
 @pytest.mark.asyncio
 async def test_the_holdings_route_lists_goods_nobody_published():
     """O acervo é físico: publicação decide onde vende, não se existe."""
@@ -343,6 +374,7 @@ def _sale_for(fixture, quantity: str = "3"):
         return str(item.id)
 
 
+@requires_server
 @pytest.mark.asyncio
 async def test_a_return_over_http_puts_the_goods_back():
     fixture = _tenant_with(RoleEnum.MANAGER, stock="10")
@@ -361,6 +393,7 @@ async def test_a_return_over_http_puts_the_goods_back():
     assert _balance(fixture) == Decimal("9.0000")
 
 
+@requires_server
 @pytest.mark.asyncio
 async def test_a_return_over_http_respects_the_ceiling():
     fixture = _tenant_with(RoleEnum.MANAGER, stock="10")
@@ -380,6 +413,7 @@ async def test_a_return_over_http_respects_the_ceiling():
     assert _balance(fixture) == Decimal("7.0000")
 
 
+@requires_server
 @pytest.mark.asyncio
 async def test_an_incoherent_condition_is_refused_over_http():
     fixture = _tenant_with(RoleEnum.MANAGER, stock="10")
@@ -397,6 +431,7 @@ async def test_an_incoherent_condition_is_refused_over_http():
     assert _balance(fixture) == Decimal("7.0000")
 
 
+@requires_server
 @pytest.mark.asyncio
 async def test_a_cashier_cannot_return_over_http():
     fixture = _tenant_with(RoleEnum.CASHIER, stock="10")
@@ -415,6 +450,7 @@ async def test_a_cashier_cannot_return_over_http():
     assert _balance(fixture) == Decimal("8.0000")
 
 
+@requires_server
 @pytest.mark.asyncio
 async def test_a_forged_actor_is_refused_over_http():
     """O ator vem do token; alegar outro é recusado pelo servidor."""

@@ -168,11 +168,11 @@ massa transformaria histórico errado em histórico falsificado.
 
 | O quê | Resultado |
 |---|---|
-| `backend/tests` completo | 500 passaram |
+| `backend/tests` completo | 503 passaram, 1 pulado (a guarda de CI, fora de CI) |
 | `test_inventory_movement_integrity.py` | 30 passaram (eram 16 falhas em `07ae804`) |
 | `test_negotiation_sale_stock.py` | 7 passaram |
 | `test_inventory_count.py` | 32 passaram |
-| `test_linked_sale_return.py` | 32 passaram |
+| `test_linked_sale_return.py` | 35 passaram |
 | `test_inventory_http_contract.py` | 13 passaram, contra servidor autenticado |
 | `test_inventory_integrity_diagnosis.py` | 5 passaram |
 | `frontend` — `npm test` | 132 passaram |
@@ -434,10 +434,19 @@ devolução fictícia. `PARTIALLY_REFUNDED` e `REFUNDED` continuam elegíveis, p
 estorno é fato financeiro — quem teve o dinheiro de volta pode trazer a
 mercadoria depois, e é esta operação que a recebe.
 
-**Devolução sem venda de origem continua existindo** pela rota comum, como
-`RETURN`. O plano prevê o caso ("venda quando aplicável"), e ali não há teto a
-aplicar porque não há origem. Isso é limite conhecido, não descuido: quem
-devolve sem vínculo não tem contra o que ser limitado.
+**A devolução não tem caminho alternativo.** A rota comum de estoque aceitava
+`RETURN` sem venda, sem item de origem e sem teto — de modo que a devolução
+vinculada recusava o que não tinha baixa comprovada e uma segunda chamada
+acrescentava a mesma mercadoria mesmo assim. Proteção com porta paralela não é
+proteção, e isso não podia ficar como limite declarado.
+
+`RETURN` saiu da rota comum, e a recusa aponta o **fluxo normal** — o histórico da
+venda de origem — em vez da exceção. Nomear o ajuste técnico ali teria o mesmo
+efeito que teve na devolução vinculada: oferecido na porta, ele vira rotina. O
+procedimento excepcional continua existindo, restrito e justificado, e é
+apresentado ao responsável autorizado depois da conferência, não antes. Dois testes fecham o contorno: um tenta a rota comum diretamente, e
+outro reproduz o caso inteiro — recusa pela devolução vinculada, seguida da
+mesma quantidade pela rota comum, com o saldo intacto nas duas.
 
 ### Quarentena: o que existe e o que não existe
 
@@ -531,13 +540,20 @@ passou a exigir **baixa provada**, não situação da venda:
 
 | Caso | Resposta |
 |---|---|
-| Venda finalizada, nenhuma baixa registrada | `409`, nomeando o ajuste técnico como a saída explícita |
+| Venda finalizada, baixa não comprovável | `409` pedindo conferência |
 | A mesma venda, devolução imprópria | Aceita — não há saldo a criar, e a mercadoria voltou de fato |
 | Vendeu 3, baixou 2 | O teto é 2, não 3 |
 | Venda aberta ou cancelada | `409`: nada saiu para poder voltar |
 
-Ausência de vínculo **não prova ausência de baixa** — por isso a devolução recusa
-em vez de adivinhar, e aponta a operação restrita para a exceção legítima.
+**A mensagem foi corrigida.** A primeira versão dizia "devolver ao saldo vendável
+criaria mercadoria que nunca saiu" — e isso afirma um fato que ninguém verificou.
+Ausência de vínculo prova menos: prova que **não há como comprovar a baixa por
+aqui**. A recusa passou a dizer isso e a pedir conferência.
+
+Ela também deixou de apontar o ajuste técnico. Indicar a exceção na própria
+recusa, sem procedimento de investigação, transforma a exceção em rotina — que é
+o oposto do que uma operação restrita deve ser. Um teste fixa as duas coisas:
+a frase não afirma que a mercadoria ficou, e não oferece o atalho.
 
 ### 5. Contagem e devolução por HTTP autenticado
 
@@ -557,8 +573,21 @@ caminho HTTP e agora está exercitado:
 | Teto e coerência de condição na devolução | `400` |
 | Acervo com mercadoria não publicada | Aparece |
 
-Sem `AUTH_TEST_SECRET` e sem servidor nesse modo, o arquivo é **pulado** em vez
-de fingir cobertura, e o comando para subir o servidor está no seu cabeçalho.
+**E essa cobertura é obrigatória, não opcional.** Pular em silêncio deixaria a
+suíte verde sem a cobertura, que é pior do que não ter o teste. O job de backend
+passou a subir uma segunda instância em `AUTH_MODE=test` na porta 8004, e uma
+guarda **obrigatória em CI e opcional localmente** falha quando
+`TEST_AUTH_BASE_URL` e `AUTH_TEST_SECRET` faltam — verificado simulando o job sem
+elas:
+
+```
+E   AssertionError: TEST_AUTH_BASE_URL e AUTH_TEST_SECRET não estão configurados:
+    a cobertura de contagem e devolução por HTTP autenticado seria pulada em silêncio.
+1 failed, 13 skipped
+```
+
+Numa máquina de desenvolvimento sem o servidor, a configuração continua opcional
+e o comando para subi-lo está no cabeçalho do arquivo.
 
 ## Confronto atualizado do gate
 
@@ -579,20 +608,27 @@ de fingir cobertura, e o comando para subir o servidor está no seu cabeçalho.
 | Testar pelos endpoints autenticados, além da unidade de serviço | ✔ contagem, devolução e acervo por HTTP com token |
 | Não somar kg, litros e unidades num cartão | ✔ o cartão saiu |
 
+| Devolução não tem caminho alternativo | ✔ `RETURN` saiu da rota comum, com dois testes de contorno |
+
 **O que continua fora do gate de integridade, e por quê:**
 
 - **Quarentena não é controle.** O fato é registrado e o saldo vendável não sobe,
   mas não há saldo de quarentena consultável, nem destinação posterior, nem tela.
   Pertence ao almoxarifado ampliado;
-- **Devolução sem venda de origem** continua sem teto, por construção: não há
-  origem contra a qual limitar;
+- **Não há procedimento de investigação** para a venda cuja baixa não se
+  comprova. A recusa pede conferência e a conferência não existe como fluxo —
+  hoje ela acontece fora do sistema, e o ajuste técnico é a única correção
+  possível depois dela. Enquanto isso não for desenhado, o caminho de exceção
+  depende de disciplina de quem opera;
 - **A tela não foi homologada.** A bancada exercita comportamento; o gate de
   operação exige pessoa representativa do cliente pela navegação real, e isso
   depende das credenciais Supabase — dependência de ambiente, separada deste
   trabalho local.
 
-Com os cinco itens entregues, **o gate de integridade pode ser avaliado**. Não
-está aprovado por mim: quem aprova é quem confere as evidências.
+Com os cinco itens entregues e o contorno fechado, **o gate de integridade pode
+ser avaliado**. Não está aprovado por mim: quem aprova é quem confere as
+evidências. E ter evidência para cada exigência não é o mesmo que ter todos os
+caminhos alternativos protegidos — foi por um deles que a devolução vazava.
 
 ## Dependências registradas
 
