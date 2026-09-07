@@ -194,10 +194,20 @@ export const PosLayout: React.FC = () => {
                 Voltar para a Gestão
               </RowAction>
             )}
-            <RowAction icon={LogOut} tone="critical" onClick={() => { void signOut() }}>
-              Encerrar sessão
-            </RowAction>
           </RowActions>
+
+          {/*
+            Encerrar sessão não é administração: é a troca de turno, feita no
+            balcão o dia inteiro. Fica fora do menu, a um toque, como estava.
+          */}
+          <button
+            onClick={signOut}
+            title="Encerrar sessão"
+            aria-label="Encerrar sessão"
+            className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 transition-colors hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 active:scale-95"
+          >
+            <LogOut className="h-3.5 w-3.5" />
+          </button>
         </div>
       </header>
 
