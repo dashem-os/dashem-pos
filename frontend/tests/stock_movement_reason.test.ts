@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import test from 'node:test'
 import {
-  DEFAULT_STOCK_REASONS, reasonForMovement,
+  DEFAULT_STOCK_REASONS, movementLabel, reasonForMovement,
 } from '../src/domain/stockMovements.ts'
 
 /**
@@ -53,4 +53,26 @@ test('as duas telas de movimentação leem a mesma regra', () => {
       `${arquivo} voltou a fixar o motivo de entrada`,
     )
   }
+})
+
+test('o histórico não chama de conferência o que ninguém conferiu', () => {
+  // Contar a prateleira e lançar diferença à mão produzem o mesmo `ADJUSTMENT`.
+  // Rotular os dois como "Conferência" apagava na tela a separação que a
+  // permissão `inventory.adjust.technical` mantém no servidor.
+  assert.equal(movementLabel('ADJUSTMENT', 'COUNT'), 'Contagem de estoque')
+  assert.equal(movementLabel('ADJUSTMENT', 'TECHNICAL_ADJUSTMENT'), 'Ajuste técnico')
+})
+
+test('sem origem gravada, o histórico não inventa procedência', () => {
+  // O ajuste anterior à marca de origem não é conferência nem ajuste técnico:
+  // é um ajuste cuja origem ninguém registrou, e a tela diz só isso.
+  assert.equal(movementLabel('ADJUSTMENT', null), 'Ajuste')
+  assert.equal(movementLabel('ADJUSTMENT'), 'Ajuste')
+})
+
+test('os demais tipos falam por si', () => {
+  assert.equal(movementLabel('PURCHASE'), 'Entrada')
+  assert.equal(movementLabel('LOSS'), 'Perda')
+  assert.equal(movementLabel('SALE'), 'Venda')
+  assert.equal(movementLabel('RETURN'), 'Devolução')
 })

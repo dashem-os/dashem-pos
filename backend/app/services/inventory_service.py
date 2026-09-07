@@ -7,7 +7,8 @@ from sqlmodel import Session, select, text
 from fastapi import HTTPException, status
 from app.core.context import TenantContext, resolve_actor, scope_tenant_query
 from app.models.catalog import (
-    InventoryBalance, InventoryCount, InventoryMovement, MovementTypeEnum, Product,
+    InventoryBalance, InventoryCount, InventoryMovement, MovementOriginEnum,
+    MovementTypeEnum, Product,
 )
 from app.services import reliability_service
 
@@ -133,6 +134,7 @@ def adjust_stock(
     reason: Optional[str] = None,
     correlation_id: Optional[str] = None,
     sale_item_id: Optional[uuid.UUID] = None,
+    origin: Optional[MovementOriginEnum] = None,
 ) -> Tuple[Optional[InventoryMovement], InventoryBalance, bool]:
     actor_id = resolve_actor(context, actor_id)
     qty_dec = signed_variation(movement_type, quantity)
@@ -225,6 +227,7 @@ def adjust_stock(
         reason=reason,
         correlation_id=correlation_id,
         sale_item_id=sale_item_id,
+        origin=origin,
     )
     session.add(movement)
 
@@ -415,6 +418,10 @@ def count_stock(
             quantity=difference,
             reason=reason or f"Contagem de estoque: {counted} encontrado(s)",
             correlation_id=correlation_id,
+            # A conferência assina o movimento que ela produziu. Sem isto o
+            # histórico não distingue a prateleira conferida da diferença
+            # lançada à mão, e as duas leem igual.
+            origin=MovementOriginEnum.COUNT,
         )
 
     balance = get_balance(session, context, store_id, product_id)

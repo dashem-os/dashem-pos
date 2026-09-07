@@ -7,7 +7,8 @@ from sqlmodel import Session
 from app.core.database import get_session
 from app.core.context import TenantContext, get_tenant_context, resolve_actor
 from app.models.catalog import (
-    InventoryBalance, InventoryCount, InventoryMovement, MovementTypeEnum,
+    InventoryBalance, InventoryCount, InventoryMovement, MovementOriginEnum,
+    MovementTypeEnum,
 )
 from app.services import inventory_service, reliability_service
 
@@ -218,6 +219,7 @@ def technical_adjustment_endpoint(
         product_id=data.product_id, actor_id=actor_id,
         movement_type=MovementTypeEnum.ADJUSTMENT, quantity=data.difference,
         reason=data.reason, correlation_id=x_correlation_id,
+        origin=MovementOriginEnum.TECHNICAL_ADJUSTMENT,
     )
     response_data = {
         "movement": movement.dict() if movement else None,

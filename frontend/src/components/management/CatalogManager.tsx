@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { Archive, Pencil, Trash2, Package, Plus, Search, ArrowUpDown, CheckCircle2, Star, AlertCircle, Layers, Store } from 'lucide-react'
+import { Archive, Pencil, Trash2, Package, Plus, Search, ArrowDownToLine, PackageX, CheckCircle2, Star, AlertCircle, Layers, Store } from 'lucide-react'
 import { usePos } from '../../context/PosContext'
 import { Modal } from '../common/Modal'
 import * as api from '../../services/api'
 import { Button } from '../common/Button'
 import { DataTable } from '../common/DataTable'
+import { RowAction, RowActions } from '../common/RowActions'
 import { formatCurrency, maskCurrencyInput, parseCurrencyInput } from '../../utils/format'
 import { navigateTo } from '../../utils/navigation'
 import { PendingMedia, ProductMediaPicker } from './ProductMediaPicker'
@@ -59,6 +60,18 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
   const [adjustType, setAdjustType] = useState<'PURCHASE' | 'LOSS'>('PURCHASE')
   const [adjustReason, setAdjustReason] = useState(DEFAULT_STOCK_REASONS.PURCHASE)
   const [minimumStock, setMinimumStock] = useState('')
+  const [mostrarPassos, setMostrarPassos] = useState(false)
+
+  // A mesma separacao da tela de Estoque: quem clica ja decidiu se esta
+  // recebendo ou registrando perda, e o formulario nao repete a pergunta.
+  const abrirMovimentacao = (prod: api.SellableProduct, tipo: 'PURCHASE' | 'LOSS') => {
+    setSelectedProductForStock(prod.id)
+    setMinimumStock(String(Number(prod.minimum_stock) || ''))
+    setAdjustType(tipo)
+    setAdjustQty('')
+    setAdjustReason(DEFAULT_STOCK_REASONS[tipo])
+    setIsStockModalOpen(true)
+  }
   const [viewMode, setViewMode] = useState<'MASTER' | 'PROJECTION'>('MASTER')
   const [salesContext, setSalesContext] = useState<api.SalesContext>('COUNTER')
   const [contextError, setContextError] = useState<string | null>(null)
@@ -208,12 +221,18 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
       return
     }
     if (tenant && store && minimumStock !== '') {
-      await api.setMinimumStock(
-        { 'X-Tenant-ID': tenant.id, 'X-Store-ID': store.id },
-        store.id,
-        selectedProductForStock,
-        parseFloat(minimumStock)
-      )
+      try {
+        await api.setMinimumStock(
+          { 'X-Tenant-ID': tenant.id, 'X-Store-ID': store.id },
+          store.id,
+          selectedProductForStock,
+          parseFloat(minimumStock)
+        )
+      } catch (reason) {
+        // A movimentação foi aceita; o mínimo não. Silenciar isto deixava a
+        // pessoa com um aviso de sucesso e um mínimo que não existe.
+        showToast('error', reason instanceof Error ? reason.message : 'O estoque mínimo não foi salvo.')
+      }
     }
     setAdjustQty('')
     setMinimumStock('')
@@ -256,7 +275,7 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
             <span>Produtos, preços e estoque</span>
           </h2>
           <p className="text-xs text-dashem-muted font-medium mt-0.5">
-            Cadastre o que o negócio comercializa. A publicação no PDV é definida nos sortimentos.
+            O que o seu negócio vende: nome, foto, preço e quantidade.
           </p>
         </div>
 
@@ -269,6 +288,13 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
         </button>
       </div>
 
+      {/*
+        A faixa de três passos explica o desenho do sistema, e isso interessa
+        uma vez. Quem abre esta tela toda manhã quer a lista, não a aula: ela
+        aparece sozinha quando ainda não há produto e, depois disso, só quando
+        a pessoa pede.
+      */}
+      {(mostrarPassos || total === 0) && (
       <section className="grid gap-2 rounded-2xl border border-dashem-border bg-dashem-surface p-3 sm:grid-cols-3" aria-label="Como um produto chega ao PDV">
         <button type="button" onClick={openAddProduct} className="flex items-start gap-3 rounded-xl bg-dashem-surface-elevated p-3 text-left hover:ring-2 hover:ring-dashem-red focus-visible:ring-2 focus-visible:ring-dashem-red">
           <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-dashem-red text-xs font-black text-brand-contrast">1</span>
@@ -283,6 +309,7 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
           <div><p className="text-xs font-black text-dashem-strong">Venda no PDV</p><p className="mt-1 text-xs leading-5 text-dashem-muted">O item aparece apenas nos contextos onde foi publicado.</p></div>
         </button>
       </section>
+      )}
 
       {/* View Mode Switcher: Master Catalog vs Operational Projection */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-dashem-border pb-3">
@@ -345,11 +372,14 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
         )}
       </div>
 
-      <p className="-mt-3 text-xs leading-5 text-dashem-muted">
-        {viewMode === 'MASTER'
-          ? 'Acervo completo deste tenant. Estar aqui não significa que o item já aparece no PDV.'
-          : 'Prévia exata do que está publicado e pode ser vendido no contexto selecionado.'}
-      </p>
+      {total > 0 && (
+        <button
+          type="button" onClick={() => setMostrarPassos((visivel) => !visivel)}
+          className="-mt-3 self-start text-xs font-black text-dashem-muted underline decoration-dotted underline-offset-4 hover:text-dashem-strong"
+        >
+          {mostrarPassos ? 'Ocultar como um produto chega ao PDV' : 'Como um produto chega ao PDV?'}
+        </button>
+      )}
 
       {/* Explicit Error Banner & Retry */}
       {contextError && (
@@ -423,44 +453,60 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
               cell: (prod) => <span className="font-black text-dashem-strong">{formatCurrency(Number(prod.sale_price))}</span>,
             },
             {
-              key: 'stock', header: 'Atual / mínimo', align: 'right',
+              // "10 / 0 un" obrigava a pessoa a saber qual número é qual. Cada
+              // um passa a dizer o que é, e a ausência de mínimo é dita por
+              // extenso em vez de virar um zero que parece meta.
+              key: 'stock', header: 'Em estoque', align: 'right',
               cell: (prod) => prod.item_type === 'SERVICE'
-                ? <span className="text-dashem-muted">—</span>
+                ? <span className="text-xs font-bold text-dashem-muted">Não controla estoque</span>
                 : (
-                  <span className={`inline-block rounded-md px-2 py-0.5 text-xs font-bold ${
-                    !prod.is_low_stock ? 'text-emerald-700 bg-emerald-50'
-                      : Number(prod.quantity) > 0 ? 'text-amber-700 bg-amber-50'
-                      : 'text-rose-700 bg-rose-50'
-                  }`}>
-                    {Number(prod.quantity)} / {Number(prod.minimum_stock)} {prod.unit.toLowerCase()}
-                  </span>
+                  <div className="inline-flex flex-col items-end gap-1">
+                    <span className={`inline-block rounded-md px-2 py-0.5 text-sm font-black ${
+                      Number(prod.quantity) <= 0 ? 'text-rose-700 bg-rose-50'
+                        : prod.is_low_stock ? 'text-amber-700 bg-amber-50'
+                        // Verde afirma "está dentro do que você quer". Sem
+                        // mínimo definido não há o que afirmar, e a cor deixa
+                        // de dar uma garantia que ninguém pediu.
+                        : Number(prod.minimum_stock) > 0 ? 'text-emerald-700 bg-emerald-50'
+                        : 'text-dashem-strong bg-dashem-surface-elevated'
+                    }`}>
+                      {Number(prod.quantity)} {prod.unit.toLowerCase()}
+                    </span>
+                    <span className="text-xs font-bold text-dashem-muted">
+                      {Number(prod.minimum_stock) > 0
+                        ? `Mínimo ${Number(prod.minimum_stock)} ${prod.unit.toLowerCase()}`
+                        : 'Sem mínimo definido'}
+                    </span>
+                  </div>
                 ),
             },
             {
               key: 'actions', header: 'Ações', actions: true, align: 'right',
+              // Por frequência: mexer no estoque e corrigir o cadastro são
+              // diários; destacar, arquivar e excluir acontecem de vez em
+              // quando e não precisam disputar espaço com eles todo dia.
               cell: (prod) => (
-                <div className="inline-flex flex-wrap gap-2">
-                  <Button variant="secondary" size="sm" icon={Pencil} onClick={() => openEditProduct(prod)}>Editar</Button>
-                  <Button variant="secondary" size="sm" icon={Trash2} onClick={() => { setProductToDelete(prod); setDeleteError(null) }} aria-label={`Excluir ${prod.name}`} title="Excluir produto">Excluir</Button>
-                  <Button variant="secondary" size="sm" icon={Archive} onClick={() => setProductToArchive(prod)}
-                    title="Arquivar e retirar do PDV" className="border-amber-200 bg-amber-50 text-amber-700" aria-label="Arquivar" />
-                  <Button variant="secondary" size="sm" onClick={() => handleQuickAccess(prod)}
-                    title={prod.quick_position != null ? 'Remover do acesso rápido' : 'Adicionar ao acesso rápido'}
-                    aria-label="Acesso rápido">
-                    <Star className={`h-4 w-4 ${prod.quick_position != null ? 'fill-amber-400 text-amber-700' : 'text-dashem-muted'}`} />
-                  </Button>
+                <div className="inline-flex flex-nowrap items-center justify-end gap-2">
                   {prod.item_type !== 'SERVICE' && (
-                    <Button variant="secondary" size="sm" icon={ArrowUpDown} onClick={() => {
-                      setSelectedProductForStock(prod.id)
-                      setMinimumStock(String(prod.minimum_stock))
-                      // Cada movimentação começa limpa: a operação anterior não
-                      // deve deixar tipo, quantidade nem motivo para a próxima.
-                      setAdjustType('PURCHASE')
-                      setAdjustQty('')
-                      setAdjustReason(DEFAULT_STOCK_REASONS.PURCHASE)
-                      setIsStockModalOpen(true)
-                    }}>Ajustar</Button>
+                    <Button variant="secondary" size="sm" icon={ArrowDownToLine} onClick={() => abrirMovimentacao(prod, 'PURCHASE')}>Receber</Button>
                   )}
+                  <Button variant="secondary" size="sm" icon={Pencil} onClick={() => openEditProduct(prod)}>Editar</Button>
+                  <RowActions label={`Mais ações de ${prod.name}`}>
+                    <RowAction icon={Star} onClick={() => handleQuickAccess(prod)}>
+                      {prod.quick_position != null ? 'Remover do acesso rápido' : 'Adicionar ao acesso rápido'}
+                    </RowAction>
+                    {prod.item_type !== 'SERVICE' && (
+                      <RowAction icon={PackageX} onClick={() => abrirMovimentacao(prod, 'LOSS')}>
+                        Registrar perda
+                      </RowAction>
+                    )}
+                    <RowAction icon={Archive} onClick={() => setProductToArchive(prod)}>
+                      Arquivar e retirar do PDV
+                    </RowAction>
+                    <RowAction icon={Trash2} tone="critical" onClick={() => { setProductToDelete(prod); setDeleteError(null) }}>
+                      Excluir produto
+                    </RowAction>
+                  </RowActions>
                 </div>
               ),
             },
@@ -482,7 +528,7 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
         isOpen={isAddModalOpen}
         onClose={() => { if (!saving && !mediaBusy) setIsAddModalOpen(false) }}
         title={editingProduct ? 'Editar produto' : 'Cadastrar Novo Produto'}
-        subtitle="Cadastre os dados e decida se o item já deve ser publicado no PDV"
+        subtitle="Nome, preço e foto. Onde ele será vendido você escolhe abaixo."
         maxWidth="2xl"
       >
         <form onSubmit={handleCreateProduct} className="space-y-4">
@@ -524,17 +570,12 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
             </div>
           </div>
 
-          {mediaHeaders && (
-            <ProductMediaPicker
-              key={editingProduct?.id || 'new'}
-              headers={mediaHeaders}
-              activity={activeActivity}
-              current={editingProduct?.image || (editingProduct?.image_url ? { source: 'LEGACY_URL', url: editingProduct.image_url, expires_at: null } : null)}
-              onChange={setPendingMedia}
-              onBusyChange={setMediaBusy}
-            />
-          )}
-
+          {/*
+            Preco e tipo antes da foto. A foto ajuda a reconhecer o item na
+            tela de venda; o preco e o que decide se ele pode ser vendido.
+            O bloco de midia ocupava metade do formulario antes de a pessoa
+            chegar ao campo que ela veio preencher.
+          */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-dashem-strong block">Tipo</label>
@@ -568,6 +609,17 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
             </div>
           </div>
 
+          {mediaHeaders && (
+            <ProductMediaPicker
+              key={editingProduct?.id || 'new'}
+              headers={mediaHeaders}
+              activity={activeActivity}
+              current={editingProduct?.image || (editingProduct?.image_url ? { source: 'LEGACY_URL', url: editingProduct.image_url, expires_at: null } : null)}
+              onChange={setPendingMedia}
+              onBusyChange={setMediaBusy}
+            />
+          )}
+
           {itemType === 'PRODUCT' && !editingProduct && (
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-dashem-strong block">Estoque Inicial (unidades)</label>
@@ -584,10 +636,7 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
             <div className="flex items-start gap-2">
               <Layers className="mt-0.5 h-4 w-4 shrink-0 text-dashem-red" />
               <div>
-                <h4 className="text-sm font-black text-dashem-strong">Publicação no PDV</h4>
-                <p className="mt-1 text-xs leading-5 text-dashem-muted">
-                  Produto é o cadastro. Sortimento define onde ele aparece e pode ser vendido.
-                </p>
+                <h4 className="text-sm font-black text-dashem-strong">Onde este item será vendido</h4>
               </div>
             </div>
             <label className="block text-xs font-bold text-dashem-strong" htmlFor="new-product-assortment">Publicar agora em</label>
@@ -639,33 +688,14 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
       <Modal
         isOpen={isStockModalOpen}
         onClose={() => setIsStockModalOpen(false)}
-        title="Ajustar Inventário de Estoque"
-        subtitle="Registra movimentação de entrada ou baixa com auditoria"
+        title={adjustType === 'PURCHASE' ? 'Receber mercadoria' : 'Registrar perda'}
+        subtitle={adjustType === 'PURCHASE'
+          ? 'Quanto chegou nesta unidade.'
+          : 'Quanto se perdeu: avaria, vencimento ou quebra.'}
       >
         <form onSubmit={handleAdjustStock} className="space-y-4">
           <div className="space-y-1.5">
-            <label className="text-xs font-bold text-dashem-strong block">Tipo de Movimentação</label>
-            <select
-              value={adjustType}
-              onChange={(e) => {
-                const next = e.target.value as 'PURCHASE' | 'LOSS'
-                setAdjustType(next)
-                setAdjustReason((current) => reasonForMovement(current, next))
-              }}
-              className="w-full h-11 px-3.5 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-dashem-strong text-xs font-semibold focus:border-dashem-red outline-none"
-            >
-              <option value="PURCHASE">Entrada / Compra de Mercadoria</option>
-              <option value="LOSS">Perda / Avaria / Vencimento</option>
-            </select>
-          </div>
-
-          <p className="rounded-xl border border-dashem-border bg-dashem-surface-elevated p-3 text-xs text-dashem-muted">
-            Diferença de balanço se registra em <b className="text-dashem-strong">Estoque</b>,
-            contando a prateleira: você informa o total encontrado e o sistema calcula a diferença.
-          </p>
-
-          <div className="space-y-1.5">
-            <label className="text-xs font-bold text-dashem-strong block">Quantidade</label>
+            <label className="text-xs font-bold text-dashem-strong block">{adjustType === 'PURCHASE' ? 'Quantidade recebida' : 'Quantidade perdida'}</label>
             <input
               type="number"
               step="1"

@@ -1,0 +1,869 @@
+[
+  {
+    "tamanho": "celular-390x844",
+    "nota": "celular em retrato",
+    "tela": "produtos",
+    "partidas": [],
+    "transbordo": 0,
+    "largura": 390
+  },
+  {
+    "tamanho": "celular-390x844",
+    "nota": "celular em retrato",
+    "tela": "estoque",
+    "partidas": [],
+    "transbordo": 0,
+    "largura": 390
+  },
+  {
+    "tamanho": "celular-390x844",
+    "nota": "celular em retrato",
+    "tela": "sortimentos",
+    "partidas": [],
+    "transbordo": 0,
+    "largura": 390
+  },
+  {
+    "tamanho": "celular-390x844",
+    "nota": "celular em retrato",
+    "tela": "categorias",
+    "partidas": [],
+    "transbordo": 0,
+    "largura": 390
+  },
+  {
+    "tamanho": "celular-390x844",
+    "nota": "celular em retrato",
+    "tela": "formulario-receber",
+    "partidas": [],
+    "transbordo": 0,
+    "largura": 390
+  },
+  {
+    "tamanho": "tablet-834x1112",
+    "nota": "tablet em retrato",
+    "tela": "produtos",
+    "partidas": [
+      {
+        "palavra": "Produto",
+        "onde": "inline-block rounded-md px-2 py-0.5 text-xs font-bold uppercase bg-das",
+        "texto": "Produto"
+      },
+      {
+        "palavra": "89,90",
+        "onde": "font-black text-dashem-strong",
+        "texto": "R$ 89,90"
+      },
+      {
+        "palavra": "Receber",
+        "onde": "inline-flex max-w-full items-center justify-center font-bold tracking-",
+        "texto": "Receber"
+      },
+      {
+        "palavra": "Editar",
+        "onde": "inline-flex max-w-full items-center justify-center font-bold tracking-",
+        "texto": "Editar"
+      },
+      {
+        "palavra": "Produto",
+        "onde": "inline-block rounded-md px-2 py-0.5 text-xs font-bold uppercase bg-das",
+        "texto": "Produto"
+      },
+      {
+        "palavra": "24,50",
+        "onde": "font-black text-dashem-strong",
+        "texto": "R$ 24,50"
+      },
+      {
+        "palavra": "Receber",
+        "onde": "inline-flex max-w-full items-center justify-center font-bold tracking-",
+        "texto": "Receber"
+      },
+      {
+        "palavra": "Editar",
+        "onde": "inline-flex max-w-full items-center justify-center font-bold tracking-",
+        "texto": "Editar"
+      },
+      {
+        "palavra": "Produto",
+        "onde": "inline-block rounded-md px-2 py-0.5 text-xs font-bold uppercase bg-das",
+        "texto": "Produto"
+      },
+      {
+        "palavra": "Receber",
+        "onde": "inline-flex max-w-full items-center justify-center font-bold tracking-",
+        "texto": "Receber"
+      },
+      {
+        "palavra": "Editar",
+        "onde": "inline-flex max-w-full items-center justify-center font-bold tracking-",
+        "texto": "Editar"
+      },
+      {
+        "palavra": "Produto",
+        "onde": "inline-block rounded-md px-2 py-0.5 text-xs font-bold uppercase bg-das",
+        "texto": "Produto"
+      },
+      {
+        "palavra": "10,00",
+        "onde": "font-black text-dashem-strong",
+        "texto": "R$ 10,00"
+      },
+      {
+        "palavra": "Receber",
+        "onde": "inline-flex max-w-full items-center justify-center font-bold tracking-",
+        "texto": "Receber"
+      },
+      {
+        "palavra": "Editar",
+        "onde": "inline-flex max-w-full items-center justify-center font-bold tracking-",
+        "texto": "Editar"
+      },
+      {
+        "palavra": "Produto",
+        "onde": "inline-block rounded-md px-2 py-0.5 text-xs font-bold uppercase bg-das",
+        "texto": "Produto"
+      },
+      {
+        "palavra": "32,00",
+        "onde": "font-black text-dashem-strong",
+        "texto": "R$ 32,00"
+      },
+      {
+        "palavra": "Receber",
+        "onde": "inline-flex max-w-full items-center justify-center font-bold tracking-",
+        "texto": "Receber"
+      },
+      {
+        "palavra": "Editar",
+        "onde": "inline-flex max-w-full items-center justify-center font-bold tracking-",
+        "texto": "Editar"
+      },
+      {
+        "palavra": "Serviço",
+        "onde": "inline-block rounded-md px-2 py-0.5 text-xs font-bold uppercase bg-amb",
+        "texto": "Serviço"
+      }
+    ],
+    "transbordo": 0,
+    "largura": 834
+  },
+  {
+    "tamanho": "tablet-834x1112",
+    "nota": "tablet em retrato",
+    "tela": "estoque",
+    "partidas": [
+      {
+        "palavra": "estoque",
+        "onde": "p-4 ",
+        "texto": "Em estoque"
+      },
+      {
+        "palavra": "Receber",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Receber"
+      },
+      {
+        "palavra": "Contar",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Contar"
+      },
+      {
+        "palavra": "Receber",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Receber"
+      },
+      {
+        "palavra": "Contar",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Contar"
+      },
+      {
+        "palavra": "Receber",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Receber"
+      },
+      {
+        "palavra": "Contar",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Contar"
+      },
+      {
+        "palavra": "Receber",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Receber"
+      },
+      {
+        "palavra": "Contar",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Contar"
+      },
+      {
+        "palavra": "Receber",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Receber"
+      },
+      {
+        "palavra": "Contar",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Contar"
+      }
+    ],
+    "transbordo": 0,
+    "largura": 834
+  },
+  {
+    "tamanho": "tablet-834x1112",
+    "nota": "tablet em retrato",
+    "tela": "sortimentos",
+    "partidas": [
+      {
+        "palavra": "Produtos",
+        "onde": "px-4 py-3.5 text-center",
+        "texto": "Produtos"
+      },
+      {
+        "palavra": "Situação",
+        "onde": "px-4 py-3.5 text-center",
+        "texto": "Situação"
+      },
+      {
+        "palavra": "Ativo",
+        "onde": "inline-block px-2.5 py-1 rounded-full text-[10px] font-black uppercase",
+        "texto": "Ativo"
+      },
+      {
+        "palavra": "Editar",
+        "onde": "inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-das",
+        "texto": "Editar"
+      },
+      {
+        "palavra": "Ativo",
+        "onde": "inline-block px-2.5 py-1 rounded-full text-[10px] font-black uppercase",
+        "texto": "Ativo"
+      },
+      {
+        "palavra": "Editar",
+        "onde": "inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-das",
+        "texto": "Editar"
+      }
+    ],
+    "transbordo": 0,
+    "largura": 834
+  },
+  {
+    "tamanho": "tablet-834x1112",
+    "nota": "tablet em retrato",
+    "tela": "categorias",
+    "partidas": [],
+    "transbordo": 0,
+    "largura": 834
+  },
+  {
+    "tamanho": "tablet-834x1112",
+    "nota": "tablet em retrato",
+    "tela": "formulario-receber",
+    "partidas": [
+      {
+        "palavra": "estoque",
+        "onde": "p-4 ",
+        "texto": "Em estoque"
+      },
+      {
+        "palavra": "Receber",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Receber"
+      },
+      {
+        "palavra": "Contar",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Contar"
+      },
+      {
+        "palavra": "Receber",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Receber"
+      },
+      {
+        "palavra": "Contar",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Contar"
+      },
+      {
+        "palavra": "Receber",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Receber"
+      },
+      {
+        "palavra": "Contar",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Contar"
+      },
+      {
+        "palavra": "Receber",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Receber"
+      },
+      {
+        "palavra": "Contar",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Contar"
+      },
+      {
+        "palavra": "Receber",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Receber"
+      },
+      {
+        "palavra": "Contar",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Contar"
+      }
+    ],
+    "transbordo": 0,
+    "largura": 834
+  },
+  {
+    "tamanho": "desktop-baixo-1366x640",
+    "nota": "altura reduzida",
+    "tela": "produtos",
+    "partidas": [
+      {
+        "palavra": "Produto",
+        "onde": "inline-block rounded-md px-2 py-0.5 text-xs font-bold uppercase bg-das",
+        "texto": "Produto"
+      },
+      {
+        "palavra": "Receber",
+        "onde": "inline-flex max-w-full items-center justify-center font-bold tracking-",
+        "texto": "Receber"
+      },
+      {
+        "palavra": "Editar",
+        "onde": "inline-flex max-w-full items-center justify-center font-bold tracking-",
+        "texto": "Editar"
+      },
+      {
+        "palavra": "Produto",
+        "onde": "inline-block rounded-md px-2 py-0.5 text-xs font-bold uppercase bg-das",
+        "texto": "Produto"
+      },
+      {
+        "palavra": "Receber",
+        "onde": "inline-flex max-w-full items-center justify-center font-bold tracking-",
+        "texto": "Receber"
+      },
+      {
+        "palavra": "Editar",
+        "onde": "inline-flex max-w-full items-center justify-center font-bold tracking-",
+        "texto": "Editar"
+      },
+      {
+        "palavra": "Produto",
+        "onde": "inline-block rounded-md px-2 py-0.5 text-xs font-bold uppercase bg-das",
+        "texto": "Produto"
+      },
+      {
+        "palavra": "Receber",
+        "onde": "inline-flex max-w-full items-center justify-center font-bold tracking-",
+        "texto": "Receber"
+      },
+      {
+        "palavra": "Editar",
+        "onde": "inline-flex max-w-full items-center justify-center font-bold tracking-",
+        "texto": "Editar"
+      },
+      {
+        "palavra": "Produto",
+        "onde": "inline-block rounded-md px-2 py-0.5 text-xs font-bold uppercase bg-das",
+        "texto": "Produto"
+      },
+      {
+        "palavra": "Receber",
+        "onde": "inline-flex max-w-full items-center justify-center font-bold tracking-",
+        "texto": "Receber"
+      },
+      {
+        "palavra": "Editar",
+        "onde": "inline-flex max-w-full items-center justify-center font-bold tracking-",
+        "texto": "Editar"
+      },
+      {
+        "palavra": "Produto",
+        "onde": "inline-block rounded-md px-2 py-0.5 text-xs font-bold uppercase bg-das",
+        "texto": "Produto"
+      },
+      {
+        "palavra": "Receber",
+        "onde": "inline-flex max-w-full items-center justify-center font-bold tracking-",
+        "texto": "Receber"
+      },
+      {
+        "palavra": "Editar",
+        "onde": "inline-flex max-w-full items-center justify-center font-bold tracking-",
+        "texto": "Editar"
+      },
+      {
+        "palavra": "Serviço",
+        "onde": "inline-block rounded-md px-2 py-0.5 text-xs font-bold uppercase bg-amb",
+        "texto": "Serviço"
+      }
+    ],
+    "transbordo": 0,
+    "largura": 1366
+  },
+  {
+    "tamanho": "desktop-baixo-1366x640",
+    "nota": "altura reduzida",
+    "tela": "estoque",
+    "partidas": [
+      {
+        "palavra": "Receber",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Receber"
+      },
+      {
+        "palavra": "Contar",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Contar"
+      },
+      {
+        "palavra": "Receber",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Receber"
+      },
+      {
+        "palavra": "Contar",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Contar"
+      },
+      {
+        "palavra": "Receber",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Receber"
+      },
+      {
+        "palavra": "Contar",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Contar"
+      },
+      {
+        "palavra": "Receber",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Receber"
+      },
+      {
+        "palavra": "Contar",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Contar"
+      },
+      {
+        "palavra": "Receber",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Receber"
+      },
+      {
+        "palavra": "Contar",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Contar"
+      }
+    ],
+    "transbordo": 0,
+    "largura": 1366
+  },
+  {
+    "tamanho": "desktop-baixo-1366x640",
+    "nota": "altura reduzida",
+    "tela": "sortimentos",
+    "partidas": [
+      {
+        "palavra": "Produtos",
+        "onde": "px-4 py-3.5 text-center",
+        "texto": "Produtos"
+      },
+      {
+        "palavra": "Ativo",
+        "onde": "inline-block px-2.5 py-1 rounded-full text-[10px] font-black uppercase",
+        "texto": "Ativo"
+      },
+      {
+        "palavra": "Editar",
+        "onde": "inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-das",
+        "texto": "Editar"
+      },
+      {
+        "palavra": "Ativo",
+        "onde": "inline-block px-2.5 py-1 rounded-full text-[10px] font-black uppercase",
+        "texto": "Ativo"
+      },
+      {
+        "palavra": "Editar",
+        "onde": "inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-das",
+        "texto": "Editar"
+      }
+    ],
+    "transbordo": 0,
+    "largura": 1366
+  },
+  {
+    "tamanho": "desktop-baixo-1366x640",
+    "nota": "altura reduzida",
+    "tela": "categorias",
+    "partidas": [],
+    "transbordo": 0,
+    "largura": 1366
+  },
+  {
+    "tamanho": "desktop-baixo-1366x640",
+    "nota": "altura reduzida",
+    "tela": "formulario-receber",
+    "partidas": [
+      {
+        "palavra": "Receber",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Receber"
+      },
+      {
+        "palavra": "Contar",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Contar"
+      },
+      {
+        "palavra": "Receber",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Receber"
+      },
+      {
+        "palavra": "Contar",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Contar"
+      },
+      {
+        "palavra": "Receber",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Receber"
+      },
+      {
+        "palavra": "Contar",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Contar"
+      },
+      {
+        "palavra": "Receber",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Receber"
+      },
+      {
+        "palavra": "Contar",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Contar"
+      },
+      {
+        "palavra": "Receber",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Receber"
+      },
+      {
+        "palavra": "Contar",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Contar"
+      }
+    ],
+    "transbordo": 0,
+    "largura": 1366
+  },
+  {
+    "tamanho": "zoom-150-1107x573",
+    "nota": "zoom de 150% sobre 1660x860",
+    "tela": "produtos",
+    "partidas": [
+      {
+        "palavra": "Produto",
+        "onde": "inline-block rounded-md px-2 py-0.5 text-xs font-bold uppercase bg-das",
+        "texto": "Produto"
+      },
+      {
+        "palavra": "89,90",
+        "onde": "font-black text-dashem-strong",
+        "texto": "R$ 89,90"
+      },
+      {
+        "palavra": "Receber",
+        "onde": "inline-flex max-w-full items-center justify-center font-bold tracking-",
+        "texto": "Receber"
+      },
+      {
+        "palavra": "Editar",
+        "onde": "inline-flex max-w-full items-center justify-center font-bold tracking-",
+        "texto": "Editar"
+      },
+      {
+        "palavra": "Produto",
+        "onde": "inline-block rounded-md px-2 py-0.5 text-xs font-bold uppercase bg-das",
+        "texto": "Produto"
+      },
+      {
+        "palavra": "24,50",
+        "onde": "font-black text-dashem-strong",
+        "texto": "R$ 24,50"
+      },
+      {
+        "palavra": "Receber",
+        "onde": "inline-flex max-w-full items-center justify-center font-bold tracking-",
+        "texto": "Receber"
+      },
+      {
+        "palavra": "Editar",
+        "onde": "inline-flex max-w-full items-center justify-center font-bold tracking-",
+        "texto": "Editar"
+      },
+      {
+        "palavra": "Produto",
+        "onde": "inline-block rounded-md px-2 py-0.5 text-xs font-bold uppercase bg-das",
+        "texto": "Produto"
+      },
+      {
+        "palavra": "8,00",
+        "onde": "font-black text-dashem-strong",
+        "texto": "R$ 8,00"
+      },
+      {
+        "palavra": "Receber",
+        "onde": "inline-flex max-w-full items-center justify-center font-bold tracking-",
+        "texto": "Receber"
+      },
+      {
+        "palavra": "Editar",
+        "onde": "inline-flex max-w-full items-center justify-center font-bold tracking-",
+        "texto": "Editar"
+      },
+      {
+        "palavra": "Produto",
+        "onde": "inline-block rounded-md px-2 py-0.5 text-xs font-bold uppercase bg-das",
+        "texto": "Produto"
+      },
+      {
+        "palavra": "10,00",
+        "onde": "font-black text-dashem-strong",
+        "texto": "R$ 10,00"
+      },
+      {
+        "palavra": "Receber",
+        "onde": "inline-flex max-w-full items-center justify-center font-bold tracking-",
+        "texto": "Receber"
+      },
+      {
+        "palavra": "Editar",
+        "onde": "inline-flex max-w-full items-center justify-center font-bold tracking-",
+        "texto": "Editar"
+      },
+      {
+        "palavra": "Produto",
+        "onde": "inline-block rounded-md px-2 py-0.5 text-xs font-bold uppercase bg-das",
+        "texto": "Produto"
+      },
+      {
+        "palavra": "32,00",
+        "onde": "font-black text-dashem-strong",
+        "texto": "R$ 32,00"
+      },
+      {
+        "palavra": "Receber",
+        "onde": "inline-flex max-w-full items-center justify-center font-bold tracking-",
+        "texto": "Receber"
+      },
+      {
+        "palavra": "Editar",
+        "onde": "inline-flex max-w-full items-center justify-center font-bold tracking-",
+        "texto": "Editar"
+      },
+      {
+        "palavra": "Serviço",
+        "onde": "inline-block rounded-md px-2 py-0.5 text-xs font-bold uppercase bg-amb",
+        "texto": "Serviço"
+      },
+      {
+        "palavra": "7,00",
+        "onde": "font-black text-dashem-strong",
+        "texto": "R$ 7,00"
+      }
+    ],
+    "transbordo": 0,
+    "largura": 1107
+  },
+  {
+    "tamanho": "zoom-150-1107x573",
+    "nota": "zoom de 150% sobre 1660x860",
+    "tela": "estoque",
+    "partidas": [
+      {
+        "palavra": "estoque",
+        "onde": "p-4 ",
+        "texto": "Em estoque"
+      },
+      {
+        "palavra": "Receber",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Receber"
+      },
+      {
+        "palavra": "Contar",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Contar"
+      },
+      {
+        "palavra": "Receber",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Receber"
+      },
+      {
+        "palavra": "Contar",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Contar"
+      },
+      {
+        "palavra": "Receber",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Receber"
+      },
+      {
+        "palavra": "Contar",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Contar"
+      },
+      {
+        "palavra": "Receber",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Receber"
+      },
+      {
+        "palavra": "Contar",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Contar"
+      },
+      {
+        "palavra": "Receber",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Receber"
+      },
+      {
+        "palavra": "Contar",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Contar"
+      }
+    ],
+    "transbordo": 0,
+    "largura": 1107
+  },
+  {
+    "tamanho": "zoom-150-1107x573",
+    "nota": "zoom de 150% sobre 1660x860",
+    "tela": "sortimentos",
+    "partidas": [
+      {
+        "palavra": "Produtos",
+        "onde": "px-4 py-3.5 text-center",
+        "texto": "Produtos"
+      },
+      {
+        "palavra": "Situação",
+        "onde": "px-4 py-3.5 text-center",
+        "texto": "Situação"
+      },
+      {
+        "palavra": "Ativo",
+        "onde": "inline-block px-2.5 py-1 rounded-full text-[10px] font-black uppercase",
+        "texto": "Ativo"
+      },
+      {
+        "palavra": "Editar",
+        "onde": "inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-das",
+        "texto": "Editar"
+      },
+      {
+        "palavra": "Ativo",
+        "onde": "inline-block px-2.5 py-1 rounded-full text-[10px] font-black uppercase",
+        "texto": "Ativo"
+      },
+      {
+        "palavra": "Editar",
+        "onde": "inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-das",
+        "texto": "Editar"
+      }
+    ],
+    "transbordo": 0,
+    "largura": 1107
+  },
+  {
+    "tamanho": "zoom-150-1107x573",
+    "nota": "zoom de 150% sobre 1660x860",
+    "tela": "categorias",
+    "partidas": [],
+    "transbordo": 0,
+    "largura": 1107
+  },
+  {
+    "tamanho": "zoom-150-1107x573",
+    "nota": "zoom de 150% sobre 1660x860",
+    "tela": "formulario-receber",
+    "partidas": [
+      {
+        "palavra": "estoque",
+        "onde": "p-4 ",
+        "texto": "Em estoque"
+      },
+      {
+        "palavra": "Receber",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Receber"
+      },
+      {
+        "palavra": "Contar",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Contar"
+      },
+      {
+        "palavra": "Receber",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Receber"
+      },
+      {
+        "palavra": "Contar",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Contar"
+      },
+      {
+        "palavra": "Receber",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Receber"
+      },
+      {
+        "palavra": "Contar",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Contar"
+      },
+      {
+        "palavra": "Receber",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Receber"
+      },
+      {
+        "palavra": "Contar",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Contar"
+      },
+      {
+        "palavra": "Receber",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Receber"
+      },
+      {
+        "palavra": "Contar",
+        "onde": "inline-flex min-h-11 items-center rounded-xl border border-dashem-bord",
+        "texto": "Contar"
+      }
+    ],
+    "transbordo": 0,
+    "largura": 1107
+  }
+]

@@ -2,11 +2,12 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, ArrowDownToLine, Boxes, ClipboardCheck, History, PackageX, Scale, Search } from 'lucide-react'
 import { usePos } from '../../context/PosContext'
 import { Modal } from '../common/Modal'
+import { RowAction, RowActions } from '../common/RowActions'
 import { DataTable } from '../common/DataTable'
 import * as api from '../../services/api'
 import { formatApiDateTime } from '../../utils/format'
 import { ApiError } from '../../services/http'
-import { DEFAULT_STOCK_REASONS, countPreview, reasonForMovement, type StockMovementType } from '../../domain/stockMovements'
+import { DEFAULT_STOCK_REASONS, countPreview, movementAmount, movementLabel, reasonForMovement, type StockMovementType } from '../../domain/stockMovements'
 
 /**
  * Estoque por unidade.
@@ -57,6 +58,11 @@ export function InventoryManager() {
   const nameOf = (productId: string) =>
     holdings.find((item) => item.product_id === productId)?.name || productId.slice(0, 8)
 
+  // Quantidade sem unidade não é quantidade. O histórico usa a mesma unidade
+  // que a linha da mercadoria usa acima.
+  const unitOf = (productId: string) =>
+    holdings.find((item) => item.product_id === productId)?.unit || 'un'
+
   const filtered = holdings.filter((item) => {
     const agulha = search.trim().toLocaleLowerCase('pt-BR')
     if (!agulha) return true
@@ -76,35 +82,52 @@ export function InventoryManager() {
     quantity: '', movement_type: 'PURCHASE',
     reason: DEFAULT_STOCK_REASONS.PURCHASE, minimum_stock: '',
   })
+  const [movementError, setMovementError] = useState('')
+
+  // Receber mercadoria e registrar perda são duas intenções, e quem clica já
+  // sabe qual é a sua. Um seletor entre as duas obrigava quem só queria repor a
+  // passar por uma escolha que ele já tinha feito antes de abrir a tela.
+  const abrirMovimentacao = (item: api.StockHolding, tipo: 'PURCHASE' | 'LOSS') => {
+    setSelected(item)
+    setMovementError('')
+    setForm({
+      quantity: '', movement_type: tipo,
+      reason: DEFAULT_STOCK_REASONS[tipo],
+      // `5.0000` é como o banco guarda, não como se escreve numa prateleira.
+      minimum_stock: item.has_minimum ? String(Number(item.minimum_stock)) : '',
+    })
+  }
+  const recebendo = form.movement_type === 'PURCHASE'
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault()
     if (!selected || !store) return
     setBusy(true)
+    setMovementError('')
     try {
       await adjustStock(selected.product_id, Number(form.quantity), form.movement_type, form.reason)
-    } catch {
-      // O aviso de falha já foi dado por quem chamou a API; aqui só não
-      // seguimos adiante — e não anunciamos sucesso.
+    } catch (reason) {
+      // A recusa fica no formulário, onde a pessoa está olhando. O aviso
+      // flutuante some sozinho em poucos segundos: quem digitou 999 e viu o
+      // aviso passar não descobre mais por que nada foi registrado.
+      setMovementError(reason instanceof Error ? reason.message : 'A movimentação não foi registrada.')
       setBusy(false)
       return
     }
-    // O mínimo é outra operação e falha por conta própria. Engoli-la num
-    // `catch` só dizia "movimentação registrada" enquanto o mínimo não tinha
-    // sido salvo, que é a mesma mentira de anunciar sucesso após recusa.
-    let minimoSalvo = true
+    // O mínimo é outra operação e falha por conta própria. A movimentação já
+    // foi aceita e já foi anunciada; o que falta dizer é que o mínimo não foi
+    // salvo — engolir isso num `catch` deixava a pessoa com um mínimo que ela
+    // acha que existe.
     if (form.minimum_stock !== '') {
       try {
         await api.setMinimumStock(headers, store.id, selected.product_id, Number(form.minimum_stock))
       } catch (reason) {
-        minimoSalvo = false
         showToast('error', reason instanceof Error ? reason.message : 'O estoque mínimo não foi salvo.')
       }
     }
     try {
       await load()
       setSelected(null)
-      if (minimoSalvo) showToast('success', 'Movimentação registrada no histórico do estoque.')
     } finally { setBusy(false) }
   }
 
@@ -160,18 +183,26 @@ export function InventoryManager() {
     // produto anterior, e a prévia calcula a diferença contra ele.
     setCountBase(null)
     setCountKey(`count-${item.product_id}-${crypto.randomUUID()}`)
-    setCountBase(await api.fetchInventoryBalance(headers, store.id, item.product_id))
+    try {
+      setCountBase(await api.fetchInventoryBalance(headers, store.id, item.product_id))
+    } catch (reason) {
+      // Sem o saldo lido não há conferência possível, e um formulário aberto
+      // que nunca habilita é pior do que não abrir: a pessoa fica esperando um
+      // botão que não vem. Fecha e diz o que houve.
+      setCounting(null)
+      showToast('error', reason instanceof Error ? reason.message : 'Não foi possível ler o saldo para conferir.')
+    }
   }
 
   const submitCount = async (event: React.FormEvent) => {
     event.preventDefault()
-    if (!counting || !store || counted === '') return
+    if (!counting || !store || counted === '' || countBase === null) return
     setBusy(true)
     try {
       await api.countStock(headers, countKey, {
         store_id: store.id, product_id: counting.product_id, actor_id: operatorId,
         counted_quantity: Number(counted),
-        expected_version: countBase?.version ?? 0,
+        expected_version: countBase.version,
       })
       await load()
       setCounting(null); setCounted(''); setCountConflict(''); setRecounted(false)
@@ -209,8 +240,7 @@ export function InventoryManager() {
         <p className="text-[11px] font-black uppercase tracking-[.18em] text-emerald-700">Controle de mercadorias</p>
         <h1 className="mt-2 text-3xl font-black text-dashem-strong">Estoque por unidade</h1>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-dashem-muted">
-          Tudo o que esta unidade controla, publicado no PDV ou não. Cada movimentação
-          fica no histórico com quantidade, motivo e responsável.
+          Quanto você tem de cada mercadoria nesta unidade.
         </p>
         <div className="mt-6 grid gap-3 sm:grid-cols-3">
           <Metric label="Mercadorias controladas" value={controlados} icon={Boxes} />
@@ -259,14 +289,16 @@ export function InventoryManager() {
               ),
             },
             {
-              key: 'qty', header: 'Saldo',
-              cell: (item) => <span className="font-black text-dashem-strong">{Number(item.quantity)} {item.unit}</span>,
+              key: 'qty', header: 'Em estoque',
+              cell: (item) => <span className="text-base font-black text-dashem-strong">{Number(item.quantity)} {item.unit}</span>,
             },
             {
-              key: 'min', header: 'Mínimo',
+              // Travessão não é resposta. Mínimo não definido é uma escolha que
+              // ainda não foi feita, e a tela diz isso com palavra.
+              key: 'min', header: 'Mínimo desejado',
               cell: (item) => item.has_minimum
-                ? <span className="text-dashem-muted">{Number(item.minimum_stock)} {item.unit}</span>
-                : <span className="text-dashem-muted">—</span>,
+                ? <span className="font-bold text-dashem-strong">{Number(item.minimum_stock)} {item.unit}</span>
+                : <span className="text-xs font-bold text-dashem-muted">Não definido</span>,
             },
             {
               key: 'state', header: 'Situação',
@@ -274,35 +306,37 @@ export function InventoryManager() {
             },
             {
               key: 'action', header: 'Ação', actions: true, align: 'right',
+              // Por frequência: mercadoria chega toda semana, prateleira se
+              // confere de vez em quando, e ajuste técnico é excepcional — ele
+              // sai da linha e vai para o menu, onde não é clicado por engano.
               cell: (item) => (
-                <div className="flex flex-wrap justify-end gap-2">
-                  {canCount && (
-                    <button onClick={() => { void openCount(item) }} className="inline-flex min-h-11 items-center rounded-lg border border-dashem-border px-3 text-xs font-black text-dashem-strong">
-                      <ClipboardCheck className="mr-1 inline h-4 w-4 text-emerald-700" />Contar estoque
-                    </button>
-                  )}
+                <div className="flex flex-nowrap items-center justify-end gap-2">
                   {canAdjust && (
                     <button
-                      onClick={() => {
-                        setSelected(item)
-                        setForm({
-                          quantity: '', movement_type: 'PURCHASE',
-                          reason: DEFAULT_STOCK_REASONS.PURCHASE,
-                          minimum_stock: String(item.minimum_stock),
-                        })
-                      }}
-                      className="inline-flex min-h-11 items-center rounded-lg border border-dashem-border px-3 text-xs font-black text-dashem-strong"
+                      onClick={() => abrirMovimentacao(item, 'PURCHASE')}
+                      className="inline-flex min-h-11 items-center rounded-xl border border-dashem-border px-3 text-xs font-black text-dashem-strong"
                     >
-                      <ArrowDownToLine className="mr-1 inline h-4 w-4 text-emerald-700" />Movimentar
+                      <ArrowDownToLine className="mr-1.5 inline h-4 w-4 text-emerald-700" />Receber
                     </button>
                   )}
-                  {canAdjustTechnically && (
-                    <button
-                      onClick={() => { setTechnical(item); setTechnicalForm({ difference: '', reason: '' }) }}
-                      className="inline-flex min-h-11 items-center rounded-lg border border-dashem-border px-3 text-xs font-black text-dashem-strong"
-                    >
-                      <Scale className="mr-1 inline h-4 w-4 text-amber-700" />Ajuste técnico
+                  {canCount && (
+                    <button onClick={() => { void openCount(item) }} className="inline-flex min-h-11 items-center rounded-xl border border-dashem-border px-3 text-xs font-black text-dashem-strong">
+                      <ClipboardCheck className="mr-1.5 inline h-4 w-4 text-emerald-700" />Contar
                     </button>
+                  )}
+                  {(canAdjust || canAdjustTechnically) && (
+                    <RowActions label={`Mais ações de ${item.name}`}>
+                      {canAdjust && (
+                        <RowAction icon={PackageX} onClick={() => abrirMovimentacao(item, 'LOSS')}>
+                          Registrar perda
+                        </RowAction>
+                      )}
+                      {canAdjustTechnically && (
+                        <RowAction icon={Scale} onClick={() => { setTechnical(item); setTechnicalForm({ difference: '', reason: '' }) }}>
+                          Ajuste técnico
+                        </RowAction>
+                      )}
+                    </RowActions>
                   )}
                 </div>
               ),
@@ -318,9 +352,14 @@ export function InventoryManager() {
         </div>
         <div className="mt-4 divide-y divide-dashem-border">
           {movements.slice(0, 12).map((item) => (
-            <div key={item.id} className="grid gap-1 py-3 text-xs sm:grid-cols-[1fr_auto_auto]">
+            <div key={item.id} className="grid gap-1 py-3 text-xs sm:grid-cols-[1fr_auto_auto] sm:items-center sm:gap-4">
               <span className="font-bold text-dashem-strong">{nameOf(item.product_id)}</span>
-              <span className="text-dashem-muted">{item.movement_type} · {Number(item.quantity)}</span>
+              <span className="font-black text-dashem-strong">
+                {movementLabel(item.movement_type, item.origin)}
+                <span className={`ml-2 font-black ${Number(item.quantity) < 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
+                  {movementAmount(Number(item.quantity), unitOf(item.product_id))}
+                </span>
+              </span>
               <span className="text-dashem-muted">{formatApiDateTime(item.created_at)}</span>
             </div>
           ))}
@@ -357,11 +396,24 @@ export function InventoryManager() {
       >
         <form onSubmit={submitCount} className="space-y-4">
           <div className="rounded-xl border border-dashem-border bg-dashem-surface-elevated p-3 text-xs text-dashem-muted">
-            <p>Saldo registrado agora: <b className="text-dashem-strong">{Number(countBase?.quantity ?? 0)} {counting?.unit}</b></p>
-            {counted !== '' && (
-              <p className="mt-1 text-dashem-strong">
-                {countPreview(Number(counted), Number(countBase?.quantity ?? 0), counting?.unit || 'un')}
-              </p>
+            {/*
+              Saldo ainda não lido não é saldo zero. Exibir 0 enquanto a
+              resposta não chega afirma um número que ninguém verificou — e a
+              instância hiberna, então essa espera pode durar quase um minuto.
+              A conferência é contra o saldo registrado: sem ele, não há contra
+              o que conferir.
+            */}
+            {countBase === null ? (
+              <p>Lendo o saldo registrado...</p>
+            ) : (
+              <>
+                <p>Saldo registrado agora: <b className="text-dashem-strong">{Number(countBase.quantity)} {counting?.unit}</b></p>
+                {counted !== '' && (
+                  <p className="mt-1 text-dashem-strong">
+                    {countPreview(Number(counted), Number(countBase.quantity), counting?.unit || 'un')}
+                  </p>
+                )}
+              </>
             )}
           </div>
           <Field label="Quantidade encontrada" type="number" value={counted} onChange={setCounted} />
@@ -379,7 +431,7 @@ export function InventoryManager() {
               </label>
             </div>
           )}
-          <button disabled={busy || counted === '' || (Boolean(countConflict) && !recounted)} className="h-12 w-full rounded-xl bg-dashem-red text-sm font-black text-brand-contrast disabled:opacity-40">
+          <button disabled={busy || countBase === null || counted === '' || (Boolean(countConflict) && !recounted)} className="h-12 w-full rounded-xl bg-dashem-red text-sm font-black text-brand-contrast disabled:opacity-40">
             {busy ? 'Registrando...' : 'Confirmar contagem'}
           </button>
         </form>
@@ -387,33 +439,24 @@ export function InventoryManager() {
 
       <Modal
         isOpen={Boolean(selected)} onClose={() => setSelected(null)}
-        title={`Movimentar ${selected?.name || ''}`}
-        subtitle="Informe a quantidade e o motivo operacional."
+        title={`${recebendo ? 'Receber mercadoria' : 'Registrar perda'} — ${selected?.name || ''}`}
+        subtitle={recebendo
+          ? 'Quanto chegou na unidade.'
+          : 'Quanto se perdeu: avaria, vencimento ou quebra.'}
       >
         <form onSubmit={submit} className="space-y-4">
-          <label className="block text-xs font-black text-dashem-strong">
-            Tipo
-            <select
-              value={form.movement_type}
-              onChange={(event) => setForm({
-                ...form, movement_type: event.target.value,
-                reason: reasonForMovement(form.reason, event.target.value as StockMovementType),
-              })}
-              className="mt-2 h-11 w-full rounded-xl border border-dashem-border bg-dashem-surface-elevated px-3 text-sm text-dashem-strong"
-            >
-              <option value="PURCHASE">Entrada / compra</option>
-              <option value="LOSS">Perda</option>
-            </select>
-          </label>
-          <p className="rounded-xl border border-dashem-border bg-dashem-surface-elevated p-3 text-xs text-dashem-muted">
-            Devolução de cliente se registra na venda, em <b className="text-dashem-strong">Histórico
-            de vendas</b> — é de lá que saem o limite e o vínculo com o que foi vendido.
-          </p>
-          <Field label="Quantidade" type="number" value={form.quantity} onChange={(value) => setForm({ ...form, quantity: value })} />
-          <Field label="Estoque mínimo" type="number" value={form.minimum_stock} onChange={(value) => setForm({ ...form, minimum_stock: value })} />
+          <Field label={recebendo ? 'Quantidade recebida' : 'Quantidade perdida'} type="number" value={form.quantity} onChange={(value) => setForm({ ...form, quantity: value })} />
+          {recebendo && (
+            <Field label="Mínimo desejado (opcional)" type="number" value={form.minimum_stock} onChange={(value) => setForm({ ...form, minimum_stock: value })} required={false} />
+          )}
           <Field label="Motivo" value={form.reason} onChange={(value) => setForm({ ...form, reason: value })} />
+          {movementError && (
+            <p role="alert" className="rounded-xl border border-red-300 bg-red-50 p-3 text-xs font-bold text-red-800">
+              {movementError}
+            </p>
+          )}
           <button disabled={busy || !form.quantity || form.reason.length < 3} className="h-12 w-full rounded-xl bg-dashem-red text-sm font-black text-brand-contrast disabled:opacity-40">
-            {busy ? 'Registrando...' : 'Registrar movimentação'}
+            {busy ? 'Registrando...' : recebendo ? 'Confirmar recebimento' : 'Registrar perda'}
           </button>
         </form>
       </Modal>
@@ -458,14 +501,14 @@ function Metric({ label, value, icon: Icon, attention = false }: {
   )
 }
 
-function Field({ label, value, onChange, type = 'text' }: {
-  label: string; value: string; onChange: (value: string) => void; type?: string
+function Field({ label, value, onChange, type = 'text', required = true }: {
+  label: string; value: string; onChange: (value: string) => void; type?: string; required?: boolean
 }) {
   return (
     <label className="block text-xs font-black text-dashem-strong">
       {label}
       <input
-        required type={type} step={type === 'number' ? '0.0001' : undefined}
+        required={required} type={type} step={type === 'number' ? '0.0001' : undefined}
         value={value} onChange={(event) => onChange(event.target.value)}
         className="mt-2 h-11 w-full rounded-xl border border-dashem-border bg-dashem-surface-elevated px-3 text-sm text-dashem-strong outline-none focus:border-dashem-red"
       />

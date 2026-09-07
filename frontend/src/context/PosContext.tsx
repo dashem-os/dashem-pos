@@ -720,7 +720,7 @@ export const PosProvider: React.FC<{
         quantity,
         reason
       })
-      showToast('success', 'Estoque ajustado com sucesso!')
+      showToast('success', 'Movimentação registrada no histórico do estoque.')
       refreshData()
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Erro ao ajustar estoque'

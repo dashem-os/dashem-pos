@@ -12,6 +12,48 @@
 
 export type StockMovementType = 'PURCHASE' | 'LOSS' | 'RETURN' | 'ADJUSTMENT'
 
+/**
+ * O histórico é lido por quem opera, não por quem programou.
+ *
+ * `PURCHASE`, `ADJUSTMENT` e `SALE` são nomes internos do movimento. Na tela
+ * eles precisam dizer o que aconteceu com a mercadoria, na palavra de quem
+ * trabalha com ela.
+ */
+export const MOVEMENT_LABELS: Record<string, string> = {
+  PURCHASE: 'Entrada',
+  LOSS: 'Perda',
+  RETURN: 'Devolução',
+  SALE: 'Venda',
+}
+
+export type MovementOrigin = 'COUNT' | 'TECHNICAL_ADJUSTMENT'
+
+/**
+ * `ADJUSTMENT` não tem um nome só, porque não tem um caminho só.
+ *
+ * Conferir a prateleira e lançar diferença à mão produzem o mesmo efeito no
+ * saldo e são operações distintas — a segunda contorna a conferência e exige
+ * autoridade própria. Chamar as duas de "Conferência" apagava no histórico a
+ * separação que a permissão mantém no servidor.
+ *
+ * Sem origem gravada não se afirma origem: o histórico anterior à marca lê
+ * "Ajuste", que é o que se sabe dele.
+ */
+export function movementLabel(type: string, origin?: MovementOrigin | string | null): string {
+  if (type === 'ADJUSTMENT') {
+    if (origin === 'COUNT') return 'Contagem de estoque'
+    if (origin === 'TECHNICAL_ADJUSTMENT') return 'Ajuste técnico'
+    return 'Ajuste'
+  }
+  return MOVEMENT_LABELS[type] || type
+}
+
+/** Quanto entrou ou saiu, com sinal, na unidade da mercadoria. */
+export function movementAmount(quantity: number, unit = 'un'): string {
+  const sinal = quantity > 0 ? '+' : ''
+  return `${sinal}${quantity} ${unit}`
+}
+
 export const DEFAULT_STOCK_REASONS: Record<StockMovementType, string> = {
   PURCHASE: 'Entrada de mercadoria',
   LOSS: 'Perda, avaria ou vencimento',
