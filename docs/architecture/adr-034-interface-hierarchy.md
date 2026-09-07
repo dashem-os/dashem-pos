@@ -114,6 +114,18 @@ padrão, e ausente depois que a pessoa já fez aquilo uma vez.
 Nenhuma tela é dada por pronta olhando componente isolado ou captura de um
 tamanho só: **navegação real, na resolução real, com dados reais**.
 
+### A frente de caixa segue a mesma regra
+
+O PDV é o lugar onde a regra pesa mais, porque ali o tempo é do cliente na
+frente do balcão:
+
+| Hoje | Decisão |
+|---|---|
+| Sete linhas iguais para sete Coca-Colas | Uma linha, `7×` |
+| "A vitrine desta unidade ainda não foi montada. A gerência define os itens que aparecem primeiro" + dois botões *Personalizar* | Montar vitrine é Gestão. Na venda, ou a vitrine existe, ou o espaço é da busca |
+| "SEM CATEGORIA" em cada cartão | Ausência de categoria não vira etiqueta |
+| "Acesso Rápido (0)" | Aba vazia não se anuncia |
+
 ## Consequências
 
 * colunas somem: `Mínimo desejado` sai da lista de Estoque e vai para o detalhe;

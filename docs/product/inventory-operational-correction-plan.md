@@ -337,14 +337,19 @@ que vier depois vai aparecer. Regra em
 | Estoque — detalhe | Composição, mínimo atual, ações e *Configurações avançadas* |
 | Produtos | Um número por linha; faixa 1‑2‑3 fechada por padrão e ausente depois do primeiro produto publicado |
 | Sortimentos | "Catálogos e cardápios"; "Onde este cardápio será usado?" no lugar de contextos operacionais; versão fora da jornada diária |
+| PDV — venda atual | Item repetido vira **uma linha com 7×**, não sete linhas iguais |
+| PDV — vitrine | "A vitrine desta unidade ainda não foi montada. A gerência define os itens que aparecem primeiro" e os dois botões *Personalizar* saem do caminho de quem vende: viram uma ação em Gestão |
+| PDV — cartões | "SEM CATEGORIA" não é informação: ausência de categoria não vira etiqueta. O número no cartão passa a ser o **disponível** (3.1) |
+| PDV — abas | "Acesso Rápido (0)" não se anuncia vazio; a segunda fileira de contextos é configuração do tenant, não escolha do operador |
 | Todas | Vocabulário da tabela do ADR-034 |
 
 O modal do mínimo passa a se chamar **Estoque de referência**, com uma linha
 dizendo que ele vale enquanto não houver histórico — o que prepara a troca por
 regime automático em 3.2 sem mudar de nome de novo.
 
-Condição de saída: navegação real na resolução real, nas quatro superfícies,
-com dados reais. Componente isolado não homologa tela.
+Condição de saída: navegação real na resolução real, nas quatro superfícies de
+gestão **e na frente de caixa**, com dados reais. Componente isolado não
+homologa tela.
 
 ### 3.1 — Disponibilidade prometida (ATP)
 
