@@ -168,14 +168,15 @@ massa transformaria histórico errado em histórico falsificado.
 
 | O quê | Resultado |
 |---|---|
-| `backend/tests` completo | 444 passaram |
+| `backend/tests` completo | 453 passaram |
 | `test_inventory_movement_integrity.py` | 30 passaram (eram 16 falhas em `07ae804`) |
 | `test_negotiation_sale_stock.py` | 7 passaram |
 | `test_inventory_integrity_diagnosis.py` | 5 passaram |
-| `frontend` — `npm test` | 120 passaram |
+| `frontend` — `npm test` | 121 passaram |
 | `tsc --noEmit` | limpo |
 | `npm run build` | construído |
 | Recusa exercitada na tela | `npm run e2e:stock-refusal` |
+| Contagem exercitada na tela | `npm run e2e:stock-count` |
 
 Dois testes que passavam antes falharam com a correção, e é sinal de que ela
 alcançou o que precisava alcançar: `test_pos1_gates` mandava `SALE` com `-3.0`
@@ -311,13 +312,68 @@ quem tem `inventory.adjust.technical`, com o aviso de que ela não passa pela
 conferência da prateleira. `fetchInventoryBalance`, que estava na lista de
 funções órfãs do cliente, saiu dela: a contagem passou a usá-la.
 
-**Esta tela não foi exercitada na bancada**, e é limite declarado: a ação exige
-`inventory.count`, o bypass de desenvolvimento não devolve permissão nenhuma, e a
-tela esconder ações sem permissão é o comportamento correto. Exercitá-la depende
-das mesmas credenciais Supabase já listadas como dependência. O que está provado
-sem elas: o comportamento completo pelo caminho autenticado, a prévia por teste
-de unidade, e o tratamento do conflito por leitura do fonte — que é guarda, não
-prova de comportamento.
+### Quatro casos levantados na revisão — 07/09/2026
+
+A primeira versão da contagem passava nos cinco requisitos e ainda deixava quatro
+buracos. Todos fechados, cada um com o teste que o expõe:
+
+**Primeiro saldo.** `FOR UPDATE` não bloqueia linha que não existe, então um
+produto nunca movimentado não tinha o que travar: uma contagem e um primeiro
+recebimento simultâneos passariam os dois. A contagem agora materializa a linha
+com saldo e versão zero antes de travá-la, por `INSERT … ON CONFLICT DO NOTHING`
+— duas transações concorrentes serializam no `FOR UPDATE` seguinte. Provado com
+duas sessões, como no caso da linha existente. A linha criada nasce em zero, que
+é verdade, e contar zero sobre ela é conferência, não movimento.
+
+**Mesma chave, conteúdo diferente.** Unicidade não distingue reenvio de
+reaproveitamento — ela deixaria a mesma chave devolver o resultado de outra
+contagem, confirmando algo que ninguém fez. A contagem guarda o hash do comando
+(loja, produto, quantidade, versão) e recusa com `409` quando a chave volta com
+conteúdo diferente. Teste parametrizado nos três campos: quantidade, versão e
+produto.
+
+**Precisão.** A coluna é `Numeric(14,4)` e aceitava mais casas, deixando o banco
+arredondar em silêncio — `0,00005` virava `0,0001` sem ninguém ficar sabendo.
+Agora a quantidade além da quarta casa é recusada com a régua explícita, na
+movimentação e na contagem. Um teste confere que contado, diferença e movimento
+batem até a última casa, e que a aritmética do livro fecha nelas.
+
+**Conflito na tela.** Reler o saldo transformava a contagem antiga em confirmação
+válida: um clique mandava o número contado *antes* da movimentação contra a
+versão recém-lida. O número digitado continua preservado, mas confirmar passou a
+exigir um ato deliberado — "Voltei à prateleira e confirmo a quantidade acima" —
+e o botão fica desabilitado até lá.
+
+### A bancada com contexto de permissões
+
+`frontend/e2e/stock-count.spec.mjs` percorre o caminho pela tela: abre a
+contagem, lê o saldo registrado, digita, confere a prévia, sofre uma entrada de
+mercadoria no meio, recebe o conflito e só confirma depois da nova conferência.
+Verificado: a prévia anuncia a diferença, o número digitado sobrevive ao
+conflito, o botão fica travado, e o saldo final é o contado.
+
+Duas coisas ficam de fora, e só elas: a tela de login — sem projeto Supabase
+local — e as permissões, fornecidas pelo roteiro interceptando
+`capabilities/effective` **no navegador da bancada**. Isso não altera permissão
+de produto nenhuma: o backend continua exigindo o que exige, e um pedido sem
+autorização real continuaria sendo recusado por ele. **Não substitui o teste
+autenticado e não homologa a tela** — o gate de operação continua exigindo pessoa
+representativa do cliente percorrendo a navegação completa.
+
+### Dois achados da bancada, registrados e não corrigidos
+
+- **A tela de estoque lista o catálogo vendável, não o acervo.** Uma mercadoria
+  cadastrada, com saldo recebido e controle de estoque ativo, **não aparece**
+  na tela de estoque enquanto não estiver publicada em algum sortimento — foi
+  preciso publicá-la para a bancada rodar. Publicação é decisão comercial e não
+  governa a existência física da mercadoria. Já constava do plano como trabalho
+  da etapa 2; agora tem evidência.
+- **Dois saldos na mesma tela.** Durante o conflito, a linha da tabela continua
+  mostrando o saldo antigo enquanto o modal já mostra o novo. A lista só recarrega
+  após uma contagem bem-sucedida.
+
+**A tela ainda não é homologada**, e o limite é o de sempre: exercitá-la pela
+navegação real depende das credenciais Supabase já listadas como dependência.
 
 ## Dependências registradas
 

@@ -1,5 +1,5 @@
 import uuid
-from decimal import Decimal
+from decimal import Decimal, ROUND_DOWN
 from datetime import datetime
 from typing import List, Optional, Tuple, Union
 from sqlmodel import Session, select, text
@@ -17,6 +17,34 @@ from app.services import reliability_service
 # linha em que o saldo subiu. O livro mentia junto com o saldo.
 INCOMING_MOVEMENTS = frozenset({MovementTypeEnum.PURCHASE, MovementTypeEnum.RETURN})
 OUTGOING_MOVEMENTS = frozenset({MovementTypeEnum.SALE, MovementTypeEnum.LOSS})
+
+
+# A coluna é `Numeric(14,4)`. Aceitar mais casas e deixar o banco arredondar
+# perderia mercadoria em silêncio — e o silêncio é o problema, não a quarta casa.
+QUANTITY_PLACES = Decimal("0.0001")
+
+
+def exact_quantity(value: Union[float, Decimal], field: str = "quantidade") -> Decimal:
+    """A quantidade como ela será gravada, ou uma recusa dizendo por quê.
+
+    O arredondamento que o banco faria é invisível: 0.00005 vira 0.0001 e
+    ninguém fica sabendo. Aqui a perda é recusada em vez de aplicada.
+    """
+    quantity = Decimal(str(value))
+    if not quantity.is_finite():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"A {field} precisa ser um número finito.",
+        )
+    if quantity != quantity.quantize(QUANTITY_PLACES, rounding=ROUND_DOWN):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"A {field} tem mais de quatro casas decimais e seria arredondada. "
+                f"Informe até 0,0001."
+            ),
+        )
+    return quantity.quantize(QUANTITY_PLACES)
 
 
 def _amount(value: Decimal) -> str:
@@ -39,12 +67,7 @@ def signed_variation(
     mandou `-3` numa perda estava dizendo o efeito ou a magnitude — e ainda
     esconderia o cliente que precisa ser corrigido.
     """
-    variation = Decimal(str(quantity))
-    if not variation.is_finite():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Quantidade inválida: informe um número finito.",
-        )
+    variation = exact_quantity(quantity)
     if variation == 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -268,8 +291,8 @@ def count_stock(
     entrada nem saída.
     """
     actor_id = resolve_actor(context, actor_id)
-    counted = Decimal(str(counted_quantity))
-    if not counted.is_finite() or counted < 0:
+    counted = exact_quantity(counted_quantity, "quantidade contada")
+    if counted < 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="A quantidade contada não pode ser negativa.",
@@ -280,12 +303,27 @@ def count_stock(
             detail="Contagem fora da unidade ativa.",
         )
 
-    # Reenvio: a mesma confirmação não registra outra diferença. A guarda é a
-    # linha já gravada, não um cache — ela sobrevive a qualquer expiração.
+    # Reenvio é repetir o mesmo comando; reaproveitar a chave com outro produto,
+    # outra quantidade ou outra versão é comando novo se passando por reenvio, e
+    # devolver o resultado antigo ali seria confirmar uma contagem que ninguém
+    # fez. A unicidade da chave sozinha não distingue os dois casos — o hash do
+    # comando distingue.
+    request_hash = reliability_service.compute_request_hash({
+        "store_id": str(store_id), "product_id": str(product_id),
+        "counted_quantity": str(counted), "expected_version": expected_version,
+    })
     existing = session.exec(scope_tenant_query(select(InventoryCount).where(
         InventoryCount.idempotency_key == idempotency_key,
     ), InventoryCount, context)).first()
     if existing is not None:
+        if existing.request_hash != request_hash:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Esta confirmação já foi registrada com outro comando. "
+                    "Refaça a contagem para gerar uma nova confirmação."
+                ),
+            )
         balance = get_balance(session, context, store_id, existing.product_id)
         movement = (session.get(InventoryMovement, existing.movement_id)
                     if existing.movement_id else None)
@@ -306,24 +344,34 @@ def count_stock(
             detail=f"'{product.name}' não controla estoque e não pode ser contado.",
         )
 
-    # O bloqueio é o que fecha a janela entre conferir e gravar: uma venda
+    # `FOR UPDATE` não bloqueia linha que não existe, então um produto nunca
+    # movimentado não teria o que travar — e uma contagem e um primeiro
+    # recebimento simultâneos passariam os dois. A linha é materializada antes,
+    # com saldo e versão zero, para que exista algo a bloquear. `DO NOTHING`
+    # torna isso seguro entre transações concorrentes: uma cria, a outra não
+    # sobrescreve, e ambas serializam no `FOR UPDATE` seguinte.
+    session.exec(text("""
+        INSERT INTO inventory_balances
+            (id, tenant_id, store_id, product_id, quantity, minimum_stock, version, updated_at)
+        VALUES (:id, :tenant_id, :store_id, :product_id, 0, 0, 0, :now)
+        ON CONFLICT (tenant_id, store_id, product_id) DO NOTHING;
+    """), params={
+        "id": str(uuid.uuid4()), "tenant_id": str(context.tenant_id),
+        "store_id": str(store_id), "product_id": str(product_id),
+        "now": datetime.utcnow(),
+    })
+
+    # O bloqueio é o que fecha a passagem entre conferir e gravar: uma venda
     # concorrente espera esta linha, e quando a obtiver a versão já terá mudado.
     locked = session.exec(scope_tenant_query(select(InventoryBalance).where(
         InventoryBalance.store_id == store_id,
         InventoryBalance.product_id == product_id,
-    ), InventoryBalance, context).with_for_update()).first()
+    ), InventoryBalance, context).with_for_update()).one()
 
-    # Sem linha de saldo, a versão esperada é 0: nada foi movimentado ainda.
-    current_quantity = Decimal("0.0000") if locked is None else Decimal(str(locked.quantity))
-    current_version = 0 if locked is None else locked.version
+    current_quantity = Decimal(str(locked.quantity))
+    current_version = locked.version
     if expected_version != current_version:
-        raise StockCountConflict(
-            locked if locked is not None else InventoryBalance(
-                tenant_id=context.tenant_id, store_id=store_id, product_id=product_id,
-                quantity=current_quantity, version=current_version,
-            ),
-            expected_version,
-        )
+        raise StockCountConflict(locked, expected_version)
 
     difference = counted - current_quantity
     movement = None
@@ -344,7 +392,7 @@ def count_stock(
         movement_id=movement.id if movement else None,
         balance_version_before=current_version,
         balance_version_after=balance.version if balance.id else current_version,
-        reason=reason, idempotency_key=idempotency_key,
+        reason=reason, idempotency_key=idempotency_key, request_hash=request_hash,
     )
     session.add(record)
 

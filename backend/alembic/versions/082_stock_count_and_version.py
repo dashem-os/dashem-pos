@@ -84,6 +84,10 @@ def upgrade() -> None:
         sa.Column("balance_version_after", sa.Integer(), nullable=False),
         sa.Column("reason", sa.Text(), nullable=True),
         sa.Column("idempotency_key", sa.String(length=160), nullable=False),
+        # Unicidade sozinha não distingue reenvio de reaproveitamento: ela deixa
+        # a mesma chave devolver o resultado de outra contagem. O hash do comando
+        # é o que separa "é o mesmo pedido" de "é outro pedido com a chave usada".
+        sa.Column("request_hash", sa.String(length=64), nullable=False),
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.PrimaryKeyConstraint("id"),
         sa.ForeignKeyConstraint(["product_id"], ["products.id"]),

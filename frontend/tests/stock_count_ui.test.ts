@@ -62,6 +62,16 @@ test('o conflito preserva o que foi digitado e pede nova conferência', () => {
   assert.doesNotMatch(ateOFim, /countStock\(/)
 })
 
+test('depois do conflito, confirmar exige um ato deliberado', () => {
+  // Reler o saldo não pode transformar a contagem antiga em confirmação válida:
+  // sem isto, um clique mandaria o número contado antes da movimentação contra
+  // a versão recém-lida, que é a aceitação silenciosa que a versão impede.
+  assert.match(inventory, /const \[recounted, setRecounted\] = useState\(false\)/)
+  assert.match(inventory, /setRecounted\(false\)\s+setCountBase/)
+  assert.match(inventory, /disabled=\{busy \|\| counted === '' \|\| \(Boolean\(countConflict\) && !recounted\)\}/)
+  assert.match(inventory, /Voltei à prateleira/)
+})
+
 test('a ação de contar só aparece para quem tem a permissão de contar', () => {
   assert.match(inventory, /canCount = permissions\.includes\('inventory\.count'\)/)
   assert.match(inventory, /canCount \? <button/)

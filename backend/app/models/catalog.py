@@ -199,6 +199,8 @@ class InventoryCount(SQLModel, table=True):
     balance_version_after: int
     reason: Optional[str] = None
     idempotency_key: str = Field(max_length=160)
+    # A mesma chave com outro conteúdo é comando novo se passando por reenvio.
+    request_hash: str = Field(max_length=64)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 

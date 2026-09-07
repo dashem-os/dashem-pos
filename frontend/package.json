@@ -8,6 +8,7 @@
     "build": "tsc && vite build",
     "test": "node --test tests/*.test.ts",
     "e2e:stock-refusal": "node e2e/stock-refusal.spec.mjs",
+    "e2e:stock-count": "node e2e/stock-count.spec.mjs",
     "test:e2e:operational": "node e2e/operational_access.cjs",
     "test:e2e:responsive": "node e2e/responsive/run.cjs",
     "test:e2e:providers": "node e2e/payment_providers/run.cjs",

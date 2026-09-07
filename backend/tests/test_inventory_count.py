@@ -599,3 +599,202 @@ def test_after_the_count_commits_the_sale_lands_on_top_of_it():
 
     assert Decimal(str(_balance(context, product_id).quantity)) == Decimal("7.0000")
     assert _balance(context, product_id).version == version + 2
+
+
+# ---------------------------------------------------------- o primeiro saldo
+
+def test_a_first_receipt_cannot_slip_past_a_count_on_a_product_with_no_balance_row():
+    """`FOR UPDATE` não bloqueia linha que não existe — então a linha é criada.
+
+    Produto nunca movimentado não tem linha de saldo. Sem nada a bloquear, uma
+    contagem e um primeiro recebimento simultâneos passariam os dois, e o
+    segundo escreveria por cima do primeiro sem que a versão acusasse.
+
+    A contagem materializa a linha com saldo e versão zero antes de travá-la.
+    Aqui a sessão A conta e não confirma; a sessão B tenta o primeiro
+    recebimento e espera, estourando o `lock_timeout`.
+    """
+    with _session() as a:
+        context = _context(a)
+        product_id = _product(a, context)
+        assert _balance(context, product_id) is None, "o produto já tinha saldo"
+
+        inventory_service.count_stock(
+            session=a, context=context, store_id=context.store_id,
+            product_id=product_id, actor_id=context.user_id,
+            counted_quantity=Decimal("4"), expected_version=0,
+            idempotency_key=f"count-{uuid.uuid4().hex[:10]}",
+        )
+
+        with Session(engine) as b:
+            set_tenant_db_context(b, context.tenant_id, context.store_id, context.user_id)
+            b.exec(text("SET lock_timeout = '750ms'"))
+            with pytest.raises(DBAPIError) as bloqueada:
+                inventory_service.adjust_stock(
+                    session=b, context=context, store_id=context.store_id,
+                    product_id=product_id, actor_id=context.user_id,
+                    movement_type=MovementTypeEnum.PURCHASE, quantity=Decimal("10"),
+                    reason="Primeiro recebimento durante a contagem",
+                )
+            b.rollback()
+        assert "lock" in str(bloqueada.value).lower()
+        a.commit()
+
+    assert Decimal(str(_balance(context, product_id).quantity)) == Decimal("4.0000")
+
+
+def test_a_first_receipt_before_the_count_makes_the_count_conflict():
+    """Quem chegou primeiro moveu a versão, e a contagem sobre zero é recusada."""
+    with _session() as session:
+        context = _context(session)
+        product_id = _product(session, context)
+        _receive(session, context, product_id, "10")
+
+        with pytest.raises(HTTPException) as conflito:
+            inventory_service.count_stock(
+                session=session, context=context, store_id=context.store_id,
+                product_id=product_id, actor_id=context.user_id,
+                counted_quantity=Decimal("3"), expected_version=0,
+                idempotency_key=f"count-{uuid.uuid4().hex[:10]}",
+            )
+        session.rollback()
+
+    assert conflito.value.status_code == 409
+    assert conflito.value.detail["current_version"] == 1
+    assert Decimal(str(_balance(context, product_id).quantity)) == Decimal("10.0000")
+
+
+def test_materialising_the_row_does_not_invent_stock():
+    """A linha criada para poder ser travada nasce em zero, e zero é verdade."""
+    with _session() as session:
+        context = _context(session)
+        product_id = _product(session, context)
+
+        inventory_service.count_stock(
+            session=session, context=context, store_id=context.store_id,
+            product_id=product_id, actor_id=context.user_id,
+            counted_quantity=Decimal("0"), expected_version=0,
+            idempotency_key=f"count-{uuid.uuid4().hex[:10]}",
+        )
+        session.commit()
+
+    saldo = _balance(context, product_id)
+    assert Decimal(str(saldo.quantity)) == Decimal("0.0000")
+    # Contar zero onde havia zero é conferência, não movimento.
+    assert _movements(context, product_id) == []
+    assert len(_counts(context, product_id)) == 1
+
+
+# ------------------------------------------- reenvio contra reaproveitamento
+
+@pytest.mark.parametrize("campo", ["quantidade", "versão", "produto"])
+def test_the_same_key_with_different_content_is_refused(campo):
+    """Reenviar é repetir o mesmo comando; trocar o conteúdo é outro comando.
+
+    Devolver o resultado antigo para um comando diferente confirmaria uma
+    contagem que ninguém fez. A unicidade da chave não distingue os dois casos.
+    """
+    key = f"count-{uuid.uuid4().hex[:10]}"
+    with _session() as session:
+        context = _context(session)
+        product_id = _product(session, context)
+        outro_id = _product(session, context)
+        _receive(session, context, product_id, "10")
+        _receive(session, context, outro_id, "10")
+        version = _balance(context, product_id).version
+
+        inventory_service.count_stock(
+            session=session, context=context, store_id=context.store_id,
+            product_id=product_id, actor_id=context.user_id,
+            counted_quantity=Decimal("8"), expected_version=version,
+            idempotency_key=key,
+        )
+        session.commit()
+
+        alterado = {
+            "quantidade": {"counted_quantity": Decimal("9")},
+            "versão": {"expected_version": version + 1},
+            "produto": {"product_id": outro_id},
+        }[campo]
+        pedido = {
+            "product_id": product_id, "counted_quantity": Decimal("8"),
+            "expected_version": version, **alterado,
+        }
+        with pytest.raises(HTTPException) as refused:
+            inventory_service.count_stock(
+                session=session, context=context, store_id=context.store_id,
+                actor_id=context.user_id, idempotency_key=key, **pedido,
+            )
+        session.rollback()
+
+    assert refused.value.status_code == 409
+    assert "outro comando" in refused.value.detail
+    # E o saldo continua o da contagem original, sem segunda diferença.
+    assert Decimal(str(_balance(context, product_id).quantity)) == Decimal("8.0000")
+    assert len(_counts(context, product_id)) == 1
+
+
+# ------------------------------------------------------------------ precisão
+
+def test_a_quantity_beyond_the_stored_precision_is_refused_not_rounded():
+    """Arredondar em silêncio perde mercadoria sem ninguém ficar sabendo."""
+    with _session() as session:
+        context = _context(session)
+        product_id = _product(session, context)
+
+        with pytest.raises(HTTPException) as refused:
+            inventory_service.adjust_stock(
+                session=session, context=context, store_id=context.store_id,
+                product_id=product_id, actor_id=context.user_id,
+                movement_type=MovementTypeEnum.PURCHASE, quantity=Decimal("1.00005"),
+                reason="Precisão além da coluna",
+            )
+        session.rollback()
+
+    assert refused.value.status_code == 400
+    assert "quatro casas" in refused.value.detail
+
+
+def test_a_count_beyond_the_stored_precision_is_refused_too():
+    """A mesma régua na contagem: o que ela informa vira saldo."""
+    with _session() as session:
+        context = _context(session)
+        product_id = _product(session, context)
+        _receive(session, context, product_id, "10")
+        version = _balance(context, product_id).version
+
+        with pytest.raises(HTTPException) as refused:
+            inventory_service.count_stock(
+                session=session, context=context, store_id=context.store_id,
+                product_id=product_id, actor_id=context.user_id,
+                counted_quantity=Decimal("9.99999"), expected_version=version,
+                idempotency_key=f"count-{uuid.uuid4().hex[:10]}",
+            )
+        session.rollback()
+
+    assert refused.value.status_code == 400
+    assert "quantidade contada" in refused.value.detail
+
+
+def test_count_difference_and_movement_share_the_same_precision():
+    """Contado, diferença e movimento têm de bater até a última casa."""
+    with _session() as session:
+        context = _context(session)
+        product_id = _product(session, context)
+        _receive(session, context, product_id, "10.1234")
+        version = _balance(context, product_id).version
+
+        record, balance, movement = inventory_service.count_stock(
+            session=session, context=context, store_id=context.store_id,
+            product_id=product_id, actor_id=context.user_id,
+            counted_quantity=Decimal("9.8765"), expected_version=version,
+            idempotency_key=f"count-{uuid.uuid4().hex[:10]}",
+        )
+        session.commit()
+
+    assert record.counted_quantity == Decimal("9.8765")
+    assert record.previous_balance == Decimal("10.1234")
+    assert record.difference == Decimal("-0.2469")
+    assert movement.quantity == Decimal("-0.2469")
+    assert movement.previous_balance + movement.quantity == movement.new_balance
+    assert Decimal(str(balance.quantity)) == Decimal("9.8765")
