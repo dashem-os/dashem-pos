@@ -219,6 +219,27 @@ export interface InventoryBalance {
   product_id: string
   quantity: number
   minimum_stock: number
+  // Muda a cada movimentação. É o que a contagem devolve ao servidor para ele
+  // saber se o saldo mudou entre a leitura da prateleira e a confirmação.
+  version: number
+}
+
+export interface InventoryCount {
+  id: string
+  product_id: string
+  counted_quantity: number
+  previous_balance: number
+  difference: number
+  movement_id: string | null
+  created_at: string
+}
+
+/** O 409 da contagem carrega o estado atual, para a tela poder explicar. */
+export interface StockCountConflict {
+  message: string
+  expected_version: number
+  current_version: number
+  current_quantity: string
 }
 
 export interface InventoryMovement {
@@ -3109,7 +3130,102 @@ export async function adjustInventory(
     headers: { ...headers, 'Content-Type': 'application/json' },
     body: JSON.stringify(data)
   })
-  if (!res.ok) throw new Error('Erro ao ajustar estoque')
+  // A recusa do servidor diz o que aconteceu — qual mercadoria, quanto havia,
+  // quanto foi pedido. Trocar isso por um texto fixo devolve à pessoa a única
+  // informação que ela não tem: o motivo. `apiError` preserva o `detail`.
+  if (!res.ok) throw await apiError(res, 'Não foi possível movimentar o estoque.')
+  return res.json()
+}
+
+export interface StockHolding {
+  product_id: string
+  name: string
+  sku: string
+  unit: string
+  quantity: number
+  minimum_stock: number
+  // Sem mínimo definido não existe "abaixo do mínimo": o que há é ausência de
+  // política, e a tela precisa distinguir isso de uma situação regular.
+  has_minimum: boolean
+  is_low_stock: boolean
+  is_out_of_stock: boolean
+  version: number
+}
+
+/** O acervo físico da unidade — publicado no PDV ou não. */
+export async function fetchStockHoldings(
+  headers: Record<string, string>, storeId: string, search?: string,
+): Promise<StockHolding[]> {
+  const params = new URLSearchParams({ store_id: storeId })
+  if (search) params.set('search', search)
+  const res = await fetch(`${API_BASE_URL}/api/v1/inventory/holdings?${params.toString()}`, { headers })
+  if (!res.ok) throw await apiError(res, 'Não foi possível carregar o estoque desta unidade.')
+  return res.json()
+}
+
+export async function countStock(
+  headers: Record<string, string>,
+  idempotencyKey: string,
+  data: {
+    store_id: string; product_id: string; actor_id: string
+    counted_quantity: number; expected_version: number; reason?: string
+  },
+): Promise<{ count: InventoryCount; balance: InventoryBalance; movement: InventoryMovement | null }> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/inventory/count`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível registrar a contagem.')
+  return res.json()
+}
+
+export async function adjustStockTechnically(
+  headers: Record<string, string>,
+  data: {
+    store_id: string; product_id: string; actor_id: string
+    difference: number; reason: string
+  },
+): Promise<{ movement: InventoryMovement | null; balance: InventoryBalance; movement_created: boolean }> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/inventory/technical-adjustment`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível lançar o ajuste técnico.')
+  return res.json()
+}
+
+export type ReturnCondition = 'RESALEABLE' | 'UNFIT'
+export type ReturnDestination = 'SELLABLE_STOCK' | 'QUARANTINE' | 'DISCARD'
+
+export interface SaleItemReturn {
+  id: string
+  sale_id: string
+  sale_item_id: string
+  product_id: string
+  quantity: number
+  condition: ReturnCondition
+  destination: ReturnDestination
+  movement_id: string | null
+  reason?: string
+  created_at: string
+}
+
+export async function returnSoldItem(
+  headers: Record<string, string>,
+  idempotencyKey: string,
+  data: {
+    sale_item_id: string; actor_id: string; quantity: number
+    condition: ReturnCondition; destination: ReturnDestination; reason?: string
+  },
+): Promise<{ sale_item_return: SaleItemReturn; movement: InventoryMovement | null }> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/sales/returns`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível registrar a devolução.')
   return res.json()
 }
 
@@ -3120,7 +3236,7 @@ export async function setMinimumStock(
     method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' },
     body: JSON.stringify({ store_id: storeId, product_id: productId, minimum_stock: minimumStock })
   })
-  if (!res.ok) throw new Error('Erro ao definir estoque mínimo')
+  if (!res.ok) throw await apiError(res, 'Não foi possível definir o estoque mínimo.')
   return res.json()
 }
 

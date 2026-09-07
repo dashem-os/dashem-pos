@@ -8,6 +8,7 @@ import { DataTable } from '../common/DataTable'
 import { formatCurrency, maskCurrencyInput, parseCurrencyInput } from '../../utils/format'
 import { navigateTo } from '../../utils/navigation'
 import { PendingMedia, ProductMediaPicker } from './ProductMediaPicker'
+import { DEFAULT_STOCK_REASONS, reasonForMovement, type StockMovementType } from '../../domain/stockMovements'
 
 /** The product photo, falling back to the initial when a tenant has not set one. */
 function ProductThumb({ name, imageUrl }: { name: string; imageUrl?: string | null }) {
@@ -55,8 +56,8 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
 
   // Adjust Stock Form
   const [adjustQty, setAdjustQty] = useState('')
-  const [adjustType, setAdjustType] = useState<'PURCHASE' | 'LOSS' | 'ADJUSTMENT'>('PURCHASE')
-  const [adjustReason, setAdjustReason] = useState('Entrada de Mercadoria')
+  const [adjustType, setAdjustType] = useState<'PURCHASE' | 'LOSS'>('PURCHASE')
+  const [adjustReason, setAdjustReason] = useState(DEFAULT_STOCK_REASONS.PURCHASE)
   const [minimumStock, setMinimumStock] = useState('')
   const [viewMode, setViewMode] = useState<'MASTER' | 'PROJECTION'>('MASTER')
   const [salesContext, setSalesContext] = useState<api.SalesContext>('COUNTER')
@@ -197,7 +198,15 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
     e.preventDefault()
     if (!selectedProductForStock || !adjustQty) return
 
-    await adjustStock(selectedProductForStock, parseFloat(adjustQty), adjustType, adjustReason)
+    // Fechar só depois de a movimentação ter sido aceita. Antes o formulário
+    // limpava e fechava incondicionalmente, então uma recusa do servidor —
+    // saldo insuficiente, por exemplo — sumia da tela junto com o que a pessoa
+    // tinha digitado, e ela não tinha como saber que nada foi registrado.
+    try {
+      await adjustStock(selectedProductForStock, parseFloat(adjustQty), adjustType, adjustReason)
+    } catch {
+      return
+    }
     if (tenant && store && minimumStock !== '') {
       await api.setMinimumStock(
         { 'X-Tenant-ID': tenant.id, 'X-Store-ID': store.id },
@@ -444,6 +453,11 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
                     <Button variant="secondary" size="sm" icon={ArrowUpDown} onClick={() => {
                       setSelectedProductForStock(prod.id)
                       setMinimumStock(String(prod.minimum_stock))
+                      // Cada movimentação começa limpa: a operação anterior não
+                      // deve deixar tipo, quantidade nem motivo para a próxima.
+                      setAdjustType('PURCHASE')
+                      setAdjustQty('')
+                      setAdjustReason(DEFAULT_STOCK_REASONS.PURCHASE)
                       setIsStockModalOpen(true)
                     }}>Ajustar</Button>
                   )}
@@ -633,14 +647,22 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
             <label className="text-xs font-bold text-dashem-strong block">Tipo de Movimentação</label>
             <select
               value={adjustType}
-              onChange={(e) => setAdjustType(e.target.value as any)}
+              onChange={(e) => {
+                const next = e.target.value as 'PURCHASE' | 'LOSS'
+                setAdjustType(next)
+                setAdjustReason((current) => reasonForMovement(current, next))
+              }}
               className="w-full h-11 px-3.5 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-dashem-strong text-xs font-semibold focus:border-dashem-red outline-none"
             >
               <option value="PURCHASE">Entrada / Compra de Mercadoria</option>
               <option value="LOSS">Perda / Avaria / Vencimento</option>
-              <option value="ADJUSTMENT">Ajuste de Balanço / Inventário</option>
             </select>
           </div>
+
+          <p className="rounded-xl border border-dashem-border bg-dashem-surface-elevated p-3 text-xs text-dashem-muted">
+            Diferença de balanço se registra em <b className="text-dashem-strong">Estoque</b>,
+            contando a prateleira: você informa o total encontrado e o sistema calcula a diferença.
+          </p>
 
           <div className="space-y-1.5">
             <label className="text-xs font-bold text-dashem-strong block">Quantidade</label>

@@ -81,13 +81,16 @@ async def test_pos1_gates_1_to_11():
         assert srv["requires_fulfillment"] is True
 
         # --- GATE 3: Non-Tracked Inventory Bypass ---
+        # Entrada, e não ajuste: a rota comum deixou de aceitar diferença
+        # assinada, que tem rota e autorização próprias. O que este gate mede é
+        # outra coisa — item sem controle de estoque não gera movimento.
         srv_adjust = await client.post(
             "/api/v1/inventory/adjust",
             json={
                 "store_id": sA["id"],
                 "product_id": srv["id"],
                 "actor_id": actor_id,
-                "movement_type": "ADJUSTMENT",
+                "movement_type": "PURCHASE",
                 "quantity": 5.0,
                 "reason": "Test Service Bypass"
             },
@@ -141,16 +144,20 @@ async def test_pos1_gates_1_to_11():
         assert adj1_retry.status_code == 200
         assert adj1_retry.json()["movement"]["id"] == adj1_data["movement"]["id"]
 
-        # Stock Adjustment 2: -3.0 (Venda)
+        # Stock Adjustment 2: saída de 3.0 pela operação que o lojista tem.
+        # Era `SALE` com -3.0: quantidade assinada, e uma operação manual se
+        # passando por baixa de venda. A rota recusa as duas coisas hoje. O que o
+        # gate mede continua o mesmo — uma saída que leva o saldo a 7.0 e um
+        # livro cuja soma bate com o saldo.
         adj2_res = await client.post(
             "/api/v1/inventory/adjust",
             json={
                 "store_id": sA["id"],
                 "product_id": pA["id"],
                 "actor_id": actor_id,
-                "movement_type": "SALE",
-                "quantity": -3.0,
-                "reason": "Venda Balcão"
+                "movement_type": "LOSS",
+                "quantity": 3.0,
+                "reason": "Avaria no estoque"
             },
             headers=headers_A
         )

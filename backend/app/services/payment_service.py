@@ -284,9 +284,15 @@ def confirm_payment(
                     product_id=item.product_id,
                     actor_id=actor_id,
                     movement_type=MovementTypeEnum.SALE,
-                    quantity=-item.quantity,
+                    # Magnitude. O sinal é do servidor, derivado do tipo — e
+                    # `SALE` é saída. Enquanto o sinal vinha daqui, ele era
+                    # responsabilidade de cada chamador, e a tela não a assumia.
+                    quantity=item.quantity,
                     reason=f"Venda Consumada #{sale.id}",
-                    correlation_id=correlation_id
+                    correlation_id=correlation_id,
+                    # A devolução pergunta se esta mercadoria saiu; o vínculo é
+                    # o que responde. Status de venda não responde.
+                    sale_item_id=item.id,
                 )
 
         # Atomic Audit + Outbox for Sale Paid

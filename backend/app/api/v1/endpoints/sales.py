@@ -3,11 +3,15 @@ from decimal import Decimal
 from datetime import datetime
 from typing import List, Optional
 from fastapi import APIRouter, Depends, Header, HTTPException, status
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlmodel import Session
 from app.core.database import get_session
 from app.core.context import TenantContext, get_tenant_context, resolve_actor
-from app.models.sale import Customer, Sale, SaleItem, SaleStatusEnum, DiscountTypeEnum, SaleOperationModeEnum
+from app.models.catalog import InventoryMovement
+from app.models.sale import (
+    Customer, DiscountTypeEnum, ReturnConditionEnum, ReturnDestinationEnum,
+    Sale, SaleItem, SaleItemReturn, SaleOperationModeEnum, SaleStatusEnum,
+)
 from app.services import sale_service, reliability_service
 
 router = APIRouter()
@@ -290,3 +294,51 @@ def checkout_sale_endpoint(
 
     session.commit()
     return response_data
+
+
+class SaleItemReturnDTO(BaseModel):
+    """Devolver o que saiu por esta venda.
+
+    A rota mora aqui, e não em estoque, porque a origem é a venda: é dela que sai
+    o teto. A autoridade continua sendo a de movimentar estoque — receber
+    mercadoria de volta é trabalho de loja.
+    """
+    # A origem é obrigatória: é dela que sai o teto do que pode voltar.
+    sale_item_id: uuid.UUID
+    actor_id: uuid.UUID
+    quantity: Decimal = Field(gt=0)
+    condition: ReturnConditionEnum
+    destination: ReturnDestinationEnum
+    reason: Optional[str] = None
+
+
+class SaleItemReturnResponse(BaseModel):
+    sale_item_return: SaleItemReturn
+    movement: Optional[InventoryMovement]
+
+
+@router.post("/returns", response_model=SaleItemReturnResponse)
+def return_sold_item_endpoint(
+    data: SaleItemReturnDTO,
+    context: TenantContext = Depends(get_tenant_context),
+    idempotency_key: str = Header(alias="Idempotency-Key", min_length=8, max_length=160),
+    x_correlation_id: Optional[str] = Header(None, alias="X-Correlation-ID"),
+    session: Session = Depends(get_session),
+):
+    """Receber de volta o que saiu por uma venda, até o limite do que saiu.
+
+    A loja e o tenant vêm da venda de origem e são conferidos contra o contexto
+    autenticado; a quantidade é limitada ao vendido menos o já devolvido, apurado
+    sob bloqueio do item.
+    """
+    record, movement = sale_service.return_sold_item(
+        session=session, context=context, sale_item_id=data.sale_item_id,
+        actor_id=data.actor_id, quantity=data.quantity, condition=data.condition,
+        destination=data.destination, idempotency_key=idempotency_key,
+        reason=data.reason, correlation_id=x_correlation_id,
+    )
+    session.commit()
+    session.refresh(record)
+    if movement is not None:
+        session.refresh(movement)
+    return {"sale_item_return": record, "movement": movement}

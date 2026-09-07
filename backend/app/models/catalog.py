@@ -140,6 +140,10 @@ class InventoryMovement(SQLModel, table=True):
     store_id: uuid.UUID = Field(index=True)
     product_id: uuid.UUID = Field(foreign_key="products.id", index=True)
     actor_id: uuid.UUID = Field(index=True)
+    # Qual item de venda causou esta saída. Nulo quando a movimentação não vem
+    # de venda — e nulo também no histórico anterior a este vínculo, onde
+    # ausência não prova ausência de baixa.
+    sale_item_id: Optional[uuid.UUID] = Field(default=None, foreign_key="sale_items.id", index=True)
     movement_type: MovementTypeEnum = Field(
         default=MovementTypeEnum.ADJUSTMENT,
         sa_column=Column(EnumString(MovementTypeEnum), nullable=False, index=True),
@@ -163,9 +167,45 @@ class InventoryBalance(SQLModel, table=True):
     product_id: uuid.UUID = Field(foreign_key="products.id", index=True)
     quantity: Decimal = Field(default=Decimal("0.00"), sa_column=Column(Numeric(14, 4), nullable=False, default=0.0))
     minimum_stock: Decimal = Field(default=Decimal("0.00"), sa_column=Column(Numeric(14, 4), nullable=False, default=0.0))
+    # Toda movimentação incrementa esta versão, dentro do mesmo UPSERT que grava
+    # o saldo. É o que permite a uma contagem saber se houve venda entre a
+    # leitura da prateleira e a confirmação. Uma versão que só algumas operações
+    # movessem seria uma proteção com buraco.
+    version: int = Field(default=1, nullable=False)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
     product: Optional[Product] = Relationship(back_populates="balances")
+
+
+class InventoryCount(SQLModel, table=True):
+    """A conferência de prateleira, com ou sem diferença.
+
+    Contar e encontrar exatamente o saldo é informação — alguém olhou a
+    prateleira naquele dia — e não pode virar movimento inventado. Por isso a
+    contagem é fato próprio, e `movement_id` fica nulo quando nada mudou.
+    """
+
+    __tablename__ = "inventory_counts"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "idempotency_key", name="uq_tenant_count_idempotency"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(index=True)
+    store_id: uuid.UUID = Field(index=True)
+    product_id: uuid.UUID = Field(foreign_key="products.id", index=True)
+    actor_id: uuid.UUID
+    counted_quantity: Decimal = Field(sa_column=Column(Numeric(14, 4), nullable=False))
+    previous_balance: Decimal = Field(sa_column=Column(Numeric(14, 4), nullable=False))
+    difference: Decimal = Field(sa_column=Column(Numeric(14, 4), nullable=False))
+    movement_id: Optional[uuid.UUID] = Field(default=None, foreign_key="inventory_movements.id")
+    balance_version_before: int
+    balance_version_after: int
+    reason: Optional[str] = None
+    idempotency_key: str = Field(max_length=160)
+    # A mesma chave com outro conteúdo é comando novo se passando por reenvio.
+    request_hash: str = Field(max_length=64)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class MediaAssetSourceEnum(str, Enum):

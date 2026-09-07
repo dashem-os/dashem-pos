@@ -15,6 +15,7 @@ import asyncio
 import os
 import uuid
 from datetime import datetime, timedelta
+from decimal import Decimal
 
 import httpx
 import pytest
@@ -876,6 +877,7 @@ async def test_s25_1_the_sweep_reaches_the_oldest_stuck_parcel_not_only_the_newe
 @pytest.mark.asyncio
 async def test_s25_1_one_damaged_row_does_not_block_the_queue_behind_it():
     """A sweep that aborts on the first bad row never drains a backlog."""
+    from app.services import negotiation_service
     from app.services.provider_service import recover_unapplied_results
 
     async with httpx.AsyncClient(base_url=BASE_URL) as client:
@@ -919,8 +921,199 @@ async def test_s25_1_one_damaged_row_does_not_block_the_queue_behind_it():
             PaymentExecutionEvent.provider_transaction_id == damaged.id,
         )).all() == []
 
-        recovered = recover_unapplied_results(db, limit=50)
+        # A fila é global e não drena sozinha: uma linha cujo resultado é
+        # aplicável mas cuja parcela continua aberta permanece nela para sempre
+        # e ocupa um lugar do lote. Com lote fixo de 50, bastavam 49 linhas
+        # alheias para que a linha saudável deste teste — a mais nova, e a fila
+        # é varrida da mais antiga para a mais nova — ficasse fora da janela, e
+        # o teste falhava por volume de banco, não por regressão.
+        #
+        # Medir a fila e pedir um lote que a cubra mantém exatamente o que este
+        # teste prova: a danificada é pulada, e a saudável atrás dela é aplicada.
+        backlog = len(negotiation_service.unapplied_results(db, limit=10_000))
+        recovered = recover_unapplied_results(db, limit=backlog)
         # The damaged row is skipped and the healthy one behind it is applied.
         assert damaged.id not in recovered
         assert uuid.UUID(good_transaction) in recovered
         assert db.get(PaymentIntent, uuid.UUID(intent_id)).status.value == "CONFIRMED"
+
+
+# ---------------------------------------------------------------------------
+# A fila de recuperação e as linhas que nunca saem dela.
+#
+# Registrado em 07/09/2026, ao investigar por que o teste acima falhava com o
+# banco cheio. O defeito é **anterior** a esta branch e não foi introduzido por
+# ela; está aqui como reprodução, não como correção — mexer na recuperação de
+# pagamento dentro de uma entrega de estoque colocaria na branch uma mudança sem
+# a revisão que ela recebeu.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_s25_1_a_row_that_cannot_close_delays_the_one_behind_it():
+    """Caracterização: como a fila se comporta hoje, e por quê.
+
+    Este teste **não** registra defeito. Ele fixa um comportamento que é em
+    parte deliberado — reter estorno não quantificado é o ADR-030 — e mede a
+    consequência disso na ordem da fila, para que a consequência fique visível
+    a quem for decidir sobre ela.
+
+    A reprodução exata do atraso na fila de recuperação.
+
+    Uma parcela que fica aberta por decisão de projeto — estorno sem valor
+    declarado, que o ADR-030 manda reter porque a reserva é tudo ou nada —
+    continua satisfazendo o filtro da fila: transação terminal, parcela aberta.
+    Ela é reprocessada em toda varredura.
+
+    E não sai da fila: aplicar o resultado atualiza `updated_at`, então ela vai
+    para o **fim** de uma fila ordenada da mais antiga para a mais nova. Com
+    lote limitado, isso não é inanição indefinida — é atraso: a linha atrás
+    espera a fila girar. O atraso é proporcional a quantas dessas linhas existem
+    dividido pelo tamanho do lote.
+
+    Aqui a demonstração é mínima e determinística: lote de um, uma linha que não
+    fecha à frente, e a saudável atrás. Ela não é alcançada na primeira
+    varredura, e é alcançada na segunda, depois que a primeira girou.
+    """
+    from app.services.provider_service import recover_unapplied_results
+
+    async with httpx.AsyncClient(base_url=BASE_URL) as client:
+        headers, store, actor, table_session = await _table_with_menu(client, "Delay")
+        tenant_id = headers["X-Tenant-ID"]
+        register_id = await _register(client, headers, store, actor)
+        negotiation = await _open(client, headers, store, table_session, actor)
+        itens = _by_name(negotiation)
+        tef = await _tef(client, headers, {"id": tenant_id}, store, actor, register_id, "DLY")
+
+        execucoes = []
+        for nome, valor in (("Whisky", 40), ("Pizza", 60)):
+            criada = await _reserve(client, headers, negotiation["id"], actor, valor,
+                                    itens[nome]["order_item_id"], "Astra",
+                                    binding=tef["binding"]["id"])
+            parcela = (await _pending(criada))["id"]
+            enviada = await client.post("/api/v1/providers/transactions", headers={
+                **headers, "Idempotency-Key": f"exec-{uuid.uuid4()}",
+            }, json={"payment_intent_id": parcela,
+                     "payment_device_binding_id": tef["binding"]["id"], "actor_id": actor})
+            assert enviada.status_code == 200, enviada.text
+            execucoes.append((enviada.json()["transaction"]["id"], parcela))
+
+    (retida, parcela_retida), (saudavel, parcela_saudavel) = execucoes
+
+    with Session(engine) as db:
+        set_platform_db_context(db)
+        from app.models.provider import ProviderTransaction, ProviderTransactionStatusEnum
+
+        # Uma linha real, com cadeia de auditoria: ela é **processada**, não
+        # pulada. Uma linha sintética sem cadeia seria pulada, que é outra coisa.
+        presa = db.get(ProviderTransaction, uuid.UUID(retida))
+        presa.status = ProviderTransactionStatusEnum.REFUNDED
+        presa.refunded_amount = None
+        presa.updated_at = datetime.utcnow() - timedelta(days=400)
+        db.add(presa)
+
+        atras = db.get(ProviderTransaction, uuid.UUID(saudavel))
+        atras.status = ProviderTransactionStatusEnum.CONFIRMED
+        atras.updated_at = datetime.utcnow() - timedelta(days=399)
+        db.add(atras)
+        db.commit()
+
+        # Primeira varredura, lote de um: só a que não fecha, por ser a mais
+        # antiga do banco inteiro.
+        primeira = recover_unapplied_results(db, limit=1)
+        assert primeira == [presa.id], f"o lote de um não pegou a retida: {primeira}"
+        assert db.get(PaymentIntent, uuid.UUID(parcela_retida)).status.value != "CONFIRMED", (
+            "a parcela do estorno não quantificado fechou; o ADR-030 manda retê-la"
+        )
+        assert db.get(PaymentIntent, uuid.UUID(parcela_saudavel)).status.value != "CONFIRMED", (
+            "a saudável foi alcançada com lote de um"
+        )
+
+        # Ela não saiu da fila: foi para o fim, porque aplicar atualizou o
+        # `updated_at`. A prova é a segunda varredura, do mesmo tamanho,
+        # alcançar a que estava atrás.
+        db.refresh(presa)
+        assert presa.updated_at > datetime.utcnow() - timedelta(minutes=5), (
+            "a linha retida não teve o `updated_at` renovado"
+        )
+        segunda = recover_unapplied_results(db, limit=1)
+        assert segunda == [atras.id], f"a fila não girou: {segunda}"
+        assert db.get(PaymentIntent, uuid.UUID(parcela_saudavel)).status.value == "CONFIRMED"
+
+        # E a retida continua na fila, agora no fim dela.
+        from app.services import negotiation_service
+        fila = negotiation_service.unapplied_results(db, limit=10_000)
+        assert presa.id in {linha.id for linha in fila}, (
+            "a linha retida saiu da fila; ela deveria continuar esperando uma pessoa"
+        )
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "DEFEITO CONHECIDO, não corrigido nesta entrega: `recover_unapplied_results` "
+        "remonta o `ProviderResult` sem `refunded_amount`, então um estorno integral "
+        "replayado chega como não quantificado e a parcela não fecha. Este teste "
+        "afirma o comportamento CORRETO e falha de propósito. Quando o replay "
+        "passar a copiar o valor, ele passa — e `strict=True` transforma isso em "
+        "erro, para que o marcador seja removido junto com a correção."
+    ),
+)
+@pytest.mark.asyncio
+async def test_s25_1_a_replayed_integral_refund_closes_the_parcel():
+    """O que deveria acontecer, e hoje não acontece.
+
+    Um estorno integral tem o valor gravado na linha. O ADR-030 manda fechar a
+    parcela nesse caso — é o que a primeira aplicação, pela rota, faz. O replay
+    reconstrói o resultado sem `refunded_amount`, entrega o estorno como não
+    quantificado, e a retenção que existe para proteger reserva parcial passa a
+    reter algo que estava provado.
+
+    Este teste não descreve o sistema como ele está: ele descreve como deveria
+    estar. É registro do defeito, não garantia de comportamento.
+    """
+    from app.services.provider_service import recover_unapplied_results
+
+    async with httpx.AsyncClient(base_url=BASE_URL) as client:
+        headers, store, actor, table_session = await _table_with_menu(client, "Replay")
+        tenant_id = headers["X-Tenant-ID"]
+        register_id = await _register(client, headers, store, actor)
+        negotiation = await _open(client, headers, store, table_session, actor)
+        whisky = _by_name(negotiation)["Whisky"]["order_item_id"]
+        tef = await _tef(client, headers, {"id": tenant_id}, store, actor, register_id, "RPL")
+        created = await _reserve(client, headers, negotiation["id"], actor, 40, whisky, "Astra",
+                                 binding=tef["binding"]["id"])
+        intent_id = (await _pending(created))["id"]
+        sent = await client.post("/api/v1/providers/transactions", headers={
+            **headers, "Idempotency-Key": f"exec-{uuid.uuid4()}",
+        }, json={"payment_intent_id": intent_id, "payment_device_binding_id": tef["binding"]["id"],
+                 "actor_id": actor})
+        transacao = sent.json()["transaction"]["id"]
+
+    with Session(engine) as db:
+        set_platform_db_context(db)
+        from app.models.provider import ProviderTransaction, ProviderTransactionStatusEnum
+        linha = db.get(ProviderTransaction, uuid.UUID(transacao))
+        parcela = db.get(PaymentIntent, uuid.UUID(intent_id))
+        # Um estorno integral, com o valor gravado na linha — a situação em que
+        # o ADR-030 manda fechar a parcela.
+        linha.status = ProviderTransactionStatusEnum.REFUNDED
+        linha.refunded_amount = Decimal(parcela.amount)
+        linha.updated_at = datetime.utcnow() - timedelta(days=1)
+        db.add(linha)
+        db.commit()
+
+        assert parcela.status.value in ("PENDING", "PROCESSING")
+        recuperados = recover_unapplied_results(db, limit=10_000)
+        assert uuid.UUID(transacao) in recuperados, "a linha nem foi processada"
+
+        # A prova de que o valor estava na linha o tempo todo.
+        db.refresh(linha)
+        assert linha.refunded_amount is not None
+
+        # E o que deveria ter acontecido com ele: estorno integral fecha a
+        # parcela. Hoje não fecha, e é por isso que o teste está marcado.
+        db.refresh(parcela)
+        assert parcela.status.value not in ("PENDING", "PROCESSING"), (
+            "o replay entregou o estorno integral como não quantificado, e a "
+            "parcela ficou retida"
+        )

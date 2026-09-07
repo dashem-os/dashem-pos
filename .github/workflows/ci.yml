@@ -52,6 +52,12 @@ jobs:
       ENVIRONMENT: test
       AUTH_MODE: disabled
       TEST_BASE_URL: http://127.0.0.1:8002
+      # A segunda instância existe para exercitar autenticação, permissão por
+      # rota e validação de corpo — nada disso passa pelo bypass da primeira.
+      # `test_inventory_http_contract.py` falha em CI se estas faltarem, em vez
+      # de pular em silêncio e deixar a suíte verde sem a cobertura.
+      AUTH_TEST_SECRET: ci-only-auth-test-secret-with-at-least-32-characters
+      TEST_AUTH_BASE_URL: http://127.0.0.1:8004
     defaults:
       run:
         working-directory: backend
@@ -72,6 +78,17 @@ jobs:
             sleep 1
           done
           cat /tmp/dashem-api.log
+          exit 1
+      - name: Start API in test auth mode
+        env:
+          AUTH_MODE: test
+        run: |
+          uvicorn app.main:app --host 127.0.0.1 --port 8004 > /tmp/dashem-auth-api.log 2>&1 &
+          for attempt in {1..30}; do
+            curl --fail --silent http://127.0.0.1:8004/health && exit 0
+            sleep 1
+          done
+          cat /tmp/dashem-auth-api.log
           exit 1
       - run: python -m pytest tests -q
 
