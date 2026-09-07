@@ -80,7 +80,7 @@ export function InventoryManager() {
   const [selected, setSelected] = useState<api.StockHolding | null>(null)
   const [form, setForm] = useState({
     quantity: '', movement_type: 'PURCHASE',
-    reason: DEFAULT_STOCK_REASONS.PURCHASE, minimum_stock: '',
+    reason: DEFAULT_STOCK_REASONS.PURCHASE,
   })
   const [movementError, setMovementError] = useState('')
 
@@ -93,11 +93,39 @@ export function InventoryManager() {
     setForm({
       quantity: '', movement_type: tipo,
       reason: DEFAULT_STOCK_REASONS[tipo],
-      // `5.0000` é como o banco guarda, não como se escreve numa prateleira.
-      minimum_stock: item.has_minimum ? String(Number(item.minimum_stock)) : '',
     })
   }
   const recebendo = form.movement_type === 'PURCHASE'
+
+  // ------------------------------------------------------------- mínimo
+  // Configurar o mínimo é decisão de política, não movimentação: nada entra,
+  // nada sai, nenhum movimento é criado. Antes o único caminho até ele era o
+  // formulário de entrada, então quem só queria definir um mínimo precisava
+  // inventar um recebimento — e um recebimento inventado é saldo errado.
+  const [minimo, setMinimo] = useState<api.StockHolding | null>(null)
+  const [minimoValor, setMinimoValor] = useState('')
+  const [minimoErro, setMinimoErro] = useState('')
+
+  const abrirMinimo = (item: api.StockHolding) => {
+    setMinimo(item)
+    setMinimoErro('')
+    setMinimoValor(item.has_minimum ? String(Number(item.minimum_stock)) : '')
+  }
+
+  const salvarMinimo = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!minimo || !store || minimoValor === '') return
+    setBusy(true)
+    setMinimoErro('')
+    try {
+      await api.setMinimumStock(headers, store.id, minimo.product_id, Number(minimoValor))
+      await load()
+      setMinimo(null)
+      showToast('success', 'Mínimo salvo. O saldo não mudou e nenhum movimento foi criado.')
+    } catch (reason) {
+      setMinimoErro(reason instanceof Error ? reason.message : 'O mínimo não foi salvo.')
+    } finally { setBusy(false) }
+  }
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -114,17 +142,9 @@ export function InventoryManager() {
       setBusy(false)
       return
     }
-    // O mínimo é outra operação e falha por conta própria. A movimentação já
-    // foi aceita e já foi anunciada; o que falta dizer é que o mínimo não foi
-    // salvo — engolir isso num `catch` deixava a pessoa com um mínimo que ela
-    // acha que existe.
-    if (form.minimum_stock !== '') {
-      try {
-        await api.setMinimumStock(headers, store.id, selected.product_id, Number(form.minimum_stock))
-      } catch (reason) {
-        showToast('error', reason instanceof Error ? reason.message : 'O estoque mínimo não foi salvo.')
-      }
-    }
+    // O mínimo saiu daqui: configurar é operação própria, e misturá-la com a
+    // movimentação era o que obrigava a inventar uma entrada para salvar uma
+    // política.
     try {
       await load()
       setSelected(null)
@@ -295,8 +315,20 @@ export function InventoryManager() {
             {
               // Travessão não é resposta. Mínimo não definido é uma escolha que
               // ainda não foi feita, e a tela diz isso com palavra.
+              // A coluna diz o que falta e oferece a ação que resolve. Informar
+              // "Não definido" sem caminho para definir é diagnóstico sem
+              // remédio.
               key: 'min', header: 'Mínimo desejado',
-              cell: (item) => item.has_minimum
+              cell: (item) => canAdjust ? (
+                <button
+                  type="button" onClick={() => abrirMinimo(item)}
+                  className="inline-flex min-h-11 items-center gap-2 rounded-lg px-2 text-left text-xs font-black text-dashem-strong underline decoration-dotted underline-offset-4 hover:text-dashem-red"
+                >
+                  {item.has_minimum
+                    ? <><span className="text-sm">{Number(item.minimum_stock)} {item.unit}</span><span className="text-dashem-muted">Editar</span></>
+                    : <span className="text-dashem-muted">Definir mínimo</span>}
+                </button>
+              ) : item.has_minimum
                 ? <span className="font-bold text-dashem-strong">{Number(item.minimum_stock)} {item.unit}</span>
                 : <span className="text-xs font-bold text-dashem-muted">Não definido</span>,
             },
@@ -390,6 +422,27 @@ export function InventoryManager() {
       </Modal>
 
       <Modal
+        isOpen={Boolean(minimo)} onClose={() => setMinimo(null)}
+        title={`Mínimo desejado — ${minimo?.name || ''}`}
+        subtitle="Quanto você quer ter sempre nesta unidade."
+      >
+        <form onSubmit={salvarMinimo} className="space-y-4">
+          <div className="rounded-xl border border-dashem-border bg-dashem-surface-elevated p-3 text-xs text-dashem-muted">
+            <p>Em estoque agora: <b className="text-dashem-strong">{Number(minimo?.quantity ?? 0)} {minimo?.unit}</b></p>
+          </div>
+          <Field label={`Quantidade mínima (${minimo?.unit || 'un'})`} type="number" value={minimoValor} onChange={setMinimoValor} placeholder="Ex.: 12" />
+          {minimoErro && (
+            <p role="alert" className="rounded-xl border border-red-300 bg-red-50 p-3 text-xs font-bold text-red-800">
+              {minimoErro}
+            </p>
+          )}
+          <button disabled={busy || minimoValor === ''} className="h-12 w-full rounded-xl bg-dashem-red text-sm font-black text-brand-contrast disabled:opacity-40">
+            {busy ? 'Salvando...' : 'Salvar mínimo'}
+          </button>
+        </form>
+      </Modal>
+
+      <Modal
         isOpen={Boolean(counting)} onClose={() => setCounting(null)}
         title={`Contar ${counting?.name || ''}`}
         subtitle="Informe quanto você encontrou na prateleira. A diferença é calculada aqui."
@@ -416,7 +469,7 @@ export function InventoryManager() {
               </>
             )}
           </div>
-          <Field label="Quantidade encontrada" type="number" value={counted} onChange={setCounted} />
+          <Field label="Quantidade encontrada" type="number" value={counted} onChange={setCounted} placeholder="Ex.: 31" />
           {countConflict && (
             <div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs font-bold text-amber-900">
               {countConflict}
@@ -445,10 +498,7 @@ export function InventoryManager() {
           : 'Quanto se perdeu: avaria, vencimento ou quebra.'}
       >
         <form onSubmit={submit} className="space-y-4">
-          <Field label={recebendo ? 'Quantidade recebida' : 'Quantidade perdida'} type="number" value={form.quantity} onChange={(value) => setForm({ ...form, quantity: value })} />
-          {recebendo && (
-            <Field label="Mínimo desejado (opcional)" type="number" value={form.minimum_stock} onChange={(value) => setForm({ ...form, minimum_stock: value })} required={false} />
-          )}
+          <Field label={recebendo ? 'Quantidade recebida' : 'Quantidade perdida'} type="number" value={form.quantity} onChange={(value) => setForm({ ...form, quantity: value })} placeholder={recebendo ? 'Ex.: 24' : 'Ex.: 2'} />
           <Field label="Motivo" value={form.reason} onChange={(value) => setForm({ ...form, reason: value })} />
           {movementError && (
             <p role="alert" className="rounded-xl border border-red-300 bg-red-50 p-3 text-xs font-bold text-red-800">
@@ -501,14 +551,16 @@ function Metric({ label, value, icon: Icon, attention = false }: {
   )
 }
 
-function Field({ label, value, onChange, type = 'text', required = true }: {
-  label: string; value: string; onChange: (value: string) => void; type?: string; required?: boolean
+function Field({ label, value, onChange, type = 'text', required = true, placeholder }: {
+  label: string; value: string; onChange: (value: string) => void
+  type?: string; required?: boolean; placeholder?: string
 }) {
   return (
     <label className="block text-xs font-black text-dashem-strong">
       {label}
       <input
         required={required} type={type} step={type === 'number' ? '0.0001' : undefined}
+        placeholder={placeholder}
         value={value} onChange={(event) => onChange(event.target.value)}
         className="mt-2 h-11 w-full rounded-xl border border-dashem-border bg-dashem-surface-elevated px-3 text-sm text-dashem-strong outline-none focus:border-dashem-red"
       />

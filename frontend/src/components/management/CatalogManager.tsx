@@ -59,14 +59,42 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
   const [adjustQty, setAdjustQty] = useState('')
   const [adjustType, setAdjustType] = useState<'PURCHASE' | 'LOSS'>('PURCHASE')
   const [adjustReason, setAdjustReason] = useState(DEFAULT_STOCK_REASONS.PURCHASE)
-  const [minimumStock, setMinimumStock] = useState('')
   const [mostrarPassos, setMostrarPassos] = useState(false)
+
+  // Configurar mínimo não é movimentação: nada entra, nada sai. Enquanto o
+  // único caminho até ele foi o formulário de entrada, definir uma política
+  // exigia inventar um recebimento — e recebimento inventado é saldo errado.
+  const [minimoProduto, setMinimoProduto] = useState<api.SellableProduct | null>(null)
+  const [minimoValor, setMinimoValor] = useState('')
+  const [minimoErro, setMinimoErro] = useState('')
+
+  const abrirMinimo = (prod: api.SellableProduct) => {
+    setMinimoProduto(prod)
+    setMinimoErro('')
+    setMinimoValor(Number(prod.minimum_stock) > 0 ? String(Number(prod.minimum_stock)) : '')
+  }
+
+  const salvarMinimo = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!minimoProduto || !tenant || !store || minimoValor === '') return
+    setMinimoErro('')
+    try {
+      await api.setMinimumStock(
+        { 'X-Tenant-ID': tenant.id, 'X-Store-ID': store.id },
+        store.id, minimoProduto.id, Number(minimoValor),
+      )
+      await refreshData()
+      setMinimoProduto(null)
+      showToast('success', 'Mínimo salvo. O saldo não mudou e nenhum movimento foi criado.')
+    } catch (reason) {
+      setMinimoErro(reason instanceof Error ? reason.message : 'O mínimo não foi salvo.')
+    }
+  }
 
   // A mesma separacao da tela de Estoque: quem clica ja decidiu se esta
   // recebendo ou registrando perda, e o formulario nao repete a pergunta.
   const abrirMovimentacao = (prod: api.SellableProduct, tipo: 'PURCHASE' | 'LOSS') => {
     setSelectedProductForStock(prod.id)
-    setMinimumStock(String(Number(prod.minimum_stock) || ''))
     setAdjustType(tipo)
     setAdjustQty('')
     setAdjustReason(DEFAULT_STOCK_REASONS[tipo])
@@ -220,22 +248,10 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
     } catch {
       return
     }
-    if (tenant && store && minimumStock !== '') {
-      try {
-        await api.setMinimumStock(
-          { 'X-Tenant-ID': tenant.id, 'X-Store-ID': store.id },
-          store.id,
-          selectedProductForStock,
-          parseFloat(minimumStock)
-        )
-      } catch (reason) {
-        // A movimentação foi aceita; o mínimo não. Silenciar isto deixava a
-        // pessoa com um aviso de sucesso e um mínimo que não existe.
-        showToast('error', reason instanceof Error ? reason.message : 'O estoque mínimo não foi salvo.')
-      }
-    }
+    // O mínimo saiu daqui: ele tem ação própria, e misturá-lo com a
+    // movimentação era o que obrigava a inventar uma entrada para salvar uma
+    // política de reposição.
     setAdjustQty('')
-    setMinimumStock('')
     setSelectedProductForStock(null)
     setIsStockModalOpen(false)
   }
@@ -472,11 +488,14 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
                     }`}>
                       {Number(prod.quantity)} {prod.unit.toLowerCase()}
                     </span>
-                    <span className="text-xs font-bold text-dashem-muted">
+                    <button
+                      type="button" onClick={() => abrirMinimo(prod)}
+                      className="text-xs font-bold text-dashem-muted underline decoration-dotted underline-offset-4 hover:text-dashem-red"
+                    >
                       {Number(prod.minimum_stock) > 0
-                        ? `Mínimo ${Number(prod.minimum_stock)} ${prod.unit.toLowerCase()}`
-                        : 'Sem mínimo definido'}
-                    </span>
+                        ? `Mínimo ${Number(prod.minimum_stock)} ${prod.unit.toLowerCase()} · Editar`
+                        : 'Definir mínimo'}
+                    </button>
                   </div>
                 ),
             },
@@ -684,7 +703,36 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
         </div>
       </Modal>
 
-      {/* Modal: Ajustar Estoque */}
+      <Modal
+        isOpen={Boolean(minimoProduto)}
+        onClose={() => setMinimoProduto(null)}
+        title={`Mínimo desejado — ${minimoProduto?.name || ''}`}
+        subtitle="Quanto você quer ter sempre nesta unidade."
+      >
+        <form onSubmit={salvarMinimo} className="space-y-4">
+          <div className="rounded-xl border border-dashem-border bg-dashem-surface-elevated p-3 text-xs text-dashem-muted">
+            <p>Em estoque agora: <b className="text-dashem-strong">{Number(minimoProduto?.quantity ?? 0)} {minimoProduto?.unit?.toLowerCase()}</b></p>
+          </div>
+          <div className="space-y-1.5">
+            <label className="block text-xs font-bold text-dashem-strong" htmlFor="minimo-desejado">
+              Quantidade mínima ({minimoProduto?.unit?.toLowerCase() || 'un'})
+            </label>
+            <input
+              id="minimo-desejado" type="number" min="0" step="0.01" required placeholder="Ex.: 12"
+              value={minimoValor} onChange={(event) => setMinimoValor(event.target.value)}
+              className="h-11 w-full rounded-xl border border-dashem-border bg-dashem-surface-elevated px-3.5 text-xs font-semibold text-dashem-strong outline-none focus:border-dashem-red"
+            />
+            </div>
+          {minimoErro && (
+            <p role="alert" className="rounded-xl border border-red-300 bg-red-50 p-3 text-xs font-bold text-red-800">{minimoErro}</p>
+          )}
+          <button disabled={minimoValor === ''} className="h-12 w-full rounded-2xl bg-dashem-red text-xs font-black text-brand-contrast disabled:opacity-40">
+            Salvar mínimo
+          </button>
+        </form>
+      </Modal>
+
+      {/* Modal: Receber ou registrar perda */}
       <Modal
         isOpen={isStockModalOpen}
         onClose={() => setIsStockModalOpen(false)}
@@ -717,19 +765,6 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
             />
           </div>
 
-          <div className="space-y-1.5">
-            <label className="text-xs font-bold text-dashem-strong block">Estoque mínimo desta unidade</label>
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              required
-              value={minimumStock}
-              onChange={(e) => setMinimumStock(e.target.value)}
-              className="w-full h-11 px-3.5 rounded-xl bg-dashem-surface-elevated border border-dashem-border text-dashem-strong text-xs font-semibold focus:border-dashem-red outline-none"
-            />
-          </div>
-
           <div className="pt-3">
             <button
               type="submit"
@@ -737,7 +772,7 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
               className="w-full h-12 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black flex items-center justify-center space-x-2 transition-all shadow-lg active:scale-95 disabled:opacity-40"
             >
               <CheckCircle2 className="w-4 h-4" />
-              <span>Confirmar Ajuste de Estoque</span>
+              <span>{adjustType === 'PURCHASE' ? 'Confirmar recebimento' : 'Registrar perda'}</span>
             </button>
           </div>
         </form>

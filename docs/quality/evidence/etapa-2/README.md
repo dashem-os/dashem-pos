@@ -166,6 +166,54 @@ item na tela de venda; o preço é o que decide se ele pode ser vendido — e o
 bloco de imagem, com o seu aviso, ocupava metade do formulário antes de a pessoa
 chegar ao campo que ela veio preencher.
 
+## Pendência funcional que faltava: configurar mínimo sem movimentar
+
+O plano exigia desde o início — *"configurar mínimo tem ação independente: não
+obrigar movimentação fictícia"* — e a entrega anterior não cumpria. Pior: ao
+separar receber de registrar perda, o campo do mínimo ficou dentro do
+recebimento, e quantidade recebida é obrigatória. Definir um mínimo passou a
+exigir informar uma entrada que não aconteceu, e o servidor recusava com
+"Quantidade zero não movimenta estoque". A leitura tinha sido corrigida; a ação
+que ela exige, não.
+
+**Agora "Definir mínimo" e "Editar" são ação própria**, na coluna *Mínimo
+desejado* do Estoque e ao lado do saldo em Produtos. O formulário mostra o saldo
+atual, pede só a quantidade mínima e afirma o que não vai acontecer: "o saldo
+continua o mesmo e nenhuma entrada, perda ou contagem é registrada". O campo do
+mínimo saiu dos dois formulários de movimentação.
+
+### Homologação do cenário exigido
+
+Saldo 10 → definir mínimo 5 → editar para 12, na tela, com dados reais.
+
+| Passo | Captura | O que mostra |
+|---|---|---|
+| Antes | `minimo/01-estoque-antes-sem-minimo.png` | Coca-Cola Lata: 10 UN, "Definir mínimo", situação "Sem mínimo definido" |
+| Definir 5 | `minimo/02-estoque-definir-minimo-5.png` | Formulário com o saldo à vista e a promessa explícita |
+| Depois de salvar | `minimo/03-estoque-com-minimo-5.png` | 10 UN, mínimo 5 UN, situação "Regular" |
+| Editar para 12 | `minimo/04-estoque-editar-minimo-12.png` | Mesmo formulário, agora com o valor atual preenchido |
+| Resultado | `minimo/05-estoque-abaixo-do-minimo.png` | **10 UN, mínimo 12 UN, "Abaixo do mínimo"**, e o indicador do topo sobe |
+| Histórico | `minimo/06-estoque-historico-sem-movimento-novo.png` | "Nenhuma movimentação registrada" |
+| Produtos | `minimo/07..09` | A mesma ação na outra lista |
+
+**E a promessa foi conferida fora da tela**, com `verificar_minimo.py`
+comparando o banco antes e depois da travessia:
+
+```
+  ALI-DEC-01 saldo=  3.0000  mínimo=  5.0000  movimentos=0  versão=1
+  CAN-2010   saldo=  0.0000  mínimo=  6.0000  movimentos=0  versão=1
+  COC-050    saldo=  9.0000  mínimo=  4.0000  movimentos=0  versão=1
+  COC-051    saldo= 10.0000  mínimo= 12.0000  movimentos=0  versão=1
+  HAB-01     saldo= 15.0000  mínimo= 12.0000  movimentos=0  versão=1
+
+Saldo, contagem de movimentos e versão idênticos: configurar não movimentou.
+```
+
+`COC-051` é o caso exigido: mínimo de 0 para 5 e depois para 12, **saldo parado
+em 10, zero movimentos, versão do saldo intacta** — a versão importa porque é
+ela que a contagem confere; configurar uma política não pode invalidar uma
+conferência em andamento.
+
 ## As capturas de desktop
 
 | # | Arquivo | O que mostra |

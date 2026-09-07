@@ -205,16 +205,59 @@ test('o formulário de contagem não abre mostrando o saldo do produto anterior'
   assert.ok(corpo.indexOf('setCountBase(null)') < corpo.indexOf('await api.fetchInventoryBalance'))
 })
 
-test('falha ao salvar o mínimo não vira mensagem de sucesso', () => {
+test('configurar mínimo não passa por movimentação', () => {
+  // Exigência do plano: "configurar mínimo tem ação independente: não obrigar
+  // movimentação fictícia". Enquanto o campo do mínimo viveu no formulário de
+  // entrada, definir uma política exigia informar uma quantidade recebida — e
+  // quantidade recebida que não chegou é saldo errado.
+  for (const fonte of [inventory, catalog]) {
+    // Recortado no próprio handler: o que vem depois dele é outra operação.
+    const envio = fonte.slice(fonte.indexOf('const salvarMinimo'))
+    const corpo = envio.slice(0, envio.indexOf('\n  const '))
+    assert.match(corpo, /setMinimumStock\(/)
+    // A operação de configuração não movimenta: nada de `adjustStock` nem de
+    // tipo de movimento no caminho de salvar o mínimo.
+    assert.doesNotMatch(corpo, /adjustStock\(/)
+    assert.doesNotMatch(corpo, /PURCHASE|LOSS|ADJUSTMENT/)
+  }
+})
+
+test('o formulário de movimentação não carrega configuração', () => {
   const envio = inventory.slice(inventory.indexOf('const submit = async'))
   const corpo = envio.slice(0, envio.indexOf('// -------'))
-  // O sucesso da movimentação é anunciado por `adjustStock`, depois de a API
-  // aceitar. O mínimo é outra chamada: quando ela falha, a pessoa é avisada, e
-  // esta tela não emite sucesso por conta própria.
-  assert.match(corpo, /catch \(reason\)[\s\S]*?showToast\('error'/)
+  assert.doesNotMatch(corpo, /setMinimumStock\(/)
   assert.doesNotMatch(corpo, /showToast\('success'/)
-  // E a mesma falha, na outra tela que salva mínimo, também é dita.
-  assert.match(catalog, /O estoque mínimo não foi salvo/)
+  const ajuste = catalog.slice(catalog.indexOf('const handleAdjustStock'))
+  assert.doesNotMatch(ajuste.slice(0, ajuste.indexOf('const handleQuickAccess')), /setMinimumStock\(/)
+})
+
+test('a lista oferece a ação que a leitura exige', () => {
+  // "Sem mínimo definido" sem caminho para definir é diagnóstico sem remédio.
+  for (const fonte of [inventory, catalog]) {
+    assert.match(fonte, /Definir mínimo/)
+    assert.match(fonte, /abrirMinimo\(/)
+  }
+  assert.match(inventory, /Editar/)
+  assert.match(catalog, /· Editar/)
+})
+
+test('a garantia do mínimo é comportamento, não texto na tela', () => {
+  // O formulário mostra o saldo atual e pede a quantidade. Ele não se explica:
+  // a garantia de que nada é movimentado está no caminho da operação, provado
+  // em `verificar_minimo.py` contra o banco, e o aviso de conclusão diz o
+  // resultado em uma linha.
+  for (const fonte of [inventory, catalog]) {
+    assert.match(fonte, /Em estoque agora/)
+    assert.doesNotMatch(fonte, /nenhuma entrada, perda ou contagem é registrada/)
+    assert.match(fonte, /nenhum movimento foi criado/)
+  }
+})
+
+test('a falha ao salvar o mínimo fica no formulário', () => {
+  for (const fonte of [inventory, catalog]) {
+    assert.match(fonte, /setMinimoErro\(/)
+    assert.match(fonte, /\{minimoErro\}/)
+  }
 })
 
 test('nenhuma tela oferece o ajuste assinado que a rota comum recusa', () => {
