@@ -54,11 +54,11 @@ def upgrade() -> None:
         sa.Column("actor_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("quantity", sa.Numeric(14, 4), nullable=False),
         # RESALEABLE volta ao saldo vendável; UNFIT não volta, e diz para onde foi.
-        sa.Column("condition", sa.String(length=24), nullable=False),
-        sa.Column("destination", sa.String(length=24), nullable=False),
+        sa.Column("condition", sa.String(length=50), nullable=False),
+        sa.Column("destination", sa.String(length=50), nullable=False),
         # Nulo quando a mercadoria não retorna ao saldo vendável.
         sa.Column("movement_id", postgresql.UUID(as_uuid=True), nullable=True),
-        sa.Column("reason", sa.Text(), nullable=True),
+        sa.Column("reason", sa.String(), nullable=True),
         sa.Column("idempotency_key", sa.String(length=160), nullable=False),
         sa.Column("request_hash", sa.String(length=64), nullable=False),
         sa.Column("created_at", sa.DateTime(), nullable=False),

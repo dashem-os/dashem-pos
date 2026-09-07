@@ -82,7 +82,7 @@ def upgrade() -> None:
         sa.Column("movement_id", postgresql.UUID(as_uuid=True), nullable=True),
         sa.Column("balance_version_before", sa.Integer(), nullable=False),
         sa.Column("balance_version_after", sa.Integer(), nullable=False),
-        sa.Column("reason", sa.Text(), nullable=True),
+        sa.Column("reason", sa.String(), nullable=True),
         sa.Column("idempotency_key", sa.String(length=160), nullable=False),
         # Unicidade sozinha não distingue reenvio de reaproveitamento: ela deixa
         # a mesma chave devolver o resultado de outra contagem. O hash do comando
