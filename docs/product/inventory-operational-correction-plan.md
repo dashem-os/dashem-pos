@@ -337,16 +337,20 @@ que já foi prometido.
 | Quem chama | `sale_service` ao adicionar/alterar/remover item; `order_service` para comanda; a conclusão que já baixa estoque passa a consumir a reserva na mesma transação |
 | Rota | `GET /api/v1/inventory/availability?product_ids=…` — leitura em lote para o PDV |
 | Contrato de leitura | `StockHolding` ganha `reserved`, `available`, `on_order`; `is_low_stock`/`is_out_of_stock` saem em favor de `risk_state` (3.2) |
-| Expiração | reserva de venda sem atividade expira; o varredor roda no fechamento de caixa e na abertura da tela, **não** exige worker contratado |
+| Expiração | **`CART`: 30 min de inatividade, TTL deslizante. `TAB`: não expira** ([ADR-032](../architecture/adr-032-available-to-promise.md)). O varredor é idempotente e roda na abertura do PDV, na abertura do estoque e no fechamento de caixa — **não** exige worker contratado |
+| Alerta | comanda aberta há tempo demais entra em alerta operacional; o sistema nunca devolve estoque em silêncio |
 
-**Na tela do PDV**, a cada adição ou alteração de quantidade:
+**Na tela do PDV**, o aviso acontece **antes de efetivar a inclusão**, sobre o
+ATP projetado — `atp_projetado = atp_atual − quantidade_pedida`. Com 9
+disponíveis:
 
-| Situação | O que o operador vê |
-|---|---|
-| Folga confortável | nada — silêncio é informação |
-| Disponível ≤ 5 e > 1 | "Restam N disponíveis" ao lado do item |
-| Disponível = 1 | "Última unidade disponível" |
-| Pedido > disponível | recusa imediata, dizendo quanto há |
+| Ação | Resultado | O que o operador vê |
+|---|---|---|
+| coloca 7 | aceita, projetado 2 | "Crítico — restarão 2 un" |
+| coloca mais 1 | aceita, projetado 1 | alerta mais forte |
+| coloca a última | aceita, projetado 0 | "Última unidade disponível" |
+| tenta a décima | **bloqueia** | "Indisponível. Disponível: 9" |
+| folga confortável | aceita | nada — silêncio é informação |
 
 **Na tela de Estoque**, a coluna deixa de ser só saldo: `40 un` com `2
 comprometidos` quando houver reserva ativa.
