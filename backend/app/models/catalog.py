@@ -140,6 +140,10 @@ class InventoryMovement(SQLModel, table=True):
     store_id: uuid.UUID = Field(index=True)
     product_id: uuid.UUID = Field(foreign_key="products.id", index=True)
     actor_id: uuid.UUID = Field(index=True)
+    # Qual item de venda causou esta saída. Nulo quando a movimentação não vem
+    # de venda — e nulo também no histórico anterior a este vínculo, onde
+    # ausência não prova ausência de baixa.
+    sale_item_id: Optional[uuid.UUID] = Field(default=None, foreign_key="sale_items.id", index=True)
     movement_type: MovementTypeEnum = Field(
         default=MovementTypeEnum.ADJUSTMENT,
         sa_column=Column(EnumString(MovementTypeEnum), nullable=False, index=True),

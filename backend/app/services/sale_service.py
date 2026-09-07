@@ -722,13 +722,45 @@ def return_sold_item(
         SaleItemReturn.sale_item_id == item.id,
     ), SaleItemReturn, context)).all()
     devolvido = sum((Decimal(str(row.quantity)) for row in already), Decimal("0"))
-    disponivel = Decimal(str(item.quantity)) - devolvido
+    vendido = Decimal(str(item.quantity))
+
+    # Status de venda não comprova saída de estoque. Uma venda pode estar `PAID`
+    # e não ter baixado nada — foi o caso de toda venda fechada pela negociação
+    # antes de 07/09/2026, e é o caso de qualquer linha anterior ao vínculo entre
+    # movimento e item de venda. Devolver ao saldo vendável sobre uma dessas
+    # criaria mercadoria: entrada sem saída que a preceda.
+    #
+    # A verificação vale onde há estoque a criar. Devolução imprópria não soma
+    # saldo, e a mercadoria voltou fisicamente de qualquer modo — registrar o
+    # fato ali é melhor do que recusá-lo.
+    if destination is ReturnDestinationEnum.SELLABLE_STOCK and item.tracks_inventory_snapshot:
+        baixado = -sum(
+            (Decimal(str(row.quantity)) for row in session.exec(scope_tenant_query(
+                select(InventoryMovement).where(
+                    InventoryMovement.sale_item_id == item.id,
+                    InventoryMovement.movement_type == MovementTypeEnum.SALE,
+                ), InventoryMovement, context,
+            )).all()),
+            Decimal("0"),
+        )
+        if baixado <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"Não há baixa de estoque registrada para '{item.product_name}' "
+                    "nesta venda. Devolver ao saldo vendável criaria mercadoria que "
+                    "nunca saiu; use o ajuste técnico se a correção for essa."
+                ),
+            )
+        vendido = min(vendido, baixado)
+
+    disponivel = vendido - devolvido
     if returned > disponivel:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
                 f"Devolução acima do vendido para '{item.product_name}'. "
-                f"Vendido: {inventory_service._amount(Decimal(str(item.quantity)))}, "
+                f"Vendido: {inventory_service._amount(vendido)}, "
                 f"já devolvido: {inventory_service._amount(devolvido)}, "
                 f"disponível para devolução: {inventory_service._amount(disponivel)}."
             ),

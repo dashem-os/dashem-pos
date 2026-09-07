@@ -2,6 +2,7 @@ import uuid
 from decimal import Decimal, ROUND_DOWN
 from datetime import datetime
 from typing import List, Optional, Tuple, Union
+from sqlalchemy import func
 from sqlmodel import Session, select, text
 from fastapi import HTTPException, status
 from app.core.context import TenantContext, resolve_actor, scope_tenant_query
@@ -95,7 +96,8 @@ def adjust_stock(
     movement_type: MovementTypeEnum,
     quantity: Union[float, Decimal],
     reason: Optional[str] = None,
-    correlation_id: Optional[str] = None
+    correlation_id: Optional[str] = None,
+    sale_item_id: Optional[uuid.UUID] = None,
 ) -> Tuple[Optional[InventoryMovement], InventoryBalance, bool]:
     actor_id = resolve_actor(context, actor_id)
     qty_dec = signed_variation(movement_type, quantity)
@@ -191,7 +193,8 @@ def adjust_stock(
         previous_balance=previous_balance,
         new_balance=new_balance,
         reason=reason,
-        correlation_id=correlation_id
+        correlation_id=correlation_id,
+        sale_item_id=sale_item_id,
     )
     session.add(movement)
 
@@ -416,6 +419,73 @@ def count_stock(
     )
     session.flush()
     return record, balance, movement
+
+
+def list_holdings(
+    session: Session,
+    context: TenantContext,
+    store_id: uuid.UUID,
+    search: Optional[str] = None,
+) -> list[dict]:
+    """O acervo físico da unidade: tudo que a loja controla, publicado ou não.
+
+    A tela de estoque lia o catálogo vendável, que é a projeção de venda por
+    contexto — e uma mercadoria só entra ali depois de publicada em algum
+    sortimento. O efeito era que um produto cadastrado, com recebimento
+    registrado e controle de estoque ativo, **não aparecia na tela de estoque**
+    enquanto ninguém o publicasse.
+
+    Publicação é decisão comercial: ela governa onde o item pode ser vendido, e
+    não se ele existe fisicamente na prateleira. Material de uso interno, item
+    fora de linha e mercadoria ainda não publicada ocupam espaço, vencem e são
+    contados igual — e precisam ser encontrados por quem confere.
+    """
+    if context.store_id and store_id != context.store_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Consulta de estoque fora da unidade ativa.",
+        )
+    query = scope_tenant_query(
+        select(Product).where(Product.tracks_inventory.is_(True)),
+        Product, context,
+    )
+    if search:
+        # O que a busca promete: nome, SKU e código de barras.
+        agulha = f"%{search.strip().lower()}%"
+        query = query.where(
+            func.lower(Product.name).like(agulha)
+            | func.lower(Product.sku).like(agulha)
+            | func.lower(func.coalesce(Product.barcode, "")).like(agulha)
+        )
+    produtos = session.exec(query.order_by(Product.name)).all()
+
+    saldos = {
+        row.product_id: row
+        for row in session.exec(scope_tenant_query(select(InventoryBalance).where(
+            InventoryBalance.store_id == store_id,
+        ), InventoryBalance, context)).all()
+    }
+    acervo = []
+    for produto in produtos:
+        saldo = saldos.get(produto.id)
+        quantidade = Decimal("0.0000") if saldo is None else Decimal(str(saldo.quantity))
+        minimo = Decimal("0.0000") if saldo is None else Decimal(str(saldo.minimum_stock))
+        acervo.append({
+            "product_id": produto.id,
+            "name": produto.name,
+            "sku": produto.sku,
+            "unit": produto.unit,
+            "quantity": quantidade,
+            "minimum_stock": minimo,
+            # Sem mínimo definido, "abaixo do mínimo" não quer dizer nada: o que
+            # existe ali é ausência de política, e a tela precisa distinguir as
+            # duas situações em vez de chamar tudo de regular.
+            "has_minimum": minimo > 0,
+            "is_low_stock": minimo > 0 and quantidade <= minimo,
+            "is_out_of_stock": quantidade <= 0,
+            "version": 0 if saldo is None else saldo.version,
+        })
+    return acervo
 
 
 def get_balance(session: Session, context: TenantContext, store_id: uuid.UUID, product_id: uuid.UUID) -> InventoryBalance:

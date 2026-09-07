@@ -316,6 +316,138 @@ def test_a_sale_that_delivered_the_goods_accepts_the_return(situacao):
     assert _balance(context, product_id) == Decimal("8.0000")
 
 
+def test_a_finalised_sale_that_never_decremented_cannot_be_returned_to_stock():
+    """Status de venda não comprova saída de estoque.
+
+    Uma venda pode estar `PAID` e não ter baixado nada — foi o caso de toda venda
+    fechada pela negociação antes de 07/09/2026, e é o caso de qualquer linha
+    anterior ao vínculo entre movimento e item de venda. Devolver ao saldo
+    vendável ali criaria mercadoria: entrada sem saída que a preceda.
+
+    A recusa nomeia a saída para o ajuste técnico, que é a operação explícita e
+    restrita para exatamente este tipo de correção.
+    """
+    with _session() as session:
+        context = _context(session)
+        suffix = uuid.uuid4().hex[:8]
+        product = Product(
+            tenant_id=context.tenant_id, name=f"Histórica {suffix}", sku=f"HIS-{suffix}",
+        )
+        session.add(product)
+        session.commit()
+        product_id = product.id
+        inventory_service.adjust_stock(
+            session=session, context=context, store_id=context.store_id,
+            product_id=product_id, actor_id=context.user_id,
+            movement_type=MovementTypeEnum.PURCHASE, quantity=Decimal("10"),
+            reason="Recebimento",
+        )
+        # Venda finalizada, e nenhuma baixa: exatamente o histórico que existe.
+        sale = Sale(
+            tenant_id=context.tenant_id, store_id=context.store_id,
+            status=SaleStatusEnum.COMPLETED, seller_id=context.user_id,
+            gross_total=Decimal("3"), net_total=Decimal("3"),
+        )
+        session.add(sale)
+        session.flush()
+        item = SaleItem(
+            tenant_id=context.tenant_id, sale_id=sale.id, product_id=product_id,
+            product_name=product.name, sku=product.sku, unit_price=Decimal("1"),
+            quantity=Decimal("3"), gross_total=Decimal("3"), net_total=Decimal("3"),
+        )
+        session.add(item)
+        session.commit()
+        item_id = item.id
+
+        with pytest.raises(HTTPException) as refused:
+            sale_service.return_sold_item(
+                session=session, context=context, sale_item_id=item_id,
+                actor_id=context.user_id, quantity=Decimal("1"),
+                condition=RESALEABLE, destination=TO_STOCK, idempotency_key=_key(),
+            )
+        session.rollback()
+
+    assert refused.value.status_code == 409
+    assert "Não há baixa de estoque registrada" in refused.value.detail
+    assert "ajuste técnico" in refused.value.detail
+    assert _balance(context, product_id) == Decimal("10.0000")
+
+
+def test_the_same_sale_still_accepts_an_unfit_return():
+    """Sem baixa provada não se cria saldo — mas a mercadoria voltou mesmo assim.
+
+    Devolução imprópria não soma estoque, então não há mercadoria a inventar.
+    Recusar o registro apagaria um fato físico que aconteceu.
+    """
+    with _session() as session:
+        context = _context(session)
+        suffix = uuid.uuid4().hex[:8]
+        product = Product(
+            tenant_id=context.tenant_id, name=f"Sem baixa {suffix}", sku=f"SBX-{suffix}",
+        )
+        session.add(product)
+        session.commit()
+        product_id = product.id
+        sale = Sale(
+            tenant_id=context.tenant_id, store_id=context.store_id,
+            status=SaleStatusEnum.COMPLETED, seller_id=context.user_id,
+            gross_total=Decimal("2"), net_total=Decimal("2"),
+        )
+        session.add(sale)
+        session.flush()
+        item = SaleItem(
+            tenant_id=context.tenant_id, sale_id=sale.id, product_id=product_id,
+            product_name=product.name, sku=product.sku, unit_price=Decimal("1"),
+            quantity=Decimal("2"), gross_total=Decimal("2"), net_total=Decimal("2"),
+        )
+        session.add(item)
+        session.commit()
+        item_id = item.id
+
+        record, movement = sale_service.return_sold_item(
+            session=session, context=context, sale_item_id=item_id,
+            actor_id=context.user_id, quantity=Decimal("1"),
+            condition=UNFIT, destination=QUARANTINE, idempotency_key=_key(),
+        )
+        session.commit()
+
+    assert movement is None
+    assert record.quantity == Decimal("1.0000")
+    assert _balance(context, product_id) == Decimal("0")
+
+
+def test_the_ceiling_is_the_smaller_of_sold_and_actually_decremented():
+    """Vendeu três, baixou duas: só duas podem voltar ao saldo vendável."""
+    with _session() as session:
+        context = _context(session)
+        item_id, product_id, _ = _sold(session, context, stock="10", quantity="3")
+
+        # Uma das três baixas é desfeita, simulando a venda parcialmente baixada
+        # que o histórico produziu antes do vínculo existir.
+        with Session(engine) as limpeza:
+            set_tenant_db_context(
+                limpeza, context.tenant_id, context.store_id, context.user_id,
+            )
+            movimento = limpeza.exec(select(InventoryMovement).where(
+                InventoryMovement.sale_item_id == item_id,
+                InventoryMovement.movement_type == MovementTypeEnum.SALE,
+            )).one()
+            movimento.quantity = Decimal("-2")
+            limpeza.add(movimento)
+            limpeza.commit()
+
+        with pytest.raises(HTTPException) as refused:
+            sale_service.return_sold_item(
+                session=session, context=context, sale_item_id=item_id,
+                actor_id=context.user_id, quantity=Decimal("3"),
+                condition=RESALEABLE, destination=TO_STOCK, idempotency_key=_key(),
+            )
+        session.rollback()
+
+    assert refused.value.status_code == 400
+    assert "Vendido: 2" in refused.value.detail
+
+
 # --------------------------------------------------------------------- 2. teto
 
 def test_a_return_cannot_exceed_what_was_sold():

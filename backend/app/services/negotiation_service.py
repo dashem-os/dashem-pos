@@ -1578,7 +1578,7 @@ def finalize_negotiation(
     )
     session.add(sale)
     session.flush()
-    a_baixar: list[tuple[uuid.UUID, Decimal]] = []
+    a_baixar: list[tuple[uuid.UUID, uuid.UUID, Decimal]] = []
     for order in orders:
         items = session.exec(select(OrderItem).where(
             OrderItem.tenant_id == context.tenant_id,
@@ -1591,7 +1591,7 @@ def finalize_negotiation(
             )).first()
             gross = _money(item.unit_price * item.quantity)
             tracks_inventory = bool(getattr(product, "tracks_inventory", False))
-            session.add(SaleItem(
+            sale_item = SaleItem(
                 tenant_id=context.tenant_id, sale_id=sale.id, product_id=item.product_id,
                 product_name=item.product_name, sku=item.sku,
                 item_type_snapshot=getattr(getattr(product, "item_type", None), "value", "PRODUCT"),
@@ -1599,9 +1599,10 @@ def finalize_negotiation(
                 requires_fulfillment_snapshot=bool(getattr(product, "requires_fulfillment", False)),
                 unit_price=item.unit_price, quantity=item.quantity,
                 gross_total=gross, net_total=gross,
-            ))
+            )
+            session.add(sale_item)
             if tracks_inventory:
-                a_baixar.append((item.product_id, item.quantity))
+                a_baixar.append((sale_item.id, item.product_id, item.quantity))
         order.sale_id = sale.id
         order.status = OrderStatusEnum.CLOSED
         order.updated_at = datetime.utcnow()
@@ -1619,13 +1620,14 @@ def finalize_negotiation(
     # saiu; deixar de baixar por causa do prazo seria permitir saída física sem
     # controle. E a repetição da finalização não baixa de novo, porque a chave de
     # idempotência devolve a projeção antes de chegar aqui.
-    for product_id, quantity in a_baixar:
+    for sale_item_id, product_id, quantity in a_baixar:
         inventory_service.adjust_stock(
             session=session, context=context, store_id=negotiation.store_id,
             product_id=product_id, actor_id=actor,
             movement_type=MovementTypeEnum.SALE, quantity=quantity,
-            reason=f"Venda finalizada pela negociação {negotiation.id}",
+            reason=f"Venda {sale.id} finalizada pela negociação {negotiation.id}",
             correlation_id=idempotency_key,
+            sale_item_id=sale_item_id,
         )
     confirmed_intents = session.exec(select(PaymentIntent).where(
         PaymentIntent.tenant_id == context.tenant_id,

@@ -3137,6 +3137,32 @@ export async function adjustInventory(
   return res.json()
 }
 
+export interface StockHolding {
+  product_id: string
+  name: string
+  sku: string
+  unit: string
+  quantity: number
+  minimum_stock: number
+  // Sem mínimo definido não existe "abaixo do mínimo": o que há é ausência de
+  // política, e a tela precisa distinguir isso de uma situação regular.
+  has_minimum: boolean
+  is_low_stock: boolean
+  is_out_of_stock: boolean
+  version: number
+}
+
+/** O acervo físico da unidade — publicado no PDV ou não. */
+export async function fetchStockHoldings(
+  headers: Record<string, string>, storeId: string, search?: string,
+): Promise<StockHolding[]> {
+  const params = new URLSearchParams({ store_id: storeId })
+  if (search) params.set('search', search)
+  const res = await fetch(`${API_BASE_URL}/api/v1/inventory/holdings?${params.toString()}`, { headers })
+  if (!res.ok) throw await apiError(res, 'Não foi possível carregar o estoque desta unidade.')
+  return res.json()
+}
+
 export async function countStock(
   headers: Record<string, string>,
   idempotencyKey: string,

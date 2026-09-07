@@ -74,9 +74,40 @@ test('depois do conflito, confirmar exige um ato deliberado', () => {
   assert.match(inventory, /Voltei à prateleira/)
 })
 
+test('a tela de estoque lê o acervo físico, não o catálogo vendável', () => {
+  // Publicação decide onde o item pode ser vendido; não decide se ele existe na
+  // prateleira. Ler `products` do contexto escondia do estoque a mercadoria que
+  // ninguém tinha publicado ainda.
+  assert.match(inventory, /api\.fetchStockHoldings\(headers, store\.id\)/)
+  assert.doesNotMatch(inventory, /products\.filter/)
+})
+
+test('os indicadores não somam grandezas incompatíveis', () => {
+  // Quilo, litro e unidade num número só produzem um total que não é de nada.
+  assert.doesNotMatch(inventory, /reduce\(\(sum, item\) => sum \+ Number\(item\.quantity\)/)
+  assert.match(inventory, /Mercadorias controladas/)
+  assert.match(inventory, /Sem estoque/)
+  assert.match(inventory, /Abaixo do mínimo/)
+})
+
+test('o conflito relê também a lista atrás do formulário', () => {
+  const handler = inventory.slice(inventory.indexOf('const submitCount'))
+  const conflito = handler.slice(handler.indexOf('reason.status === 409'), handler.indexOf('} else {'))
+  assert.match(conflito, /await load\(\)/)
+})
+
+test('falha de carregamento não se passa por prateleira vazia', () => {
+  assert.match(inventory, /setLoadError\(true\)/)
+  assert.match(inventory, /Tentar novamente/)
+})
+
+test('produto sem mínimo definido não é chamado de regular', () => {
+  assert.match(inventory, /Sem mínimo definido/)
+})
+
 test('a ação de contar só aparece para quem tem a permissão de contar', () => {
   assert.match(inventory, /canCount = permissions\.includes\('inventory\.count'\)/)
-  assert.match(inventory, /canCount \? <button/)
+  assert.match(inventory, /\{canCount && \(\s*<button/)
 })
 
 

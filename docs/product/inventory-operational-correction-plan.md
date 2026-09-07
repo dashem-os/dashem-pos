@@ -277,12 +277,13 @@ Nenhum gate declarado aprovado.** A etapa 1 responde "recebi, vendi ou perdi:
 quanto ficou?" — e nada além disso. Ela não é, e não deve ser apresentada como,
 entrega da etapa 3.
 
-"Contar estoque" com verificação de versão foi entregue em 07/09/2026, com as
-cinco exigências cobertas e `ADJUSTMENT` restrito por permissão própria. Falta a
-**devolução física vinculada à venda**, que é requisito do gate de integridade —
-executá-la junto com a etapa 2 muda a sequência, não a pendência. A apresentação
-que soma unidades diferentes num cartão só continua aberta no gate de
-apresentação.
+Em 07/09/2026 foram entregues: contagem de estoque com verificação de versão,
+`ADJUSTMENT` restrito por permissão própria, devolução física vinculada à venda
+com teto por baixa provada, acervo físico na tela de estoque, coerência de saldos
+após conflito, indicadores sem grandezas incompatíveis, preservação dos
+movimentos e o exercício por HTTP autenticado. O gate de integridade **pode ser
+avaliado**; ele não se declara aprovado sozinho. Operação, apresentação e
+liberação seguem pendentes.
 
 | Etapa | Entrega | Condição de saída |
 |---|---|---|

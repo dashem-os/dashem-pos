@@ -289,7 +289,10 @@ def confirm_payment(
                     # responsabilidade de cada chamador, e a tela não a assumia.
                     quantity=item.quantity,
                     reason=f"Venda Consumada #{sale.id}",
-                    correlation_id=correlation_id
+                    correlation_id=correlation_id,
+                    # A devolução pergunta se esta mercadoria saiu; o vínculo é
+                    # o que responde. Status de venda não responde.
+                    sale_item_id=item.id,
                 )
 
         # Atomic Audit + Outbox for Sale Paid

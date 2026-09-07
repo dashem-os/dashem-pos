@@ -168,13 +168,14 @@ massa transformaria histórico errado em histórico falsificado.
 
 | O quê | Resultado |
 |---|---|
-| `backend/tests` completo | 482 passaram |
+| `backend/tests` completo | 500 passaram |
 | `test_inventory_movement_integrity.py` | 30 passaram (eram 16 falhas em `07ae804`) |
 | `test_negotiation_sale_stock.py` | 7 passaram |
 | `test_inventory_count.py` | 32 passaram |
-| `test_linked_sale_return.py` | 29 passaram |
+| `test_linked_sale_return.py` | 32 passaram |
+| `test_inventory_http_contract.py` | 13 passaram, contra servidor autenticado |
 | `test_inventory_integrity_diagnosis.py` | 5 passaram |
-| `frontend` — `npm test` | 127 passaram |
+| `frontend` — `npm test` | 132 passaram |
 | `tsc --noEmit` | limpo |
 | `npm run build` | construído |
 | Recusa exercitada na tela | `npm run e2e:stock-refusal` |
@@ -482,18 +483,116 @@ um comportamento contrário à invariante 8. Gates de operação, apresentação
 liberação seguem intocados — o ciclo pela navegação real não foi executado por
 ninguém, e depende das credenciais listadas abaixo.
 
-## A próxima entrega, na ordem determinada
+## Os cinco itens — 07/09/2026
 
-1. **Estoque consulta o acervo físico**, incluindo itens não publicados.
-2. **Tabela e modal mostram saldos coerentes** após conflito.
-3. **Indicadores deixam de somar grandezas incompatíveis** — quantidade de
-   produtos, ou totais separados por unidade. Some com o cartão que hoje soma
-   quilo, litro e unidade num número só.
-4. **Testes cobrem preservação dos movimentos** e cancelamento antes da baixa.
-5. **Contagem e devolução passam por HTTP autenticado**, exercitando permissões e
-   validações reais da rota.
+### 1. Estoque consulta o acervo físico
 
-Depois disso o gate **poderá ser avaliado** — não aprovado automaticamente.
+`GET /api/v1/inventory/holdings` devolve o que a unidade controla, publicado ou
+não. A tela lia o catálogo vendável — a projeção de venda por contexto — e por
+isso uma mercadoria cadastrada, com recebimento registrado e controle ativo,
+**não aparecia no estoque** enquanto ninguém a publicasse num sortimento. Foi o
+que obrigou a bancada a publicar o produto para conseguir rodar.
+
+A busca do servidor cobre o que a tela promete: nome, SKU e código de barras.
+
+### 2. Tabela e modal coerentes após o conflito
+
+O `409` da contagem agora relê **as duas coisas**: o saldo do formulário e a
+lista atrás dele. O aviso mostra o saldo relido ao lado do número digitado, para
+que não haja dois números na tela sem dizer qual está velho.
+
+Falha de carregamento também deixou de se passar por prateleira vazia: a tela diz
+que não conseguiu ler e oferece tentar de novo.
+
+### 3. Indicadores sem grandezas incompatíveis
+
+O cartão "Unidades em saldo" somava quilo, litro e unidade num número que não era
+de nada. Saiu. No lugar: **mercadorias controladas**, **sem estoque** e **abaixo
+do mínimo** — três contagens de produtos, sem conversão. Cada saldo continua
+aparecendo com a sua unidade na linha.
+
+A situação passou a ter quatro estados em vez de dois. "Sem estoque" e "abaixo do
+mínimo" são coisas diferentes, e produto **sem mínimo definido** não é regular
+nem irregular: não há política contra a qual julgá-lo, e chamar isso de "Regular"
+escondia justamente o que precisa de decisão.
+
+### 4. Preservação dos movimentos, e o que status não prova
+
+**Preservação:** um teste relê o movimento original depois de uma correção e
+confronta id, tipo, quantidade, saldos, motivo e data. A correção deixa linha
+própria; o original fica intacto; cada linha continua fechando a aritmética. Uma
+varredura de fonte complementa como alarme barato, e está nomeada como tal.
+
+**Status não comprova saída de estoque.** Uma venda pode estar `PAID` e não ter
+baixado nada — foi o caso de toda venda fechada pela negociação antes de
+07/09/2026, e é o caso de qualquer linha anterior a este vínculo. A migração 084
+liga o movimento ao item de venda que o causou, e a devolução ao saldo vendável
+passou a exigir **baixa provada**, não situação da venda:
+
+| Caso | Resposta |
+|---|---|
+| Venda finalizada, nenhuma baixa registrada | `409`, nomeando o ajuste técnico como a saída explícita |
+| A mesma venda, devolução imprópria | Aceita — não há saldo a criar, e a mercadoria voltou de fato |
+| Vendeu 3, baixou 2 | O teto é 2, não 3 |
+| Venda aberta ou cancelada | `409`: nada saiu para poder voltar |
+
+Ausência de vínculo **não prova ausência de baixa** — por isso a devolução recusa
+em vez de adivinhar, e aponta a operação restrita para a exceção legítima.
+
+### 5. Contagem e devolução por HTTP autenticado
+
+`test_inventory_http_contract.py` roda contra um servidor em `AUTH_MODE=test`, o
+modo isolado que a CI já usa, com tokens assinados por papel. O que só existe no
+caminho HTTP e agora está exercitado:
+
+| Exercitado | Resultado |
+|---|---|
+| Sem token | `401` |
+| `CASHIER` na contagem e na devolução | `403` do motor de permissão, não de um `if` no teste |
+| Cabeçalho de idempotência ausente | `422` pela assinatura da rota |
+| `counted_quantity` negativo | `422` pelo Pydantic, antes do serviço |
+| Versão desatualizada | `409` com o estado atual no corpo |
+| Reenvio da mesma contagem | Uma diferença só |
+| Ator forjado no corpo | `403` |
+| Teto e coerência de condição na devolução | `400` |
+| Acervo com mercadoria não publicada | Aparece |
+
+Sem `AUTH_TEST_SECRET` e sem servidor nesse modo, o arquivo é **pulado** em vez
+de fingir cobertura, e o comando para subir o servidor está no seu cabeçalho.
+
+## Confronto atualizado do gate
+
+| Exigência | Estado |
+|---|---|
+| Recebimento aumenta, perda diminui, entrada inválida recusada sem efeito | ✔ |
+| Falha no segundo item reverte a operação composta | ✔ venda direta e negociação |
+| Retry de pagamento e chamada repetida após timeout | ✔ |
+| Duas vendas concorrentes não vendem a mesma última unidade | ✔ |
+| Contagem com versão desatualizada não apaga movimento concorrente | ✔ serviço e HTTP |
+| Escopo de loja/tenant, ator forjado, perfil sem permissão | ✔ serviço e HTTP |
+| Devolução física e estorno exercitados separadamente | ✔ |
+| Serviço não cria saldo | ✔ |
+| Itens fracionados mantêm precisão | ✔ |
+| Mudança de mínimo não cria movimento | ✔ |
+| Movimento confirmado não é reescrito | ✔ leitura das linhas após correção |
+| Cancelamento antes da baixa não cria devolução fictícia | ✔ |
+| Testar pelos endpoints autenticados, além da unidade de serviço | ✔ contagem, devolução e acervo por HTTP com token |
+| Não somar kg, litros e unidades num cartão | ✔ o cartão saiu |
+
+**O que continua fora do gate de integridade, e por quê:**
+
+- **Quarentena não é controle.** O fato é registrado e o saldo vendável não sobe,
+  mas não há saldo de quarentena consultável, nem destinação posterior, nem tela.
+  Pertence ao almoxarifado ampliado;
+- **Devolução sem venda de origem** continua sem teto, por construção: não há
+  origem contra a qual limitar;
+- **A tela não foi homologada.** A bancada exercita comportamento; o gate de
+  operação exige pessoa representativa do cliente pela navegação real, e isso
+  depende das credenciais Supabase — dependência de ambiente, separada deste
+  trabalho local.
+
+Com os cinco itens entregues, **o gate de integridade pode ser avaliado**. Não
+está aprovado por mim: quem aprova é quem confere as evidências.
 
 ## Dependências registradas
 

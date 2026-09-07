@@ -207,6 +207,36 @@ def technical_adjustment_endpoint(
     return response_data
 
 
+class StockHolding(BaseModel):
+    """Uma linha do acervo físico, publicada ou não."""
+
+    product_id: uuid.UUID
+    name: str
+    sku: str
+    unit: str
+    quantity: Decimal
+    minimum_stock: Decimal
+    has_minimum: bool
+    is_low_stock: bool
+    is_out_of_stock: bool
+    version: int
+
+
+@router.get("/holdings", response_model=List[StockHolding])
+def list_holdings_endpoint(
+    store_id: uuid.UUID,
+    search: Optional[str] = None,
+    context: TenantContext = Depends(get_tenant_context),
+    session: Session = Depends(get_session),
+):
+    """O acervo físico da unidade, e não a projeção de venda.
+
+    Publicação decide onde o item pode ser vendido; ela não decide se ele existe
+    na prateleira. Quem confere estoque precisa encontrar o que está lá.
+    """
+    return inventory_service.list_holdings(session, context, store_id, search)
+
+
 @router.get("/balance", response_model=InventoryBalance)
 def get_balance_endpoint(
     store_id: uuid.UUID,

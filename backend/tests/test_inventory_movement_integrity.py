@@ -727,3 +727,81 @@ def test_changing_the_minimum_is_a_parameter_and_never_a_movement():
         )).one()
     assert len(movements) == 1, "mudar o minimo criou movimento de estoque"
     assert Decimal(str(balance.minimum_stock)) == Decimal("4.0000")
+
+
+# ------------------------------------------- o livro não é reescrito
+
+def test_a_confirmed_movement_is_never_rewritten_by_a_correction():
+    """Corrigir é lançar um movimento novo, não editar o que já foi confirmado.
+
+    Um livro que se reescreve não é livro: quem consulta depois não tem como
+    saber o que aconteceu de fato, nem quando. A correção de um saldo errado é um
+    movimento compensatório, vinculado e datado, que deixa o erro visível ao lado
+    da correção.
+    """
+    with _session() as session:
+        context = _context(session)
+        product_id = _stocked(session, context, "10")
+
+    with Session(engine) as leitura:
+        set_tenant_db_context(leitura, context.tenant_id, context.store_id, None)
+        original = leitura.exec(select(InventoryMovement).where(
+            InventoryMovement.product_id == product_id,
+        )).one()
+        antes = (
+            original.id, original.movement_type, original.quantity,
+            original.previous_balance, original.new_balance,
+            original.reason, original.created_at,
+        )
+
+    # A correção: o recebimento foi de 10, mas na prateleira há 7.
+    with _session() as session:
+        set_tenant_db_context(session, context.tenant_id, context.store_id, context.user_id)
+        inventory_service.adjust_stock(
+            session=session, context=context, store_id=context.store_id,
+            product_id=product_id, actor_id=context.user_id,
+            movement_type=MovementTypeEnum.LOSS, quantity=Decimal("3"),
+            reason="Quebra encontrada na conferência",
+        )
+        session.commit()
+
+    with Session(engine) as leitura:
+        set_tenant_db_context(leitura, context.tenant_id, context.store_id, None)
+        movimentos = leitura.exec(select(InventoryMovement).where(
+            InventoryMovement.product_id == product_id,
+        ).order_by(InventoryMovement.created_at)).all()
+        depois = (
+            movimentos[0].id, movimentos[0].movement_type, movimentos[0].quantity,
+            movimentos[0].previous_balance, movimentos[0].new_balance,
+            movimentos[0].reason, movimentos[0].created_at,
+        )
+
+    assert len(movimentos) == 2, "a correção não deixou linha própria"
+    assert depois == antes, "a correção reescreveu o movimento original"
+    assert movimentos[1].quantity == Decimal("-3.0000")
+    # E o livro continua fechando: cada linha explica o passo que deu.
+    for movimento in movimentos:
+        assert movimento.previous_balance + movimento.quantity == movimento.new_balance
+    assert movimentos[1].new_balance == Decimal("7.0000")
+
+
+def test_no_service_rewrites_a_movement_it_already_confirmed():
+    """Guarda de fonte: ninguém atribui saldo ou quantidade a movimento existente.
+
+    É varredura de texto, e vale o que vale — um alarme barato contra a volta do
+    padrão. A prova de comportamento é o teste acima, que relê as linhas.
+    """
+    from pathlib import Path
+    import re
+
+    servicos = Path(__file__).resolve().parents[1] / "app" / "services"
+    proibido = re.compile(
+        r"^\s*(?!.*=\s*InventoryMovement\()"
+        r"\w*movimento\w*\.(quantity|previous_balance|new_balance|movement_type)\s*=",
+        re.MULTILINE,
+    )
+    for arquivo in servicos.glob("*.py"):
+        fonte = arquivo.read_text(encoding="utf-8")
+        assert not proibido.search(fonte), f"{arquivo.name} reescreve um movimento"
+        assert "movement.quantity =" not in fonte, f"{arquivo.name} reescreve um movimento"
+        assert "movement.new_balance =" not in fonte, f"{arquivo.name} reescreve um movimento"
