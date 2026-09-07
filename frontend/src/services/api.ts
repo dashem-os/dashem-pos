@@ -3109,7 +3109,10 @@ export async function adjustInventory(
     headers: { ...headers, 'Content-Type': 'application/json' },
     body: JSON.stringify(data)
   })
-  if (!res.ok) throw new Error('Erro ao ajustar estoque')
+  // A recusa do servidor diz o que aconteceu — qual mercadoria, quanto havia,
+  // quanto foi pedido. Trocar isso por um texto fixo devolve à pessoa a única
+  // informação que ela não tem: o motivo. `apiError` preserva o `detail`.
+  if (!res.ok) throw await apiError(res, 'Não foi possível movimentar o estoque.')
   return res.json()
 }
 
@@ -3120,7 +3123,7 @@ export async function setMinimumStock(
     method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' },
     body: JSON.stringify({ store_id: storeId, product_id: productId, minimum_stock: minimumStock })
   })
-  if (!res.ok) throw new Error('Erro ao definir estoque mínimo')
+  if (!res.ok) throw await apiError(res, 'Não foi possível definir o estoque mínimo.')
   return res.json()
 }
 

@@ -54,6 +54,10 @@ async def test_individual_orders_can_pay_and_leave_the_other_groups_active():
   second=(await client.post(f"/api/v1/tables/sessions/{table_session['id']}/orders",headers={**h,'Idempotency-Key':f'order-{uuid.uuid4()}'},json={'display_reference':'Grupo B','actor_id':actor})).json()
   product=(await client.post('/api/v1/catalog/products',headers=h,json={'name':'Consumo individual','sku':f'I-{uuid.uuid4().hex[:8]}','unit':'UN'})).json();await client.post('/api/v1/catalog/prices',headers=h,json={'product_id':product['id'],'store_id':store['id'],'cost_price':3,'sale_price':12})
   await client.post('/api/v1/catalog/assortments',headers=h,json={'code':f'ASSORT-IP-{uuid.uuid4().hex[:8]}','name':'Pagamento individual','scopes':[{'store_id':store['id'],'sales_context':'TABLE'}],'product_ids':[product['id']]})
+  # A mesa passou a baixar estoque na finalização, e vender o que não existe é
+  # recusado. O assunto deste teste é o pagamento individual por grupo, então a
+  # mercadoria precisa ter chegado antes de sair.
+  recebido=await client.post('/api/v1/inventory/adjust',headers=h,json={'store_id':store['id'],'product_id':product['id'],'actor_id':actor,'movement_type':'PURCHASE','quantity':10,'reason':'Recebimento para o teste'});assert recebido.status_code==200,recebido.text
   for order in (first,second):
    added=await client.post(f"/api/v1/orders/{order['id']}/items",headers={**h,'Idempotency-Key':f'item-{uuid.uuid4()}'},json={'product_id':product['id'],'quantity':1,'actor_id':actor});assert added.status_code==200,added.text
   async def pay(order_id):

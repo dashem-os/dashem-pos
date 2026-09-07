@@ -1,5 +1,7 @@
 # Etapa 1 do plano de estoque — levantamento, reprodução e correção
 
+Estado: **PARCIAL**. O que falta está na seção "O que ainda não está fechado".
+
 Referência: [plano corretivo de estoque e almoxarifado](../product/inventory-operational-correction-plan.md).
 Data: 06–07/09/2026. Ambiente: **desenvolvimento local**. Nenhum dado de produção
 foi lido ou alterado.
@@ -25,15 +27,27 @@ feitos sobre ele.
 | Venda direta quitada | `payment_service.confirm_payment` → `SaleStatusEnum.PAID` | **Sim**, item a item, para item com `tracks_inventory_snapshot` |
 | Finalização de negociação | `negotiation_service.finalize_negotiation` cria a `Sale` já `PAID`/`COMPLETED` | **Não. Nenhuma chamada de estoque existe nesse caminho** |
 
-O segundo achado é registrado como **bloqueio de homologação**, não corrigido
-aqui: o plano manda preservar os contratos existentes na etapa 1 e, se um
-caminho ficar sem baixa adequada, registrá-lo em vez de apresentá-lo como
-atendido. Alterar o momento da baixa exige mapear cada fechamento — mesa,
-pagamento parcial, crediário, produção — e decidir com o ADR-001, que hoje não
-atribui movimento de estoque ao `OrderItem`.
+**Corrigido em 07/09/2026.** O primeiro registro deste documento tratou o caso
+como bloqueio, por leitura errada do ADR-001: ele não proíbe a baixa vinculada à
+`Sale` criada na finalização — o que ele não atribui é movimento de estoque ao
+`OrderItem`, e essa fronteira continua intacta. Quem move estoque é a venda, com
+item de venda, ator e motivo, pelo mesmo serviço da venda de balcão.
 
-Consequência prática enquanto isso não for decidido: **toda venda fechada pela
-negociação de checkout — que é o caminho de comanda e mesa — não baixa estoque.**
+A baixa acontece dentro da transação que a finalização já compunha, depois de os
+itens de venda serem criados. Cobertura pelos endpoints autenticados em
+`backend/tests/test_negotiation_sale_stock.py`:
+
+| Cenário | O que prova |
+|---|---|
+| Mesa fechada pela negociação | Saldo cai, movimento assinado, aritmética do livro fecha |
+| Comanda de balcão | Mesmo caminho, mesma baixa |
+| Repetição da finalização | Um movimento só; a chave de idempotência devolve a projeção antes de chegar à baixa |
+| Falta de saldo no segundo item | Nada sobrevive: sem venda, sem baixa do primeiro item, pedido aberto e negociação não finalizada — lido por sessão nova |
+| Crediário | Venda sai `COMPLETED` e baixa igual: o prazo muda quando o dinheiro entra, não se a mercadoria saiu |
+| Serviço na mesa | Nenhum movimento; a finalização não inventa saldo físico |
+
+Reserva durante o pedido e consumo por ficha técnica continuam fora: são a
+extensão da etapa 3 e exigem decisão arquitetural própria.
 
 ### Clientes da API de movimentação
 
@@ -139,12 +153,38 @@ massa transformaria histórico errado em histórico falsificado.
 
 | O quê | Resultado |
 |---|---|
-| `backend/tests` completo | 405 passaram |
-| `test_inventory_movement_integrity.py` | 21 passaram (eram 16 falhas em `07ae804`) |
+| `backend/tests` completo | 420 passaram |
+| `test_inventory_movement_integrity.py` | 30 passaram (eram 16 falhas em `07ae804`) |
+| `test_negotiation_sale_stock.py` | 6 passaram |
 | `test_inventory_integrity_diagnosis.py` | 5 passaram |
 | `frontend` — `npm test` | 108 passaram |
 | `tsc --noEmit` | limpo |
 | `npm run build` | construído |
+| Recusa exercitada na tela | `npm run e2e:stock-refusal` |
+
+Dois testes que passavam antes falharam com a correção, e é sinal de que ela
+alcançou o que precisava alcançar: `test_pos1_gates` mandava `SALE` com `-3.0`
+pela rota manual, e `test_s12_transfers` vendia pela mesa uma mercadoria que
+nunca havia sido recebida. Os dois foram corrigidos no propósito que mediam.
+
+### A recusa exercitada na interface
+
+`frontend/e2e/stock-refusal.spec.mjs` monta o `CatalogManager` real dentro do
+`PosProvider` real, contra o backend real, e registra uma perda de 50 unidades
+sobre um saldo de 5. Verificado: a frase do servidor aparece na tela, o
+formulário **não** fecha, a quantidade digitada continua lá e o saldo não muda.
+
+A bancada dispensa a tela de login, e só ela: o ambiente local não tem projeto
+Supabase configurado. Isso é uma dependência declarada, não uma escolha —
+entrar pela porta da frente exige `VITE_SUPABASE_URL` e
+`VITE_SUPABASE_PUBLISHABLE_KEY` do projeto de homologação, mais um usuário com
+`inventory.adjust` no tenant de homologação.
+
+O exercício encontrou um defeito que nenhum teste de backend pegaria: a camada
+de API do frontend descartava o `detail` do servidor e lançava um texto fixo,
+"Erro ao ajustar estoque". A pessoa via a recusa sem o motivo. Corrigido com o
+`apiError` que o resto do arquivo já usava. E a mensagem do servidor deixou de
+carregar o código interno `INSUFFICIENT_STOCK`, que ia inteiro para a tela.
 
 ## Gates
 
@@ -155,21 +195,41 @@ massa transformaria histórico errado em histórico falsificado.
 | **Apresentação** | **Pendente** | Capturas nos tamanhos definidos, nas quatro superfícies |
 | **Liberação** | **Pendente** | Diagnóstico no ambiente publicado, decisão sobre os dados e verificação do commit implantado |
 
-### Lacunas dentro do próprio gate de integridade
+### O que fechou no gate de integridade
 
-Não declaro o gate aprovado. Falta:
+| Exigência do gate | Onde |
+|---|---|
+| Recebimento aumenta, perda diminui, entrada inválida é recusada sem efeito | `test_a_loss_takes_goods_out_of_the_balance` e a série de recusas |
+| Venda de dois itens com falha no segundo reverte a operação composta | `test_a_failure_on_the_second_item...` e o equivalente na negociação |
+| Retry de pagamento e chamada repetida após timeout | `test_confirming_the_same_payment_twice_takes_the_stock_out_once`, `test_the_same_movement_sent_twice...`, `test_repeating_the_finalization...` |
+| Duas vendas concorrentes não vendem a mesma última unidade | `test_two_confirmations_do_not_sell_the_same_last_unit` |
+| Escopo de outra loja, produto de outro tenant, ator forjado, perfil sem permissão | quatro testes próprios, o último pelo caminho autenticado |
+| Devolução física e estorno financeiro exercitados **separadamente** | `test_a_financial_refund_does_not_put_the_goods_back_on_the_shelf` e `test_a_physical_return_is_the_one_that_puts_the_goods_back` |
+| Serviço não cria saldo | dois testes, um deles pela mesa |
+| Item fracionado mantém precisão | `test_a_fractional_item_keeps_every_decimal_it_was_given` |
+| Mudança de mínimo não cria movimento | `test_changing_the_minimum_is_a_parameter_and_never_a_movement` |
+| Testado pelos endpoints autenticados, além da unidade de serviço | `test_negotiation_sale_stock.py` inteiro, mais a rota em `test_inventory_movement_integrity.py` |
 
-- **devolução física vinculada à venda** — o passo 7 do ciclo de operação. Existe
-  `RETURN` como entrada de estoque, mas não há vínculo com a venda nem verificação
-  de aptidão do item devolvido;
-- **contagem de estoque com verificação de versão** — a operação "Contar estoque"
-  não existe; hoje só há `ADJUSTMENT` por diferença. A concorrência de contagem
-  não tem como ser exercitada;
-- **precisão fracionada e unidades** — a coluna é `Numeric(14,4)`, mas não há
-  teste de item fracionado, e o cartão "Unidades em saldo" da tela de estoque
-  ainda soma quantidades de unidades diferentes num número só;
-- **escopo entre lojas e tenants** — a recusa existe em `adjust_stock`, e a
-  cobertura vem de outros arquivos de teste, não deste.
+### O que ainda não está fechado
+
+Por isso a etapa é **parcial**, e o gate não é declarado aprovado:
+
+- **contagem de estoque com verificação de versão.** A operação "Contar estoque"
+  não existe — hoje só há `ADJUSTMENT` por diferença, que é a operação técnica.
+  Sem ela não há como exercitar "contagem com versão desatualizada não apaga
+  movimento concorrente". É entrega da etapa 2, e o gate de integridade só fecha
+  quando ela existir;
+- **devolução física vinculada à venda.** `RETURN` entra no saldo e está testado
+  como fato separado do estorno, mas não há vínculo com a venda de origem nem
+  verificação de aptidão do item devolvido — o passo 7 do ciclo de operação
+  ainda não é executável como o plano o descreve;
+- **soma de unidades diferentes.** O cartão "Unidades em saldo" da tela de
+  estoque ainda soma quilo, litro e unidade num número só, contra a invariante 8.
+  A precisão por movimento está provada; a apresentação, não;
+- **motivo padrão contradiz a operação.** Observado na captura do exercício: ao
+  escolher "Perda / Avaria / Vencimento", o campo Motivo permanece com "Entrada
+  de Mercadoria". O texto vai para o histórico, então um livro correto passa a
+  carregar uma justificativa errada. É achado da etapa 2, registrado aqui.
 
 ## Dependências registradas
 
@@ -182,8 +242,11 @@ Não declaro o gate aprovado. Falta:
    ```
    Preciso do acesso de leitura ou do CSV gerado. É a segunda pendência parada
    pelo mesmo motivo — a da regra FOOD é a primeira.
-2. **Decisão sobre a baixa na finalização de negociação.** Comanda e mesa fecham
-   venda sem baixar estoque. É bloqueio de homologação daquele caminho.
+2. **Credenciais do Supabase de homologação**, para percorrer a interface pela
+   navegação real: `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY` e um
+   usuário com `inventory.adjust` no tenant de homologação. Sem isso o gate de
+   operação não pode ser executado por ninguém neste ambiente, e a bancada
+   entrega evidência de comportamento, não o gate.
 3. **Etapa 3 sem algoritmo definido.** O plano coloca reposição assistida na
    etapa 3, mas não especifica os algoritmos nem os critérios de aceite. Um
    planejamento real exige ponto de reposição, estoque de segurança calculado

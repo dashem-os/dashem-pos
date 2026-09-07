@@ -10,7 +10,7 @@ from sqlmodel import Session, select
 
 from app.core.config import settings
 from app.core.context import TenantContext, resolve_actor, scope_tenant_query
-from app.models.catalog import Product
+from app.models.catalog import MovementTypeEnum, Product
 from app.models.negotiation import (
     CheckoutNegotiation, CheckoutNegotiationStatusEnum, NegotiationEvent,
     NegotiationOrder, PaymentAllocation, PaymentIntent, PaymentIntentStatusEnum,
@@ -31,7 +31,7 @@ from app.models.table_service import (
     ServiceTable, ServiceTableStatusEnum, TableSession, TableSessionStatusEnum,
 )
 from app.modules.settlement import contracts as settlement_contracts
-from app.services import reliability_service
+from app.services import inventory_service, reliability_service
 
 
 MONEY = Decimal("0.0001")
@@ -1578,6 +1578,7 @@ def finalize_negotiation(
     )
     session.add(sale)
     session.flush()
+    a_baixar: list[tuple[uuid.UUID, Decimal]] = []
     for order in orders:
         items = session.exec(select(OrderItem).where(
             OrderItem.tenant_id == context.tenant_id,
@@ -1589,18 +1590,43 @@ def finalize_negotiation(
                 Product.id == item.product_id, Product.tenant_id == context.tenant_id,
             )).first()
             gross = _money(item.unit_price * item.quantity)
+            tracks_inventory = bool(getattr(product, "tracks_inventory", False))
             session.add(SaleItem(
                 tenant_id=context.tenant_id, sale_id=sale.id, product_id=item.product_id,
                 product_name=item.product_name, sku=item.sku,
                 item_type_snapshot=getattr(getattr(product, "item_type", None), "value", "PRODUCT"),
-                tracks_inventory_snapshot=bool(getattr(product, "tracks_inventory", False)),
+                tracks_inventory_snapshot=tracks_inventory,
                 requires_fulfillment_snapshot=bool(getattr(product, "requires_fulfillment", False)),
                 unit_price=item.unit_price, quantity=item.quantity,
                 gross_total=gross, net_total=gross,
             ))
+            if tracks_inventory:
+                a_baixar.append((item.product_id, item.quantity))
         order.sale_id = sale.id
         order.status = OrderStatusEnum.CLOSED
         order.updated_at = datetime.utcnow()
+
+    # A mercadoria saiu da loja, e é a `Sale` criada aqui que registra a saída.
+    #
+    # Este caminho fecha mesa e comanda, e até agora não encostava no estoque:
+    # a venda nascia paga e o saldo continuava como estava. A baixa é do item de
+    # venda, não do `OrderItem` — o ADR-001 não atribui movimento de estoque ao
+    # item de pedido, e nada aqui passa a atribuir. O que sai é o que a venda
+    # registrou, pelo mesmo serviço da venda de balcão.
+    #
+    # Vale também para crediário. A venda a prazo sai como `COMPLETED` em vez de
+    # `PAID`, mas o que muda ali é quando o dinheiro entra, não se a mercadoria
+    # saiu; deixar de baixar por causa do prazo seria permitir saída física sem
+    # controle. E a repetição da finalização não baixa de novo, porque a chave de
+    # idempotência devolve a projeção antes de chegar aqui.
+    for product_id, quantity in a_baixar:
+        inventory_service.adjust_stock(
+            session=session, context=context, store_id=negotiation.store_id,
+            product_id=product_id, actor_id=actor,
+            movement_type=MovementTypeEnum.SALE, quantity=quantity,
+            reason=f"Venda finalizada pela negociação {negotiation.id}",
+            correlation_id=idempotency_key,
+        )
     confirmed_intents = session.exec(select(PaymentIntent).where(
         PaymentIntent.tenant_id == context.tenant_id,
         PaymentIntent.negotiation_id == negotiation.id,

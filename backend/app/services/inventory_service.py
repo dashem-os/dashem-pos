@@ -17,6 +17,12 @@ INCOMING_MOVEMENTS = frozenset({MovementTypeEnum.PURCHASE, MovementTypeEnum.RETU
 OUTGOING_MOVEMENTS = frozenset({MovementTypeEnum.SALE, MovementTypeEnum.LOSS})
 
 
+def _amount(value: Decimal) -> str:
+    """Quantidade como uma pessoa escreve: sem zeros à direita inventados."""
+    normalized = value.normalize()
+    return f"{normalized:f}"
+
+
 def signed_variation(
     movement_type: MovementTypeEnum, quantity: Union[float, Decimal],
 ) -> Decimal:
@@ -133,9 +139,13 @@ def adjust_stock(
     if new_balance < Decimal("0.00"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
+            # Sem código interno: esta frase vai inteira para a tela do lojista,
+            # e `INSUFFICIENT_STOCK` não diz nada a quem precisa decidir o que
+            # fazer com a mercadoria que falta.
             detail=(
-                f"INSUFFICIENT_STOCK: saldo insuficiente para '{product.name}'. "
-                f"Disponível: {previous_balance}, solicitado: {abs(qty_dec)}."
+                f"Saldo insuficiente de '{product.name}'. "
+                f"Disponível: {_amount(previous_balance)}, "
+                f"solicitado: {_amount(abs(qty_dec))}."
             )
         )
 

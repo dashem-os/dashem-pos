@@ -38,7 +38,13 @@ from app.core.tenancy import set_platform_db_context, set_tenant_db_context
 from app.models.catalog import (
     InventoryBalance, InventoryMovement, MovementTypeEnum, Product,
 )
-from app.models.identity import Store, Tenant, TenantStatusEnum
+from app.core.context import authorize_tenant_context
+from app.core.security import AuthPrincipal
+from app.models.identity import (
+    AuthIdentity, Membership, MembershipStatusEnum, RoleEnum, Store, Tenant,
+    TenantStatusEnum, User,
+)
+from app.models.platform import EntitlementStatusEnum, TenantCapability
 from app.models.payment import Payment, PaymentMethodEnum, PaymentStatusEnum
 from app.models.sale import Sale, SaleItem, SaleStatusEnum
 from app.services import inventory_service, payment_service
@@ -238,7 +244,9 @@ def test_an_exit_larger_than_the_balance_is_refused_with_the_numbers_that_explai
         session.rollback()
 
     assert refused.value.status_code == 400
-    assert "10" in refused.value.detail and "15" in refused.value.detail
+    assert "Disponível: 10" in refused.value.detail
+    assert "solicitado: 15" in refused.value.detail
+    assert "INSUFFICIENT_STOCK" not in refused.value.detail
     assert _balance(context.tenant_id, context.store_id, product_id) == Decimal("10.0000")
 
 
@@ -352,6 +360,7 @@ def test_the_same_movement_sent_twice_moves_the_stock_once():
 
 def _sale_awaiting_payment(
     session: Session, context: TenantContext, items: list[tuple[uuid.UUID, str]],
+    *, method: PaymentMethodEnum = PaymentMethodEnum.CASH,
 ) -> tuple[uuid.UUID, uuid.UUID]:
     """Uma venda pronta para quitar, com os itens que ela vai baixar."""
     total = sum((Decimal(quantity) for _, quantity in items), Decimal("0"))
@@ -373,7 +382,7 @@ def _sale_awaiting_payment(
         ))
     payment = Payment(
         tenant_id=context.tenant_id, store_id=context.store_id, sale_id=sale.id,
-        method=PaymentMethodEnum.CASH, status=PaymentStatusEnum.PENDING, amount=total,
+        method=method, status=PaymentStatusEnum.PENDING, amount=total,
     )
     session.add(payment)
     session.commit()
@@ -484,3 +493,237 @@ def test_an_item_that_does_not_track_inventory_moves_nothing():
 
     assert created is False and movement is None
     assert Decimal(str(balance.quantity)) == Decimal("0.00")
+
+
+# ---------------------------------------- retry, escopo, permissao e precisao
+
+def test_confirming_the_same_payment_twice_takes_the_stock_out_once():
+    """Retry de pagamento e chamada repetida apos timeout nao baixam duas vezes."""
+    with _session() as session:
+        context = _context(session)
+        product_id = _stocked(session, context, "10")
+        sale_id, payment_id = _sale_awaiting_payment(session, context, [(product_id, "3")])
+
+        payment_service.confirm_payment(
+            session=session, context=context, payment_id=payment_id,
+            actor_id=context.user_id,
+        )
+        payment_service.confirm_payment(
+            session=session, context=context, payment_id=payment_id,
+            actor_id=context.user_id,
+        )
+
+    assert _balance(context.tenant_id, context.store_id, product_id) == Decimal("7.0000")
+    with Session(engine) as session:
+        set_tenant_db_context(session, context.tenant_id, context.store_id, None)
+        movements = session.exec(select(InventoryMovement).where(
+            InventoryMovement.product_id == product_id,
+            InventoryMovement.movement_type == MovementTypeEnum.SALE,
+        )).all()
+    assert len(movements) == 1
+
+
+def test_a_movement_aimed_at_another_store_is_refused():
+    """A unidade ativa e a fronteira: ninguem movimenta o estoque de outra."""
+    with _session() as session:
+        context = _context(session)
+        product_id = _stocked(session, context, "10")
+
+        with pytest.raises(HTTPException) as refused:
+            inventory_service.adjust_stock(
+                session=session, context=context, store_id=uuid.uuid4(),
+                product_id=product_id, actor_id=context.user_id,
+                movement_type=MovementTypeEnum.PURCHASE, quantity=Decimal("5"),
+                reason="Loja alheia",
+            )
+        session.rollback()
+
+    assert refused.value.status_code == 403
+    assert _balance(context.tenant_id, context.store_id, product_id) == Decimal("10.0000")
+
+
+def test_a_product_from_another_tenant_is_not_found():
+    """O produto de outro inquilino nao existe para quem pede."""
+    with _session() as session:
+        outro = _context(session)
+        alheio = _stocked(session, outro, "10")
+
+    with _session() as session:
+        context = _context(session)
+        with pytest.raises(HTTPException) as refused:
+            inventory_service.adjust_stock(
+                session=session, context=context, store_id=context.store_id,
+                product_id=alheio, actor_id=context.user_id,
+                movement_type=MovementTypeEnum.PURCHASE, quantity=Decimal("5"),
+                reason="Produto de outro tenant",
+            )
+        session.rollback()
+
+    assert refused.value.status_code == 404
+    assert _balance(outro.tenant_id, outro.store_id, alheio) == Decimal("10.0000")
+
+
+def test_a_forged_actor_cannot_author_a_movement():
+    """Quem assina o movimento e quem o servidor autenticou, e mais ninguem."""
+    with _session() as session:
+        context = _context(session)
+        product_id = _stocked(session, context, "10")
+
+        with pytest.raises(HTTPException) as refused:
+            inventory_service.adjust_stock(
+                session=session, context=context, store_id=context.store_id,
+                product_id=product_id, actor_id=uuid.uuid4(),
+                movement_type=MovementTypeEnum.LOSS, quantity=Decimal("1"),
+                reason="Ator forjado",
+            )
+        session.rollback()
+
+    assert refused.value.status_code == 403
+    assert _balance(context.tenant_id, context.store_id, product_id) == Decimal("10.0000")
+
+
+def test_a_profile_without_the_permission_cannot_reach_the_route():
+    """CASHIER le o estoque e nao o movimenta, pelo caminho autenticado."""
+    suffix = uuid.uuid4().hex[:8]
+    subject = str(uuid.uuid4())
+    with _session() as session:
+        set_platform_db_context(session)
+        tenant = Tenant(
+            name=f"Permissao {suffix}", slug=f"permissao-{suffix}",
+            status=TenantStatusEnum.ACTIVE,
+        )
+        session.add(tenant)
+        session.flush()
+        store = Store(tenant_id=tenant.id, name="Matriz", code=f"PRM-{suffix}")
+        session.add(store)
+        user = User(email=f"caixa-{suffix}@example.test", full_name="Caixa")
+        session.add(user)
+        session.flush()
+        session.add(AuthIdentity(
+            user_id=user.id, provider="supabase", provider_subject=subject,
+        ))
+        session.add(Membership(
+            user_id=user.id, tenant_id=tenant.id, store_id=None,
+            role=RoleEnum.CASHIER, status=MembershipStatusEnum.ACTIVE,
+        ))
+        for key in ("catalog", "inventory", "payments"):
+            session.add(TenantCapability(
+                tenant_id=tenant.id, key=key, enabled=True,
+                status=EntitlementStatusEnum.ACTIVE,
+            ))
+        session.commit()
+        tenant_id, store_id = tenant.id, store.id
+
+    principal = AuthPrincipal(
+        subject=subject, email=f"caixa-{suffix}@example.test",
+        session_id=str(uuid.uuid4()), assurance_level="aal1", claims={"sub": subject},
+    )
+    with Session(engine) as session:
+        set_platform_db_context(session)
+        leitura = authorize_tenant_context(
+            session, principal, tenant_id, store_id, "GET", "/api/v1/inventory/movements",
+        )
+        assert "inventory.read" in leitura.permissions
+
+        with pytest.raises(HTTPException) as refused:
+            authorize_tenant_context(
+                session, principal, tenant_id, store_id, "POST", "/api/v1/inventory/adjust",
+            )
+    assert refused.value.status_code == 403
+
+
+def test_a_financial_refund_does_not_put_the_goods_back_on_the_shelf():
+    """Devolver dinheiro nao e receber mercadoria de volta -- ADR-030.
+
+    Sao dois fatos diferentes e independentes: o cliente pode ter o dinheiro de
+    volta sem devolver o produto, e pode devolver o produto sem estorno. Repor
+    estoque por conta de um movimento financeiro inventaria um fato fisico que
+    ninguem observou.
+    """
+    with _session() as session:
+        context = _context(session)
+        product_id = _stocked(session, context, "10")
+        # PIX, e nao dinheiro: o ADR-030 exige caixa aberto para devolver em
+        # especie, e o que esta em prova aqui e o estoque, nao a tesouraria.
+        _, payment_id = _sale_awaiting_payment(
+            session, context, [(product_id, "2")], method=PaymentMethodEnum.PIX,
+        )
+        payment_service.confirm_payment(
+            session=session, context=context, payment_id=payment_id,
+            actor_id=context.user_id,
+        )
+        payment_service.refund_payment(
+            session=session, context=context, payment_id=payment_id,
+            actor_id=context.user_id, amount=Decimal("2.00"),
+            reason="Cliente desistiu do pagamento",
+            idempotency_key=f"refund-{uuid.uuid4().hex[:10]}",
+            cash_session_id=None, provider_reference=None,
+        )
+
+    assert _balance(context.tenant_id, context.store_id, product_id) == Decimal("8.0000"), (
+        "o estorno financeiro repos mercadoria que ninguem devolveu"
+    )
+
+
+def test_a_physical_return_is_the_one_that_puts_the_goods_back():
+    """A devolucao fisica e o outro fato, e ela sim mexe no saldo."""
+    with _session() as session:
+        context = _context(session)
+        product_id = _stocked(session, context, "10")
+        _, payment_id = _sale_awaiting_payment(session, context, [(product_id, "2")])
+        payment_service.confirm_payment(
+            session=session, context=context, payment_id=payment_id,
+            actor_id=context.user_id,
+        )
+        inventory_service.adjust_stock(
+            session=session, context=context, store_id=context.store_id,
+            product_id=product_id, actor_id=context.user_id,
+            movement_type=MovementTypeEnum.RETURN, quantity=Decimal("2"),
+            reason="Cliente devolveu a mercadoria",
+        )
+        session.commit()
+
+    assert _balance(context.tenant_id, context.store_id, product_id) == Decimal("10.0000")
+
+
+def test_a_fractional_item_keeps_every_decimal_it_was_given():
+    """Peso e volume nao sao unidades inteiras, e arredondar e perder mercadoria."""
+    with _session() as session:
+        context = _context(session)
+        product_id = _product(session, context)
+        for movement_type, quantity in (
+            (MovementTypeEnum.PURCHASE, "12.3456"),
+            (MovementTypeEnum.LOSS, "0.1234"),
+        ):
+            inventory_service.adjust_stock(
+                session=session, context=context, store_id=context.store_id,
+                product_id=product_id, actor_id=context.user_id,
+                movement_type=movement_type, quantity=Decimal(quantity),
+                reason="Mercadoria fracionada",
+            )
+        session.commit()
+
+    assert _balance(context.tenant_id, context.store_id, product_id) == Decimal("12.2222")
+
+
+def test_changing_the_minimum_is_a_parameter_and_never_a_movement():
+    """Definir quando repor nao e repor: o minimo nao gera entrada nem saida."""
+    with _session() as session:
+        context = _context(session)
+        product_id = _stocked(session, context, "10")
+        inventory_service.set_minimum_stock(
+            session=session, context=context, store_id=context.store_id,
+            product_id=product_id, minimum_stock=Decimal("4"),
+        )
+
+    assert _balance(context.tenant_id, context.store_id, product_id) == Decimal("10.0000")
+    with Session(engine) as session:
+        set_tenant_db_context(session, context.tenant_id, context.store_id, None)
+        movements = session.exec(select(InventoryMovement).where(
+            InventoryMovement.product_id == product_id,
+        )).all()
+        balance = session.exec(select(InventoryBalance).where(
+            InventoryBalance.product_id == product_id,
+        )).one()
+    assert len(movements) == 1, "mudar o minimo criou movimento de estoque"
+    assert Decimal(str(balance.minimum_stock)) == Decimal("4.0000")
