@@ -46,3 +46,32 @@ export function countPreview(counted: number, current: number, unit = 'un'): str
   const sign = difference > 0 ? '+' : '−'
   return `${found} Diferença: ${sign}${Math.abs(difference)} ${unit}.`
 }
+
+
+/**
+ * Mercadoria imprópria não volta ao saldo vendável.
+ *
+ * A condição é o que a pessoa observa; o destino é a consequência. Deixar as
+ * duas soltas permitiria dizer "está boa" e mandar para o descarte, ou o
+ * contrário — payload ambíguo que o servidor recusa. Aqui a escolha da condição
+ * já leva o destino coerente, e o único caso com escolha real é a mercadoria
+ * imprópria: quarentena enquanto se decide, ou descarte.
+ */
+export type ReturnCondition = 'RESALEABLE' | 'UNFIT'
+export type ReturnDestination = 'SELLABLE_STOCK' | 'QUARANTINE' | 'DISCARD'
+
+export const DESTINATIONS_FOR_CONDITION: Record<ReturnCondition, ReturnDestination[]> = {
+  RESALEABLE: ['SELLABLE_STOCK'],
+  UNFIT: ['QUARANTINE', 'DISCARD'],
+}
+
+export function defaultDestination(condition: ReturnCondition): ReturnDestination {
+  return DESTINATIONS_FOR_CONDITION[condition][0]
+}
+
+/** A frase que diz o que vai acontecer com a mercadoria ao confirmar. */
+export function returnEffect(condition: ReturnCondition, destination: ReturnDestination): string {
+  if (destination === 'SELLABLE_STOCK') return 'A mercadoria volta ao saldo disponível para venda.'
+  if (destination === 'QUARANTINE') return 'A mercadoria fica separada e não entra no saldo de venda.'
+  return 'A mercadoria é descartada e não entra no saldo de venda.'
+}

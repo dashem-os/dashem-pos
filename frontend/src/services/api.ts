@@ -3170,6 +3170,39 @@ export async function adjustStockTechnically(
   return res.json()
 }
 
+export type ReturnCondition = 'RESALEABLE' | 'UNFIT'
+export type ReturnDestination = 'SELLABLE_STOCK' | 'QUARANTINE' | 'DISCARD'
+
+export interface SaleItemReturn {
+  id: string
+  sale_id: string
+  sale_item_id: string
+  product_id: string
+  quantity: number
+  condition: ReturnCondition
+  destination: ReturnDestination
+  movement_id: string | null
+  reason?: string
+  created_at: string
+}
+
+export async function returnSoldItem(
+  headers: Record<string, string>,
+  idempotencyKey: string,
+  data: {
+    sale_item_id: string; actor_id: string; quantity: number
+    condition: ReturnCondition; destination: ReturnDestination; reason?: string
+  },
+): Promise<{ sale_item_return: SaleItemReturn; movement: InventoryMovement | null }> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/sales/returns`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível registrar a devolução.')
+  return res.json()
+}
+
 export async function setMinimumStock(
   headers: Record<string, string>, storeId: string, productId: string, minimumStock: number
 ): Promise<InventoryBalance> {

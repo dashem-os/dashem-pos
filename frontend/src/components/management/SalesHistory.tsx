@@ -1,9 +1,11 @@
 import React, { useState } from 'react'
-import { FileText, Search, ChevronDown, ChevronUp, CheckCircle2, Ban, Clock, Scale } from 'lucide-react'
+import { FileText, Search, ChevronDown, ChevronUp, CheckCircle2, Ban, Clock, Scale, Undo2 } from 'lucide-react'
 import { usePos } from '../../context/PosContext'
 import { Sale } from '../../services/api'
 import * as api from '../../services/api'
 import { formatApiDateTime } from '../../utils/format'
+import { Modal } from '../common/Modal'
+import { DESTINATIONS_FOR_CONDITION, defaultDestination, returnEffect, type ReturnCondition, type ReturnDestination } from '../../domain/stockMovements'
 
 export const SalesHistory: React.FC = () => {
   const { salesHistory, tenant, store, operatorId, permissions, showToast } = usePos()
@@ -12,6 +14,38 @@ export const SalesHistory: React.FC = () => {
   const [expandedSaleId, setExpandedSaleId] = useState<string | null>(null)
   const [reconciliations, setReconciliations] = useState<Record<string, api.FinancialReconciliation>>({})
   const [reconciling, setReconciling] = useState<string | null>(null)
+  // Devolver mercadoria pertence à venda de onde ela saiu: é dali que sai o
+  // limite do que pode voltar, e é ali que a pessoa encontra o item.
+  const canReturn = permissions.includes('inventory.adjust')
+  const [returning, setReturning] = useState<{ saleItemId: string; name: string; sold: number } | null>(null)
+  const [returnForm, setReturnForm] = useState<{
+    quantity: string; condition: ReturnCondition; destination: ReturnDestination; reason: string
+  }>({ quantity: '', condition: 'RESALEABLE', destination: 'SELLABLE_STOCK', reason: '' })
+  const [returnBusy, setReturnBusy] = useState(false)
+
+  const submitReturn = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!returning || !tenant || !store || returnForm.quantity === '') return
+    setReturnBusy(true)
+    try {
+      await api.returnSoldItem(
+        { 'X-Tenant-ID': tenant.id, 'X-Store-ID': store.id },
+        `return-${returning.saleItemId}-${crypto.randomUUID()}`,
+        {
+          sale_item_id: returning.saleItemId, actor_id: operatorId,
+          quantity: Number(returnForm.quantity), condition: returnForm.condition,
+          destination: returnForm.destination, reason: returnForm.reason || undefined,
+        },
+      )
+      setReturning(null)
+      showToast('success', 'Devolução registrada.')
+    } catch (reason) {
+      // A recusa do servidor explica o limite — quanto foi vendido e quanto já
+      // voltou. Fechar o formulário aqui tiraria da tela a única informação que
+      // permite corrigir a quantidade.
+      showToast('error', reason instanceof Error ? reason.message : 'Não foi possível registrar a devolução.')
+    } finally { setReturnBusy(false) }
+  }
 
   const reconcile = async (sale: Sale) => {
     if (!tenant || !store) return
@@ -188,6 +222,19 @@ export const SalesHistory: React.FC = () => {
                               {item.quantity}x R$ {Number(item.unit_price).toFixed(2)}
                             </span>
                           </div>
+                          <div className="flex items-center gap-3 text-right">
+                            {canReturn && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setReturning({ saleItemId: item.id, name: item.product_name, sold: Number(item.quantity) })
+                                  setReturnForm({ quantity: '', condition: 'RESALEABLE', destination: 'SELLABLE_STOCK', reason: '' })
+                                }}
+                                className="inline-flex min-h-11 items-center rounded-lg border border-dashem-border px-3 text-xs font-black text-dashem-strong"
+                              >
+                                <Undo2 className="mr-1 h-4 w-4 text-emerald-700" />Devolver
+                              </button>
+                            )}
                           <div className="text-right">
                             {Number(item.discount_amount) > 0 && (
                               <span className="text-xs text-emerald-700 font-semibold block">
@@ -195,6 +242,7 @@ export const SalesHistory: React.FC = () => {
                               </span>
                             )}
                             <span className="font-bold text-dashem-strong">R$ {Number(item.net_total).toFixed(2)}</span>
+                          </div>
                           </div>
                         </div>
                       ))}
@@ -220,6 +268,72 @@ export const SalesHistory: React.FC = () => {
           })}
         </div>
       )}
+
+      <Modal
+        isOpen={Boolean(returning)}
+        onClose={() => setReturning(null)}
+        title={`Devolver ${returning?.name || ''}`}
+        subtitle="Receber de volta o que saiu por esta venda."
+      >
+        <form onSubmit={submitReturn} className="space-y-4">
+          <div className="rounded-xl border border-dashem-border bg-dashem-surface-elevated p-3 text-xs text-dashem-muted">
+            Vendido nesta venda: <b className="text-dashem-strong">{returning?.sold}</b>. O limite
+            considera o que já foi devolvido antes, e é conferido no servidor.
+          </div>
+          <label className="block text-xs font-black text-dashem-strong">
+            Quantidade devolvida
+            <input
+              type="number" min="0" step="0.0001" value={returnForm.quantity}
+              onChange={(event) => setReturnForm({ ...returnForm, quantity: event.target.value })}
+              className="mt-2 h-11 w-full rounded-xl border border-dashem-border bg-dashem-surface-elevated px-3 text-sm text-dashem-strong"
+            />
+          </label>
+          <label className="block text-xs font-black text-dashem-strong">
+            Estado da mercadoria
+            <select
+              value={returnForm.condition}
+              onChange={(event) => {
+                const condition = event.target.value as ReturnCondition
+                setReturnForm({ ...returnForm, condition, destination: defaultDestination(condition) })
+              }}
+              className="mt-2 h-11 w-full rounded-xl border border-dashem-border bg-dashem-surface-elevated px-3 text-sm text-dashem-strong"
+            >
+              <option value="RESALEABLE">Em condições de voltar à venda</option>
+              <option value="UNFIT">Danificada, vencida ou imprópria</option>
+            </select>
+          </label>
+          {DESTINATIONS_FOR_CONDITION[returnForm.condition].length > 1 && (
+            <label className="block text-xs font-black text-dashem-strong">
+              Destino
+              <select
+                value={returnForm.destination}
+                onChange={(event) => setReturnForm({ ...returnForm, destination: event.target.value as ReturnDestination })}
+                className="mt-2 h-11 w-full rounded-xl border border-dashem-border bg-dashem-surface-elevated px-3 text-sm text-dashem-strong"
+              >
+                <option value="QUARANTINE">Separar para avaliação</option>
+                <option value="DISCARD">Descartar</option>
+              </select>
+            </label>
+          )}
+          <p className="rounded-xl border border-dashem-border bg-dashem-surface p-3 text-xs font-bold text-dashem-strong">
+            {returnEffect(returnForm.condition, returnForm.destination)}
+          </p>
+          <label className="block text-xs font-black text-dashem-strong">
+            Motivo
+            <input
+              type="text" value={returnForm.reason}
+              onChange={(event) => setReturnForm({ ...returnForm, reason: event.target.value })}
+              className="mt-2 h-11 w-full rounded-xl border border-dashem-border bg-dashem-surface-elevated px-3 text-sm text-dashem-strong"
+            />
+          </label>
+          <button
+            disabled={returnBusy || returnForm.quantity === ''}
+            className="h-12 w-full rounded-xl bg-dashem-red text-sm font-black text-brand-contrast disabled:opacity-40"
+          >
+            {returnBusy ? 'Registrando...' : 'Registrar devolução'}
+          </button>
+        </form>
+      </Modal>
     </div>
   )
 }

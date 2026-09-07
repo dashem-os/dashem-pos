@@ -168,11 +168,13 @@ massa transformaria histórico errado em histórico falsificado.
 
 | O quê | Resultado |
 |---|---|
-| `backend/tests` completo | 453 passaram |
+| `backend/tests` completo | 476 passaram |
 | `test_inventory_movement_integrity.py` | 30 passaram (eram 16 falhas em `07ae804`) |
 | `test_negotiation_sale_stock.py` | 7 passaram |
+| `test_inventory_count.py` | 32 passaram |
+| `test_linked_sale_return.py` | 23 passaram |
 | `test_inventory_integrity_diagnosis.py` | 5 passaram |
-| `frontend` — `npm test` | 121 passaram |
+| `frontend` — `npm test` | 127 passaram |
 | `tsc --noEmit` | limpo |
 | `npm run build` | construído |
 | Recusa exercitada na tela | `npm run e2e:stock-refusal` |
@@ -344,6 +346,13 @@ versão recém-lida. O número digitado continua preservado, mas confirmar passo
 exigir um ato deliberado — "Voltei à prateleira e confirmo a quantidade acima" —
 e o botão fica desabilitado até lá.
 
+Essa marcação **registra uma declaração; ela não comprova uma nova contagem.** O
+que sustenta a correção é a versão, revalidada a cada envio: o segundo envio leva
+a versão relida e o servidor a confere de novo, sob o mesmo bloqueio de linha. Se
+o estoque andar outra vez entre a marcação e o clique, a confirmação é recusada
+outra vez. A caixa é o ato explícito que impede a aceitação por inércia, não uma
+prova de que alguém voltou à prateleira.
+
 ### A bancada com contexto de permissões
 
 `frontend/e2e/stock-count.spec.mjs` percorre o caminho pela tela: abre a
@@ -360,7 +369,7 @@ autorização real continuaria sendo recusado por ele. **Não substitui o teste
 autenticado e não homologa a tela** — o gate de operação continua exigindo pessoa
 representativa do cliente percorrendo a navegação completa.
 
-### Dois achados da bancada, registrados e não corrigidos
+### Dois achados da bancada — obrigatórios na próxima entrega
 
 - **A tela de estoque lista o catálogo vendável, não o acervo.** Uma mercadoria
   cadastrada, com saldo recebido e controle de estoque ativo, **não aparece**
@@ -370,10 +379,90 @@ representativa do cliente percorrendo a navegação completa.
   da etapa 2; agora tem evidência.
 - **Dois saldos na mesma tela.** Durante o conflito, a linha da tabela continua
   mostrando o saldo antigo enquanto o modal já mostra o novo. A lista só recarrega
-  após uma contagem bem-sucedida.
+  após uma contagem bem-sucedida. Mostrar dois saldos sem dizer qual está
+  desatualizado compromete a própria conferência: a pessoa não sabe contra qual
+  número está conferindo.
+
+Os dois são **obrigatórios na próxima entrega**, e não achados a registrar e
+deixar. O primeiro já constava do plano; a bancada confirmou o efeito.
 
 **A tela ainda não é homologada**, e o limite é o de sempre: exercitá-la pela
 navegação real depende das credenciais Supabase já listadas como dependência.
+
+## Devolução vinculada à venda — 07/09/2026
+
+`RETURN` era entrada de estoque solta: quantidade, motivo em texto livre, nenhum
+vínculo com a venda de onde a mercadoria saiu. Nada impedia devolver dez unidades
+de um item vendido duas vezes, e mercadoria que voltou quebrada somava saldo
+vendável igual à que ainda podia ser vendida.
+
+| Ponto do contrato | O que passou a valer | Prova |
+|---|---|---|
+| **Origem** | `sale_item_returns` liga a devolução à venda e ao item | Item de outro tenant e venda de outra unidade não são encontrados |
+| **Teto** | Vendido menos já devolvido, apurado sob `FOR UPDATE` do item de venda | Duas solicitações simultâneas: a segunda espera e estoura o `lock_timeout`; depois é recusada pelo teto já atualizado |
+| **Reenvio** | Chave de idempotência com hash do comando | Repetir devolve a mesma devolução; trocar quantidade ou condição responde `409` |
+| **Condição e destino** | `RESALEABLE` → saldo vendável; `UNFIT` → quarentena ou descarte | Imprópria não gera movimento e o saldo não sobe — e ainda assim **conta contra o teto**, porque também saiu da venda |
+| **Separação** | Nenhum caminho chama o outro | Devolução física não estorna; estorno não cria devolução nem entrada; os dois coexistem com rastros próprios |
+| **Autorização** | `inventory.adjust` na rota; tenant e loja no escopo da consulta | `CASHIER` recusado pelo caminho autenticado; ator forjado recusado |
+
+**Onde a devolução mora.** O portão de fronteiras de módulo recusou a primeira
+versão: eu havia posto o serviço em `inventory_service`, e o `catalog` passou a
+importar modelos de `operation` — o ADR-029 permite a dependência na direção
+oposta, nunca nessa. O portão estava certo, e a correção não é declarar dívida: a
+devolução **é fato da venda**, porque é do item vendido que sai o teto. O serviço
+foi para `sale_service` e a rota para `/api/v1/sales/returns`, de onde o estoque
+é chamado na direção legal. A autoridade continua sendo `inventory.adjust`, porque
+ela acompanha o efeito — receber mercadoria de volta é trabalho de loja — e não o
+caminho da URL.
+
+Uma correção de rota: a checagem explícita de loja que eu havia escrito era código
+morto — `scope_tenant_query` já filtra tenant e unidade ativa, então a venda de
+outra loja não é encontrada. Removida. A recusa passou a ser `404`, que também é
+melhor: ela não confirma que a venda existe em outro lugar.
+
+A tela vive no histórico de vendas, no item — que é onde a pessoa encontra o que
+foi vendido. Ela nomeia o estado da mercadoria em vez do código interno, e diz o
+que vai acontecer antes de confirmar. A recusa do servidor permanece na tela com
+o formulário aberto, porque é ela que explica o limite.
+
+**Devolução sem venda de origem continua existindo** pela rota comum, como
+`RETURN`. O plano prevê o caso ("venda quando aplicável"), e ali não há teto a
+aplicar porque não há origem. Isso é limite conhecido, não descuido: quem
+devolve sem vínculo não tem contra o que ser limitado.
+
+## Confronto com as exigências do plano
+
+Concluir a devolução **não aprova o gate**. Este é o confronto de cada exigência
+do gate de integridade contra a evidência que existe hoje.
+
+| Exigência do plano | Estado | Evidência |
+|---|---|---|
+| Recebimento aumenta, perda diminui, entrada inválida recusada sem efeito | ✔ | `test_inventory_movement_integrity.py` |
+| Venda de dois itens com falha no segundo reverte a operação composta | ✔ | Venda direta e finalização de negociação, lidas por sessão nova |
+| Retry de pagamento e chamada repetida após timeout | ✔ | Confirmação repetida, movimentação repetida, finalização repetida |
+| Duas vendas concorrentes não vendem a mesma última unidade | ✔ | `test_two_confirmations_do_not_sell_the_same_last_unit` |
+| Contagem com versão desatualizada não apaga movimento concorrente | ✔ | Conflito recusado, e a venda concorrente preservada |
+| Escopo de outra loja/tenant, ator forjado, perfil sem permissão | ✔ | Em movimentação, contagem e devolução |
+| Devolução física e estorno exercitados separadamente | ✔ | Três testes: cada um sozinho e os dois juntos |
+| Serviço não cria saldo | ✔ | Movimentação, mesa e devolução |
+| Itens fracionados mantêm precisão | ✔ | Recusa além da quarta casa; contado, diferença e movimento na mesma casa |
+| Mudança de mínimo não cria movimento | ✔ | `test_changing_the_minimum_is_a_parameter_and_never_a_movement` |
+| Movimento confirmado não é reescrito; correção é compensatória | **✘ sem teste** | Não existe caminho de escrita que altere movimento, mas nenhum teste fixa isso |
+| Cancelamento antes da baixa não cria devolução fictícia | **✘ sem teste** | O caminho de cancelamento de venda não foi exercitado contra estoque |
+| Testar pelos endpoints autenticados, além da unidade de serviço | **parcial** | Negociação, mesa e comanda por HTTP real; contagem e devolução pela função da rota com sessão real, mais `authorize_tenant_context` para a permissão — não por HTTP |
+| Não somar kg, litros e unidades num cartão | **✘** | O cartão "Unidades em saldo" ainda soma |
+
+E as duas exigências de operação que dependem de dado, não de código:
+
+| Exigência | Estado |
+|---|---|
+| Estoque lista o acervo físico, incluindo não publicados | **✘ obrigatório na próxima entrega** |
+| Tabela e modal coerentes após o conflito | **✘ obrigatório na próxima entrega** |
+
+**Portanto: gate de integridade PENDENTE.** Quatro itens sem evidência e um
+comportamento contrário à invariante 8. Gates de operação, apresentação e
+liberação seguem intocados — o ciclo pela navegação real não foi executado por
+ninguém, e depende das credenciais listadas abaixo.
 
 ## Dependências registradas
 

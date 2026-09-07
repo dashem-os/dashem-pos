@@ -2,7 +2,9 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import test from 'node:test'
-import { countPreview } from '../src/domain/stockMovements.ts'
+import {
+  DESTINATIONS_FOR_CONDITION, countPreview, defaultDestination, returnEffect,
+} from '../src/domain/stockMovements.ts'
 
 /**
  * Contar estoque informa o total encontrado; o servidor calcula a diferença.
@@ -75,4 +77,48 @@ test('depois do conflito, confirmar exige um ato deliberado', () => {
 test('a ação de contar só aparece para quem tem a permissão de contar', () => {
   assert.match(inventory, /canCount = permissions\.includes\('inventory\.count'\)/)
   assert.match(inventory, /canCount \? <button/)
+})
+
+
+/**
+ * Devolver mercadoria: a condição é o que a pessoa observa, o destino é a
+ * consequência. Mercadoria imprópria não volta ao saldo vendável.
+ */
+
+const sales = readFileSync(
+  join(import.meta.dirname, '..', 'src', 'components', 'management', 'SalesHistory.tsx'),
+  'utf8',
+)
+
+test('mercadoria em condição de venda só tem um destino', () => {
+  assert.deepEqual(DESTINATIONS_FOR_CONDITION.RESALEABLE, ['SELLABLE_STOCK'])
+  assert.equal(defaultDestination('RESALEABLE'), 'SELLABLE_STOCK')
+})
+
+test('mercadoria imprópria nunca oferece o saldo vendável como destino', () => {
+  assert.ok(!DESTINATIONS_FOR_CONDITION.UNFIT.includes('SELLABLE_STOCK'))
+  assert.deepEqual(DESTINATIONS_FOR_CONDITION.UNFIT, ['QUARANTINE', 'DISCARD'])
+})
+
+test('a tela diz o que vai acontecer com a mercadoria', () => {
+  assert.match(returnEffect('RESALEABLE', 'SELLABLE_STOCK'), /volta ao saldo disponível/)
+  assert.match(returnEffect('UNFIT', 'QUARANTINE'), /não entra no saldo de venda/)
+  assert.match(returnEffect('UNFIT', 'DISCARD'), /não entra no saldo de venda/)
+})
+
+test('trocar a condição leva junto um destino coerente', () => {
+  assert.match(sales, /destination: defaultDestination\(condition\)/)
+})
+
+test('a devolução parte do item da venda, não do produto solto', () => {
+  assert.match(sales, /sale_item_id: returning\.saleItemId/)
+})
+
+test('a recusa do servidor fica na tela com o formulário aberto', () => {
+  const handler = sales.slice(sales.indexOf('const submitReturn'))
+  const corpo = handler.slice(0, handler.indexOf('finally'))
+  assert.ok(corpo.indexOf('catch') < corpo.indexOf("showToast('error'"))
+  // Nada de fechar o formulário no catch: a recusa explica o limite.
+  const doCatch = corpo.slice(corpo.indexOf('catch'))
+  assert.doesNotMatch(doCatch, /setReturning\(null\)/)
 })

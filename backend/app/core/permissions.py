@@ -63,6 +63,11 @@ def route_requirement(method: str, path: str) -> RouteRequirement:
         if path.startswith("/api/v1/catalog/quick-access"):
             return RouteRequirement("catalog.read" if method == "GET" else "catalog.layout.personalize")
         return RouteRequirement("catalog.read" if method == "GET" else "catalog.update")
+    if path.startswith("/api/v1/sales/returns"):
+        # A devolução mora na venda porque é dela que sai o teto, mas quem
+        # recebe mercadoria de volta faz trabalho de estoque — a autoridade
+        # acompanha o efeito, não o caminho da URL.
+        return RouteRequirement("inventory.adjust")
     if path.startswith("/api/v1/inventory"):
         # Três autoridades diferentes, e é por isso que são três rotas. Contar a
         # prateleira é operação de loja; lançar diferença assinada à mão passa

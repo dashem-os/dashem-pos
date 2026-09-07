@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional, List
 from sqlmodel import SQLModel, Field, Relationship, UniqueConstraint, Column, Numeric
-from sqlalchemy import Index, String, text
+from sqlalchemy import CheckConstraint, Index, String, text
 from app.core.db_types import EnumString
 
 class SaleStatusEnum(str, Enum):
@@ -122,6 +122,63 @@ class Sale(SQLModel, table=True):
 
     customer: Optional["Customer"] = Relationship(back_populates="sales")
     items: List["SaleItem"] = Relationship(back_populates="sale")
+
+class ReturnConditionEnum(str, Enum):
+    """A mercadoria voltou vendável, ou voltou imprópria."""
+
+    RESALEABLE = "RESALEABLE"
+    UNFIT = "UNFIT"
+
+
+class ReturnDestinationEnum(str, Enum):
+    """Para onde ela foi, que é o que decide se vira saldo.
+
+    `QUARANTINE` e `DISCARD` existem porque mercadoria imprópria não desaparece
+    quando volta: ela está fisicamente na loja e precisa de destino declarado. O
+    tratamento desses lotes — separação, baixa formal, devolução ao fornecedor —
+    é da etapa de almoxarifado, e até lá o registro é o que garante que ninguém
+    a confunda com estoque vendável.
+    """
+
+    SELLABLE_STOCK = "SELLABLE_STOCK"
+    QUARANTINE = "QUARANTINE"
+    DISCARD = "DISCARD"
+
+
+class SaleItemReturn(SQLModel, table=True):
+    """Uma devolução ligada ao item de venda de onde a mercadoria saiu.
+
+    Sem esse vínculo não existe teto: nada impediria devolver dez unidades de um
+    item vendido duas vezes. E sem condição declarada, mercadoria avariada
+    voltaria ao saldo vendável junto com a que ainda pode ser vendida.
+    """
+
+    __tablename__ = "sale_item_returns"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "idempotency_key", name="uq_tenant_return_idempotency"),
+        CheckConstraint("quantity > 0", name="ck_sale_item_return_positive"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(index=True)
+    store_id: uuid.UUID
+    sale_id: uuid.UUID = Field(foreign_key="sales.id")
+    sale_item_id: uuid.UUID = Field(foreign_key="sale_items.id", index=True)
+    product_id: uuid.UUID = Field(foreign_key="products.id", index=True)
+    actor_id: uuid.UUID
+    quantity: Decimal = Field(sa_column=Column(Numeric(14, 4), nullable=False))
+    condition: ReturnConditionEnum = Field(
+        sa_column=Column(EnumString(ReturnConditionEnum), nullable=False),
+    )
+    destination: ReturnDestinationEnum = Field(
+        sa_column=Column(EnumString(ReturnDestinationEnum), nullable=False),
+    )
+    movement_id: Optional[uuid.UUID] = Field(default=None, foreign_key="inventory_movements.id")
+    reason: Optional[str] = None
+    idempotency_key: str = Field(max_length=160)
+    request_hash: str = Field(max_length=64)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
 
 class SaleItem(SQLModel, table=True):
     __tablename__ = "sale_items"

@@ -1,17 +1,20 @@
 import uuid
 from decimal import Decimal
 from datetime import datetime
-from typing import List, Optional, Tuple, Dict, Any
+from typing import Any, Dict, List, Optional, Tuple, Union
 from sqlmodel import Session, select
 from sqlalchemy.orm import selectinload
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException, status
 from app.core.context import TenantContext, resolve_actor, scope_tenant_query
 from app.models.identity import Register, Store
-from app.models.catalog import Product, ProductPrice
-from app.models.sale import Customer, Sale, SaleItem, SaleStatusEnum, DiscountTypeEnum, SaleOperationModeEnum
+from app.models.catalog import InventoryMovement, MovementTypeEnum, Product, ProductPrice
+from app.models.sale import (
+    Customer, DiscountTypeEnum, ReturnConditionEnum, ReturnDestinationEnum,
+    Sale, SaleItem, SaleItemReturn, SaleOperationModeEnum, SaleStatusEnum,
+)
 from app.models.payment import Payment, PaymentStatusEnum
-from app.services import reliability_service
+from app.services import inventory_service, reliability_service
 
 def check_no_confirmed_payments(session: Session, sale_id: uuid.UUID) -> None:
     confirmed = session.exec(
@@ -586,3 +589,167 @@ def get_sale(session: Session, context: TenantContext, sale_id: uuid.UUID) -> Sa
     if not sale:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sale not found for this tenant.")
     return sale
+
+
+# ---------------------------------------------------------------------------
+# Devolução de item vendido.
+#
+# Mora aqui, e não no serviço de estoque, porque a devolução é fato da venda: é
+# do item vendido que sai o teto do que pode voltar. O estoque é consequência —
+# quando a mercadoria volta vendável, este serviço pede a entrada ao estoque,
+# na direção que o ADR-029 permite. O contrário faria o catálogo depender da
+# operação para saber o que foi vendido.
+# ---------------------------------------------------------------------------
+
+# Mercadoria imprópria não volta ao saldo vendável. Ela está fisicamente na loja
+# e precisa de destino declarado — separar, dar baixa formal, devolver ao
+# fornecedor é assunto da etapa de almoxarifado. Até lá o registro é o que
+# impede que alguém a confunda com estoque que pode ser vendido.
+RETURN_DESTINATIONS = {
+    ReturnConditionEnum.RESALEABLE: {ReturnDestinationEnum.SELLABLE_STOCK},
+    ReturnConditionEnum.UNFIT: {
+        ReturnDestinationEnum.QUARANTINE, ReturnDestinationEnum.DISCARD,
+    },
+}
+
+
+def return_sold_item(
+    session: Session,
+    context: TenantContext,
+    sale_item_id: uuid.UUID,
+    actor_id: uuid.UUID,
+    quantity: Union[float, Decimal],
+    condition: ReturnConditionEnum,
+    destination: ReturnDestinationEnum,
+    idempotency_key: str,
+    reason: Optional[str] = None,
+    correlation_id: Optional[str] = None,
+) -> tuple[SaleItemReturn, Optional[InventoryMovement]]:
+    """Receber de volta o que saiu por uma venda, e só até o que saiu.
+
+    A devolução se liga ao item de venda, e não ao produto: é dali que sai o
+    teto — o vendido menos o já devolvido. Sem esse vínculo, nada impediria
+    devolver dez unidades de um item vendido duas vezes.
+
+    Esta operação não estorna dinheiro e não é afetada por estorno. Devolver a
+    mercadoria e devolver o pagamento são fatos independentes: o cliente pode
+    receber de volta sem trazer o produto, e trazer o produto sem estorno.
+    """
+    actor_id = resolve_actor(context, actor_id)
+    returned = inventory_service.exact_quantity(quantity, "quantidade devolvida")
+    if returned <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A quantidade devolvida precisa ser maior que zero.",
+        )
+    if destination not in RETURN_DESTINATIONS[condition]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Mercadoria imprópria não retorna ao saldo vendável: informe "
+                "quarentena ou descarte."
+                if condition is ReturnConditionEnum.UNFIT else
+                "Mercadoria em condição de revenda retorna ao saldo vendável."
+            ),
+        )
+
+    request_hash = reliability_service.compute_request_hash({
+        "sale_item_id": str(sale_item_id), "quantity": str(returned),
+        "condition": condition.value, "destination": destination.value,
+    })
+    existing = session.exec(scope_tenant_query(select(SaleItemReturn).where(
+        SaleItemReturn.idempotency_key == idempotency_key,
+    ), SaleItemReturn, context)).first()
+    if existing is not None:
+        if existing.request_hash != request_hash:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Esta devolução já foi registrada com outro comando. "
+                    "Refaça a solicitação para gerar uma nova."
+                ),
+            )
+        movement = (session.get(InventoryMovement, existing.movement_id)
+                    if existing.movement_id else None)
+        return existing, movement
+
+    # O item de venda é travado antes de somar o já devolvido: sem isso, duas
+    # solicitações simultâneas leriam o mesmo total e passariam as duas, somando
+    # além do vendido.
+    item = session.exec(scope_tenant_query(select(SaleItem).where(
+        SaleItem.id == sale_item_id,
+    ), SaleItem, context).with_for_update()).first()
+    if item is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Item de venda não encontrado neste contexto.",
+        )
+    sale = session.exec(scope_tenant_query(select(Sale).where(
+        Sale.id == item.sale_id,
+    ), Sale, context)).first()
+    if sale is None:
+        # `scope_tenant_query` já filtra tenant e unidade ativa, então uma venda
+        # de outra loja simplesmente não é encontrada aqui — e não encontrar é a
+        # recusa certa: ela não revela que a venda existe em outro lugar.
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Venda de origem não encontrada neste contexto.",
+        )
+
+    already = session.exec(scope_tenant_query(select(SaleItemReturn).where(
+        SaleItemReturn.sale_item_id == item.id,
+    ), SaleItemReturn, context)).all()
+    devolvido = sum((Decimal(str(row.quantity)) for row in already), Decimal("0"))
+    disponivel = Decimal(str(item.quantity)) - devolvido
+    if returned > disponivel:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Devolução acima do vendido para '{item.product_name}'. "
+                f"Vendido: {inventory_service._amount(Decimal(str(item.quantity)))}, "
+                f"já devolvido: {inventory_service._amount(devolvido)}, "
+                f"disponível para devolução: {inventory_service._amount(disponivel)}."
+            ),
+        )
+
+    movement = None
+    if destination is ReturnDestinationEnum.SELLABLE_STOCK and item.tracks_inventory_snapshot:
+        movement, _balance, _created = inventory_service.adjust_stock(
+            session=session, context=context, store_id=sale.store_id,
+            product_id=item.product_id, actor_id=actor_id,
+            movement_type=MovementTypeEnum.RETURN, quantity=returned,
+            reason=reason or f"Devolução da venda {sale.id}",
+            correlation_id=correlation_id,
+        )
+
+    record = SaleItemReturn(
+        tenant_id=context.tenant_id, store_id=sale.store_id, sale_id=sale.id,
+        sale_item_id=item.id, product_id=item.product_id, actor_id=actor_id,
+        quantity=returned, condition=condition, destination=destination,
+        movement_id=movement.id if movement else None, reason=reason,
+        idempotency_key=idempotency_key, request_hash=request_hash,
+    )
+    session.add(record)
+
+    reliability_service.write_audit_and_outbox(
+        session=session, tenant_id=context.tenant_id, store_id=sale.store_id,
+        actor_id=actor_id, action="inventory.sale_item_returned",
+        target=f"SALE-ITEM-{item.id}",
+        audit_payload={
+            "sale_id": str(sale.id), "sale_item_id": str(item.id),
+            "product_id": str(item.product_id), "quantity": str(returned),
+            "condition": condition.value, "destination": destination.value,
+            "movement_id": str(movement.id) if movement else None,
+        },
+        aggregate_type="sale", aggregate_id=str(sale.id),
+        event_type="inventory.sale_item_returned",
+        outbox_payload={
+            "tenant_id": str(context.tenant_id), "store_id": str(sale.store_id),
+            "sale_id": str(sale.id), "sale_item_id": str(item.id),
+            "quantity": str(returned), "condition": condition.value,
+            "destination": destination.value,
+        },
+        correlation_id=correlation_id,
+    )
+    session.flush()
+    return record, movement
