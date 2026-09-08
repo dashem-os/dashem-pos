@@ -78,6 +78,10 @@ const MEDIDA = () => {
   }
   const ehCartao = (el) => {
     if (el.closest('button, a, label, [role="button"], [role="tablist"], form')) return false
+    // Cartão sem conteúdo não é cartão: o selo de ícone ao lado de um título
+    // tem moldura, canto e fundo, e é decoração — moldura sobre moldura só
+    // incomoda quando as duas emolduram texto.
+    if (!(el.innerText || '').trim()) return false
     // Uma caixa com moldura cujos filhos são todos controles é um controle —
     // o seletor de período, por exemplo. Cartão é recipiente de conteúdo.
     if (soContemControles(el)) return false

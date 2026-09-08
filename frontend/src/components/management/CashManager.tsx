@@ -64,10 +64,10 @@ export const CashManager: React.FC = () => {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h2 className="text-xl font-black text-dashem-strong tracking-tight flex items-center space-x-2">
+        <h1 className="text-xl font-black text-dashem-strong tracking-tight flex items-center space-x-2">
           <Banknote className="w-5 h-5 text-dashem-red" />
           <span>Gestão de Caixa & Tesouraria</span>
-        </h2>
+        </h1>
         <p className="text-xs text-dashem-muted font-medium mt-0.5">
           Controle de sessões de caixa, sangrias, suprimentos e conferência de saldos.
         </p>
@@ -79,8 +79,8 @@ export const CashManager: React.FC = () => {
           <div
             className={`w-12 h-12 rounded-2xl flex items-center justify-center font-bold ${
               isCashOpen
-                ? 'bg-emerald-50 border border-emerald-500/40 text-emerald-700'
-                : 'bg-rose-50 border border-rose-500/40 text-rose-700'
+                ? 'bg-state-success-soft border border-state-success/40 text-state-success'
+                : 'bg-state-danger-soft border border-state-danger/40 text-state-danger'
             }`}
           >
             {isCashOpen ? <Unlock className="w-6 h-6" /> : <Lock className="w-6 h-6" />}
@@ -109,7 +109,7 @@ export const CashManager: React.FC = () => {
         {isCashOpen ? (
           <div className="p-6 rounded-3xl bg-dashem-surface border border-dashem-border space-y-4 shadow-sm">
             <h3 className="text-sm font-black text-dashem-strong flex items-center space-x-2">
-              <Lock className="w-4 h-4 text-rose-700" />
+              <Lock className="w-4 h-4 text-state-danger" />
               <span>Fechamento de Caixa</span>
             </h3>
             <p className="text-xs text-dashem-muted">
@@ -133,7 +133,7 @@ export const CashManager: React.FC = () => {
               <button
                 type="submit"
                 disabled={actionLoading || !closingInput}
-                className="w-full h-12 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-black transition-all shadow-lg active:scale-95 disabled:opacity-40"
+                className="w-full h-12 rounded-xl bg-state-danger hover:bg-state-danger/90 text-white text-xs font-black transition-all shadow-lg active:scale-95 disabled:opacity-40"
               >
                 Encerrar e Fechar Caixa
               </button>
@@ -142,7 +142,7 @@ export const CashManager: React.FC = () => {
         ) : (
           <div className="p-6 rounded-3xl bg-dashem-surface border border-dashem-border space-y-4 shadow-sm">
             <h3 className="text-sm font-black text-dashem-strong flex items-center space-x-2">
-              <Unlock className="w-4 h-4 text-emerald-700" />
+              <Unlock className="w-4 h-4 text-state-success" />
               <span>Abertura de Caixa</span>
             </h3>
             <p className="text-xs text-dashem-muted">
@@ -166,7 +166,7 @@ export const CashManager: React.FC = () => {
               <button
                 type="submit"
                 disabled={actionLoading || !openingInput}
-                className="w-full h-12 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black transition-all shadow-lg active:scale-95 disabled:opacity-40"
+                className="w-full h-12 rounded-xl bg-state-success hover:bg-state-success/90 text-white text-xs font-black transition-all shadow-lg active:scale-95 disabled:opacity-40"
               >
                 Confirmar Abertura de Caixa
               </button>
@@ -190,7 +190,7 @@ export const CashManager: React.FC = () => {
                 type="button"
                 onClick={() => setMovementType('REINFORCEMENT')}
                 className={`h-9 rounded-lg font-extrabold text-xs flex items-center justify-center space-x-1.5 transition-all ${
-                  movementType === 'REINFORCEMENT' ? 'bg-emerald-600 text-white shadow-sm' : 'text-dashem-muted'
+                  movementType === 'REINFORCEMENT' ? 'bg-state-success text-white shadow-sm' : 'text-dashem-muted'
                 }`}
               >
                 <ArrowUpRight className="w-3.5 h-3.5" />
@@ -201,7 +201,7 @@ export const CashManager: React.FC = () => {
                 type="button"
                 onClick={() => setMovementType('BLEED')}
                 className={`h-9 rounded-lg font-extrabold text-xs flex items-center justify-center space-x-1.5 transition-all ${
-                  movementType === 'BLEED' ? 'bg-rose-600 text-white shadow-sm' : 'text-dashem-muted'
+                  movementType === 'BLEED' ? 'bg-state-danger text-white shadow-sm' : 'text-dashem-muted'
                 }`}
               >
                 <ArrowDownRight className="w-3.5 h-3.5" />
@@ -271,7 +271,7 @@ export const CashManager: React.FC = () => {
                   <div className="flex items-center space-x-3">
                     <div
                       className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold ${
-                        isPositive ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'
+                        isPositive ? 'bg-state-success-soft text-state-success' : 'bg-state-danger-soft text-state-danger'
                       }`}
                     >
                       {isPositive ? <ArrowUpRight className="w-4 h-4" /> : <ArrowDownRight className="w-4 h-4" />}
@@ -291,7 +291,7 @@ export const CashManager: React.FC = () => {
                   </div>
 
                   <div className="text-right">
-                    <span className={`text-sm font-black ${isPositive ? 'text-emerald-700' : 'text-rose-700'}`}>
+                    <span className={`text-sm font-black ${isPositive ? 'text-state-success' : 'text-state-danger'}`}>
                       {isPositive ? '+' : '-'} R$ {Number(m.amount).toFixed(2)}
                     </span>
                     <span className="text-xs text-dashem-muted block">

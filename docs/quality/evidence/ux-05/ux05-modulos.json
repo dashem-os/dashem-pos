@@ -1,0 +1,138 @@
+{
+  "app": "http://127.0.0.1:5173",
+  "gerado_em": "2026-09-08T16:27:24.318Z",
+  "modulos": [
+    {
+      "nome": "vendas",
+      "area": "OPERACAO",
+      "modulo": "sales",
+      "canais": 2,
+      "titulos": [
+        "Histórico de Vendas & Transações"
+      ],
+      "titulo_repetido": false,
+      "cartoes_aninhados": [],
+      "fora_da_paleta": [],
+      "acao_principal": "Voltar para Operação",
+      "acao_visivel": true,
+      "texto": "Voltar para Operação\nHistórico de Vendas & Transações\n\nRegistro consolidado de todas as vendas emitidas nesta loja.\n\nTod",
+      "achados": []
+    },
+    {
+      "nome": "caixas",
+      "area": "OPERACAO",
+      "modulo": "cash",
+      "canais": 2,
+      "titulos": [
+        "Gestão de Caixa & Tesouraria"
+      ],
+      "titulo_repetido": false,
+      "cartoes_aninhados": [],
+      "fora_da_paleta": [],
+      "acao_principal": "Voltar para Operação",
+      "acao_visivel": true,
+      "texto": "Voltar para Operação\nGestão de Caixa & Tesouraria\n\nControle de sessões de caixa, sangrias, suprimentos e conferência de ",
+      "achados": []
+    },
+    {
+      "nome": "canais",
+      "area": "OPERACAO",
+      "modulo": "channels",
+      "canais": 2,
+      "titulos": [
+        "Dashem Channel Hub"
+      ],
+      "titulo_repetido": false,
+      "cartoes_aninhados": [],
+      "fora_da_paleta": [],
+      "acao_principal": "Voltar para Operação",
+      "acao_visivel": true,
+      "texto": "Voltar para Operação\n\nOMNICHANNEL · INBOX DURÁVEL\n\nDashem Channel Hub\n\nEventos externos entram no mesmo Order Engine. Co",
+      "achados": []
+    },
+    {
+      "nome": "terminais",
+      "area": "ESTRUTURA",
+      "modulo": "devices",
+      "canais": 2,
+      "titulos": [
+        "Terminais e dispositivos"
+      ],
+      "titulo_repetido": false,
+      "cartoes_aninhados": [],
+      "fora_da_paleta": [],
+      "acao_principal": "Voltar para Estrutura",
+      "acao_visivel": true,
+      "texto": "Voltar para Estrutura\n\nINFRAESTRUTURA DA UNIDADE\n\nTerminais e dispositivos\n\nAutorize pontos de operação e acompanhe sua ",
+      "achados": []
+    },
+    {
+      "nome": "equipe",
+      "area": "PESSOAS",
+      "modulo": "team",
+      "canais": 2,
+      "titulos": [
+        "Equipe e identidades"
+      ],
+      "titulo_repetido": false,
+      "cartoes_aninhados": [],
+      "fora_da_paleta": [],
+      "acao_principal": "Voltar para Pessoas",
+      "acao_visivel": true,
+      "texto": "Voltar para Pessoas\n\nADMINISTRAÇÃO DO TENANT\n\nEquipe e identidades\n\nO cadastro do funcionário existe antes do acesso. Ge",
+      "achados": []
+    },
+    {
+      "nome": "clientes",
+      "area": "RELACIONAMENTO",
+      "modulo": "customers",
+      "canais": 2,
+      "titulos": [
+        "Clientes"
+      ],
+      "titulo_repetido": false,
+      "cartoes_aninhados": [],
+      "fora_da_paleta": [],
+      "acao_principal": "Voltar para Relacionamento",
+      "acao_visivel": true,
+      "texto": "Voltar para Relacionamento\n\nRELACIONAMENTO\n\nClientes\n\nCadastro, contato e histórico comercial no mesmo contexto do tenan",
+      "achados": []
+    },
+    {
+      "nome": "recebiveis",
+      "area": "FINANCEIRO",
+      "modulo": "receivables",
+      "canais": 2,
+      "titulos": [
+        "Crediário e contas a receber"
+      ],
+      "titulo_repetido": false,
+      "cartoes_aninhados": [],
+      "fora_da_paleta": [],
+      "acao_principal": "Voltar para Financeiro",
+      "acao_visivel": true,
+      "texto": "Voltar para Financeiro\n\nFINANCEIRO · FONTE PERSISTIDA\n\nCrediário e contas a receber\n\nLimite, exposição e títulos são cal",
+      "achados": []
+    },
+    {
+      "nome": "plano",
+      "area": "ADMINISTRACAO",
+      "modulo": "subscription",
+      "canais": 2,
+      "titulos": [
+        "Plano e solicitações"
+      ],
+      "titulo_repetido": false,
+      "cartoes_aninhados": [],
+      "fora_da_paleta": [],
+      "acao_principal": "Voltar para Administração",
+      "acao_visivel": true,
+      "texto": "Voltar para Administração\n\nADMINISTRAÇÃO DO TENANT\n\nPlano e solicitações\n\nConsulte a quota vigente e encaminhe ao Owner ",
+      "achados": []
+    }
+  ],
+  "resumo": {
+    "auditados": 8,
+    "com_achados": 0
+  }
+}

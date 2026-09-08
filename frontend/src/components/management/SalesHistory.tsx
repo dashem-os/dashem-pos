@@ -76,29 +76,29 @@ export const SalesHistory: React.FC = () => {
     switch (status) {
       case 'COMPLETED':
         return (
-          <span className="px-2.5 py-1 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold text-xs flex items-center space-x-1">
-            <CheckCircle2 className="w-3 h-3 text-emerald-700" />
+          <span className="px-2.5 py-1 rounded-md bg-state-success-soft text-state-success border border-state-success-border font-bold text-xs flex items-center space-x-1">
+            <CheckCircle2 className="w-3 h-3 text-state-success" />
             <span>Concluída</span>
           </span>
         )
       case 'PAID':
         return (
-          <span className="px-2.5 py-1 rounded-md bg-sky-50 text-sky-700 border border-sky-200 font-bold text-xs flex items-center space-x-1">
-            <CheckCircle2 className="w-3 h-3 text-sky-700" />
+          <span className="px-2.5 py-1 rounded-md bg-state-info-soft text-state-info border border-state-info-border font-bold text-xs flex items-center space-x-1">
+            <CheckCircle2 className="w-3 h-3 text-state-info" />
             <span>Paga (NF Pendente)</span>
           </span>
         )
       case 'AWAITING_PAYMENT':
         return (
-          <span className="px-2.5 py-1 rounded-md bg-amber-50 text-amber-700 border border-amber-200 font-bold text-xs flex items-center space-x-1">
-            <Clock className="w-3 h-3 text-amber-700" />
+          <span className="px-2.5 py-1 rounded-md bg-state-warning-soft text-state-warning border border-state-warning-border font-bold text-xs flex items-center space-x-1">
+            <Clock className="w-3 h-3 text-state-warning" />
             <span>Aguardando Pagamento</span>
           </span>
         )
       case 'CANCELED':
         return (
-          <span className="px-2.5 py-1 rounded-md bg-rose-50 text-rose-700 border border-rose-200 font-bold text-xs flex items-center space-x-1">
-            <Ban className="w-3 h-3 text-rose-700" />
+          <span className="px-2.5 py-1 rounded-md bg-state-danger-soft text-state-danger border border-state-danger-border font-bold text-xs flex items-center space-x-1">
+            <Ban className="w-3 h-3 text-state-danger" />
             <span>Cancelada</span>
           </span>
         )
@@ -116,10 +116,10 @@ export const SalesHistory: React.FC = () => {
       {/* Header & Filter Row */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-black text-dashem-strong tracking-tight flex items-center space-x-2">
+          <h1 className="text-xl font-black text-dashem-strong tracking-tight flex items-center space-x-2">
             <FileText className="w-5 h-5 text-dashem-red" />
             <span>Histórico de Vendas & Transações</span>
-          </h2>
+          </h1>
           <p className="text-xs text-dashem-muted font-medium mt-0.5">
             Registro consolidado de todas as vendas emitidas nesta loja.
           </p>
@@ -238,12 +238,12 @@ export const SalesHistory: React.FC = () => {
                                 }}
                                 className="inline-flex min-h-11 items-center rounded-lg border border-dashem-border px-3 text-xs font-black text-dashem-strong"
                               >
-                                <Undo2 className="mr-1 h-4 w-4 text-emerald-700" />Devolver
+                                <Undo2 className="mr-1 h-4 w-4 text-state-success" />Devolver
                               </button>
                             )}
                           <div className="text-right">
                             {Number(item.discount_amount) > 0 && (
-                              <span className="text-xs text-emerald-700 font-semibold block">
+                              <span className="text-xs text-state-success font-semibold block">
                                 - R$ {Number(item.discount_amount).toFixed(2)} desc.
                               </span>
                             )}
@@ -262,7 +262,7 @@ export const SalesHistory: React.FC = () => {
                     {permissions.includes('reconciliation.manage') && ['PAID', 'COMPLETED', 'PARTIALLY_REFUNDED', 'REFUNDED'].includes(sale.status) && (
                       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-dashem-border pt-3">
                         <div className="text-xs text-dashem-muted">
-                          {reconciliations[sale.id] ? <span className={reconciliations[sale.id].status === 'MATCHED' ? 'font-bold text-emerald-700' : 'font-bold text-amber-700'}>{reconciliations[sale.id].status === 'MATCHED' ? 'Conferência sem diferenças' : `Diferença de R$ ${Number(reconciliations[sale.id].difference).toFixed(2)}`}</span> : 'Compare venda, pagamentos, crediário e documento fiscal sem alterar os fatos.'}
+                          {reconciliations[sale.id] ? <span className={reconciliations[sale.id].status === 'MATCHED' ? 'font-bold text-state-success' : 'font-bold text-state-warning'}>{reconciliations[sale.id].status === 'MATCHED' ? 'Conferência sem diferenças' : `Diferença de R$ ${Number(reconciliations[sale.id].difference).toFixed(2)}`}</span> : 'Compare venda, pagamentos, crediário e documento fiscal sem alterar os fatos.'}
                         </div>
                         <button type="button" onClick={() => reconcile(sale)} disabled={reconciling === sale.id} className="flex h-9 items-center gap-2 rounded-xl border border-dashem-border px-3 text-xs font-black text-dashem-strong hover:border-dashem-red disabled:opacity-40"><Scale className="h-4 w-4" />{reconciling === sale.id ? 'Conferindo...' : 'Conciliar venda'}</button>
                       </div>

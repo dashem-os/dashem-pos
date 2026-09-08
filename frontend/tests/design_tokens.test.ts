@@ -37,6 +37,18 @@ const CONSOLIDADAS = [
   'components/common/RowActions.tsx',
   'components/common/StatCard.tsx',
   'components/common/Toast.tsx',
+  // UX-05: os oito módulos restantes da Gestão, auditados um a um antes de
+  // mexer neles. Clientes e Recebíveis já estavam limpos e entram para não
+  // regredirem.
+  'components/management/SalesHistory.tsx',
+  'components/management/CashManager.tsx',
+  'components/management/ChannelHubWorkspace.tsx',
+  'components/management/DeviceManager.tsx',
+  'components/management/TeamManager.tsx',
+  'components/management/CustomerManager.tsx',
+  'components/management/ReceivablesManager.tsx',
+  'components/management/TenantPlanWorkspace.tsx',
+  'components/management/CommercialRequestsPanel.tsx',
 ]
 
 const PALETA_CRUA = /\b(?:text|bg|border|ring|from|via|to|divide|outline|decoration|shadow)-(?:violet|indigo|purple|fuchsia|pink|blue|sky|cyan|teal|emerald|green|lime|yellow|amber|orange|red|rose)-\d{2,3}\b/g
