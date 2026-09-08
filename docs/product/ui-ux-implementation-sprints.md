@@ -1,10 +1,10 @@
 # Gestão e PDV — sprints de implementação da experiência
 
-Status: planejado; nenhuma sprint executada ou homologada por este documento.
+Status: UX-00 executada em 08/09/2026 (inventário e baseline, sem mudança de comportamento); UX-01 a UX-13 planejadas.
 Origem: direção explícita do usuário nesta conversa, em 07/09/2026.
 Plano visual: [evolução de UI/UX](ui-ux-evolution-plan.md).
 Referências de arquitetura para execução: [ADR-034 — hierarquia da interface e redução do esforço do operador](../architecture/adr-034-interface-hierarchy.md) e [ADR-032 — disponibilidade prometida e compromisso de estoque](../architecture/adr-032-available-to-promise.md).
-Aplicação: ADR-034 orienta Gestão e PDV em todas as sprints; ADR-032 é referência de domínio para UX-04, UX-06 e UX-07. Seu núcleo deixou de ser proposta: reserva na inclusão, disponível, recusa antes do pagamento, devolução no cancelamento, consumo na conclusão e validade de 30 min do carrinho estão publicados em `main` desde 07/09/2026. O que segue pendente está listado em "Situação da implementação" no próprio ADR — comanda que não reserva, `on_order`, a escada de avisos no PDV e a homologação em duas estações. Ler essa seção antes de alterar disponibilidade ou reservas: nem tudo o que o ADR descreve está entregue, e nada do que está entregue precisa ser reimplementado.
+Aplicação: ADR-034 orienta Gestão e PDV em todas as sprints; ADR-032 é referência de domínio para UX-04, UX-06 e UX-07. Seu núcleo de balcão está publicado em `main` desde 07/09/2026: reserva na inclusão, disponível, recusa antes do pagamento, liberação no cancelamento, consumo na conclusão e validade de 30 min do carrinho. A homologação em duas estações foi registrada em `a42e578`, também em 07/09/2026; busca e grade já leem disponível. Continuam pendentes reservas de comanda/pedido, `on_order`, avisos sobre ATP projetado e extensões de leitura/expiração, conforme "Situação da implementação" no ADR. A etapa 3.0 do plano de estoque já foi entregue em `45ee54e`, com percurso em Gestão e PDV. Essas entregas são a base existente desta trilha, sem declarar as sprints UX concluídas.
 Integração: [trilha da Gestão](tenant-management-correction-sprints.md), [estoque](inventory-operational-correction-plan.md) e [roadmap V2](roadmap-commerce-os-v2.md).
 
 Esta trilha usa o prefixo UX para não renumerar sprints históricas nem declarar concluídos gates anteriores. A navegação abaixo substitui a proposta de sidebar persistente do plano inicial. Gestão vem primeiro, PDV permanece como entrega explícita.
@@ -159,4 +159,13 @@ torna configurável.
 
 ## Acompanhamento
 
-Todas as sprints UX-00 a UX-13 estão **planejadas** — nenhuma foi executada por este documento. O que já está publicado veio da trilha corretiva (P0.1, P0.2 e P0.3), não das sprints UX. O executor deve manter aqui uma linha por sprint com status, commit, evidência e pendência. A estimativa anterior de 6–8 semanas cobre apenas a fundação gerencial e Mercadorias; não cobre toda esta trilha nem os novos domínios. Dimensionar esforço após UX-00, sem converter nomes de sprint em promessa de prazo.
+Uma linha por sprint, com status, commit, evidência e pendência.
+
+| Sprint | Status | Evidência | Pendência |
+|---|---|---|---|
+| UX-00 | **executada** em 08/09/2026 sobre `a42e578`; inventário e baseline, sem mudança de comportamento | [baseline](../quality/ux-00-baseline-2026-09-08.md) · [capturas](../quality/evidence/ux-00/) · roteiro `frontend/e2e/presentation/ux00_baseline.cjs` | O mapa acima ainda descreve o card do sortimento como "Cardápios pela 086"; a 088 tornou isso desatualizado. Corrigir antes da UX-03 |
+| UX-01 a UX-13 | planejadas | — | UX-01 recebe os seis atritos medidos (A1 a A6) e precisa preservar link direto e atualizar, que já funcionam |
+
+O que já está publicado veio da trilha corretiva (P0.1, P0.2 e P0.3) e das etapas de estoque, não das sprints UX. A estimativa anterior de 6–8 semanas cobre apenas a fundação gerencial e Mercadorias; não cobre toda esta trilha nem os novos domínios.
+
+O que a UX-00 mudou no dimensionamento, sem virar prazo: dos dezessete destinos do mapa, quatro (Fornecedores, Contas a pagar, Comissões e gorjetas, Manutenção) **não existem em nenhuma forma** — não são melhoria de tela, são domínio novo, e continuam fora da fundação. Os treze restantes já abrem e já respondem a link direto e a atualizar. UX-01 é, portanto, reorganização de navegação sobre módulos que funcionam, não reconstrução. Dimensionar por aí, sem converter nomes de sprint em promessa de prazo.

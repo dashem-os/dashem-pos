@@ -1,0 +1,385 @@
+{
+  "app": "http://127.0.0.1:5173",
+  "gerado_em": "2026-09-08T11:51:23.239Z",
+  "navegacao": {
+    "encontrada": true,
+    "visivel": true,
+    "largura_da_barra": 288,
+    "itens_abaixo_da_dobra": [
+      "Funcionários e acessos",
+      "Plano e solicitações"
+    ],
+    "grupos": [
+      {
+        "grupo": "VISÃO",
+        "itens": [
+          "Visão geral"
+        ]
+      },
+      {
+        "grupo": "OPERAÇÃO",
+        "itens": [
+          "Vendas",
+          "Caixas",
+          "Canais de venda"
+        ]
+      },
+      {
+        "grupo": "FINANCEIRO",
+        "itens": [
+          "Crediário e recebíveis"
+        ]
+      },
+      {
+        "grupo": "MERCADORIAS",
+        "itens": [
+          "Produtos e preços",
+          "Catálogos",
+          "Categorias",
+          "Estoque"
+        ]
+      },
+      {
+        "grupo": "RELACIONAMENTO",
+        "itens": [
+          "Clientes"
+        ]
+      },
+      {
+        "grupo": "ESTRUTURA",
+        "itens": [
+          "Terminais e dispositivos"
+        ]
+      },
+      {
+        "grupo": "PESSOAS",
+        "itens": [
+          "Funcionários e acessos"
+        ]
+      },
+      {
+        "grupo": "ADMINISTRAÇÃO",
+        "itens": [
+          "Plano e solicitações"
+        ]
+      }
+    ],
+    "total_itens": 13,
+    "acoes_do_topo": [
+      "Abrir menu",
+      "Validar no PDV",
+      "Sair"
+    ]
+  },
+  "modulos": [
+    {
+      "id": "overview",
+      "titulo": "Visão geral",
+      "caracteres": 1364,
+      "interativos": 21,
+      "cabecalhos": [
+        "Matriz Homologação",
+        "Faturamento diário",
+        "Pendências que exigem atenção",
+        "Preparar e administrar a operação"
+      ],
+      "estado": "conteudo",
+      "captura": "modulo-overview-desktop-1440x900.png"
+    },
+    {
+      "id": "sales",
+      "titulo": "Vendas",
+      "caracteres": 237,
+      "interativos": 5,
+      "cabecalhos": [
+        "Histórico de Vendas & Transações"
+      ],
+      "estado": "conteudo",
+      "captura": "modulo-sales-desktop-1440x900.png"
+    },
+    {
+      "id": "cash",
+      "titulo": "Caixas",
+      "caracteres": 644,
+      "interativos": 7,
+      "cabecalhos": [
+        "Gestão de Caixa & Tesouraria",
+        "Abertura de Caixa",
+        "Movimentação Avulsa (Sangria / Suprimento)",
+        "Extrato de Movimentações da Sessão Atual"
+      ],
+      "estado": "conteudo",
+      "captura": "modulo-cash-desktop-1440x900.png"
+    },
+    {
+      "id": "channels",
+      "titulo": "Canais de venda",
+      "caracteres": 917,
+      "interativos": 2,
+      "cabecalhos": [
+        "Dashem Channel Hub",
+        "Conexões",
+        "External Order Inbox",
+        "Catálogo por canal"
+      ],
+      "estado": "conteudo",
+      "captura": "modulo-channels-desktop-1440x900.png"
+    },
+    {
+      "id": "receivables",
+      "titulo": "Crediário e recebíveis",
+      "caracteres": 464,
+      "interativos": 7,
+      "cabecalhos": [
+        "Crediário e contas a receber",
+        "Política do cliente",
+        "Títulos emitidos"
+      ],
+      "estado": "conteudo",
+      "captura": "modulo-receivables-desktop-1440x900.png"
+    },
+    {
+      "id": "products",
+      "titulo": "Produtos e preços",
+      "caracteres": 738,
+      "interativos": 31,
+      "cabecalhos": [
+        "Produtos, preços e estoque"
+      ],
+      "estado": "conteudo",
+      "captura": "modulo-products-desktop-1440x900.png"
+    },
+    {
+      "id": "assortments",
+      "titulo": "Catálogos",
+      "caracteres": 435,
+      "interativos": 10,
+      "cabecalhos": [
+        "Catálogos"
+      ],
+      "estado": "conteudo",
+      "captura": "modulo-assortments-desktop-1440x900.png"
+    },
+    {
+      "id": "categories",
+      "titulo": "Categorias",
+      "caracteres": 224,
+      "interativos": 2,
+      "cabecalhos": [
+        "Categorias e grupos",
+        "Nenhuma categoria encontrada"
+      ],
+      "estado": "conteudo",
+      "captura": "modulo-categories-desktop-1440x900.png"
+    },
+    {
+      "id": "inventory",
+      "titulo": "Estoque",
+      "caracteres": 601,
+      "interativos": 15,
+      "cabecalhos": [
+        "Estoque por unidade",
+        "Movimentações recentes"
+      ],
+      "estado": "conteudo",
+      "captura": "modulo-inventory-desktop-1440x900.png"
+    },
+    {
+      "id": "customers",
+      "titulo": "Clientes",
+      "caracteres": 204,
+      "interativos": 2,
+      "cabecalhos": [
+        "Clientes"
+      ],
+      "estado": "conteudo",
+      "captura": "modulo-customers-desktop-1440x900.png"
+    },
+    {
+      "id": "tables",
+      "titulo": "Gestão",
+      "caracteres": 0,
+      "interativos": 0,
+      "cabecalhos": [],
+      "estado": "carcaca",
+      "captura": "modulo-tables-desktop-1440x900.png"
+    },
+    {
+      "id": "devices",
+      "titulo": "Terminais e dispositivos",
+      "caracteres": 658,
+      "interativos": 6,
+      "cabecalhos": [
+        "Terminais e dispositivos",
+        "Terminal do balcão",
+        "Produto → ponto de produção"
+      ],
+      "estado": "conteudo",
+      "captura": "modulo-devices-desktop-1440x900.png"
+    },
+    {
+      "id": "team",
+      "titulo": "Funcionários e acessos",
+      "caracteres": 546,
+      "interativos": 10,
+      "cabecalhos": [
+        "Equipe e identidades"
+      ],
+      "estado": "conteudo",
+      "captura": "modulo-team-desktop-1440x900.png"
+    },
+    {
+      "id": "payment_providers",
+      "titulo": "Gestão",
+      "caracteres": 0,
+      "interativos": 0,
+      "cabecalhos": [],
+      "estado": "carcaca",
+      "captura": "modulo-payment_providers-desktop-1440x900.png"
+    },
+    {
+      "id": "subscription",
+      "titulo": "Plano e solicitações",
+      "caracteres": 239,
+      "interativos": 0,
+      "cabecalhos": [
+        "Plano e solicitações"
+      ],
+      "estado": "conteudo",
+      "captura": "modulo-subscription-desktop-1440x900.png"
+    }
+  ],
+  "atritos": [
+    {
+      "atrito": "voltar-do-navegador-entre-modulos",
+      "medida": {
+        "antesDoClique": "http://127.0.0.1:5173/manage?module=sales",
+        "depoisDoClique": "http://127.0.0.1:5173/manage?module=inventory",
+        "urlAposVoltar": "http://127.0.0.1:5173/manage?module=subscription",
+        "tituloAposVoltar": "Plano e solicitações"
+      },
+      "voltou_para_o_modulo_anterior": false
+    },
+    {
+      "atrito": "link-direto-e-atualizar",
+      "medida": {
+        "linkDireto": "Estoque",
+        "aposAtualizar": "Estoque"
+      },
+      "link_direto_funciona": true,
+      "atualizar_preserva": true
+    },
+    {
+      "atrito": "foco-apos-navegar",
+      "medida": {
+        "tag": "BUTTON",
+        "texto": "Categorias",
+        "dentro_do_main": false
+      },
+      "foco_vai_para_o_conteudo": false
+    },
+    {
+      "atrito": "filtro-preservado-ao-retornar",
+      "medida": {
+        "aplicavel": true,
+        "valor_digitado": "coca",
+        "valor_apos_retorno": ""
+      },
+      "preserva": false
+    },
+    {
+      "atrito": "destino-ausente-na-url",
+      "medida": {
+        "titulo": "Visão geral",
+        "estado": "conteudo"
+      }
+    }
+  ],
+  "telas": [
+    "entrada-desktop-1440x900",
+    "modulo-overview-desktop-1440x900",
+    "modulo-sales-desktop-1440x900",
+    "modulo-cash-desktop-1440x900",
+    "modulo-channels-desktop-1440x900",
+    "modulo-receivables-desktop-1440x900",
+    "modulo-products-desktop-1440x900",
+    "modulo-assortments-desktop-1440x900",
+    "modulo-categories-desktop-1440x900",
+    "modulo-inventory-desktop-1440x900",
+    "modulo-customers-desktop-1440x900",
+    "modulo-tables-desktop-1440x900",
+    "modulo-devices-desktop-1440x900",
+    "modulo-team-desktop-1440x900",
+    "modulo-payment_providers-desktop-1440x900",
+    "modulo-subscription-desktop-1440x900",
+    "entrada-desktop-baixo-1366x640",
+    "modulo-products-desktop-baixo-1366x640",
+    "modulo-inventory-desktop-baixo-1366x640",
+    "modulo-sales-desktop-baixo-1366x640",
+    "modulo-team-desktop-baixo-1366x640",
+    "entrada-celular-390x844",
+    "menu-aberto-celular-390x844",
+    "modulo-products-celular-390x844",
+    "modulo-inventory-celular-390x844",
+    "modulo-sales-celular-390x844",
+    "modulo-team-celular-390x844",
+    "pdv-desktop-1440x900",
+    "pdv-desktop-baixo-1366x640",
+    "pdv-celular-390x844"
+  ],
+  "pdv": {
+    "texto": "D\nDASHEM PDV\nCaixa 01 · Caixa fechado\nMarcela Almeida\n•\nMatriz Homologação\nAcesso gerencial. Você está validando o PDV com sua identidade administrativa; ações executadas são reais e auditadas. Voltar à Gestão\nBalcão\nRetirada\nEnter\nFixar meus atalhos\nTodos\nC\nCoca-Cola Lata\nCOC-051\nPREÇO\nR$ 8,00\nC\nCoca-Cola Sem Açucar 600ml\nCOC-050\nPREÇO\nR$ 10,00\nH\nHambúrguer Artesanal Bacon\nHAB-01\nPREÇO\nR$ 32,00\nConferência gerencial\n\nVocê está vendo o PDV como ele chega ao operador. Catálogo, preços, ambientes ",
+    "botoes_do_topo": [
+      "Mais ações do terminal",
+      "Encerrar sessão"
+    ]
+  },
+  "erros_de_console": [
+    "Failed to load resource: the server responded with a status of 409 (Conflict)"
+  ],
+  "respostas_com_falha": [
+    "409 GET http://127.0.0.1:8004/api/v1/commercial-requests/catalog"
+  ],
+  "navegacao_desktop-baixo-1366x640": {
+    "barra_lateral_visivel": true,
+    "largura_da_barra": 288,
+    "total_itens": 13,
+    "itens_abaixo_da_dobra": [
+      "Estoque",
+      "Clientes",
+      "Terminais e dispositivos",
+      "Funcionários e acessos",
+      "Plano e solicitações"
+    ],
+    "acoes_do_topo": [
+      "Abrir menu",
+      "Validar no PDV",
+      "Sair"
+    ]
+  },
+  "navegacao_celular-390x844": {
+    "barra_lateral_visivel": false,
+    "largura_da_barra": 0,
+    "total_itens": 13,
+    "itens_abaixo_da_dobra": [],
+    "acoes_do_topo": [
+      "Abrir menu",
+      "Validar no PDV",
+      "Sair"
+    ],
+    "apos_abrir_menu": {
+      "itens": 13,
+      "grupos": [
+        "VISÃO",
+        "OPERAÇÃO",
+        "FINANCEIRO",
+        "MERCADORIAS",
+        "RELACIONAMENTO",
+        "ESTRUTURA",
+        "PESSOAS",
+        "ADMINISTRAÇÃO"
+      ]
+    },
+    "escape_fecha_o_menu": false
+  }
+}
