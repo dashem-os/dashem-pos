@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { Modal } from '../common/Modal'
 import { Button } from '../common/Button'
 import { usePos } from '../../context/PosContext'
@@ -21,6 +21,25 @@ export const PaymentDialog: React.FC = () => {
   const [tenderedInput, setTenderedInput] = useState<string>('')
   const [customAmountInput, setCustomAmountInput] = useState<string>('')
   const [isSplitMode, setIsSplitMode] = useState<boolean>(false)
+  /**
+   * A intenção de cobrar, carimbada uma vez.
+   *
+   * Ela **não** pode nascer de um efeito: efeito roda de novo quando o React
+   * quer, e o carimbo trocava entre a tentativa que falhou e o reenvio — que é
+   * exatamente a porta da segunda cobrança. Aqui ela é derivada do que define a
+   * intenção, e só muda quando isso muda de valor:
+   *
+   *  - **método e valor**, porque cobrar R$ 25 no cartão é outra coisa que
+   *    cobrar R$ 25 em dinheiro;
+   *  - **quantas parcelas já foram confirmadas**, porque duas parcelas de R$ 25
+   *    na mesma venda são duas intenções — e sem isso a segunda seria
+   *    deduplicada como se fosse repetição da primeira, perdendo metade do
+   *    dinheiro.
+   *
+   * Uma tentativa que falha não mexe em nenhum dos três, então o reenvio reusa
+   * o mesmo carimbo, que é o que se quer.
+   */
+  const intencaoRef = useRef<{ assinatura: string; chave: string }>({ assinatura: '', chave: '' })
 
   const netTotal = Number(currentSale?.net_total || 0)
   const baseProgress = paymentProgress(netTotal, confirmedPayments.map((payment) => payment.amount))
@@ -51,11 +70,16 @@ export const PaymentDialog: React.FC = () => {
     setTenderedInput((current + amt).toFixed(2))
   }
 
+  const assinaturaDaIntencao = `${method}:${activeAmountToPay.toFixed(2)}:${confirmedPayments.length}`
+  if (intencaoRef.current.assinatura !== assinaturaDaIntencao) {
+    intencaoRef.current = { assinatura: assinaturaDaIntencao, chave: crypto.randomUUID() }
+  }
+
   const handleConfirmPayment = async () => {
     if (actionLoading || activeAmountToPay <= 0) return
 
     const tend = method === 'CASH' ? tenderedAmount : undefined
-    const completed = await processPayment(method, activeAmountToPay, tend)
+    const completed = await processPayment(method, activeAmountToPay, tend, intencaoRef.current.chave)
 
     if (completed) {
       closePaymentModal()

@@ -89,3 +89,29 @@ test('a movimentação viaja carimbada, e o carimbo é da intenção', () => {
   assert.match(estoque, /form\.reason, movementKey\)/)
   assert.doesNotMatch(estoque, /form\.reason, crypto\.randomUUID\(\)\)/)
 })
+
+test('a cobrança viaja carimbada, e o carimbo é da intenção', () => {
+  const api = readFileSync(join(root, 'services', 'api.ts'), 'utf8')
+  const dialogo = readFileSync(join(root, 'components', 'pos', 'PaymentDialog.tsx'), 'utf8')
+
+  // Confirmar já era idempotente por estado. Criar não era — e é criar que
+  // abre a segunda cobrança quando a confirmação estoura depois do envio.
+  assert.match(api, /'Idempotency-Key': idempotencyKey/)
+  assert.match(context, /api\.createPayment\([\s\S]{0,300}?idempotencyKey,/)
+
+  // O carimbo da confirmação deriva da mesma intenção. Antes carregava
+  // Date.now\(\), o que o tornava novo a cada tentativa: carimbo por tentativa
+  // não protege reenvio nenhum.
+  assert.match(context, /\$\{idempotencyKey\}-confirm/)
+  assert.doesNotMatch(context, /pay-idemp-\$\{pay\.id\}-\$\{Date\.now\(\)\}/)
+
+  // E a intenção não nasce de um efeito: efeito roda de novo quando o React
+  // quer, e o carimbo trocava entre a tentativa que falhou e o reenvio. Ela é
+  // derivada do que a define — método, valor e quantas parcelas já foram
+  // confirmadas —, porque duas parcelas iguais na mesma venda são duas
+  // intenções, e deduplicá-las perderia metade do dinheiro.
+  assert.match(dialogo, /const assinaturaDaIntencao = `\$\{method\}:\$\{activeAmountToPay\.toFixed\(2\)\}:\$\{confirmedPayments\.length\}`/)
+  assert.match(dialogo, /intencaoRef\.current = \{ assinatura: assinaturaDaIntencao, chave: crypto\.randomUUID\(\) \}/)
+  assert.match(dialogo, /processPayment\(method, activeAmountToPay, tend, intencaoRef\.current\.chave\)/)
+  assert.doesNotMatch(dialogo, /useEffect\([^)]*setIntencao/)
+})

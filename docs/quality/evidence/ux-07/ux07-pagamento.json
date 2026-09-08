@@ -1,0 +1,31 @@
+{
+  "app": "http://127.0.0.1:5173",
+  "gerado_em": "2026-09-08T17:21:49.782Z",
+  "medidas": [
+    {
+      "medida": "carimbo na criação",
+      "criacoes": [
+        "46e846fe-4ff3-4d0f-a12f-8193a6ab2d69",
+        "46e846fe-4ff3-4d0f-a12f-8193a6ab2d69"
+      ]
+    },
+    {
+      "medida": "carimbo na confirmação",
+      "confirmacoes": [
+        "46e846fe-4ff3-4d0f-a12f-8193a6ab2d69-confirm",
+        "46e846fe-4ff3-4d0f-a12f-8193a6ab2d69-confirm"
+      ]
+    },
+    {
+      "medida": "a tela seguiu utilizável",
+      "ok": true
+    }
+  ],
+  "telas": [
+    "1-venda-montada",
+    "2-dialogo-de-pagamento",
+    "3-confirmacao-perdida-na-rede",
+    "4-reenvio-da-mesma-intencao"
+  ],
+  "falhas": []
+}

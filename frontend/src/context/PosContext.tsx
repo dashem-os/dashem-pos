@@ -83,7 +83,7 @@ interface PosContextType {
   openCancelModal: () => void
   closeCancelModal: () => void
   closeFiscalModal: () => void
-  processPayment: (method: api.Payment['method'], amount: number, tenderedAmount?: number) => Promise<boolean>
+  processPayment: (method: api.Payment['method'], amount: number, tenderedAmount?: number, idempotencyKey?: string) => Promise<boolean>
   issueFiscal: (simulateStatus?: string) => Promise<void>
   retryFiscal: () => Promise<void>
   openCash: (openingBalance: number) => Promise<void>
@@ -628,7 +628,15 @@ export const PosProvider: React.FC<{
   const closeCancelModal = () => setIsCancelModalOpen(false)
   const closeFiscalModal = () => setIsFiscalModalOpen(false)
 
-  const processPayment = async (method: api.Payment['method'], amount: number, tenderedAmount?: number): Promise<boolean> => {
+  const processPayment = async (
+    method: api.Payment['method'], amount: number, tenderedAmount?: number,
+    /**
+     * A chave da intenção do operador. Ela vale para os dois passos — criar e
+     * confirmar — e sobrevive à tentativa que falhou: reenviar depois de um
+     * timeout devolve o mesmo pagamento em vez de abrir uma segunda cobrança.
+     */
+    idempotencyKey?: string,
+  ): Promise<boolean> => {
     if (!currentSale) return false
     try {
       setActionLoading(true)
@@ -640,10 +648,17 @@ export const PosProvider: React.FC<{
         method,
         amount,
         method === 'CASH' ? cashSession?.id : undefined,
-        tenderedAmount
+        tenderedAmount,
+        idempotencyKey,
       )
 
-      const confirmRes = await api.confirmPayment(hdrs, pay.id, operatorId, `pay-idemp-${pay.id}-${Date.now()}`)
+      // A chave da confirmação deriva da mesma intenção. Antes ela carregava
+      // `Date.now()`, o que a tornava nova a cada tentativa — carimbo por
+      // tentativa não protege reenvio nenhum.
+      const confirmRes = await api.confirmPayment(
+        hdrs, pay.id, operatorId,
+        idempotencyKey ? `${idempotencyKey}-confirm` : undefined,
+      )
 
       const updatedPayments = [...confirmedPayments, confirmRes.payment]
       setConfirmedPayments(updatedPayments)

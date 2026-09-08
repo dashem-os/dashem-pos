@@ -4138,11 +4138,21 @@ export async function createPayment(
   method: Payment['method'],
   amount: number,
   cashSessionId?: string,
-  tenderedAmount?: number
+  tenderedAmount?: number,
+  /**
+   * A chave da intenção de cobrar. Confirmar já era idempotente por estado;
+   * criar não era — e é criar que abre a segunda cobrança quando a confirmação
+   * estoura depois do envio e o operador tenta de novo.
+   */
+  idempotencyKey?: string,
 ): Promise<Payment> {
   const res = await fetch(`${API_BASE_URL}/api/v1/payments`, {
     method: 'POST',
-    headers: { ...headers, 'Content-Type': 'application/json' },
+    headers: {
+      ...headers,
+      'Content-Type': 'application/json',
+      ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
+    },
     body: JSON.stringify({ sale_id: saleId, method, amount, cash_session_id: cashSessionId, tendered_amount: tenderedAmount })
   })
   if (!res.ok) {

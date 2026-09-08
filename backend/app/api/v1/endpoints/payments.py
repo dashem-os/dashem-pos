@@ -2,6 +2,7 @@ import uuid
 from decimal import Decimal
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
 from sqlmodel import Session
 from app.core.database import get_session
@@ -35,9 +36,36 @@ class PaymentRefundDTO(BaseModel):
 def create_payment_endpoint(
     data: PaymentCreateDTO,
     context: TenantContext = Depends(get_tenant_context),
+    x_idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
     session: Session = Depends(get_session)
 ):
-    return payment_service.create_payment(
+    """Cria o pagamento — e a mesma intenção, reenviada, não cria um segundo.
+
+    Confirmar já era idempotente por estado: um pagamento CONFIRMED reconfirmado
+    devolve ele mesmo. **Criar não era.** Se a criação passa e a confirmação
+    estoura no meio — o timeout depois do envio —, a venda continua
+    AWAITING_PAYMENT, e repetir a operação criava um segundo pagamento e o
+    confirmava, enquanto o primeiro ficava pendente. Se o provedor capturou o
+    primeiro, são duas cobranças. Em pagamento dividido é pior: a venda nunca
+    chega a PAID entre as parcelas, então nada barra a repetição.
+
+    A chave é da intenção do operador, não da tentativa: reenviar depois de um
+    erro de rede devolve o mesmo pagamento em vez de abrir outro.
+    """
+    actor_id = resolve_actor(context)
+    if x_idempotency_key:
+        is_cached, status_code, body = reliability_service.check_idempotency(
+            session=session,
+            tenant_id=context.tenant_id,
+            actor_id=actor_id,
+            operation="POST /api/v1/payments",
+            idempotency_key=x_idempotency_key,
+            request_payload=data.dict(),
+        )
+        if is_cached and status_code and body:
+            return body
+
+    payment = payment_service.create_payment(
         session,
         context,
         sale_id=data.sale_id,
@@ -48,6 +76,25 @@ def create_payment_endpoint(
         provider=data.provider,
         provider_event_id=data.provider_event_id
     )
+
+    # O corpo é serializado ANTES do commit e devolvido como corpo, não como
+    # instância: depois do commit o SQLModel expira os atributos, e o que a
+    # rota devolvia era um objeto vazio — `payment 200 {}`. O caminho do cache
+    # já devolve dicionário; os dois passam a devolver a mesma coisa.
+    corpo = jsonable_encoder(payment)
+    if x_idempotency_key:
+        reliability_service.save_idempotency_record(
+            session=session,
+            tenant_id=context.tenant_id,
+            actor_id=actor_id,
+            operation="POST /api/v1/payments",
+            idempotency_key=x_idempotency_key,
+            request_payload=data.dict(),
+            response_status=200,
+            response_body=corpo,
+        )
+        session.commit()
+    return corpo
 
 @router.post("/{payment_id}/confirm")
 def confirm_payment_endpoint(
