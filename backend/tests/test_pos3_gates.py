@@ -232,33 +232,28 @@ async def test_pos3_concurrent_sales_competing_for_last_stock_item():
         await client.post(f"/api/v1/sales/{saleA['id']}/items", json={"product_id": p["id"], "quantity": 1.0}, headers=headers)
         await client.post(f"/api/v1/sales/{saleA['id']}/checkout", json={"actor_id": actor_id}, headers=headers)
 
-        # Create Sale B (1 unit) & Checkout
+        # A segunda venda descobre a falta AQUI, e não no pagamento.
+        #
+        # Este teste nasceu provando que a corrida se resolvia na confirmação:
+        # as duas vendas chegavam ao pagamento e uma perdia. Isso protegia o
+        # saldo e deixava o segundo cliente descobrir a falta com o dinheiro na
+        # mão. Desde o ADR-032, a unidade que a venda A prometeu não está mais
+        # disponível para a venda B, e a recusa acontece quando o item entra.
         saleB_res = await client.post("/api/v1/sales", json={"store_id": s["id"]}, headers=headers)
         saleB = saleB_res.json()
-        await client.post(f"/api/v1/sales/{saleB['id']}/items", json={"product_id": p["id"], "quantity": 1.0}, headers=headers)
-        await client.post(f"/api/v1/sales/{saleB['id']}/checkout", json={"actor_id": actor_id}, headers=headers)
+        recusa = await client.post(
+            f"/api/v1/sales/{saleB['id']}/items",
+            json={"product_id": p["id"], "quantity": 1.0}, headers=headers,
+        )
+        assert recusa.status_code == 409, recusa.text
+        assert "disponível" in recusa.json()["detail"]
 
-        # Create Payment records for both Sales (PIX R$ 250.00 each)
+        # A venda A segue e paga normalmente: o compromisso vira baixa.
         payA_res = await client.post("/api/v1/payments", json={"sale_id": saleA["id"], "method": "PIX", "amount": 250.00}, headers=headers)
         payA = payA_res.json()
+        confirmada = await client.post(f"/api/v1/payments/{payA['id']}/confirm", json={"actor_id": actor_id}, headers=headers)
+        assert confirmada.status_code == 200, confirmada.text
 
-        payB_res = await client.post("/api/v1/payments", json={"sale_id": saleB["id"], "method": "PIX", "amount": 250.00}, headers=headers)
-        payB = payB_res.json()
-
-        # SIMULTANEOUS PAYMENT CONFIRMATIONS FOR BOTH SALES!
-        tasks = [
-            client.post(f"/api/v1/payments/{payA['id']}/confirm", json={"actor_id": actor_id}, headers=headers),
-            client.post(f"/api/v1/payments/{payB['id']}/confirm", json={"actor_id": actor_id}, headers=headers)
-        ]
-
-        responses = await asyncio.gather(*tasks, return_exceptions=True)
-
-        status_codes = [r.status_code for r in responses if hasattr(r, "status_code")]
-
-        # EXACTLY ONE request must return 200 OK and ONE request must return 400 Bad Request
-        assert status_codes.count(200) == 1, f"Expected exactly one 200 OK, got: {status_codes}"
-        assert status_codes.count(400) == 1, f"Expected exactly one 400 Bad Request, got: {status_codes}"
-
-        # Final stock balance MUST BE 0.0 (never negative)
+        # Saldo final zero, nunca negativo — a garantia original continua de pé.
         bal_res = await client.get(f"/api/v1/inventory/balance?store_id={s['id']}&product_id={p['id']}", headers=headers)
         assert float(bal_res.json()["quantity"]) == 0.0

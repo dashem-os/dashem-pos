@@ -609,7 +609,7 @@ def reserve_for_sale_item(
     sale_item_id: uuid.UUID,
     source_type: ReservationSourceEnum = ReservationSourceEnum.CART,
     product_name: Optional[str] = None,
-) -> InventoryReservation:
+) -> Optional[InventoryReservation]:
     """Promete `quantity` desta mercadoria a uma linha de venda, ou recusa.
 
     A recusa é a percepção que faltava: ela acontece quando o item entra na
@@ -620,6 +620,20 @@ def reserve_for_sale_item(
     pedida = exact_quantity(quantity, field="quantidade")
     if pedida <= 0:
         raise HTTPException(status_code=400, detail="Quantidade reservada precisa ser positiva.")
+
+    # Só onde o estoque é controlado de fato.
+    #
+    # Uma unidade que nunca recebeu, contou ou ajustou aquela mercadoria não tem
+    # linha de saldo: ali ninguém está controlando esse item, e recusar a venda
+    # por um saldo que ninguém declarou impediria de vender uma loja inteira que
+    # ainda não carregou estoque. Quem controla tem linha — e é sobre ela que a
+    # promessa se faz.
+    controlado = session.exec(scope_tenant_query(select(InventoryBalance).where(
+        InventoryBalance.store_id == store_id,
+        InventoryBalance.product_id == product_id,
+    ), InventoryBalance, context)).first()
+    if controlado is None:
+        return None
 
     balance = _lock_balance_row(session, context, store_id, product_id)
     on_hand = Decimal(str(balance.quantity))

@@ -4,6 +4,7 @@ import re
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
+from typing import NamedTuple
 
 import jwt
 from fastapi import HTTPException
@@ -19,6 +20,7 @@ from app.models.identity import (
     RoleEnum, Store, Tenant, User,
 )
 from app.services import reliability_service
+from app.core.permissions import effective_access
 from app.services.operational_session_service import mark_expired
 
 
@@ -81,6 +83,92 @@ def _matches(credential: OperationalCredential, pin: str) -> bool:
     if not credential.pin_salt or not credential.pin_hash:
         return False
     return hmac.compare_digest(_derive(pin, credential.pin_salt, credential.pin_iterations), credential.pin_hash)
+
+
+class SupervisorAuthorization(NamedTuple):
+    """Quem autorizou, para a auditoria guardar as duas pessoas."""
+
+    user_id: uuid.UUID
+    membership_id: uuid.UUID
+    employee_code: str
+    display_name: str
+    role: str
+
+
+def authorize_with_supervisor(
+    session: Session,
+    tenant_id: uuid.UUID,
+    store_id: uuid.UUID,
+    employee_code: str,
+    pin: str,
+    permission: str,
+) -> SupervisorAuthorization:
+    """Valida quem está autorizando, e se essa pessoa pode.
+
+    O operador continua vendo cancelar e descontar; o que ele não tem é a
+    autoridade sozinho. Quem tem chega ao balcão, digita o próprio código e
+    PIN, e a operação acontece **com as duas pessoas registradas** — antes,
+    ou o operador tinha a permissão e agia sem testemunha, ou não tinha e o
+    botão simplesmente não existia.
+
+    A recusa por PIN é genérica, como no login: não enumera quem existe. A
+    recusa por falta de autoridade é explícita, porque a identidade já foi
+    provada e a pessoa precisa saber que tem de chamar outra.
+    """
+    generic = "Código ou PIN inválidos."
+    now = datetime.utcnow()
+    codigo = (employee_code or "").strip()
+    if not codigo or not pin:
+        raise HTTPException(status_code=401, detail=generic)
+
+    credential = session.exec(select(OperationalCredential).where(
+        OperationalCredential.tenant_id == tenant_id,
+        OperationalCredential.store_id == store_id,
+        OperationalCredential.employee_code == codigo,
+    ).with_for_update()).first()
+    if not credential:
+        raise HTTPException(status_code=401, detail=generic)
+    if credential.locked_until and credential.locked_until > now:
+        raise HTTPException(status_code=429, detail="Acesso temporariamente bloqueado após tentativas inválidas.")
+
+    membership = session.get(Membership, credential.membership_id)
+    user = session.get(User, credential.user_id)
+    employee = session.get(Employee, credential.employee_id)
+    if (
+        not membership or not user or not user.is_active or not employee
+        or employee.status != EmployeeStatusEnum.ACTIVE
+        or membership.status != MembershipStatusEnum.ACTIVE
+        or membership.tenant_id != tenant_id
+    ):
+        raise HTTPException(status_code=401, detail=generic)
+    if not credential.pin_hash or not credential.pin_salt or not credential.pin_activated_at:
+        raise HTTPException(status_code=401, detail=generic)
+    if not _matches(credential, pin):
+        credential.failed_attempts += 1
+        if credential.failed_attempts >= 5:
+            credential.locked_until = now + timedelta(minutes=15)
+            credential.failed_attempts = 0
+        credential.updated_at = now
+        session.add(credential)
+        raise HTTPException(status_code=401, detail=generic)
+
+    autoridade = effective_access(session, membership, store_id)
+    if permission not in autoridade.permissions:
+        raise HTTPException(
+            status_code=403,
+            detail=f"{employee.full_name} não tem autoridade para esta operação.",
+        )
+
+    credential.failed_attempts = 0
+    credential.locked_until = None
+    credential.last_used_at = now
+    credential.updated_at = now
+    session.add(credential)
+    return SupervisorAuthorization(
+        user_id=user.id, membership_id=membership.id,
+        employee_code=credential.employee_code, display_name=employee.full_name,
+        role=getattr(membership.role, "value", str(membership.role)),
+    )
 
 
 def _terminal_projection(session: Session, device: OperationalDevice) -> dict:
