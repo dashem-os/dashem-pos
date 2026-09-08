@@ -111,7 +111,7 @@ Criar componentes de referência para botão, campo, busca, cartão de produto, 
 
 | Capacidade | Benefício | Dependência e limite |
 |---|---|---|
-| Disponibilidade antes da inclusão | Evitar descobrir falta durante pagamento | Entregue no servidor em 07/09/2026: reserva na inclusão, disponível e recusa antes do pagamento, com concorrência serializada. Falta na tela o aviso antes da recusa, e falta a homologação em duas estações |
+| Disponibilidade antes da inclusão | Evitar descobrir falta durante pagamento | Núcleo de balcão entregue e homologado em duas estações em 07/09/2026 (`a42e578`): reserva na inclusão, disponível e recusa antes do pagamento, com concorrência serializada. Busca e grade já leem disponível. Pendentes: avisos sobre ATP projetado antes da inclusão e reserva de comanda/pedido; ver situação da implementação no ADR-032 |
 | Favoritos sugeridos por contexto | Encontrar itens frequentes rapidamente | Histórico suficiente e controle do operador; posição estável |
 | Reposição orientada | Mostrar quais produtos exigem ação e por quê | Dados confiáveis; distinguir regra manual de previsão |
 | Recuperação de pagamento | Evitar cobrança duplicada e perda de contexto | Estado autoritativo do provedor, idempotência e fluxo existente de recuperação |

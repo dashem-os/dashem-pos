@@ -1,6 +1,6 @@
 # ADR-032 — Disponibilidade prometida e compromisso de estoque
 
-**Status:** núcleo implementado e publicado em 07/09/2026 (`0a7acd0`, corrigido por `0d523aa`); extensões e homologação de duas estações pendentes — ver [Situação da implementação](#situação-da-implementação)
+**Status:** núcleo de balcão implementado, publicado e homologado em duas estações em 07/09/2026 (`0a7acd0`, `0d523aa`; homologação registrada em `a42e578`); extensões pendentes — ver [Situação da implementação](#situação-da-implementação)
 **Data:** 2026-09-07
 **Origem:** dois defeitos observados na tela em 07/09/2026, com a etapa 2 já publicada
 **Relacionado:** [ADR-001](adr-001-order-versus-sale.md), [ADR-003](adr-003-table-session.md), [ADR-029](adr-029-module-boundaries-and-owner-layer.md), [ADR-033](adr-033-stock-risk-state.md), [plano corretivo](../product/inventory-operational-correction-plan.md)
@@ -158,7 +158,7 @@ em disponibilidade: **o que já vale, e o que ainda é papel.**
 | Concluir consome, não devolve | `consume_reservations` em `payment_service` e `negotiation_service` |
 | Carrinho de balcão expira em 30 min; comanda não expira | `expire_stale_reservations`, varrido em `list_holdings` |
 | Duas estações não prometem a mesma unidade | `SELECT … FOR UPDATE` sobre o saldo materializado |
-| O disponível chega ao PDV | `reserved` e `available` na projeção do catálogo; `QuickProductGrid` já lê `available` |
+| O disponível chega ao PDV | `reserved` e `available` na projeção do catálogo; `QuickProductGrid` e `ProductSearch` leem `available` (busca corrigida em `a42e578`, com fallback para `quantity`) |
 | Loja que nunca carregou estoque continua vendendo | sem linha de saldo não há reserva (`0d523aa`) |
 
 Provas: `backend/tests/test_inventory_reservation.py` (7 casos, incluindo o
@@ -192,9 +192,14 @@ reescrito e tem prova própria.
 * **Comanda e pedido não reservam.** `order_item_id` existe na tabela e nada o
   preenche: só a venda de balcão reserva. Uma mesa aberta ainda promete
   mercadoria que o sistema não segura.
-* **A escada de mensagens no PDV.** Há recusa, não há aviso: `ProductSearch`
-  ainda mostra `quantity` enquanto a grade mostra `available`. Duas listas na
-  mesma tela respondendo números diferentes é trabalho de UX-06.
+* **A escada de mensagens sobre ATP projetado antes de incluir o item.** A
+  recusa por insuficiência já existe, e busca e grade já leem `available`.
+  Falta o aviso progressivo baseado no saldo que restará após a inclusão,
+  conforme a etapa 3.1 do plano corretivo; esse é o trabalho restante de UX-06.
+* **Rota dedicada de disponibilidade e gatilhos adicionais de expiração.** A
+  leitura atual usa a projeção do catálogo e a varredura roda em `list_holdings`.
+  A rota em lote e os gatilhos explícitos de abertura do PDV e fechamento de
+  caixa descritos no plano continuam propostos.
 * **`on_order` e `inventory_position`** dependem de compras, que não existe
   como módulo (repetido aqui porque é o que falta para os cinco números).
 

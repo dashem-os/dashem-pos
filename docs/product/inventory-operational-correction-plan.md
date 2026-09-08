@@ -1,7 +1,8 @@
 # Aditivo à trilha corretiva da Gestão — Estoque e almoxarifado
 
-Status: **plano proposto para execução; nenhuma etapa homologada por este documento**.
+Status: **em execução — 3.0 entregue e percorrida pela interface; núcleo de balcão da 3.1 implementado, publicado e homologado em duas estações em 07/09/2026. Extensões da 3.1, etapas 3.2–3.4 e 4 pendentes; gates gerais das etapas 1–2 sem aceite consolidado**.
 Data: 06/09/2026. Origem: homologação visual do dono do DASHEM POS e revisão do código.
+Última atualização de estado: 08/09/2026, com base no histórico até `a42e578`.
 
 ## Resultado que o cliente precisa obter
 
@@ -218,9 +219,9 @@ de segurança. Exibir período, base e insuficiência de dados. A recomendação
 editável; nunca gera compra ou entrada física automaticamente. IA não participa
 da conta autoritativa nem do caminho crítico.
 
-**Os algoritmos desta etapa ainda não estão especificados, e o parágrafo acima
-não é especificação.** São dois trabalhos distintos, e o primeiro não entrega o
-segundo:
+**O parágrafo acima é direção de produto.** As seções 3.2–3.4 abaixo já definem
+fórmulas, métodos e critérios de saída, mas sua implementação e homologação
+continuam pendentes. São dois trabalhos distintos, e o primeiro não entrega o segundo:
 
 | Trabalho | Pergunta que resolve |
 |---|---|
@@ -271,9 +272,9 @@ vendável. Rastreabilidade e conversões precedem sugestões avançadas.
 
 ## Execução em entregas pequenas
 
-Estado em 07/09/2026: **etapa 1 PARCIAL, com evidência registrada em
+Registro da etapa 1 em 07/09/2026: **etapa 1 PARCIAL, com evidência registrada em
 [levantamento, reprodução e correção](../quality/inventory-stage-1-evidence.md).
-Nenhum gate declarado aprovado.** A etapa 1 responde "recebi, vendi ou perdi:
+Nenhum gate geral da etapa 1 declarado aprovado nesse registro.** A etapa 1 responde "recebi, vendi ou perdi:
 quanto ficou?" — e nada além disso. Ela não é, e não deve ser apresentada como,
 entrega da etapa 3.
 
@@ -326,6 +327,15 @@ ordem entra.
 
 ### 3.0 — Linguagem e hierarquia da tela
 
+Status: **entregue em `45ee54e` (07/09/2026), com navegação real em Gestão e
+PDV a 1660×860, incluindo abertura de caixa e fechamento de venda com nove itens**.
+Capturas versionadas em `docs/quality/evidence/etapa-3-0/gestao/` e
+`docs/quality/evidence/etapa-3-0/pdv/`. Isso registra o percurso da 3.0; não
+aprova automaticamente a matriz completa de apresentação das etapas 1–2.
+O vocabulário de navegação recebeu evolução por nicho em `220c3e1` (migração 088).
+As regras abaixo descrevem a entrega e sua direção de experiência; o número
+disponível depende da 3.1 e a reposição automática permanece futura.
+
 Não depende de ATP nem de previsão, e vem primeiro porque decide onde tudo o
 que vier depois vai aparecer. Regra em
 [ADR-034](../architecture/adr-034-interface-hierarchy.md).
@@ -353,21 +363,27 @@ homologa tela.
 
 ### 3.1 — Disponibilidade prometida (ATP)
 
+Status: **núcleo de balcão implementado e publicado (`0a7acd0`, `0d523aa`),
+homologado em duas estações em 07/09/2026 (registro em `a42e578`)**.
+O [ADR-032 — situação da implementação](../architecture/adr-032-available-to-promise.md#situação-da-implementação)
+registra o cenário e seus limites. Comandas/pedidos, avisos sobre ATP projetado,
+compras e os gatilhos adicionais de expiração continuam pendentes.
+
 Resolve o defeito do PDV. Sem previsão, sem estatística: só contabilidade do
 que já foi prometido.
 
 | Peça | Nome e lugar |
 |---|---|
 | Modelo | `InventoryReservation` em `app/models/catalog.py` |
-| Migração | `086_inventory_reservation` — tabela, índices por `(tenant_id, store_id, product_id, status)`, RLS forçada |
-| Serviço | `inventory_service.reserve`, `release`, `consume`, `available_to_promise` |
-| Quem chama | `sale_service` ao adicionar/alterar/remover item; `order_service` para comanda; a conclusão que já baixa estoque passa a consumir a reserva na mesma transação |
-| Rota | `GET /api/v1/inventory/availability?product_ids=…` — leitura em lote para o PDV |
-| Contrato de leitura | `StockHolding` ganha `reserved`, `available`, `on_order`; `is_low_stock`/`is_out_of_stock` saem em favor de `risk_state` (3.2) |
-| Expiração | **`CART`: 30 min de inatividade, TTL deslizante. `TAB`: não expira** ([ADR-032](../architecture/adr-032-available-to-promise.md)). O varredor é idempotente e roda na abertura do PDV, na abertura do estoque e no fechamento de caixa — **não** exige worker contratado |
-| Alerta | comanda aberta há tempo demais entra em alerta operacional; o sistema nunca devolve estoque em silêncio |
+| Migração | Entregue: `087_inventory_reservation.py`; predecessor `086_shop_language_in_navigation`. Tabela, índices e RLS forçada |
+| Serviço | Entregues: `inventory_service.reserve_for_sale_item`, `release_reservations`, `consume_reservations`, `available_to_promise` |
+| Quem chama | Entregue: `sale_service` na inclusão/alteração/remoção e cancelamento; `payment_service` e `negotiation_service` consomem na conclusão. Pendente: reserva por `order_service` para comanda/pedido |
+| Rota | A rota dedicada `GET /api/v1/inventory/availability?product_ids=…` permanece proposta; hoje o PDV recebe disponibilidade pela projeção do catálogo |
+| Contrato de leitura | Entregues `reserved` e `available` nos saldos e no catálogo; grade e busca do PDV leem disponível. Pendentes: `on_order` e evolução para `risk_state` da 3.2 |
+| Expiração | Entregue: `CART` com 30 min de inatividade, TTL deslizante; `expire_stale_reservations` chamado em `list_holdings`. Contrato de `TAB`: não expirar, mas comandas ainda não criam reservas. Pendentes os gatilhos explícitos de abertura do PDV e fechamento de caixa; não exige worker contratado |
+| Alerta | Pendente: alerta operacional para comanda antiga, sem liberação silenciosa de estoque |
 
-**Na tela do PDV**, o aviso acontece **antes de efetivar a inclusão**, sobre o
+**Pendente na tela do PDV:** o aviso deve acontecer **antes de efetivar a inclusão**, sobre o
 ATP projetado — `atp_projetado = atp_atual − quantidade_pedida`. Com 9
 disponíveis:
 
@@ -390,10 +406,12 @@ dupla contagem) e gate de operação pela tela.
 
 ### 3.2 — Ponto de reposição e cobertura
 
+Status: **especificada neste plano; implementação e homologação pendentes**.
+
 | Peça | Nome e lugar |
 |---|---|
 | Modelo | `ReplenishmentPolicy` — por tenant/loja/produto: `lead_time_days`, `lead_time_stddev`, `service_level`, `review_period_days`, `minimum_floor` |
-| Migração | `087_replenishment_policy` |
+| Migração | `replenishment_policy` — numeração a definir na implementação; 087 já pertence à reserva |
 | Serviço | `replenishment_service` em `catalog` — `safety_stock`, `reorder_point`, `days_of_cover` |
 | Permissão | `inventory.policy.manage`, concedida a OWNER/TENANT_OWNER/ADMIN — quem ajusta política não é quem conta prateleira |
 | Fórmulas | `ROP = d̄ × L + SS`; `SS = z × √(L·σd² + d̄²·σL²)`; `cobertura = ATP / d̄` |
@@ -410,10 +428,12 @@ conhecidas) e apresentação da linha única com detalhe sob demanda.
 
 ### 3.3 — Previsão por padrão de demanda
 
+Status: **planejada; implementação, backtesting e homologação pendentes**.
+
 | Peça | Nome e lugar |
 |---|---|
 | Modelo | `DemandProfile` (padrão classificado por SKU) e `DemandForecast` (previsão vigente + erro medido) |
-| Migração | `088_demand_forecast` |
+| Migração | `demand_forecast` — numeração a definir na implementação; 088 já pertence a `the_mesh_carries_the_word` |
 | Serviço | `demand_forecast_service` em `catalog`, alimentado por `sale_items` já existentes |
 | Classificação | ADI e CV² decidem o padrão: `SMOOTH`, `ERRATIC`, `INTERMITTENT`, `LUMPY` |
 | Método por padrão | regular → ETS; com sazonalidade semanal → Holt‑Winters; intermitente → TSB (preferido a Croston); sem histórico → mínimo manual, depois expectativa por categoria |
@@ -427,11 +447,13 @@ recusa explícita de previsão quando o histórico for insuficiente.
 
 ### 3.4 — Sugestão de compra
 
+Status: **planejada; implementação e homologação pendentes, com dependência de compras para `on_order`**.
+
 | Peça | Nome e lugar |
 |---|---|
 | Serviço | `replenishment_service.suggest_order` |
 | Modelo | `PurchaseSuggestion` (sugestão vigente, aceita ou recusada, com o porquê) |
-| Migração | `089_purchase_suggestion` |
+| Migração | `purchase_suggestion` — numeração a definir na implementação; 089 já pertence a `the_till_asks_to_authorize` |
 | Fórmula | `Alvo = previsão(L + período de revisão) + SS`; `sugestão = Alvo − inventory_position` |
 | Tela | uma lista "Repor agora", ordenada por risco, com quantidade sugerida editável |
 
@@ -516,6 +538,11 @@ cliente como teste exploratório. Após implantação, executar smoke autorizado
 loja de homologação e confirmar persistência e versão.
 
 ## Registro de aceite para preencher, não presumir
+
+Os estados abaixo tratam dos gates gerais da entrega básica (etapas 1–2).
+Não anulam as evidências específicas da 3.0 nem a homologação do núcleo de
+balcão da 3.1 registradas acima. A aprovação desses recortes não encerra os
+gates gerais nem homologa comandas, compras, previsão ou almoxarifado ampliado.
 
 | Gate | Estado inicial | Evidência necessária |
 |---|---|---|

@@ -8,9 +8,12 @@ A [trilha de implementação UX-00 a UX-12](ui-ux-implementation-sprints.md) inc
 
 A homologação do dono identificou falhas de movimentação e de apresentação nas
 superfícies de mercadorias. O [plano corretivo de estoque e almoxarifado](inventory-operational-correction-plan.md)
-registra o contrato proposto, a sequência de execução e os gates de integridade,
-operação pela interface, apresentação e liberação. Seus gates estão **pendentes**;
-os resultados históricos abaixo não homologam esse novo escopo.
+registra o contrato, a sequência de execução e os gates de integridade,
+operação pela interface, apresentação e liberação. Em 07/09/2026, a **3.0 foi
+entregue e percorrida em Gestão e PDV (`45ee54e`), e o núcleo de balcão da 3.1
+foi homologado em duas estações (registro em `a42e578`)**. Extensões da 3.1,
+etapas 3.2–3.4 e 4 e o aceite consolidado dos gates gerais das etapas 1–2
+continuam pendentes. Os resultados históricos abaixo não homologam esse novo escopo.
 
 Status: **5.4.0–5.4.3 publicados com CI verde; 5.4.4 parcial — a frente de mídia saiu no S24; OA-4 concluído no deploy com `14/14` e Gate B `PASSED` em 04/09/2026**
 

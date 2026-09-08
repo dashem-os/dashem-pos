@@ -153,6 +153,22 @@ frente do balcão:
 
 ## Consequências
 
+### Entrega registrada — etapa 3.0
+
+Implementada em `45ee54e`, em 07/09/2026: hierarquia de Estoque e Produtos,
+faixa de situação, estoque de referência e simplificação da frente de caixa,
+incluindo agrupamento de itens equivalentes. O commit registra navegação real
+em Gestão e PDV a 1660×860, com abertura de caixa e fechamento de venda de
+nove itens. Capturas em `docs/quality/evidence/etapa-3-0/gestao/` e
+`docs/quality/evidence/etapa-3-0/pdv/`.
+
+O vocabulário de navegação evoluiu por nicho em `220c3e1` (migração 088).
+Essa entrega não encerra a matriz geral de apresentação do plano corretivo,
+nem as novas sprints UX. Disponibilidade de balcão e suas extensões têm status
+próprio no [ADR-032](adr-032-available-to-promise.md#situação-da-implementação).
+
+### Efeitos da decisão
+
 * colunas somem: `Mínimo desejado` sai da lista de Estoque e vai para o detalhe;
 * a lista de Produtos perde a coluna de estoque dupla e mantém um número;
 * os três cartões do topo viram uma faixa;
