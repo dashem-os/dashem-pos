@@ -1,0 +1,64 @@
+{
+  "app": "http://127.0.0.1:5173",
+  "gerado_em": "2026-09-08T18:03:33.688Z",
+  "etapas": [
+    {
+      "etapa": "Gestão: cadastrar e publicar",
+      "sku": "CAN-613688",
+      "publicado": true
+    },
+    {
+      "etapa": "Gestão: disponível antes da venda",
+      "disponivel": 4
+    },
+    {
+      "etapa": "Operação: vender uma unidade",
+      "sku": "CAN-613688"
+    },
+    {
+      "etapa": "Gestão: disponível depois da venda",
+      "disponivel": 3
+    },
+    {
+      "etapa": "Gestão: a venda aparece em Vendas",
+      "achou": true,
+      "comPonto": false
+    },
+    {
+      "etapa": "conferência em desktop-1366x768",
+      "transbordo_horizontal": 0
+    },
+    {
+      "etapa": "conferência em desktop-baixo-1366x640",
+      "transbordo_horizontal": 0
+    },
+    {
+      "etapa": "conferência em tablet-834x1112",
+      "transbordo_horizontal": 0
+    },
+    {
+      "etapa": "conferência em celular-390x844",
+      "transbordo_horizontal": 0
+    }
+  ],
+  "telas": [
+    "1-gestao-cadastro",
+    "2-gestao-estoque-antes",
+    "3-pdv-item-no-carrinho",
+    "4-pdv-venda-concluida",
+    "5-gestao-estoque-depois",
+    "6-gestao-vendas",
+    "7-conferencia-desktop-1366x768",
+    "7-conferencia-desktop-baixo-1366x640",
+    "7-conferencia-tablet-834x1112",
+    "7-conferencia-celular-390x844"
+  ],
+  "acessibilidade": {
+    "foco": {
+      "tag": "H1",
+      "dentro_do_main": true
+    },
+    "controles_sem_rotulo": []
+  },
+  "falhas": []
+}

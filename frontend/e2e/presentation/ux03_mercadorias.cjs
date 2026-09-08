@@ -104,7 +104,7 @@ async function main() {
     await shot(page, '1-cadastro-com-categoria-sem-foto')
 
     // ---------------------------------------------- 3. salvar sem publicar
-    await page.getByRole('button', { name: /^Salvar|Cadastrar produto|Salvar produto/i }).last().click()
+    await page.getByRole('button', { name: /Cadastrar e publicar produto|Cadastrar produto|Salvar alterações/i }).last().click()
     await page.waitForTimeout(3200)
     const avisoDoCadastro = await aviso(page)
     relatorio.etapas.push({ etapa: 'cadastro sem publicação', aviso: avisoDoCadastro })
@@ -134,7 +134,7 @@ async function main() {
     await page.getByRole('button', { name: /^Editar$/ }).first().click()
     await page.waitForTimeout(1200)
     await page.getByPlaceholder('Ex.: 0,00').fill('5990')
-    await page.getByRole('button', { name: /^Salvar|Salvar produto/i }).last().click()
+    await page.getByRole('button', { name: /Cadastrar e publicar produto|Cadastrar produto|Salvar alterações/i }).last().click()
     await page.waitForTimeout(3200)
     const filtroDepois = await busca.inputValue().catch(() => '(campo ausente)')
     relatorio.etapas.push({ etapa: 'editar preço e voltar ao filtro', filtro: filtroDepois })

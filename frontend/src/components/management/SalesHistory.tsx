@@ -3,7 +3,7 @@ import { FileText, Search, ChevronDown, ChevronUp, CheckCircle2, Ban, Clock, Sca
 import { usePos } from '../../context/PosContext'
 import { Sale } from '../../services/api'
 import * as api from '../../services/api'
-import { formatApiDateTime } from '../../utils/format'
+import { formatApiDateTime, formatCurrency } from '../../utils/format'
 import { Modal } from '../common/Modal'
 import { DESTINATIONS_FOR_CONDITION, defaultDestination, returnEffect, type ReturnCondition, type ReturnDestination } from '../../domain/stockMovements'
 
@@ -58,7 +58,7 @@ export const SalesHistory: React.FC = () => {
     try {
       const result = await api.reconcileSale({ 'X-Tenant-ID': tenant.id, 'X-Store-ID': store.id }, sale.id, operatorId)
       setReconciliations((current) => ({ ...current, [sale.id]: result }))
-      showToast(result.status === 'MATCHED' ? 'success' : 'info', result.status === 'MATCHED' ? 'Venda conciliada sem diferenças.' : `Diferença sinalizada: R$ ${Number(result.difference).toFixed(2)}`)
+      showToast(result.status === 'MATCHED' ? 'success' : 'info', result.status === 'MATCHED' ? 'Venda conciliada sem diferenças.' : `Diferença sinalizada: ${formatCurrency(result.difference)}`)
     } catch (error) { showToast('error', error instanceof Error ? error.message : 'Falha na conciliação') }
     finally { setReconciling(null) }
   }
@@ -199,11 +199,11 @@ export const SalesHistory: React.FC = () => {
                   <div className="flex items-center justify-between sm:justify-end space-x-4">
                     <div className="text-left sm:text-right">
                       <span className="text-xs text-dashem-muted block">
-                        Bruto: R$ {Number(sale.gross_total).toFixed(2)}{' '}
-                        {Number(sale.discount_total) > 0 && `(Desc: R$ ${Number(sale.discount_total).toFixed(2)})`}
+                        Bruto: {formatCurrency(sale.gross_total)}{' '}
+                        {Number(sale.discount_total) > 0 && `(Desc: ${formatCurrency(sale.discount_total)})`}
                       </span>
                       <span className="text-base font-black text-dashem-strong">
-                        R$ {Number(sale.net_total).toFixed(2)}
+                        {formatCurrency(sale.net_total)}
                       </span>
                     </div>
                     <div className="w-8 h-8 rounded-lg bg-dashem-surface-elevated flex items-center justify-center text-dashem-muted">
@@ -224,7 +224,7 @@ export const SalesHistory: React.FC = () => {
                           <div>
                             <span className="font-bold text-dashem-strong">{item.product_name}</span>
                             <span className="text-xs text-dashem-muted ml-2">
-                              {item.quantity}x R$ {Number(item.unit_price).toFixed(2)}
+                              {item.quantity}x {formatCurrency(item.unit_price)}
                             </span>
                           </div>
                           <div className="flex items-center gap-3 text-right">
@@ -244,10 +244,10 @@ export const SalesHistory: React.FC = () => {
                           <div className="text-right">
                             {Number(item.discount_amount) > 0 && (
                               <span className="text-xs text-state-success font-semibold block">
-                                - R$ {Number(item.discount_amount).toFixed(2)} desc.
+                                - {formatCurrency(item.discount_amount)} desc.
                               </span>
                             )}
-                            <span className="font-bold text-dashem-strong">R$ {Number(item.net_total).toFixed(2)}</span>
+                            <span className="font-bold text-dashem-strong">{formatCurrency(item.net_total)}</span>
                           </div>
                           </div>
                         </div>
@@ -262,7 +262,7 @@ export const SalesHistory: React.FC = () => {
                     {permissions.includes('reconciliation.manage') && ['PAID', 'COMPLETED', 'PARTIALLY_REFUNDED', 'REFUNDED'].includes(sale.status) && (
                       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-dashem-border pt-3">
                         <div className="text-xs text-dashem-muted">
-                          {reconciliations[sale.id] ? <span className={reconciliations[sale.id].status === 'MATCHED' ? 'font-bold text-state-success' : 'font-bold text-state-warning'}>{reconciliations[sale.id].status === 'MATCHED' ? 'Conferência sem diferenças' : `Diferença de R$ ${Number(reconciliations[sale.id].difference).toFixed(2)}`}</span> : 'Compare venda, pagamentos, crediário e documento fiscal sem alterar os fatos.'}
+                          {reconciliations[sale.id] ? <span className={reconciliations[sale.id].status === 'MATCHED' ? 'font-bold text-state-success' : 'font-bold text-state-warning'}>{reconciliations[sale.id].status === 'MATCHED' ? 'Conferência sem diferenças' : `Diferença de ${formatCurrency(reconciliations[sale.id].difference)}`}</span> : 'Compare venda, pagamentos, crediário e documento fiscal sem alterar os fatos.'}
                         </div>
                         <button type="button" onClick={() => reconcile(sale)} disabled={reconciling === sale.id} className="flex h-9 items-center gap-2 rounded-xl border border-dashem-border px-3 text-xs font-black text-dashem-strong hover:border-dashem-red disabled:opacity-40"><Scale className="h-4 w-4" />{reconciling === sale.id ? 'Conferindo...' : 'Conciliar venda'}</button>
                       </div>

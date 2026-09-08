@@ -1,6 +1,6 @@
 # Gestão e PDV — sprints de implementação da experiência
 
-Status: UX-00 a UX-07 executadas em 08/09/2026 — inventário, navegação, fundação visual, Mercadorias, estoque, os oito módulos, a escada de disponibilidade no PDV, e a cobrança que não duplica no reenvio. UX-08 a UX-13 planejadas.
+Status: UX-00 a UX-08 executadas em 08/09/2026 — a fundação gerencial inteira, do inventário à homologação integrada. UX-07 ficou **parcial** e UX-09 a UX-13 seguem planejadas; UX-11 e UX-12 dependem de definição do dono.
 Origem: direção explícita do usuário nesta conversa, em 07/09/2026.
 Plano visual: [evolução de UI/UX](ui-ux-evolution-plan.md).
 Referências de arquitetura para execução: [ADR-034 — hierarquia da interface e redução do esforço do operador](../architecture/adr-034-interface-hierarchy.md) e [ADR-032 — disponibilidade prometida e compromisso de estoque](../architecture/adr-032-available-to-promise.md).
@@ -171,7 +171,8 @@ Uma linha por sprint, com status, commit, evidência e pendência.
 | UX-05 | **executada** em 08/09/2026; oito módulos auditados antes de mexer, títulos e cores consolidados, guarda estático estendido | [entrega](../quality/ux-05-modulos-2026-09-08.md) · [capturas](../quality/evidence/ux-05/) · roteiro `frontend/e2e/presentation/ux05_modulos.cjs` | Ambientes e Mesas e Provedores de pagamento **não** foram auditados: exigem `FOOD_SERVICE` e `tef`, que o acervo de homologação não contrata. As jornadas de estado real ficam para a UX-08 |
 | UX-06 | **executada** em 08/09/2026; escada de avisos antes da inclusão, catálogo relido após reservar, tom de atenção no aviso | [entrega](../quality/ux-06-pdv-2026-09-08.md) · [capturas](../quality/evidence/ux-06/) · roteiro `frontend/e2e/presentation/ux06_pdv.cjs` | Catálogo volumoso não foi exercitado: o acervo de homologação tem seis produtos |
 | UX-07 | **parcial** em 08/09/2026; criação de pagamento idempotente e carimbo por intenção nos dois passos | [entrega](../quality/ux-07-pagamento-2026-09-08.md) · [capturas](../quality/evidence/ux-07/) · roteiro `frontend/e2e/presentation/ux07_pagamento.cjs` | **Não entregue**: distinguir na tela recusado / em processamento / confirmado / pendente de confirmação. O estado pendente existe no banco e não tem representação visual — precisa de decisão de produto sobre o que oferecer nele |
-| UX-08 a UX-13 | planejadas | — | UX-08 é homologação integrada; UX-11 e UX-12 dependem de definições do dono |
+| UX-08 | **executada** em 08/09/2026; volta Gestão → operação → conferência, quatro tamanhos, acessibilidade, checklist e retorno | [entrega](../quality/ux-08-homologacao-2026-09-08.md) · [capturas](../quality/evidence/ux-08/) · roteiro `frontend/e2e/presentation/ux08_homologacao.cjs` | **Não declara a trilha homologada.** Riscos abertos listados na entrega: estado pendente sem tela, dois destinos nunca percorridos, catálogo volumoso, concorrência de duas estações |
+| UX-09 a UX-13 | planejadas | — | UX-11 e UX-12 dependem de definição do dono; UX-13 já tem aceite escrito |
 
 O que já está publicado veio da trilha corretiva (P0.1, P0.2 e P0.3) e das etapas de estoque, não das sprints UX. A estimativa anterior de 6–8 semanas cobre apenas a fundação gerencial e Mercadorias; não cobre toda esta trilha nem os novos domínios.
 

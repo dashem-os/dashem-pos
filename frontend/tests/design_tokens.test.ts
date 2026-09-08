@@ -86,3 +86,33 @@ test('os canais de estado não mudam por nicho', () => {
     assert.doesNotMatch(bloco, /--state-/, 'um nicho está redefinindo cor de situação')
   }
 })
+
+/**
+ * Dinheiro é formatado num lugar só.
+ *
+ * A tela de Vendas escrevia `R$ ${Number(x).toFixed(2)}` — que produz
+ * "R$ 25.00", com ponto — enquanto o PDV ao lado mostrava "R$ 80,00". Nenhuma
+ * auditoria por tela perguntava isso: foi a travessia integrada da UX-08, indo
+ * do balcão à conferência, que pôs os dois números lado a lado.
+ */
+test('nenhuma tela escreve dinheiro à mão', () => {
+  const MAO = /R\$ \$?\{Number\([^)]+\)\.toFixed\(2\)\}/
+  for (const caminho of [
+    'components/management/SalesHistory.tsx',
+    'components/management/CashManager.tsx',
+    'components/management/InventoryManager.tsx',
+    'components/management/CatalogManager.tsx',
+    'components/pos/PaymentDialog.tsx',
+    'components/pos/DiscountModal.tsx',
+  ]) {
+    const fonte = readFileSync(join(SRC, caminho), 'utf8')
+    assert.doesNotMatch(fonte, MAO,
+      `${caminho} formata dinheiro à mão: use formatCurrency, que fala pt-BR`)
+  }
+})
+
+test('o formatador fala a vírgula do país', () => {
+  const format = readFileSync(join(SRC, 'utils', 'format.ts'), 'utf8')
+  assert.match(format, /Intl\.NumberFormat\('pt-BR'/)
+  assert.match(format, /currency: 'BRL'/)
+})
