@@ -25,6 +25,7 @@ import { QuantityModal } from '../components/pos/QuantityModal'
 import { DiscountModal } from '../components/pos/DiscountModal'
 import { FiscalStatusModal } from '../components/pos/FiscalStatusModal'
 import { CancelModal } from '../components/pos/CancelModal'
+import { SupervisorAuthorization } from '../components/pos/SupervisorAuthorization'
 import { formatCurrency, formatQuantity, maskCurrencyInput, parseCurrencyInput } from '../utils/format'
 import { Modal } from '../components/common/Modal'
 import { RowAction, RowActions } from '../components/common/RowActions'
@@ -527,6 +528,7 @@ export const PosLayout: React.FC = () => {
       <DiscountModal />
       <FiscalStatusModal />
       <CancelModal />
+      <SupervisorAuthorization />
     </div>
   )
 }

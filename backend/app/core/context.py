@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from typing import Optional, Type, TypeVar
+from typing import NamedTuple, Optional, Type, TypeVar
 
 from fastapi import Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel
@@ -39,6 +39,29 @@ class TenantContext(BaseModel):
     device_id: Optional[uuid.UUID] = None
     register_id: Optional[uuid.UUID] = None
     operational_session_id: Optional[uuid.UUID] = None
+    # Quando a operação só aconteceu porque alguém com autoridade chegou ao
+    # balcão e autorizou. Vazio é o caso normal: o operador podia sozinho.
+    authorized_by_user_id: Optional[uuid.UUID] = None
+    authorized_by_code: Optional[str] = None
+    authorized_by_name: Optional[str] = None
+    authorized_permission: Optional[str] = None
+
+
+def authorization_trail(context: TenantContext) -> dict:
+    """O que a auditoria guarda quando a operação precisou de autorização.
+
+    Vazio quando o operador podia sozinho: o normal não vira registro extra.
+    Quando houve autorização presencial, ficam as duas pessoas — quem pediu
+    está no `actor_id` do próprio registro, quem permitiu está aqui.
+    """
+    if not context.authorized_by_user_id:
+        return {}
+    return {
+        "authorized_by_user_id": str(context.authorized_by_user_id),
+        "authorized_by_code": context.authorized_by_code,
+        "authorized_by_name": context.authorized_by_name,
+        "authorized_permission": context.authorized_permission,
+    }
 
 
 def resolve_actor(
@@ -105,6 +128,13 @@ def resolve_internal_user(session: Session, principal: AuthPrincipal) -> Optiona
     return user
 
 
+class SupervisorElevation(NamedTuple):
+    """O código e o PIN de quem chegou ao balcão para autorizar."""
+
+    employee_code: str
+    pin: str
+
+
 def authorize_tenant_context(
     session: Session,
     principal: AuthPrincipal,
@@ -112,6 +142,7 @@ def authorize_tenant_context(
     store_id: Optional[uuid.UUID],
     method: str,
     path: str,
+    elevation: Optional[SupervisorElevation] = None,
 ) -> TenantContext:
     if principal.bypass:
         set_tenant_db_context(session, tenant_id, store_id, principal.legacy_user_id)
@@ -214,7 +245,35 @@ def authorize_tenant_context(
         raise HTTPException(status_code=403, detail="No active membership for this tenant and store.")
 
     role = RoleEnum(membership.role)
-    access = enforce_effective_access(session, membership, store_id, method, path)
+    # A autorização presencial só existe onde existe balcão: sem unidade ativa
+    # não há credencial operacional para conferir.
+    autorizacoes: list = []
+
+    def _autorizar(permission: str):
+        # Importado aqui porque o serviço operacional depende deste módulo.
+        from app.services.operational_access_service import authorize_with_supervisor
+
+        # Recusa explícita em vez de `assert`: sob `python -O` o assert some, e
+        # o que sobraria era uma decisão de acesso apoiada em None.
+        if elevation is None or store_id is None:
+            raise HTTPException(
+                status_code=403,
+                detail="A autorização presencial exige unidade ativa e credencial.",
+            )
+        autorizacao = authorize_with_supervisor(
+            session, tenant_id, store_id, elevation.employee_code, elevation.pin, permission,
+        )
+        # A tentativa conta mesmo quando a requisição falha adiante: bloqueio
+        # por PIN errado não pode ser desfeito por um rollback.
+        session.commit()
+        autorizacoes.append(autorizacao)
+        return autorizacao
+
+    access = enforce_effective_access(
+        session, membership, store_id, method, path,
+        elevate=_autorizar if (elevation and store_id) else None,
+    )
+    autorizador = autorizacoes[0] if autorizacoes else None
     operational_claims = principal.claims if principal.provider == "operational" else {}
     return TenantContext(
         tenant_id=tenant_id,
@@ -230,6 +289,10 @@ def authorize_tenant_context(
         device_id=uuid.UUID(operational_claims["device_id"]) if operational_claims.get("device_id") else None,
         register_id=uuid.UUID(operational_claims["register_id"]) if operational_claims.get("register_id") else None,
         operational_session_id=uuid.UUID(operational_claims["session_id"]) if operational_claims.get("session_id") else None,
+        authorized_by_user_id=autorizador.user_id if autorizador else None,
+        authorized_by_code=autorizador.employee_code if autorizador else None,
+        authorized_by_name=autorizador.display_name if autorizador else None,
+        authorized_permission=autorizador.permission if autorizador else None,
     )
 
 
@@ -237,6 +300,10 @@ def get_tenant_context(
     request: Request,
     x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-ID"),
     x_store_id: Optional[str] = Header(None, alias="X-Store-ID"),
+    # Autorização presencial: o supervisor digita no terminal do operador e a
+    # credencial vale só para esta requisição. Nunca é gravada em log.
+    x_supervisor_code: Optional[str] = Header(None, alias="X-Supervisor-Code"),
+    x_supervisor_pin: Optional[str] = Header(None, alias="X-Supervisor-Pin"),
     principal: AuthPrincipal = Depends(get_current_principal),
     session: Session = Depends(get_session),
 ) -> TenantContext:
@@ -248,8 +315,13 @@ def get_tenant_context(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="X-Tenant-ID is required.",
         )
+    elevation = (
+        SupervisorElevation(employee_code=x_supervisor_code.strip(), pin=x_supervisor_pin)
+        if x_supervisor_code and x_supervisor_pin else None
+    )
     return authorize_tenant_context(
-        session, principal, tenant_id, store_id, request.method, request.url.path
+        session, principal, tenant_id, store_id, request.method, request.url.path,
+        elevation=elevation,
     )
 
 

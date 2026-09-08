@@ -246,7 +246,7 @@ async def test_pos3_concurrent_sales_competing_for_last_stock_item():
             json={"product_id": p["id"], "quantity": 1.0}, headers=headers,
         )
         assert recusa.status_code == 409, recusa.text
-        assert "disponível" in recusa.json()["detail"]
+        assert "vender agora" in recusa.json()["detail"] or "disponíve" in recusa.json()["detail"]
 
         # A venda A segue e paga normalmente: o compromisso vira baixa.
         payA_res = await client.post("/api/v1/payments", json={"sale_id": saleA["id"], "method": "PIX", "amount": 250.00}, headers=headers)

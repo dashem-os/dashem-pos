@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react'
+import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback, useRef } from 'react'
 import * as api from '../services/api'
 import { paymentProgress, requireAuthenticatedActor, saleNeedsCreation } from '../domain/operationalRules'
 import { resolveNicheTheme, useNicheTheme } from '../utils/nicheTheme'
@@ -64,6 +64,11 @@ interface PosContextType {
   removeItemFromCart: (itemId: string) => Promise<void>
   applyDiscount: (type: 'FIXED' | 'PERCENTAGE', value: number) => Promise<void>
   cancelCurrentSale: (reason?: string) => Promise<void>
+  /** A operação parada à espera de quem tem autoridade para permiti-la. */
+  autorizacaoPendente: { acao: string; permissao: string } | null
+  /** Devolve a mensagem de recusa, ou null quando a operação aconteceu. */
+  confirmarAutorizacao: (codigo: string, pin: string) => Promise<string | null>
+  cancelarAutorizacao: () => void
   openPaymentModal: () => void
   closePaymentModal: () => void
   openQuantityModal: (item: api.SaleItem) => void
@@ -137,6 +142,8 @@ export const PosProvider: React.FC<{
   const [isDiscountModalOpen, setIsDiscountModalOpen] = useState(false)
   const [isFiscalModalOpen, setIsFiscalModalOpen] = useState(false)
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false)
+  // A operação que espera autorização de quem tem autoridade para permiti-la.
+  const [autorizacaoPendente, setAutorizacaoPendente] = useState<{ acao: string; permissao: string } | null>(null)
   const [selectedItemForQuantity, setSelectedItemForQuantity] = useState<api.SaleItem | null>(null)
 
   const [loading, setLoading] = useState(true)
@@ -440,15 +447,72 @@ export const PosProvider: React.FC<{
     }
   }
 
+  /*
+    O operador vê a ação e não a executa sozinho.
+
+    Quando falta a permissão, a operação fica de pé esperando quem tem
+    autoridade digitar o próprio código no mesmo terminal. Antes havia só o
+    botão apagado, e a saída prática era o supervisor operar no lugar do
+    caixa — o que grava a venda no nome errado e não deixa rastro de quem
+    decidiu. A credencial não fica guardada em lugar nenhum: viaja no
+    cabeçalho desta requisição e some.
+  */
+  const pedidoDeAutorizacao = useRef<((extra: Record<string, string>) => Promise<void>) | null>(null)
+
+  const comAutorizacao = async (
+    permissao: string,
+    acao: string,
+    executar: (extra: Record<string, string>) => Promise<void>,
+  ) => {
+    if (permissions.includes(permissao)) {
+      await executar({})
+      return
+    }
+    pedidoDeAutorizacao.current = executar
+    setAutorizacaoPendente({ acao, permissao })
+  }
+
+  const confirmarAutorizacao = async (codigo: string, pin: string): Promise<string | null> => {
+    const executar = pedidoDeAutorizacao.current
+    if (!executar) return null
+    setActionLoading(true)
+    try {
+      await executar({ 'X-Supervisor-Code': codigo, 'X-Supervisor-Pin': pin })
+      pedidoDeAutorizacao.current = null
+      setAutorizacaoPendente(null)
+      return null
+    } catch (err: unknown) {
+      return err instanceof Error ? err.message : 'Não foi possível autorizar.'
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const cancelarAutorizacao = () => {
+    pedidoDeAutorizacao.current = null
+    setAutorizacaoPendente(null)
+  }
+
+  const executarDesconto = async (
+    type: 'FIXED' | 'PERCENTAGE', value: number, extra: Record<string, string>,
+  ) => {
+    if (!currentSale) return
+    const updatedSale = await api.applySaleDiscount(
+      { ...getHeaders(), ...extra }, currentSale.id, type, value,
+    )
+    setCurrentSale(updatedSale)
+    const descLabel = type === 'PERCENTAGE' ? `${value}%` : `R$ ${value.toFixed(2)}`
+    showToast('success', `Desconto de ${descLabel} aplicado com sucesso!`)
+  }
+
   const applyDiscount = async (type: 'FIXED' | 'PERCENTAGE', value: number) => {
     if (!currentSale) return
     try {
       setActionLoading(true)
-      const hdrs = getHeaders()
-      const updatedSale = await api.applySaleDiscount(hdrs, currentSale.id, type, value)
-      setCurrentSale(updatedSale)
-      const descLabel = type === 'PERCENTAGE' ? `${value}%` : `R$ ${value.toFixed(2)}`
-      showToast('success', `Desconto de ${descLabel} aplicado com sucesso!`)
+      await comAutorizacao(
+        'sale.discount', 'Aplicar desconto',
+        (extra) => executarDesconto(type, value, extra),
+      )
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Erro ao aplicar desconto'
       showToast('error', msg)
@@ -457,21 +521,28 @@ export const PosProvider: React.FC<{
     }
   }
 
-  const cancelCurrentSale = async (reason: string = 'Cancelamento solicitado pelo operador') => {
+  const executarCancelamento = async (reason: string, extra: Record<string, string>) => {
     if (!currentSale) return
-    try {
-      setActionLoading(true)
-      const hdrs = getHeaders()
-      await api.cancelSale(hdrs, currentSale.id, operatorId, reason)
+    await api.cancelSale({ ...getHeaders(), ...extra }, currentSale.id, operatorId, reason)
       // Venda cancelada não é a venda atual. Guardá-la aqui mantinha itens,
       // total e botão de receber na tela de uma venda que o servidor já tinha
       // encerrado — o caixa continuava vendo 27 itens de algo que não existe
       // mais. A próxima inclusão abre uma venda nova.
-      setCurrentSale(null)
-      setIsCancelModalOpen(false)
-      setIsPaymentModalOpen(false)
-      showToast('info', 'Venda cancelada.')
-      refreshData()
+    setCurrentSale(null)
+    setIsCancelModalOpen(false)
+    setIsPaymentModalOpen(false)
+    showToast('info', 'Venda cancelada.')
+    refreshData()
+  }
+
+  const cancelCurrentSale = async (reason: string = 'Cancelamento solicitado pelo operador') => {
+    if (!currentSale) return
+    try {
+      setActionLoading(true)
+      await comAutorizacao(
+        'sale.cancel', 'Cancelar a venda',
+        (extra) => executarCancelamento(reason, extra),
+      )
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Erro ao cancelar venda'
       showToast('error', msg)
@@ -785,6 +856,9 @@ export const PosProvider: React.FC<{
         removeItemFromCart,
         applyDiscount,
         cancelCurrentSale,
+        autorizacaoPendente,
+        confirmarAutorizacao,
+        cancelarAutorizacao,
         openPaymentModal,
         closePaymentModal,
         openQuantityModal,

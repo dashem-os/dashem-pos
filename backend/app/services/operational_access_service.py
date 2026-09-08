@@ -93,6 +93,7 @@ class SupervisorAuthorization(NamedTuple):
     employee_code: str
     display_name: str
     role: str
+    permission: str
 
 
 def authorize_with_supervisor(
@@ -168,6 +169,7 @@ def authorize_with_supervisor(
         user_id=user.id, membership_id=membership.id,
         employee_code=credential.employee_code, display_name=employee.full_name,
         role=getattr(membership.role, "value", str(membership.role)),
+        permission=permission,
     )
 
 

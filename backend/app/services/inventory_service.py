@@ -646,11 +646,7 @@ def reserve_for_sale_item(
         nome = product_name or "esta mercadoria"
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                f"Só há {_humano(disponivel)} disponível de '{nome}'."
-                + (f" {_humano(comprometido)} já está em vendas abertas."
-                   if comprometido > 0 else "")
-            ),
+            detail=_recusa(nome, disponivel, comprometido),
         )
 
     agora = datetime.utcnow()
@@ -683,6 +679,26 @@ def _humano(valor: Decimal) -> str:
     """Quantidade como se escreve numa prateleira, sem quatro casas."""
     inteiro = valor.quantize(Decimal("1")) if valor == valor.to_integral_value() else valor.normalize()
     return str(inteiro)
+
+
+def _recusa(nome: str, disponivel: Decimal, comprometido: Decimal) -> str:
+    """A recusa dita como uma pessoa diria no balcão.
+
+    "Só há 0 disponível. 16 já está em vendas abertas." saiu na homologação de
+    07/09/2026: zero não é uma quantidade que se anuncia, e dezesseis unidades
+    não "está". Quem lê isso no meio de uma venda precisa entender em um
+    segundo por que a mercadoria que está na prateleira não pode ser vendida.
+    """
+    quantas = "unidade está" if comprometido == 1 else "unidades estão"
+    em_vendas = f"{_humano(comprometido)} {quantas} em vendas abertas"
+    if disponivel <= 0:
+        if comprometido > 0:
+            return f"Não há mais '{nome}' para vender agora: {em_vendas}."
+        return f"Não há '{nome}' em estoque nesta unidade."
+    resta = f"{_humano(disponivel)} disponíve{'l' if disponivel == 1 else 'is'}"
+    if comprometido > 0:
+        return f"Só há {resta} de '{nome}': {em_vendas}."
+    return f"Só há {resta} de '{nome}'."
 
 
 def _encerrar(session: Session, context: TenantContext, *, novo_status: ReservationStatusEnum,

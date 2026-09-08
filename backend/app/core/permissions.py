@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Optional
+from typing import Callable, Optional
 
 from fastapi import HTTPException
 from sqlalchemy import or_
@@ -252,11 +252,30 @@ def enforce_effective_access(
     store_id: Optional[object],
     method: str,
     path: str,
+    elevate: Optional[Callable[[str], object]] = None,
 ) -> EffectiveAccess:
+    """A autoridade da requisição, com um caminho para a autorização presencial.
+
+    `elevate` é a chegada do supervisor ao balcão: quando o operador não tem a
+    permissão da rota, quem tem digita o próprio código e PIN e a permissão
+    vale **para esta requisição**, com as duas pessoas registradas. O operador
+    não ganha poder nenhum: nada é gravado no cadastro dele, e a próxima
+    requisição volta a ser recusada.
+
+    A capability continua fora do alcance de qualquer pessoa. Autorizar é
+    emprestar autoridade, não contratar módulo — se a loja não contratou, não
+    há supervisor que destranque.
+    """
     requirement = route_requirement(method, path)
     access = effective_access(session, membership, store_id)
     if requirement.permission not in access.permissions:
-        raise HTTPException(status_code=403, detail=f"Missing permission: {requirement.permission}")
+        if elevate is None:
+            raise HTTPException(status_code=403, detail=f"Missing permission: {requirement.permission}")
+        elevate(requirement.permission)
+        access = EffectiveAccess(
+            permissions=access.permissions + (requirement.permission,),
+            capabilities=access.capabilities,
+        )
     permission = session.get(Permission, requirement.permission)
     if not permission:
         raise HTTPException(status_code=403, detail="Permission contract is unavailable.")

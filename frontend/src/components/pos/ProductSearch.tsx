@@ -221,7 +221,13 @@ export const ProductSearch: React.FC = () => {
           <div className="max-h-64 overflow-y-auto divide-y divide-slate-100">
             {searchResults.map((product) => {
               const price = Number(product.sale_price)
-              const stock = Number(product.quantity)
+              // A busca dizia "Estoque: 16" enquanto a mesma tela recusava a
+              // venda: a prateleira tinha dezesseis e todas estavam prometidas
+              // a vendas abertas. Quem está atendendo precisa do número que
+              // pode vender, e a grade ao lado já mostra esse (ADR-032).
+              const stock = Number(product.available ?? product.quantity)
+              const naPrateleira = Number(product.quantity)
+              const comprometido = naPrateleira - stock
               return (
                 <button
                   key={product.id}
@@ -236,7 +242,17 @@ export const ProductSearch: React.FC = () => {
                     <div className="flex items-center space-x-2 text-xs text-slate-400 mt-0.5">
                       <span className="font-mono">{product.sku}</span>
                       <span>•</span>
-                      <span>Estoque: {formatStock(stock)}</span>
+                      <span>
+                        {stock > 0
+                          ? `Disponível: ${formatStock(stock)}`
+                          : comprometido > 0 ? 'Nada disponível agora' : 'Sem estoque'}
+                      </span>
+                      {comprometido > 0 && (
+                        <>
+                          <span>•</span>
+                          <span>{formatStock(comprometido)} em vendas abertas</span>
+                        </>
+                      )}
                     </div>
                   </div>
 

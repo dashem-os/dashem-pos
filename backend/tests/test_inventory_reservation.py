@@ -223,3 +223,20 @@ def test_promising_more_than_exists_is_refused_before_the_payment():
 
     assert recusa.value.status_code == 409
     assert "2" in recusa.value.detail
+
+
+def test_the_refusal_is_written_the_way_a_person_would_say_it():
+    """"Só há 0 disponível. 16 já está" saiu na tela em 07/09/2026."""
+    from app.services.inventory_service import _recusa
+
+    esgotado = _recusa("Coca-Cola Lata", Decimal("0"), Decimal("16"))
+    assert esgotado == ("Não há mais 'Coca-Cola Lata' para vender agora: "
+                        "16 unidades estão em vendas abertas.")
+    sobrando = _recusa("Coca-Cola Lata", Decimal("6"), Decimal("10"))
+    assert sobrando == ("Só há 6 disponíveis de 'Coca-Cola Lata': "
+                        "10 unidades estão em vendas abertas.")
+    uma = _recusa("Coca-Cola Lata", Decimal("1"), Decimal("1"))
+    assert uma == "Só há 1 disponível de 'Coca-Cola Lata': 1 unidade está em vendas abertas."
+    # Sem reserva nenhuma, a falta é da prateleira e não de outra venda.
+    assert _recusa("Coca-Cola Lata", Decimal("0"), Decimal("0")) == (
+        "Não há 'Coca-Cola Lata' em estoque nesta unidade.")

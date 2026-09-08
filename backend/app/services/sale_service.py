@@ -6,7 +6,7 @@ from sqlmodel import Session, select
 from sqlalchemy.orm import selectinload
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException, status
-from app.core.context import TenantContext, resolve_actor, scope_tenant_query
+from app.core.context import TenantContext, authorization_trail, resolve_actor, scope_tenant_query
 from app.models.identity import Register, Store
 from app.models.catalog import InventoryMovement, MovementTypeEnum, Product, ProductPrice
 from app.models.sale import (
@@ -437,6 +437,31 @@ def apply_sale_discount(
     _touch_sale(sale)
     
     session.add(sale)
+    # Desconto mexe em dinheiro e não deixava rastro nenhum. Agora deixa, com
+    # quem autorizou quando o operador não podia sozinho.
+    reliability_service.write_audit_and_outbox(
+        session=session,
+        tenant_id=context.tenant_id,
+        store_id=sale.store_id,
+        actor_id=resolve_actor(context),
+        action="sale.discount",
+        target=f"SALE-{sale.id}",
+        audit_payload={
+            "sale_id": str(sale.id),
+            "discount_type": getattr(discount_type, "value", str(discount_type)),
+            "requested": str(value),
+            "approved": str(additional_discount),
+            "net_total": str(sale.net_total),
+            **authorization_trail(context),
+        },
+        aggregate_type="sale",
+        aggregate_id=str(sale.id),
+        event_type="sale.discounted",
+        outbox_payload={
+            "tenant_id": str(context.tenant_id), "store_id": str(sale.store_id),
+            "sale_id": str(sale.id), "net_total": str(sale.net_total),
+        },
+    )
     session.commit()
     session.refresh(sale)
     return sale
@@ -478,7 +503,7 @@ def cancel_sale(
         actor_id=event_actor,
         action="sale.cancel",
         target=f"SALE-{sale.id}",
-        audit_payload={"sale_id": str(sale.id), "reason": reason},
+        audit_payload={"sale_id": str(sale.id), "reason": reason, **authorization_trail(context)},
         aggregate_type="sale",
         aggregate_id=str(sale.id),
         event_type="sale.canceled",

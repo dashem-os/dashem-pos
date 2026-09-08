@@ -23,6 +23,9 @@ export const SaleTotals: React.FC = () => {
   const netTotal = Number(currentSale?.net_total || 0)
   const isAwaitingPayment = currentSale?.status === 'AWAITING_PAYMENT'
   const isCashOpen = cashSession?.status === 'OPEN'
+  // O botão não some nem apaga por falta de permissão: a ação existe na loja,
+  // e quem não pode sozinho chama quem pode. Apagar o botão empurrava o
+  // supervisor a operar no caixa alheio, que é pior do que pedir autorização.
   const canDiscount = permissions.includes('sale.discount')
   const canCancel = permissions.includes('sale.cancel')
   const canCheckout = permissions.includes('sale.checkout')
@@ -86,8 +89,8 @@ export const SaleTotals: React.FC = () => {
         <button
           type="button"
           onClick={openDiscountModal}
-          disabled={!hasItems || !isCashOpen || actionLoading || !canDiscount}
-          title={canDiscount ? 'Aplicar desconto' : 'Seu perfil não possui permissão para desconto'}
+          disabled={!hasItems || !isCashOpen || actionLoading}
+          title={canDiscount ? 'Aplicar desconto' : 'Precisa de autorização do supervisor'}
           className="flex items-center gap-1 font-bold text-emerald-700 disabled:opacity-30"
         >
           <Tag className="h-3 w-3" />
@@ -96,7 +99,8 @@ export const SaleTotals: React.FC = () => {
         <button
           type="button"
           onClick={openCancelModal}
-          disabled={!hasItems || !isCashOpen || actionLoading || !canCancel}
+          disabled={!hasItems || !isCashOpen || actionLoading}
+          title={canCancel ? 'Cancelar venda' : 'Precisa de autorização do supervisor'}
           className="flex items-center gap-1 font-bold text-slate-500 hover:text-rose-600 disabled:opacity-30"
         >
           <Ban className="h-3 w-3" />

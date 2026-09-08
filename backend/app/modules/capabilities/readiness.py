@@ -134,7 +134,13 @@ CAPABILITY_READINESS: dict[str, CapabilityReadiness] = {
                   "backend/tests/test_s12_transfers.py",
                   "docs/quality/s23-shared-selector-acceptance.md"),
         _complete("high_speed_checkout", "1.0.0", "backend/tests/test_pos3_gates.py"),
-        _complete("supervisor_override", "1.0.0", "backend/tests/test_permission_engine.py"),
+        # A capability declarava-se completa quando só existia a permissão no
+        # perfil: nenhum mecanismo de elevação, e o operador que não tinha a
+        # permissão simplesmente via o botão apagado. A prova agora é a
+        # autorização presencial e o cenário percorrido em duas estações.
+        _complete("supervisor_override", "1.0.0",
+                  "backend/tests/test_supervisor_authorization.py",
+                  "backend/tests/test_permission_engine.py"),
         _complete("receivables", "1.0.0",
                   "backend/tests/test_s14_receivables.py",
                   "backend/tests/test_s15_receivable_collection.py"),

@@ -165,21 +165,38 @@ Provas: `backend/tests/test_inventory_reservation.py` (7 casos, incluindo o
 cenário relatado de 16 → 10 → 7) e o portão de concorrência reescrito em
 `test_pos3_gates.py`.
 
+### Homologado no balcão, em duas estações
+
+Em 07/09/2026 o cenário obrigatório foi percorrido com dois navegadores
+simultâneos, cada um com o próprio terminal autorizado e a própria pessoa
+entrando por código e PIN: operadora (CAIXA) numa estação, supervisora na
+outra. Sete passos, sete como esperado
+(`frontend/e2e/presentation/two_station_authorization.cjs`, capturas em
+`artifacts/duas-estacoes/`):
+
+1. a operadora promete dez das dezesseis unidades;
+2. a segunda estação alcança só as seis que sobraram;
+3. a sétima é recusada com o número real, antes do pagamento;
+4. a operadora **não cancela sozinha** — o PDV pede autorização (P0.3);
+5. PIN errado não autoriza, e a recusa aparece para quem digitou;
+6. autorizada, a venda é cancelada e some da tela (P0.1);
+7. liberadas as dez, a segunda estação consegue a sétima.
+
+A travessia também expôs um defeito de escrita que só aparece na tela: a
+recusa dizia "Só há 0 disponível… 16 já está em vendas abertas". Zero não é
+quantidade que se anuncia e dezesseis unidades não "está" — o texto foi
+reescrito e tem prova própria.
+
 ### Ainda não implementado
 
 * **Comanda e pedido não reservam.** `order_item_id` existe na tabela e nada o
   preenche: só a venda de balcão reserva. Uma mesa aberta ainda promete
   mercadoria que o sistema não segura.
-* **`on_order` e `inventory_position`** — dois dos cinco números dependem de
-  compras, que não existe como módulo.
 * **A escada de mensagens no PDV.** Há recusa, não há aviso: `ProductSearch`
   ainda mostra `quantity` enquanto a grade mostra `available`. Duas listas na
   mesma tela respondendo números diferentes é trabalho de UX-06.
-* **Homologação em duas estações.** O cenário obrigatório — operador e
-  supervisor em sessões simultâneas — não foi executado. Nenhum teste
-  automatizado substitui essa passagem.
-* **Elevação por supervisor** (P0.3) é assunto do ADR-028, não deste; sem ela,
-  cancelar não é uma operação com duas pessoas registradas.
+* **`on_order` e `inventory_position`** dependem de compras, que não existe
+  como módulo (repetido aqui porque é o que falta para os cinco números).
 
 ## Alternativa recusada
 
