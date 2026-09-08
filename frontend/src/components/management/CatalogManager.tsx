@@ -5,6 +5,7 @@ import { Modal } from '../common/Modal'
 import * as api from '../../services/api'
 import { Button } from '../common/Button'
 import { DataTable } from '../common/DataTable'
+import { referenciaDoNome } from '../../domain/categoryReference'
 import { RowAction, RowActions } from '../common/RowActions'
 import { formatCurrency, maskCurrencyInput, parseCurrencyInput } from '../../utils/format'
 import { navigateTo } from '../../utils/navigation'
@@ -24,7 +25,7 @@ function ProductThumb({ name, imageUrl }: { name: string; imageUrl?: string | nu
 }
 
 export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ onOpenAssortments }) => {
-  const { tenant, store, products, prices, balances, createNewProduct, adjustStock, refreshData, actionLoading, activeActivity, showToast } = usePos()
+  const { tenant, store, products, prices, balances, createNewProduct, adjustStock, refreshData, actionLoading, activeActivity, permissions, showToast } = usePos()
   const mediaHeaders = useMemo(
     () => tenant && store ? { 'X-Tenant-ID': tenant.id, 'X-Store-ID': store.id } : null,
     [tenant?.id, store?.id],
@@ -39,6 +40,12 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
   const [productToArchive, setProductToArchive] = useState<api.SellableProduct | null>(null)
   const [activeAssortments, setActiveAssortments] = useState<api.Assortment[]>([])
   const [publishAssortmentId, setPublishAssortmentId] = useState('')
+  // Categorizar era possível no banco e em Categorias, e impossível aqui — a
+  // jornada "cadastrar → categorizar" não tinha onde acontecer.
+  const [categorias, setCategorias] = useState<api.Category[]>([])
+  const [categoryId, setCategoryId] = useState('')
+  const [novaCategoria, setNovaCategoria] = useState('')
+  const [criandoCategoria, setCriandoCategoria] = useState(false)
   const [editingProduct, setEditingProduct] = useState<api.SellableProduct | null>(null)
   const [productToDelete, setProductToDelete] = useState<api.SellableProduct | null>(null)
   const [saving, setSaving] = useState(false)
@@ -141,6 +148,9 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
     void api.fetchAssortments(mediaHeaders, { status: 'ACTIVE', storeId: store?.id, pageSize: 100 })
       .then((result) => { if (alive) setActiveAssortments(result.items) })
       .catch(() => { if (alive) setActiveAssortments([]) })
+    void api.fetchCategories(mediaHeaders)
+      .then((lista) => { if (alive) setCategorias(lista) })
+      .catch(() => { if (alive) setCategorias([]) })
     return () => { alive = false }
   }, [isAddModalOpen, mediaHeaders, store?.id])
 
@@ -148,7 +158,7 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
     setEditingProduct(null)
     setName(''); setSku(''); setBarcode(''); setItemType('PRODUCT')
     setPriceInput(''); setStockInput(''); setPendingMedia(null); setFormError(null)
-    setPublishAssortmentId('')
+    setPublishAssortmentId(''); setCategoryId(''); setNovaCategoria('')
     setIsAddModalOpen(true)
   }
 
@@ -157,6 +167,7 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
     setName(product.name); setSku(product.sku); setBarcode(product.barcode || '')
     setItemType(product.item_type); setPriceInput(maskCurrencyInput(Number(product.sale_price).toFixed(2)))
     setPendingMedia(null); setFormError(null); setPublishAssortmentId('')
+    setCategoryId(product.category_id || ''); setNovaCategoria('')
     setIsAddModalOpen(true)
   }
 
@@ -181,9 +192,12 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
     setSaving(true); setFormError(null)
     try {
     const created = editingProduct
-      ? await api.updateProduct(mediaHeaders, editingProduct.id, { name, sku, barcode: barcode || null, sale_price: parseCurrencyInput(priceInput) })
+      ? await api.updateProduct(mediaHeaders, editingProduct.id, {
+          name, sku, barcode: barcode || null, sale_price: parseCurrencyInput(priceInput),
+          category_id: categoryId || undefined,
+        })
       : await createNewProduct(
-      { name, sku, barcode: barcode || undefined, item_type: itemType },
+      { name, sku, barcode: barcode || undefined, item_type: itemType, category_id: categoryId || undefined },
       parseCurrencyInput(priceInput),
       itemType === 'PRODUCT' ? parseInt(stockInput || '0', 10) : 0
     )
@@ -225,6 +239,8 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
     setName('')
     setSku('')
     setBarcode('')
+    setCategoryId('')
+    setNovaCategoria('')
     setPendingMedia(null)
     setPriceInput('')
     setStockInput('')
@@ -647,6 +663,70 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
               />
             </div>
           )}
+
+          {/*
+            Categorizar é organizar o acervo; publicar é decidir onde se vende.
+            São duas perguntas diferentes, e por isso ficam em blocos diferentes
+            — a de baixo continua falando de venda.
+          */}
+          <div className="space-y-2">
+            <label className="block text-xs font-bold text-dashem-strong" htmlFor="new-product-category">
+              Categoria
+            </label>
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                id="new-product-category"
+                value={categoryId}
+                onChange={(event) => setCategoryId(event.target.value)}
+                className="h-11 min-w-0 flex-1 rounded-xl border border-dashem-border bg-dashem-surface-elevated px-3 text-xs font-semibold text-dashem-strong outline-none focus:border-dashem-red"
+              >
+                <option value="">Sem categoria</option>
+                {categorias.map((categoria) => (
+                  <option key={categoria.id} value={categoria.id}>{categoria.name}</option>
+                ))}
+              </select>
+              {permissions.includes('catalog.update') && (
+                <button
+                  type="button"
+                  onClick={() => setNovaCategoria((atual) => (atual === '' ? ' ' : ''))}
+                  className="h-11 shrink-0 rounded-xl border border-dashem-border px-3 text-xs font-black text-dashem-muted hover:text-dashem-strong"
+                >
+                  Nova categoria
+                </button>
+              )}
+            </div>
+            {novaCategoria !== '' && (
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  value={novaCategoria.trim()}
+                  onChange={(event) => setNovaCategoria(event.target.value || ' ')}
+                  placeholder="Ex.: Bebidas geladas"
+                  aria-label="Nome da nova categoria"
+                  className="h-11 min-w-0 flex-1 rounded-xl border border-dashem-border bg-dashem-surface-elevated px-3 text-xs font-semibold text-dashem-strong outline-none focus:border-dashem-red"
+                />
+                <button
+                  type="button"
+                  disabled={criandoCategoria || !novaCategoria.trim() || !mediaHeaders}
+                  onClick={async () => {
+                    if (!mediaHeaders) return
+                    const nome = novaCategoria.trim()
+                    setCriandoCategoria(true)
+                    try {
+                      const criada = await api.createCategory(mediaHeaders, nome, referenciaDoNome(nome))
+                      setCategorias((atuais) => [...atuais, criada].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')))
+                      setCategoryId(criada.id)
+                      setNovaCategoria('')
+                    } catch (reason) {
+                      setFormError(reason instanceof Error ? reason.message : 'Não foi possível criar a categoria.')
+                    } finally { setCriandoCategoria(false) }
+                  }}
+                  className="h-11 shrink-0 rounded-xl bg-dashem-red px-4 text-xs font-black text-brand-contrast disabled:opacity-40"
+                >
+                  {criandoCategoria ? 'Criando...' : 'Criar e usar'}
+                </button>
+              </div>
+            )}
+          </div>
 
           <section className="space-y-2 rounded-2xl border border-dashem-border bg-dashem-surface-elevated/40 p-4">
             <div className="flex items-start gap-2">

@@ -1,0 +1,25 @@
+{
+  "app": "http://127.0.0.1:5173",
+  "gerado_em": "2026-09-08T14:30:52.625Z",
+  "etapas": [
+    {
+      "etapa": "cadastro sem publicação",
+      "aviso": "Produto cadastrado no acervo. Publique-o em um sortimento para vender no PDV."
+    },
+    {
+      "etapa": "categoria conta o produto novo",
+      "contagem": 1
+    },
+    {
+      "etapa": "editar preço e voltar ao filtro",
+      "filtro": "CAM-852625"
+    }
+  ],
+  "telas": [
+    "1-cadastro-com-categoria-sem-foto",
+    "2-salvo-no-acervo-sem-publicar",
+    "3-categoria-conta-o-produto",
+    "4-preco-editado-com-filtro-preservado"
+  ],
+  "falhas": []
+}

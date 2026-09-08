@@ -110,6 +110,38 @@ def list_categories(session: Session, context: TenantContext, include_inactive: 
     return list(session.exec(query.order_by(Category.name)).all())
 
 
+def list_categories_with_usage(
+    session: Session, context: TenantContext, include_inactive: bool = False,
+) -> List[tuple[Category, int]]:
+    """Quantos produtos existem em cada categoria — do acervo, não da vitrine.
+
+    A tela de Categorias contava juntando duas listas no navegador, e a lista
+    que ela tinha era o catálogo **vendável**: mercadoria cadastrada e ainda não
+    publicada em nenhum cardápio não entrava na conta. O lojista lia "0 itens"
+    numa categoria com dois produtos.
+
+    É o mesmo defeito que o Estoque já corrigiu, pela mesma razão: publicação
+    decide onde o item pode ser vendido, não se ele existe. A contagem também
+    sai do navegador — quem sabe quantos são é quem tem a tabela.
+
+    Produto arquivado não conta: quem foi tirado do acervo não pesa na decisão
+    de arquivar a categoria.
+    """
+    contagem = (
+        select(Product.category_id, func.count(Product.id).label("total"))
+        .where(Product.is_active.is_(True))
+        .group_by(Product.category_id)
+        .subquery()
+    )
+    query = scope_tenant_query(
+        select(Category, func.coalesce(contagem.c.total, 0)), Category, context,
+    ).outerjoin(contagem, contagem.c.category_id == Category.id)
+    if not include_inactive:
+        query = query.where(Category.is_active.is_(True))
+    linhas = session.execute(query.order_by(Category.name)).all()
+    return [(categoria, int(total)) for categoria, total in linhas]
+
+
 def create_product(session: Session, context: TenantContext, **data: Any) -> Product:
     sku = str(data.pop("sku")).strip()
     existing = session.exec(scope_tenant_query(select(Product).where(Product.sku == sku), Product, context)).first()

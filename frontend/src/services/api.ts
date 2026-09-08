@@ -106,6 +106,12 @@ export interface Category {
   slug: string
   parent_id?: string
   is_active: boolean
+  /**
+   * Quantos produtos do acervo estão nesta categoria — não quantos estão
+   * publicados em algum cardápio. Vem do servidor: o navegador não junta duas
+   * listas para descobrir um número que uma consulta responde.
+   */
+  product_count: number
 }
 
 export interface Product {

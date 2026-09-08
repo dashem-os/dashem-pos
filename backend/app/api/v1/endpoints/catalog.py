@@ -198,9 +198,33 @@ def create_category_endpoint(data: CategoryCreateDTO, context: TenantContext = D
     return catalog_service.create_category(session, context, data.name, data.slug, data.parent_id)
 
 
-@router.get("/categories", response_model=List[Category])
+class CategoryWithUsage(BaseModel):
+    """A categoria com o que a tela precisa saber para decidir sobre ela.
+
+    `product_count` é quantos produtos do acervo estão nela — não quantos estão
+    publicados em algum cardápio. A tela usava a projeção de venda e mostrava
+    "0 itens" numa categoria com dois produtos cadastrados.
+    """
+
+    id: uuid.UUID
+    tenant_id: uuid.UUID
+    parent_id: Optional[uuid.UUID] = None
+    name: str
+    slug: str
+    is_active: bool
+    product_count: int
+
+
+@router.get("/categories", response_model=List[CategoryWithUsage])
 def list_categories_endpoint(include_inactive: bool = False, context: TenantContext = Depends(get_tenant_context), session: Session = Depends(get_session)):
-    return catalog_service.list_categories(session, context, include_inactive)
+    return [
+        CategoryWithUsage(
+            id=categoria.id, tenant_id=categoria.tenant_id, parent_id=categoria.parent_id,
+            name=categoria.name, slug=categoria.slug, is_active=categoria.is_active,
+            product_count=total,
+        )
+        for categoria, total in catalog_service.list_categories_with_usage(session, context, include_inactive)
+    ]
 
 
 @router.patch("/categories/{category_id}", response_model=Category)
