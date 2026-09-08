@@ -13,6 +13,7 @@ export function CounterProductSelector() {
   return <ProductSelectionProvider value={{
     tenant: pos.tenant, store: pos.store, products: pos.products, categories: pos.categories,
     permissions: pos.permissions, activeActivity: pos.activeActivity, showToast: pos.showToast,
+    activities: pos.activities, contributions: pos.contributions,
     operationMode: pos.operationMode, actionLoading: pos.actionLoading,
     enabled: pos.permissions.includes('sale.create') && pos.connectionState === 'ONLINE' && pos.cashSession?.status === 'OPEN',
     onPick: product => pos.addItemToCart(product.id, 1),

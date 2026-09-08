@@ -6,6 +6,7 @@ import {
   Trash2, Edit3, X, Check, AlertTriangle
 } from 'lucide-react'
 import { usePos } from '../../context/PosContext'
+import { rotuloDaContribuicao, vocabularioDoSortimento } from '../../domain/shopVocabulary'
 import * as api from '../../services/api'
 import { NICHE_LABELS } from '../../utils/nicheTheme'
 
@@ -32,10 +33,15 @@ const AVAILABLE_CONTEXTS: Array<{ key: api.SalesContext; label: string; operatio
 ]
 
 export const AssortmentManager: React.FC = () => {
-  const { tenant, store, permissions, activities, homologation, operatorId, showToast } = usePos()
+  const { tenant, store, permissions, activities, contributions, homologation, operatorId, showToast } = usePos()
   const canManage = permissions.includes('catalog.update')
-  // Food service speaks of menus; retail and beauty speak of catalogues.
-  const setsLabel = activities.includes('FOOD_SERVICE') ? 'Sortimentos e cardápios' : 'Sortimentos e catálogos'
+  // Quem clicou em "Cardápios" no menu não pode chegar numa tela chamada
+  // "Sortimentos": a palavra vem do mesmo rótulo que o servidor resolveu.
+  const palavra = vocabularioDoSortimento({
+    rotuloDoMenu: rotuloDaContribuicao(contributions, 'assortments'),
+    activities,
+  })
+  const setsLabel = palavra.plural
 
   const [assortments, setAssortments] = useState<api.Assortment[]>([])
   const [total, setTotal] = useState(0)
@@ -90,7 +96,7 @@ export const AssortmentManager: React.FC = () => {
       setAssortments(data.items)
       setTotal(data.total)
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Falha ao carregar sortimentos.')
+      setError(err instanceof Error ? err.message : `Falha ao carregar ${palavra.singular}s.`)
     } finally {
       setLoading(false)
     }
@@ -118,7 +124,7 @@ export const AssortmentManager: React.FC = () => {
       const data = await api.fetchAssortmentProducts(headers(), assortmentId, { pageSize: 100 })
       setAssortmentProducts(data.items)
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Falha ao carregar produtos do sortimento.')
+      setError(err instanceof Error ? err.message : `Falha ao carregar produtos do ${palavra.singular}.`)
     } finally {
       setProductsLoading(false)
     }
@@ -175,7 +181,7 @@ export const AssortmentManager: React.FC = () => {
       const result = await api.publishStarterCatalogue(headers(), activity as api.BusinessNiche, operatorId || undefined)
       const retired = result.retired_assortments.length
       showToast('success', `${result.products_total} produto(s) publicados em ${result.assortment_code}` +
-        (retired > 0 ? `; ${retired} sortimento(s) sem atividade foram desativados.` : '.'))
+        (retired > 0 ? `; ${retired} ${palavra.singular}(s) sem atividade foram desativados.` : '.'))
       loadAssortments()
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Falha ao publicar o catálogo inicial.')
@@ -205,7 +211,7 @@ export const AssortmentManager: React.FC = () => {
       setIsCreateOpen(false)
       loadAssortments()
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Erro ao criar sortimento'
+      const msg = err instanceof Error ? err.message : `Erro ao criar ${palavra.singular}`
       setError(msg)
     } finally {
       setActionLoading(false)
@@ -236,7 +242,7 @@ export const AssortmentManager: React.FC = () => {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Erro ao atualizar'
       if (msg.toLowerCase().includes('conflito de versão') || msg.toLowerCase().includes('concorrência') || msg.includes('409')) {
-        setConflictError('Conflito de concorrência detectado: este sortimento foi alterado simultaneamente por outro processo.')
+        setConflictError(`Conflito de concorrência detectado: este ${palavra.singular} foi alterado simultaneamente por outro processo.`)
       } else {
         setError(msg)
       }
@@ -264,7 +270,7 @@ export const AssortmentManager: React.FC = () => {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Erro ao vincular produto'
       if (msg.includes('409') || msg.includes('versão')) {
-        setConflictError('Conflito de versão ao vincular: recarregue o sortimento e tente novamente.')
+        setConflictError(`Conflito de versão ao vincular: recarregue o ${palavra.singular} e tente novamente.`)
       } else {
         setError(msg)
       }
@@ -291,7 +297,7 @@ export const AssortmentManager: React.FC = () => {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Erro ao desvincular produto'
       if (msg.includes('409') || msg.includes('versão')) {
-        setConflictError('Conflito de versão ao desvincular: recarregue o sortimento e tente novamente.')
+        setConflictError(`Conflito de versão ao desvincular: recarregue o ${palavra.singular} e tente novamente.`)
       } else {
         setError(msg)
       }
@@ -301,12 +307,12 @@ export const AssortmentManager: React.FC = () => {
   }
 
   const handleDelete = async (ass: api.Assortment) => {
-    if (!window.confirm(`Deseja remover o sortimento "${ass.name}"?`)) return
+    if (!window.confirm(`Deseja remover o ${palavra.singular} "${ass.name}"?`)) return
     try {
       await api.deleteAssortment(headers(), ass.id, ass.version)
       loadAssortments()
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Falha ao remover sortimento')
+      setError(err instanceof Error ? err.message : `Falha ao remover ${palavra.singular}`)
     }
   }
 
@@ -330,7 +336,7 @@ export const AssortmentManager: React.FC = () => {
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-dashem-red text-brand-contrast text-xs font-black shadow-sm hover:bg-dashem-red-light transition active:scale-95"
           >
             <Plus className="h-4 w-4" />
-            <span>Novo Sortimento</span>
+            <span>Novo {palavra.Singular}</span>
           </button>
         )}
       </div>
@@ -338,14 +344,14 @@ export const AssortmentManager: React.FC = () => {
       {/*
         A distinção entre publicar e cadastrar é verdadeira e vale a pena — uma
         vez. Fixa no topo, ela ocupa todo dia o espaço da lista que a pessoa
-        veio ver. Aparece sozinha quando ainda não há sortimento nenhum, e
+        veio ver. Aparece sozinha quando ainda não há nenhum publicado, e
         depois disso fica a um clique.
       */}
       {(mostrarExplicacao || assortments.length === 0) && (
         <section className="rounded-2xl border border-dashem-border bg-dashem-surface p-4">
           <p className="text-sm font-black text-dashem-strong">Aqui você organiza a publicação, não o cadastro do produto.</p>
           <p className="mt-1 text-xs leading-5 text-dashem-muted">
-            Produtos, fotos, preços e estoque são mantidos em “Produtos e preços”. Neste módulo, um sortimento reúne esses produtos e define em quais unidades, atividades e jornadas eles aparecem.
+            Produtos, fotos, preços e estoque são mantidos em “Produtos e preços”. Neste módulo, um {palavra.singular} reúne esses produtos e define em quais unidades, atividades e jornadas eles aparecem.
           </p>
         </section>
       )}
@@ -354,7 +360,7 @@ export const AssortmentManager: React.FC = () => {
           type="button" onClick={() => setMostrarExplicacao((visivel) => !visivel)}
           className="self-start text-xs font-black text-dashem-muted underline decoration-dotted underline-offset-4 hover:text-dashem-strong"
         >
-          {mostrarExplicacao ? 'Ocultar o que é um sortimento' : 'O que é um sortimento?'}
+          {mostrarExplicacao ? `Ocultar o que é um ${palavra.singular}` : `O que é um ${palavra.singular}?`}
         </button>
       )}
 
@@ -408,9 +414,9 @@ export const AssortmentManager: React.FC = () => {
           <p className="text-xs font-black uppercase tracking-wider text-brand-ink">Tenant de homologação</p>
           <h2 className="mt-1 text-base font-black text-dashem-strong">Publicar catálogo inicial da atividade</h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-dashem-muted">
-            Cria um sortimento declarando a atividade escolhida, com produtos coerentes com ela, e desativa
-            os sortimentos que publicam nesta unidade sem declarar atividade nenhuma. Nada é apagado: o
-            catálogo mestre continua intacto e um sortimento desativado pode ser reativado.
+            Cria um {palavra.singular} declarando a atividade escolhida, com produtos coerentes com ela, e desativa
+            os que publicam nesta unidade sem declarar atividade nenhuma. Nada é apagado: o
+            catálogo mestre continua intacto e um {palavra.singular} desativado pode ser reativado.
           </p>
           <div className="mt-4 flex flex-wrap items-center gap-3">
             <select
@@ -442,7 +448,7 @@ export const AssortmentManager: React.FC = () => {
             type="text"
             value={search}
             onChange={(e) => { setSearch(e.target.value); setPage(1) }}
-            placeholder="Buscar por código ou nome do sortimento..."
+            placeholder={`Buscar por código ou nome do ${palavra.singular}...`}
             className="w-full h-10 pl-11 pr-4 rounded-xl bg-dashem-surface border border-dashem-border text-dashem-strong text-xs font-medium focus:border-dashem-red outline-none"
           />
         </div>
@@ -462,14 +468,14 @@ export const AssortmentManager: React.FC = () => {
         {loading ? (
           <div className="p-12 text-center text-dashem-muted text-xs font-medium flex flex-col items-center gap-2">
             <RefreshCw className="h-5 w-5 animate-spin text-dashem-red" />
-            <span>Carregando sortimentos...</span>
+            <span>Carregando {palavra.singular}s...</span>
           </div>
         ) : assortments.length === 0 ? (
           <div className="p-12 text-center text-dashem-muted text-xs font-medium flex flex-col items-center gap-2">
             <Layers className="h-8 w-8 text-dashem-muted/40" />
-            <span className="text-dashem-strong font-bold text-sm">Nenhum sortimento encontrado</span>
+            <span className="text-dashem-strong font-bold text-sm">Nenhum {palavra.singular} encontrado</span>
             <span className="max-w-md">
-              Não há sortimentos cadastrados para os filtros selecionados. Crie um novo sortimento para vincular produtos aos contextos de venda.
+              Não há {palavra.singular}s cadastrados para os filtros selecionados. Crie um novo para vincular produtos aos contextos de venda.
             </span>
           </div>
         ) : (
@@ -477,7 +483,7 @@ export const AssortmentManager: React.FC = () => {
             <ResponsiveTable className="w-full text-left text-xs">
               <thead className="bg-dashem-surface-elevated text-dashem-muted font-extrabold uppercase tracking-wider text-[10px] border-b border-dashem-border">
                 <tr>
-                  <th className="px-5 py-3.5">Sortimento</th>
+                  <th className="px-5 py-3.5">{palavra.Singular}</th>
                   <th className="px-4 py-3.5">Onde é vendido</th>
                   <th className="px-4 py-3.5 text-center">Produtos</th>
                   <th className="px-4 py-3.5 text-center">Situação</th>
@@ -546,7 +552,7 @@ export const AssortmentManager: React.FC = () => {
                           </button>
                           <RowActions label={`Mais ações de ${ass.name}`}>
                             <RowAction icon={Trash2} tone="critical" onClick={() => handleDelete(ass)}>
-                              Excluir sortimento
+                              Excluir {palavra.singular}
                             </RowAction>
                           </RowActions>
                         </>
@@ -566,7 +572,7 @@ export const AssortmentManager: React.FC = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
           <div className="responsive-dialog w-full max-w-2xl bg-dashem-surface border border-dashem-border rounded-3xl p-6 shadow-2xl space-y-5 max-h-[calc(100dvh-2rem)] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-dashem-border pb-4">
-              <h2 className="text-base font-black text-dashem-strong">Criar Novo Sortimento</h2>
+              <h2 className="text-base font-black text-dashem-strong">Criar Novo {palavra.Singular}</h2>
               <button onClick={() => setIsCreateOpen(false)} className="text-dashem-muted hover:text-dashem-strong">
                 <X className="w-5 h-5" />
               </button>
@@ -603,7 +609,7 @@ export const AssortmentManager: React.FC = () => {
                 <label className="block text-[11px] font-bold text-dashem-muted uppercase tracking-wider mb-1">Descrição</label>
                 <textarea
                   rows={2}
-                  placeholder="Finalidade e observações deste sortimento..."
+                  placeholder={`Finalidade e observações deste ${palavra.singular}...`}
                   value={formDescription}
                   onChange={(e) => setFormDescription(e.target.value)}
                   className="w-full p-3 rounded-xl bg-dashem-bg border border-dashem-border text-dashem-strong text-xs font-medium focus:border-dashem-red outline-none"
@@ -626,7 +632,7 @@ export const AssortmentManager: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-[11px] font-bold text-dashem-muted uppercase tracking-wider mb-1">Onde este sortimento aparece</label>
+                <label className="block text-[11px] font-bold text-dashem-muted uppercase tracking-wider mb-1">Onde este {palavra.singular} aparece</label>
                 <p className="text-xs text-dashem-muted mb-2">Selecione as jornadas em que os produtos deste conjunto serão publicados na unidade ativa:</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {AVAILABLE_CONTEXTS.map((item) => {
@@ -677,7 +683,7 @@ export const AssortmentManager: React.FC = () => {
                   disabled={actionLoading || formScopes.length === 0}
                   className="px-5 py-2 rounded-xl bg-dashem-red text-xs font-black text-brand-contrast hover:bg-dashem-red-light disabled:opacity-50 shadow-sm"
                 >
-                  {actionLoading ? 'Salvando...' : 'Criar Sortimento'}
+                  {actionLoading ? 'Salvando...' : `Criar ${palavra.Singular}`}
                 </button>
               </div>
             </form>
@@ -691,7 +697,7 @@ export const AssortmentManager: React.FC = () => {
           <div className="responsive-dialog w-full max-w-lg bg-dashem-surface border border-dashem-border rounded-3xl p-6 shadow-2xl space-y-5 max-h-[calc(100dvh-2rem)] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-dashem-border pb-4">
               <div>
-                <h2 className="text-base font-black text-dashem-strong">Editar Sortimento</h2>
+                <h2 className="text-base font-black text-dashem-strong">Editar {palavra.Singular}</h2>
                 <p className="text-xs font-mono text-dashem-muted">Versão esperada: v{editingAssortment.version}</p>
               </div>
               <button onClick={() => setEditingAssortment(null)} className="text-dashem-muted hover:text-dashem-strong">
@@ -824,7 +830,7 @@ export const AssortmentManager: React.FC = () => {
           <div className="responsive-dialog w-full max-w-2xl bg-dashem-surface border border-dashem-border rounded-3xl p-6 shadow-2xl space-y-5 max-h-[calc(100dvh-2rem)] flex flex-col">
             <div className="flex items-center justify-between border-b border-dashem-border pb-4">
               <div>
-                <h2 className="text-base font-black text-dashem-strong">Produtos do Sortimento</h2>
+                <h2 className="text-base font-black text-dashem-strong">Produtos do {palavra.Singular}</h2>
                 <p className="text-xs text-dashem-muted">{managingProductsAssortment.name} ({managingProductsAssortment.code}) — v{managingProductsAssortment.version}</p>
               </div>
               <button onClick={() => setManagingProductsAssortment(null)} className="text-dashem-muted hover:text-dashem-strong">
@@ -855,7 +861,7 @@ export const AssortmentManager: React.FC = () => {
                   onClick={handleLinkProduct}
                   className="w-full sm:w-auto px-4 py-2 rounded-xl bg-dashem-red text-brand-contrast text-xs font-bold hover:bg-dashem-red-light disabled:opacity-50 shrink-0"
                 >
-                  Vincular ao Sortimento
+                  Vincular ao {palavra.Singular}
                 </button>
               </div>
             )}
@@ -869,7 +875,7 @@ export const AssortmentManager: React.FC = () => {
                 </div>
               ) : assortmentProducts.length === 0 ? (
                 <div className="p-8 text-center text-dashem-muted text-xs">
-                  Nenhum produto vinculado a este sortimento. Utilize o seletor acima para adicionar produtos.
+                  Nenhum produto vinculado a este {palavra.singular}. Utilize o seletor acima para adicionar produtos.
                 </div>
               ) : (
                 <ResponsiveTable className="w-full min-w-[32rem] text-left text-xs">

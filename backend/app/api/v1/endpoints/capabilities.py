@@ -12,21 +12,25 @@ from app.services.starter_catalog_service import is_homologation_tenant
 router = APIRouter()
 
 
-# Food service speaks of menus; a retail shop or a beauty reseller does not.
-# The navigation label follows the contracted activity instead of assuming one.
-NON_FOOD_LABELS = {
-    "assortments": "Catálogos",
-}
-
-
 def _labelled(contribution, activities: set[str]):
-    """A detached copy, so callers keep the model shape and the row stays clean."""
-    if "FOOD_SERVICE" in activities:
-        return contribution
-    replacement = NON_FOOD_LABELS.get(contribution.contribution_key)
-    if not replacement:
-        return contribution
-    return contribution.model_copy(update={"label": replacement})
+    """O rótulo do nicho vem da malha, não de uma lista dentro deste arquivo.
+
+    Uma contribuição declara em `metadata_json.label_variants` quais palavras
+    valem para quais atividades contratadas, em ordem de precedência: quem
+    contrata comida lê "Cardápios", quem não contrata lê o rótulo base. A regra
+    fica ao lado do resto da malha de capabilities, de modo que um Harness leia
+    a mesma linha em vez de reimplementar a decisão.
+
+    Devolve uma cópia destacada: o chamador continua recebendo a forma do
+    modelo e a linha do banco não é tocada.
+    """
+    variants = (contribution.metadata_json or {}).get("label_variants") or []
+    for variant in variants:
+        exigida = variant.get("when_activity")
+        rotulo = variant.get("label")
+        if exigida and rotulo and exigida in activities:
+            return contribution.model_copy(update={"label": rotulo})
+    return contribution
 
 
 @router.get("/effective")

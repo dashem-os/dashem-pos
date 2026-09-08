@@ -4,9 +4,14 @@ import { useProductSelection } from './ProductSelectionContext'
 import { SellableProduct } from '../../services/api'
 import * as api from '../../services/api'
 import { formatCurrency, formatStock } from '../../utils/format'
+import { rotuloDaContribuicao, vocabularioDoSortimento } from '../../domain/shopVocabulary'
 
 export const ProductSearch: React.FC = () => {
-  const { tenant, store, activeActivity, onPick, actionLoading, enabled, operationMode } = useProductSelection()
+  const { tenant, store, activeActivity, onPick, actionLoading, enabled, operationMode, activities, contributions } = useProductSelection()
+  const palavra = vocabularioDoSortimento({
+    rotuloDoMenu: rotuloDaContribuicao(contributions, 'assortments'),
+    activities,
+  })
   const [query, setQuery] = useState('')
   const [searchResults, setSearchResults] = useState<SellableProduct[]>([])
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
@@ -25,7 +30,7 @@ export const ProductSearch: React.FC = () => {
     if (result.items.length) return { items: result.items, message: '' }
     const context = await api.fetchSellableProducts(headers, { ...options, pageSize: 1 })
     return { items: [], message: context.total === 0
-      ? 'Nenhum produto disponível neste contexto. Confira a publicação em Cardápios para esta unidade, atividade e jornada.'
+      ? `Nenhum produto disponível neste contexto. Confira a publicação em ${palavra.plural} para esta unidade, atividade e jornada.`
       : 'Nenhuma correspondência entre os produtos publicados neste contexto. Confira o nome ou código; a Gestão pode verificar a publicação do item.' }
   }
 

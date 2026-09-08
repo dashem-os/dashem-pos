@@ -112,7 +112,7 @@ O resumo obedece ao pior risco relevante ([ADR-033](adr-033-stock-risk-state.md)
 | Interno | Na tela |
 |---|---|
 | Contextos operacionais habilitados | Onde este produto é vendido? — Balcão · Mesa/Comanda · Delivery |
-| Sortimento (agregado do domínio) | **Cardápios** — rótulo publicado na migração 086 |
+| Sortimento (agregado do domínio) | **Cardápios** para quem contrata FOOD_SERVICE; **Catálogos** para comércio e beleza. A palavra é dado da contribuição (`metadata_json.label_variants`, migração 088), resolvida no servidor: menu e tela usam a mesma string, e um nicho novo entra como linha, não como `if` |
 | Publicados por contexto | Onde cada item aparece |
 | Atividade de negócio | Tipo de negócio |
 | Versão esperada / v4 | não aparece na jornada diária |

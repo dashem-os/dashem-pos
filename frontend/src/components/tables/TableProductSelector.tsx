@@ -75,6 +75,7 @@ export function TableProductSelector({ session, order, onClose, onChanged }: {
       {loading ? <p role="status">Carregando cardápio da mesa…</p> : error ? <div role="alert"><p>{error}</p><button onClick={() => setRetry(value => value + 1)} className="min-h-11 rounded-xl border px-4">Tentar novamente</button></div> :
         <ProductSelectionProvider value={{ tenant: pos.tenant, store: pos.store, products, categories: pos.categories,
           permissions: pos.permissions, activeActivity: 'FOOD_SERVICE', showToast: pos.showToast,
+          activities: pos.activities, contributions: pos.contributions,
           operationMode: 'TABLE', enabled: allowed, actionLoading: busy, onPick: pick }}><ProductSelector /></ProductSelectionProvider>}
     </div>
   </Modal>

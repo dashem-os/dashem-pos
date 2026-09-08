@@ -43,10 +43,11 @@ test('CatalogManager allows selecting explicit sales context for store inventory
 })
 
 test('AssortmentManager supports scopes, product links, and handles optimistic concurrency conflict', () => {
-  // The heading follows the contracted activity: a beauty reseller has no menus.
-  assert.match(assortmentManager, /setsLabel/)
-  assert.match(assortmentManager, /Sortimentos e cardápios/)
-  assert.match(assortmentManager, /Sortimentos e catálogos/)
+  // O título segue a atividade contratada: revendedora de beleza não tem
+  // cardápio. A palavra deixou de ser escolhida aqui e passou a vir do mesmo
+  // rótulo que o menu mostra — ver shop_vocabulary.test.ts.
+  assert.match(assortmentManager, /setsLabel = palavra\.plural/)
+  assert.match(assortmentManager, /vocabularioDoSortimento/)
   assert.match(assortmentManager, /expected_version/)
   assert.match(assortmentManager, /Conflito de concorrência detectado/)
   assert.match(assortmentManager, /linkAssortmentProducts/)
