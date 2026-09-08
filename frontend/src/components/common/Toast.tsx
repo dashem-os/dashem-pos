@@ -12,9 +12,9 @@ export const Toast: React.FC<ToastProps> = ({ toast }) => {
   const getStyle = () => {
     switch (toast.type) {
       case 'success':
-        return 'bg-emerald-900/95 text-emerald-100 border-emerald-700 shadow-xl'
+        return 'bg-state-success-strong/95 text-state-success-on-strong border-state-success shadow-xl'
       case 'error':
-        return 'bg-rose-900/95 text-rose-100 border-rose-700 shadow-xl'
+        return 'bg-state-danger-strong/95 text-state-danger-on-strong border-state-danger shadow-xl'
       default:
         return 'bg-slate-900/95 text-slate-100 border-slate-700 shadow-xl'
     }
@@ -23,11 +23,11 @@ export const Toast: React.FC<ToastProps> = ({ toast }) => {
   const getIcon = () => {
     switch (toast.type) {
       case 'success':
-        return <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+        return <CheckCircle2 className="w-5 h-5 text-state-success-accent shrink-0" />
       case 'error':
-        return <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />
+        return <AlertCircle className="w-5 h-5 text-state-danger-accent shrink-0" />
       default:
-        return <Info className="w-5 h-5 text-sky-400 shrink-0" />
+        return <Info className="w-5 h-5 text-state-info-accent shrink-0" />
     }
   }
 

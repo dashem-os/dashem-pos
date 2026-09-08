@@ -25,6 +25,51 @@
   --border: 223 226 233;
   --text-strong: 16 21 31;
   --text-muted: 100 108 122;
+
+  /*
+    Estados — o que a tela diz da situação, não da marca.
+
+    Sem estes, cada tela escolhia a sua cor crua do Tailwind: `emerald-700`
+    aqui, `emerald-800` ali, `violet-700` numa terceira sem motivo nenhum. Eram
+    38 escolhas soltas só nas quatro telas de Mercadorias, e nenhuma delas
+    acompanhava o nicho nem podia ser corrigida num lugar só.
+
+    Os canais NÃO mudam por nicho: "em falta" é vermelho na padaria e na
+    revendedora de beleza. Quem muda por nicho é a marca, e é por isso que as
+    duas famílias são separadas — ver docs/architecture/dashem-visual-identity.md.
+
+    Cada estado tem seis degraus, e cada um existe porque uma tela precisava
+    dele: o texto sobre fundo claro, o fundo da faixa, a moldura dela, a
+    superfície escura das mensagens, o texto que se lê sobre ela e o ícone que
+    ainda precisa saltar no escuro.
+  */
+  --state-success: 4 120 87;
+  --state-success-soft: 236 253 245;
+  --state-success-border: 167 243 208;
+  --state-success-strong: 6 78 59;
+  --state-success-on-strong: 209 250 229;
+  --state-success-accent: 52 211 153;
+
+  --state-warning: 180 83 9;
+  --state-warning-soft: 255 247 237;
+  --state-warning-border: 253 186 116;
+  --state-warning-strong: 120 53 15;
+  --state-warning-on-strong: 254 243 199;
+  --state-warning-accent: 251 191 36;
+
+  --state-danger: 190 18 60;
+  --state-danger-soft: 255 241 242;
+  --state-danger-border: 253 164 175;
+  --state-danger-strong: 136 19 55;
+  --state-danger-on-strong: 255 228 230;
+  --state-danger-accent: 251 113 133;
+
+  --state-info: 3 105 161;
+  --state-info-soft: 240 249 255;
+  --state-info-border: 125 211 252;
+  --state-info-strong: 12 74 110;
+  --state-info-on-strong: 224 242 254;
+  --state-info-accent: 56 189 248;
 }
 
 /* Food service — Akira red (same as the primary identity). */

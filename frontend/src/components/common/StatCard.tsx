@@ -15,9 +15,9 @@ export interface StatCardProps {
 const ACCENTS: Record<Accent, string> = {
   neutral: 'text-dashem-muted',
   brand: 'text-brand-ink',
-  positive: 'text-emerald-600',
-  warning: 'text-amber-600',
-  critical: 'text-red-600',
+  positive: 'text-state-success',
+  warning: 'text-state-warning',
+  critical: 'text-state-danger',
 }
 
 /**

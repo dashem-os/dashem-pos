@@ -93,7 +93,7 @@ export const RowAction: React.FC<RowActionProps> = ({ icon: Icon, onClick, tone 
   <button
     type="button" role="menuitem" onClick={onClick}
     className={`flex min-h-11 w-full items-center gap-2.5 rounded-xl px-3 text-left text-xs font-black hover:bg-dashem-surface-elevated focus-visible:ring-2 focus-visible:ring-dashem-red ${
-      tone === 'critical' ? 'text-red-700' : 'text-dashem-strong'
+      tone === 'critical' ? 'text-state-danger' : 'text-dashem-strong'
     }`}
   >
     {Icon && <Icon className="h-4 w-4 shrink-0" />}

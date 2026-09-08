@@ -29,7 +29,7 @@ from app.core.tenancy import set_platform_db_context
 from app.models.assortment import (
     Assortment, AssortmentProduct, AssortmentScope, SalesContextEnum,
 )
-from app.models.catalog import ItemTypeEnum, InventoryBalance, Product, ProductPrice
+from app.models.catalog import Category, ItemTypeEnum, InventoryBalance, Product, ProductPrice
 from app.models.device import OperationalDevice, OperationalDeviceTypeEnum
 from app.models.identity import (
     AuthIdentity, Membership, MembershipStatusEnum, Register, RoleEnum, Store,
@@ -45,15 +45,26 @@ CAPABILITIES = (
 )
 
 # nome, sku, unidade, tipo, preço, saldo, mínimo, controla estoque
+# Categorias com nome de gente, uma delas dentro da outra: a tela precisa
+# mostrar hierarquia, e a lista vazia não prova nada sobre lista.
+CATEGORIAS = (
+    ("Bebidas", "bebidas", None),
+    ("Refrigerantes", "refrigerantes", "bebidas"),
+    ("Lanches", "lanches", None),
+    ("Materiais elétricos e de instalação", "materiais-eletricos", None),
+)
+
 CATALOGO = (
-    ("Coca-Cola Lata", "COC-051", "UN", ItemTypeEnum.PRODUCT, "8.00", "10", "0", True),
-    ("Coca-Cola Sem Açucar 600ml", "COC-050", "UN", ItemTypeEnum.PRODUCT, "10.00", "9", "0", True),
-    ("Hambúrguer Artesanal Bacon", "HAB-01", "UN", ItemTypeEnum.PRODUCT, "32.00", "15", "12", True),
+    ("Coca-Cola Lata", "COC-051", "UN", ItemTypeEnum.PRODUCT, "8.00", "10", "0", True, "refrigerantes"),
+    ("Coca-Cola Sem Açucar 600ml", "COC-050", "UN", ItemTypeEnum.PRODUCT, "10.00", "9", "0", True, "refrigerantes"),
+    ("Hambúrguer Artesanal Bacon", "HAB-01", "UN", ItemTypeEnum.PRODUCT, "32.00", "15", "12", True, "lanches"),
     # Os dois nomes mais longos do acervo do sistema: é onde a coluna aperta.
-    ("Alicate Decapador e Crimpador Automático", "ALI-DEC-01", "UN", ItemTypeEnum.PRODUCT, "89.90", "3", "5", True),
-    ("Canaleta 20x10mm com Fita Dupla Face 2m", "CAN-2010", "UN", ItemTypeEnum.PRODUCT, "24.50", "0", "6", True),
+    ("Alicate Decapador e Crimpador Automático", "ALI-DEC-01", "UN", ItemTypeEnum.PRODUCT, "89.90", "3", "5", True, "materiais-eletricos"),
+    ("Canaleta 20x10mm com Fita Dupla Face 2m", "CAN-2010", "UN", ItemTypeEnum.PRODUCT, "24.50", "0", "6", True, "materiais-eletricos"),
     # Serviço não tem prateleira, e a tela precisa dizer isso com palavra.
-    ("Taxa de entrega", "TX-ENT", "UN", ItemTypeEnum.SERVICE, "7.00", "0", "0", False),
+    # Sem categoria de propósito: a tela tem de aguentar o produto que ninguém
+    # classificou, que é o caso comum de quem cadastra correndo.
+    ("Taxa de entrega", "TX-ENT", "UN", ItemTypeEnum.SERVICE, "7.00", "0", "0", False, None),
 )
 
 
@@ -108,10 +119,19 @@ def seed(output: Path) -> None:
             device_type=OperationalDeviceTypeEnum.POS, register_id=caixa.id,
         ))
 
+        categorias: dict[str, uuid.UUID] = {}
+        for nome, referencia, dentro_de in CATEGORIAS:
+            categoria = Category(tenant_id=tenant.id, name=nome, slug=f"{referencia}-{sufixo}",
+                                 parent_id=categorias.get(dentro_de) if dentro_de else None)
+            session.add(categoria)
+            session.flush()
+            categorias[referencia] = categoria.id
+
         produtos: dict[str, uuid.UUID] = {}
-        for nome, sku, unidade, tipo, preco, saldo, minimo, controla in CATALOGO:
+        for nome, sku, unidade, tipo, preco, saldo, minimo, controla, categoria_de in CATALOGO:
             produto = Product(tenant_id=tenant.id, name=nome, sku=sku, unit=unidade,
-                              item_type=tipo, tracks_inventory=controla)
+                              item_type=tipo, tracks_inventory=controla,
+                              category_id=categorias.get(categoria_de) if categoria_de else None)
             session.add(produto)
             session.flush()
             produtos[sku] = produto.id

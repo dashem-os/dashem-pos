@@ -366,14 +366,14 @@ export const AssortmentManager: React.FC = () => {
 
       {/* Error alert */}
       {error && (
-        <div className="flex items-center justify-between p-4 rounded-2xl bg-red-50 border border-red-200 text-red-700 text-xs">
+        <div className="flex items-center justify-between p-4 rounded-2xl bg-state-danger-soft border border-state-danger-border text-state-danger text-xs">
           <div className="flex items-center gap-2">
             <AlertCircle className="h-4 w-4 shrink-0" />
             <span>{error}</span>
           </div>
           <button
             onClick={loadAssortments}
-            className="flex items-center gap-1.5 px-3 py-1 bg-red-50 hover:bg-red-100 rounded-lg text-red-700 text-xs font-bold"
+            className="flex items-center gap-1.5 px-3 py-1 bg-state-danger-soft hover:bg-state-danger-border rounded-lg text-state-danger text-xs font-bold"
           >
             <RefreshCw className="h-3 w-3" />
             <span>Tentar novamente</span>
@@ -383,9 +383,9 @@ export const AssortmentManager: React.FC = () => {
 
       {/* Conflict error alert */}
       {conflictError && (
-        <div className="flex items-center justify-between p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-700 text-xs">
+        <div className="flex items-center justify-between p-4 rounded-2xl bg-state-warning-soft border border-state-warning-border text-state-warning text-xs">
           <div className="flex items-center gap-2">
-            <AlertTriangle className="h-4 w-4 shrink-0 text-amber-700" />
+            <AlertTriangle className="h-4 w-4 shrink-0 text-state-warning" />
             <span>{conflictError}</span>
           </div>
           <button
@@ -399,7 +399,7 @@ export const AssortmentManager: React.FC = () => {
                 api.getAssortment(headers(), managingProductsAssortment.id).then(openManageProducts).catch(() => setManagingProductsAssortment(null))
               }
             }}
-            className="flex items-center gap-1.5 px-3 py-1 bg-amber-800/80 hover:bg-amber-700 rounded-lg text-white text-xs font-bold"
+            className="flex items-center gap-1.5 px-3 py-1 bg-state-warning hover:bg-state-warning/90 rounded-lg text-white text-xs font-bold"
           >
             <RefreshCw className="h-3 w-3" />
             <span>Recarregar e sincronizar</span>
@@ -511,7 +511,7 @@ export const AssortmentManager: React.FC = () => {
                           </span>
                         ))}
                         {ass.scopes.length === 0 && (
-                          <span className="text-xs font-bold text-amber-700">Ainda não publicado</span>
+                          <span className="text-xs font-bold text-state-warning">Ainda não publicado</span>
                         )}
                       </div>
                     </td>
@@ -522,7 +522,7 @@ export const AssortmentManager: React.FC = () => {
                       <span
                         className={`inline-block px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
                           ass.status === 'ACTIVE'
-                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                            ? 'bg-state-success-soft text-state-success border border-state-success-border'
                             : 'bg-dashem-surface-elevated text-dashem-muted border border-dashem-border'
                         }`}
                       >
@@ -660,7 +660,7 @@ export const AssortmentManager: React.FC = () => {
                           <span>{item.label}</span>
                         </div>
                         {scope?.channel_id && (
-                          <span className="text-xs font-mono text-amber-700 bg-amber-400/10 px-1.5 py-0.5 rounded">
+                          <span className="text-xs font-mono text-state-warning bg-state-warning-soft px-1.5 py-0.5 rounded">
                             Canal: {scope.channel_id.slice(0, 6)}
                           </span>
                         )}
@@ -793,7 +793,7 @@ export const AssortmentManager: React.FC = () => {
                           <span>{item.label}</span>
                         </div>
                         {scope?.channel_id && (
-                          <span className="text-xs font-mono text-amber-700 bg-amber-400/10 px-1.5 py-0.5 rounded">
+                          <span className="text-xs font-mono text-state-warning bg-state-warning-soft px-1.5 py-0.5 rounded">
                             Canal: {scope.channel_id.slice(0, 6)}
                           </span>
                         )}
@@ -898,7 +898,7 @@ export const AssortmentManager: React.FC = () => {
                             <button
                               onClick={() => handleUnlinkProduct(p.id)}
                               disabled={actionLoading}
-                              className="text-red-700 hover:text-red-700 font-bold text-xs"
+                              className="text-state-danger hover:text-state-danger font-bold text-xs"
                             >
                               Desvincular
                             </button>

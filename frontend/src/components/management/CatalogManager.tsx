@@ -286,10 +286,10 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
       {/* Header Row */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-black text-dashem-strong tracking-tight flex items-center space-x-2">
+          <h1 className="text-xl font-black text-dashem-strong tracking-tight flex items-center space-x-2">
             <Package className="w-5 h-5 text-dashem-red" />
             <span>Produtos, preços e estoque</span>
-          </h2>
+          </h1>
           <p className="text-xs text-dashem-muted font-medium mt-0.5">
             O que o seu negócio vende: nome, foto, preço e quantidade.
           </p>
@@ -399,15 +399,15 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
 
       {/* Explicit Error Banner & Retry */}
       {contextError && (
-        <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 flex items-center justify-between text-xs text-rose-700">
+        <div className="p-4 rounded-2xl bg-state-danger-soft border border-state-danger-border flex items-center justify-between text-xs text-state-danger">
           <div className="flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 text-rose-700 shrink-0" />
+            <AlertCircle className="w-4 h-4 text-state-danger shrink-0" />
             <span>{contextError}</span>
           </div>
           <button
             type="button"
             onClick={() => setReloadKey(k => k + 1)}
-            className="px-3 py-1 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-200 text-xs font-bold text-rose-700 transition"
+            className="px-3 py-1 rounded-xl bg-state-danger-soft hover:bg-state-danger-border border border-state-danger-border text-xs font-bold text-state-danger transition"
           >
             Tentar novamente
           </button>
@@ -459,7 +459,7 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
               cell: (prod) => (
                 <span className={`inline-block rounded-md px-2 py-0.5 text-xs font-bold uppercase ${
                   prod.item_type === 'SERVICE'
-                    ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                    ? 'bg-state-warning-soft text-state-warning border border-state-warning-border'
                     : 'bg-dashem-surface-elevated text-dashem-muted border border-dashem-border'
                 }`}>{prod.item_type === 'SERVICE' ? 'Serviço' : 'Produto'}</span>
               ),
@@ -477,10 +477,10 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
                 ? <span className="text-xs font-bold text-dashem-muted">Não controla estoque</span>
                 : (
                   <span className={`inline-block rounded-md px-2 py-0.5 text-sm font-black ${
-                    Number(prod.quantity) <= 0 || prod.is_low_stock ? 'text-rose-700 bg-rose-50'
+                    Number(prod.quantity) <= 0 || prod.is_low_stock ? 'text-state-danger bg-state-danger-soft'
                       // Verde afirma "está dentro do que você quer". Sem
                       // referência definida não há o que afirmar.
-                      : Number(prod.minimum_stock) > 0 ? 'text-emerald-700 bg-emerald-50'
+                      : Number(prod.minimum_stock) > 0 ? 'text-state-success bg-state-success-soft'
                       : 'text-dashem-strong bg-dashem-surface-elevated'
                   }`}>
                     {Number(prod.quantity)} {prod.unit.toLowerCase()}
@@ -548,7 +548,7 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
         maxWidth="2xl"
       >
         <form onSubmit={handleCreateProduct} className="space-y-4">
-          {formError && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{formError}</p>}
+          {formError && <p role="alert" className="rounded-xl bg-state-danger-soft p-3 text-sm text-state-danger">{formError}</p>}
           <div className="space-y-1.5">
             <label className="text-xs font-bold text-dashem-strong block">Nome do Produto / Serviço</label>
             <input
@@ -670,7 +670,7 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
               ))}
             </select>
             {activeAssortments.length === 0 && (
-              <p className="flex items-center gap-1.5 text-xs font-semibold text-amber-800">
+              <p className="flex items-center gap-1.5 text-xs font-semibold text-state-warning">
                 <Store className="h-3.5 w-3.5" /> Crie primeiro um sortimento ativo para publicar este item no PDV.
               </p>
             )}
@@ -692,7 +692,7 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
       <Modal isOpen={!!productToDelete} onClose={() => { if (!saving) setProductToDelete(null) }} title="Excluir produto">
         <div className="space-y-4">
           <p>Excluir “{productToDelete?.name}” do cadastro? Esta ação não pode ser desfeita. Produtos com histórico devem ser arquivados. A foto permanece no acervo privado do negócio.</p>
-          {deleteError && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{deleteError}</p>}
+          {deleteError && <p role="alert" className="rounded-xl bg-state-danger-soft p-3 text-sm text-state-danger">{deleteError}</p>}
           <div className="flex flex-wrap gap-3">
             <Button variant="secondary" disabled={saving} onClick={() => setProductToDelete(null)}>Cancelar</Button>
             <Button disabled={saving} icon={Trash2} onClick={() => void permanentlyDelete()}>{saving ? 'Excluindo...' : 'Confirmar exclusão'}</Button>
@@ -721,7 +721,7 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
             />
             </div>
           {minimoErro && (
-            <p role="alert" className="rounded-xl border border-red-300 bg-red-50 p-3 text-xs font-bold text-red-800">{minimoErro}</p>
+            <p role="alert" className="rounded-xl border border-state-danger-border bg-state-danger-soft p-3 text-xs font-bold text-state-danger">{minimoErro}</p>
           )}
           <button disabled={minimoValor === ''} className="h-12 w-full rounded-2xl bg-dashem-red text-xs font-black text-brand-contrast disabled:opacity-40">
             Salvar mínimo
@@ -766,7 +766,7 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
             <button
               type="submit"
               disabled={actionLoading}
-              className="w-full h-12 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black flex items-center justify-center space-x-2 transition-all shadow-lg active:scale-95 disabled:opacity-40"
+              className="w-full h-12 rounded-2xl bg-state-success hover:bg-state-success/90 text-white text-xs font-black flex items-center justify-center space-x-2 transition-all shadow-lg active:scale-95 disabled:opacity-40"
             >
               <CheckCircle2 className="w-4 h-4" />
               <span>{adjustType === 'PURCHASE' ? 'Confirmar recebimento' : 'Registrar perda'}</span>
@@ -775,7 +775,7 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
         </form>
       </Modal>
 
-      <Modal isOpen={Boolean(productToArchive)} onClose={() => setProductToArchive(null)} title="Arquivar item do catálogo" subtitle="O item deixa o PDV sem apagar seu histórico."><div className="space-y-4"><p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-700">{productToArchive?.name} será retirado da venda e do acesso rápido. Vendas, estoque e auditoria permanecem preservados.</p><div className="grid grid-cols-1 sm:grid-cols-2 gap-3"><button onClick={() => setProductToArchive(null)} className="h-11 rounded-xl border border-dashem-border font-black text-dashem-strong">Cancelar</button><button disabled={actionLoading} onClick={() => void archiveProduct()} className="h-11 rounded-xl bg-amber-600 font-black text-white disabled:opacity-40">Arquivar item</button></div></div></Modal>
+      <Modal isOpen={Boolean(productToArchive)} onClose={() => setProductToArchive(null)} title="Arquivar item do catálogo" subtitle="O item deixa o PDV sem apagar seu histórico."><div className="space-y-4"><p className="rounded-xl border border-state-warning-border bg-state-warning-soft p-4 text-sm font-bold text-state-warning">{productToArchive?.name} será retirado da venda e do acesso rápido. Vendas, estoque e auditoria permanecem preservados.</p><div className="grid grid-cols-1 sm:grid-cols-2 gap-3"><button onClick={() => setProductToArchive(null)} className="h-11 rounded-xl border border-dashem-border font-black text-dashem-strong">Cancelar</button><button disabled={actionLoading} onClick={() => void archiveProduct()} className="h-11 rounded-xl bg-state-warning font-black text-white disabled:opacity-40">Arquivar item</button></div></div></Modal>
     </div>
   )
 }

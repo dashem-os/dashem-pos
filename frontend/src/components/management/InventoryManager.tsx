@@ -260,7 +260,7 @@ export function InventoryManager() {
   return (
     <div className="space-y-6">
       <section className="rounded-3xl border border-dashem-border bg-dashem-surface p-6">
-        <p className="text-[11px] font-black uppercase tracking-[.18em] text-emerald-700">Controle de mercadorias</p>
+        <p className="text-[11px] font-black uppercase tracking-[.18em] text-state-success">Controle de mercadorias</p>
         <h1 className="mt-2 text-3xl font-black text-dashem-strong">Estoque por unidade</h1>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-dashem-muted">
           Quanto você tem de cada mercadoria nesta unidade.
@@ -278,16 +278,16 @@ export function InventoryManager() {
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           placeholder="Buscar por produto ou SKU..."
-          className="h-12 w-full rounded-xl border border-dashem-border bg-dashem-surface pl-11 pr-4 text-sm text-dashem-strong outline-none focus:border-emerald-600"
+          className="h-12 w-full rounded-xl border border-dashem-border bg-dashem-surface pl-11 pr-4 text-sm text-dashem-strong outline-none focus:border-state-success"
         />
       </div>
 
       {loadError && (
-        <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm font-bold text-amber-900">
+        <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-state-warning-border bg-state-warning-soft p-4 text-sm font-bold text-state-warning">
           Não foi possível carregar o estoque desta unidade.
           <button
             type="button" onClick={() => { void load() }}
-            className="inline-flex min-h-11 items-center rounded-lg border border-amber-400 px-3 text-xs font-black"
+            className="inline-flex min-h-11 items-center rounded-lg border border-state-warning-border px-3 text-xs font-black"
           >
             Tentar novamente
           </button>
@@ -346,7 +346,7 @@ export function InventoryManager() {
                       onClick={() => abrirMovimentacao(item, 'PURCHASE')}
                       className="inline-flex min-h-11 items-center rounded-xl border border-dashem-border px-3 text-xs font-black text-dashem-strong"
                     >
-                      <ArrowDownToLine className="mr-1.5 inline h-4 w-4 text-emerald-700" />Receber
+                      <ArrowDownToLine className="mr-1.5 inline h-4 w-4 text-state-success" />Receber
                     </button>
                   )}
                   <RowActions label={`Ações de ${item.name}`}>
@@ -387,7 +387,7 @@ export function InventoryManager() {
 
       <section className="rounded-2xl border border-dashem-border bg-dashem-surface p-5">
         <div className="flex items-center gap-2">
-          <History className="h-5 w-5 text-emerald-700" />
+          <History className="h-5 w-5 text-state-success" />
           <h2 className="font-black text-dashem-strong">Movimentações recentes</h2>
         </div>
         <div className="mt-4 divide-y divide-dashem-border">
@@ -396,7 +396,7 @@ export function InventoryManager() {
               <span className="font-bold text-dashem-strong">{nameOf(item.product_id)}</span>
               <span className="font-black text-dashem-strong">
                 {movementLabel(item.movement_type, item.origin)}
-                <span className={`ml-2 font-black ${Number(item.quantity) < 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
+                <span className={`ml-2 font-black ${Number(item.quantity) < 0 ? 'text-state-danger' : 'text-state-success'}`}>
                   {movementAmount(Number(item.quantity), unitOf(item.product_id))}
                 </span>
               </span>
@@ -417,7 +417,7 @@ export function InventoryManager() {
         subtitle="Diferença lançada à mão, quando a contagem não resolve."
       >
         <form onSubmit={submitTechnical} className="space-y-4">
-          <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs font-bold text-amber-900">
+          <div className="rounded-xl border border-state-warning-border bg-state-warning-soft p-3 text-xs font-bold text-state-warning">
             Esta operação não passa pela conferência da prateleira. Prefira <b>Contar estoque</b> sempre
             que a mercadoria puder ser conferida.
           </div>
@@ -440,7 +440,7 @@ export function InventoryManager() {
           </div>
           <Field label={`Quantidade mínima (${minimo?.unit || 'un'})`} type="number" value={minimoValor} onChange={setMinimoValor} placeholder="Ex.: 12" />
           {minimoErro && (
-            <p role="alert" className="rounded-xl border border-red-300 bg-red-50 p-3 text-xs font-bold text-red-800">
+            <p role="alert" className="rounded-xl border border-state-danger-border bg-state-danger-soft p-3 text-xs font-bold text-state-danger">
               {minimoErro}
             </p>
           )}
@@ -479,7 +479,7 @@ export function InventoryManager() {
           </div>
           <Field label="Quantidade encontrada" type="number" value={counted} onChange={setCounted} placeholder="Ex.: 31" />
           {countConflict && (
-            <div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs font-bold text-amber-900">
+            <div role="alert" className="rounded-xl border border-state-warning-border bg-state-warning-soft p-3 text-xs font-bold text-state-warning">
               {countConflict}
               <span className="mt-1 block font-medium">
                 O saldo acima e a lista atrás já foram relidos
@@ -509,7 +509,7 @@ export function InventoryManager() {
           <Field label={recebendo ? 'Quantidade recebida' : 'Quantidade perdida'} type="number" value={form.quantity} onChange={(value) => setForm({ ...form, quantity: value })} placeholder={recebendo ? 'Ex.: 24' : 'Ex.: 2'} />
           <Field label="Motivo" value={form.reason} onChange={(value) => setForm({ ...form, reason: value })} />
           {movementError && (
-            <p role="alert" className="rounded-xl border border-red-300 bg-red-50 p-3 text-xs font-bold text-red-800">
+            <p role="alert" className="rounded-xl border border-state-danger-border bg-state-danger-soft p-3 text-xs font-bold text-state-danger">
               {movementError}
             </p>
           )}
@@ -532,15 +532,15 @@ export function InventoryManager() {
 function Situation({ item }: { item: api.StockHolding }) {
   const situacao = stockSituation(item)
   if (situacao === 'SEM_ESTOQUE') {
-    return <span className="rounded-full bg-rose-50 px-2 py-1 text-xs font-black text-rose-700">Sem estoque</span>
+    return <span className="rounded-full bg-state-danger-soft px-2 py-1 text-xs font-black text-state-danger">Sem estoque</span>
   }
   if (situacao === 'REPOR') {
-    return <span className="rounded-full bg-rose-50 px-2 py-1 text-xs font-black text-rose-700">Repor</span>
+    return <span className="rounded-full bg-state-danger-soft px-2 py-1 text-xs font-black text-state-danger">Repor</span>
   }
   if (situacao === 'ATENCAO') {
     const folga = Number(item.quantity) - Number(item.minimum_stock)
     return (
-      <span className="rounded-full bg-amber-50 px-2 py-1 text-xs font-black text-amber-700">
+      <span className="rounded-full bg-state-warning-soft px-2 py-1 text-xs font-black text-state-warning">
         Atenção · folga de {folga} {item.unit.toLowerCase()}
       </span>
     )
@@ -548,7 +548,7 @@ function Situation({ item }: { item: api.StockHolding }) {
   if (situacao === 'SEM_REFERENCIA') {
     return <span className="rounded-full bg-dashem-surface-elevated px-2 py-1 text-xs font-black text-dashem-muted">Sem referência</span>
   }
-  return <span className="rounded-full bg-emerald-50 px-2 py-1 text-xs font-black text-emerald-700">Saudável</span>
+  return <span className="rounded-full bg-state-success-soft px-2 py-1 text-xs font-black text-state-success">Saudável</span>
 }
 
 /**
@@ -564,23 +564,23 @@ function Resumo({ controlados, semEstoque, exigindoAcao }: {
   if (controlados === 0) return null
   if (exigindoAcao === 0) {
     return (
-      <div className="mt-6 flex items-center gap-3 rounded-2xl bg-emerald-50 p-4">
-        <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-700" />
+      <div className="mt-6 flex items-center gap-3 rounded-2xl bg-state-success-soft p-4">
+        <CheckCircle2 className="h-5 w-5 shrink-0 text-state-success" />
         <div>
-          <p className="text-sm font-black text-emerald-900">Estoque saudável</p>
-          <p className="text-xs text-emerald-800">Nenhum item requer ação agora · {controlados} acompanhados</p>
+          <p className="text-sm font-black text-state-success">Estoque saudável</p>
+          <p className="text-xs text-state-success">Nenhum item requer ação agora · {controlados} acompanhados</p>
         </div>
       </div>
     )
   }
   return (
-    <div className="mt-6 flex items-center gap-3 rounded-2xl bg-amber-50 p-4">
-      <AlertTriangle className="h-5 w-5 shrink-0 text-amber-700" />
+    <div className="mt-6 flex items-center gap-3 rounded-2xl bg-state-warning-soft p-4">
+      <AlertTriangle className="h-5 w-5 shrink-0 text-state-warning" />
       <div>
-        <p className="text-sm font-black text-amber-900">
+        <p className="text-sm font-black text-state-warning">
           {exigindoAcao === 1 ? '1 produto precisa de atenção' : `${exigindoAcao} produtos precisam de atenção`}
         </p>
-        <p className="text-xs text-amber-800">
+        <p className="text-xs text-state-warning">
           {controlados} acompanhados · {semEstoque === 0 ? 'nenhum sem estoque' : semEstoque === 1 ? '1 sem estoque' : `${semEstoque} sem estoque`}
         </p>
       </div>

@@ -142,16 +142,37 @@ export const ManagementLayout: React.FC = () => {
   }, [estado])
 
   const areaAtual = acharArea(areas, estado.tipo === 'ENTRADA' || estado.tipo === 'INDISPONIVEL' ? null : estado.area)
-  const cardAtual = estado.tipo === 'MODULO' ? areaAtual?.cards.find((card) => card.id === estado.modulo) : undefined
 
   // O foco segue para o título depois de navegar, e volta para o card de onde
   // a pessoa saiu quando ela retorna ao hub.
   const tituloRef = useRef<HTMLHeadingElement>(null)
   const cardParaFocar = useRef<string | null>(null)
   const primeiraTela = useRef(true)
+  const secaoDoModulo = useRef<HTMLElement>(null)
   useEffect(() => {
     if (primeiraTela.current) { primeiraTela.current = false; return }
     if (estado.tipo === 'AREA' && cardParaFocar.current) return
+    if (estado.tipo === 'MODULO') {
+      // O módulo traz o próprio `h1` — é ele que recebe o foco. A casca não
+      // acrescenta um segundo título só para ter onde pousar: duas vezes o
+      // mesmo nome na mesma tela é o que a UX-02 manda tirar. Quando um módulo
+      // ainda não tem título, o foco pousa no caminho de volta, que existe
+      // sempre.
+      const alvo = secaoDoModulo.current?.querySelector('h1')
+        ?? secaoDoModulo.current?.querySelector('button')
+      if (alvo) {
+        alvo.setAttribute('tabindex', '-1')
+        // Sem isto o navegador desenha uma moldura de foco em volta do título
+        // inteiro — um retângulo preto atravessando o painel, que ninguém
+        // pediu. O título não é alcançável por Tab (tabindex -1): ele só
+        // recebe foco por programa, para o leitor de tela anunciar a tela
+        // nova. O indicador de foco continua existindo onde importa, nos
+        // controles.
+        ;(alvo as HTMLElement).style.outline = 'none'
+        ;(alvo as HTMLElement).focus()
+      }
+      return
+    }
     tituloRef.current?.focus()
   }, [estado])
 
@@ -167,7 +188,10 @@ export const ManagementLayout: React.FC = () => {
         <StoreIcon className="hidden h-5 w-5 shrink-0 text-brand-ink sm:block" />
         <div className="min-w-0">
           <p className="truncate text-sm font-black text-dashem-strong">
-            {estado.tipo === 'MODULO' ? cardAtual?.label : estado.tipo === 'AREA' ? areaAtual?.label : 'Gestão'}
+            {/* No hub o título da tela já é o nome da área; repeti-lo aqui é
+                dizer a mesma coisa duas vezes. No módulo, a área é contexto —
+                o nome do destino está no título que o próprio módulo traz. */}
+            {estado.tipo === 'MODULO' && areaAtual ? areaAtual.label : 'Gestão'}
           </p>
           <p className="truncate text-xs text-dashem-muted">{store?.name}</p>
         </div>
@@ -273,7 +297,7 @@ export const ManagementLayout: React.FC = () => {
           {vivos.map((id) => {
             const ativo = estado.tipo === 'MODULO' && estado.modulo === id
             return (
-              <section key={id} className={ativo ? 'space-y-4' : 'hidden'} aria-hidden={!ativo}>
+              <section key={id} ref={ativo ? secaoDoModulo : undefined} className={ativo ? 'space-y-4' : 'hidden'} aria-hidden={!ativo}>
                 {ativo && (
                   <>
                     <button
@@ -283,7 +307,6 @@ export const ManagementLayout: React.FC = () => {
                       <ArrowLeft className="h-4 w-4" />
                       Voltar para {areaAtual?.label}
                     </button>
-                    <h1 ref={tituloRef} tabIndex={-1} className="sr-only outline-none">{cardAtual?.label}</h1>
                   </>
                 )}
                 {conteudoDoModulo(id, abrirModulo, todosOsCards)}

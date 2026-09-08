@@ -12,10 +12,10 @@ export interface BadgeProps {
 const TONES: Record<Tone, string> = {
   neutral: 'border-dashem-border bg-dashem-surface-elevated text-dashem-muted',
   brand: 'border-brand/30 bg-brand-soft text-brand-ink',
-  positive: 'border-emerald-200 bg-emerald-50 text-emerald-700',
-  warning: 'border-amber-200 bg-amber-50 text-amber-700',
-  critical: 'border-red-200 bg-red-50 text-red-700',
-  info: 'border-sky-200 bg-sky-50 text-sky-700',
+  positive: 'border-state-success-border bg-state-success-soft text-state-success',
+  warning: 'border-state-warning-border bg-state-warning-soft text-state-warning',
+  critical: 'border-state-danger-border bg-state-danger-soft text-state-danger',
+  info: 'border-state-info-border bg-state-info-soft text-state-info',
 }
 
 export const Badge: React.FC<BadgeProps> = ({ tone = 'neutral', icon: Icon, children, className = '' }) => (

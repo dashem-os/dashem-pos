@@ -19,7 +19,7 @@ const VARIANTS: Record<Variant, string> = {
   primary: 'bg-brand text-brand-contrast shadow-sm hover:bg-brand-strong active:bg-brand-strong',
   secondary: 'border border-dashem-border bg-dashem-surface text-dashem-strong hover:bg-dashem-surface-elevated',
   ghost: 'text-dashem-muted hover:bg-dashem-surface-elevated hover:text-dashem-strong',
-  danger: 'bg-red-600 text-white shadow-sm hover:bg-red-700',
+  danger: 'bg-state-danger text-white shadow-sm hover:bg-state-danger-strong',
   soft: 'bg-brand-soft text-brand-ink hover:bg-brand-soft/70',
 }
 

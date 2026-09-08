@@ -13,8 +13,8 @@ export interface EmptyStateProps {
 
 const TONES = {
   neutral: 'border-dashem-border bg-dashem-surface-elevated text-dashem-muted',
-  positive: 'border-emerald-200 bg-emerald-50 text-emerald-700',
-  warning: 'border-amber-200 bg-amber-50 text-amber-800',
+  positive: 'border-state-success-border bg-state-success-soft text-state-success',
+  warning: 'border-state-warning-border bg-state-warning-soft text-state-warning',
 }
 
 export const EmptyState: React.FC<EmptyStateProps> = ({
@@ -39,7 +39,7 @@ export const LoadingState: React.FC<{ text?: string; className?: string }> = ({
 export const ErrorState: React.FC<{ text: string; action?: React.ReactNode; className?: string }> = ({
   text, action, className = '',
 }) => (
-  <div className={`flex min-h-56 flex-col items-center justify-center gap-3 rounded-2xl border border-red-200 bg-red-50 px-6 text-center text-sm font-bold text-red-700 ${className}`}>
+  <div className={`flex min-h-56 flex-col items-center justify-center gap-3 rounded-2xl border border-state-danger-border bg-state-danger-soft px-6 text-center text-sm font-bold text-state-danger ${className}`}>
     {text}{action}
   </div>
 )

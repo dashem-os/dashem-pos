@@ -1,0 +1,215 @@
+{
+  "app": "http://127.0.0.1:5173",
+  "gerado_em": "2026-09-08T14:16:49.454Z",
+  "medicoes": [
+    {
+      "tamanho": "desktop-baixo-1366x640",
+      "tela": "entrada",
+      "titulos": [
+        "O que você quer fazer?"
+      ],
+      "titulo_repetido": false,
+      "cartoes_aninhados": [],
+      "busca": null,
+      "primeira_linha": {
+        "topo": 349,
+        "base": 475,
+        "visivel": true
+      },
+      "altura_da_janela": 640
+    },
+    {
+      "tamanho": "desktop-baixo-1366x640",
+      "tela": "hub-mercadorias",
+      "titulos": [
+        "Mercadorias"
+      ],
+      "titulo_repetido": false,
+      "cartoes_aninhados": [],
+      "busca": null,
+      "primeira_linha": null,
+      "altura_da_janela": 640
+    },
+    {
+      "tamanho": "desktop-baixo-1366x640",
+      "tela": "produtos",
+      "titulos": [
+        "Produtos, preços e estoque"
+      ],
+      "titulo_repetido": false,
+      "cartoes_aninhados": [],
+      "busca": {
+        "topo": 344,
+        "base": 388,
+        "visivel": true
+      },
+      "primeira_linha": {
+        "topo": 462,
+        "base": 539,
+        "visivel": true
+      },
+      "altura_da_janela": 640
+    },
+    {
+      "tamanho": "desktop-baixo-1366x640",
+      "tela": "estoques",
+      "titulos": [
+        "Estoque por unidade"
+      ],
+      "titulo_repetido": false,
+      "cartoes_aninhados": [],
+      "busca": {
+        "topo": 419,
+        "base": 467,
+        "visivel": true
+      },
+      "primeira_linha": {
+        "topo": 540,
+        "base": 617,
+        "visivel": true
+      },
+      "altura_da_janela": 640
+    },
+    {
+      "tamanho": "desktop-baixo-1366x640",
+      "tela": "catalogos",
+      "titulos": [
+        "Catálogos"
+      ],
+      "titulo_repetido": false,
+      "cartoes_aninhados": [],
+      "busca": {
+        "topo": 275,
+        "base": 315,
+        "visivel": true
+      },
+      "primeira_linha": {
+        "topo": 385,
+        "base": 462,
+        "visivel": true
+      },
+      "altura_da_janela": 640
+    },
+    {
+      "tamanho": "desktop-baixo-1366x640",
+      "tela": "categorias",
+      "titulos": [
+        "Categorias e grupos"
+      ],
+      "titulo_repetido": false,
+      "cartoes_aninhados": [],
+      "busca": {
+        "topo": 327,
+        "base": 375,
+        "visivel": true
+      },
+      "primeira_linha": {
+        "topo": 399,
+        "base": 572,
+        "visivel": true
+      },
+      "altura_da_janela": 640
+    },
+    {
+      "tamanho": "celular-390x844",
+      "tela": "entrada",
+      "titulos": [
+        "O que você quer fazer?"
+      ],
+      "titulo_repetido": false,
+      "cartoes_aninhados": [],
+      "busca": null,
+      "primeira_linha": {
+        "topo": 1649,
+        "base": 1775,
+        "visivel": false
+      },
+      "altura_da_janela": 844
+    },
+    {
+      "tamanho": "celular-390x844",
+      "tela": "hub-mercadorias",
+      "titulos": [
+        "Mercadorias"
+      ],
+      "titulo_repetido": false,
+      "cartoes_aninhados": [],
+      "busca": null,
+      "primeira_linha": null,
+      "altura_da_janela": 844
+    },
+    {
+      "tamanho": "celular-390x844",
+      "tela": "produtos",
+      "titulos": [
+        "Produtos, preços e estoque"
+      ],
+      "titulo_repetido": false,
+      "cartoes_aninhados": [],
+      "busca": {
+        "topo": 392,
+        "base": 436,
+        "visivel": true
+      },
+      "primeira_linha": null,
+      "altura_da_janela": 844
+    },
+    {
+      "tamanho": "celular-390x844",
+      "tela": "estoques",
+      "titulos": [
+        "Estoque por unidade"
+      ],
+      "titulo_repetido": false,
+      "cartoes_aninhados": [],
+      "busca": {
+        "topo": 431,
+        "base": 479,
+        "visivel": true
+      },
+      "primeira_linha": null,
+      "altura_da_janela": 844
+    },
+    {
+      "tamanho": "celular-390x844",
+      "tela": "catalogos",
+      "titulos": [
+        "Catálogos"
+      ],
+      "titulo_repetido": false,
+      "cartoes_aninhados": [],
+      "busca": {
+        "topo": 331,
+        "base": 371,
+        "visivel": true
+      },
+      "primeira_linha": {
+        "topo": 448,
+        "base": 782,
+        "visivel": true
+      },
+      "altura_da_janela": 844
+    },
+    {
+      "tamanho": "celular-390x844",
+      "tela": "categorias",
+      "titulos": [
+        "Categorias e grupos"
+      ],
+      "titulo_repetido": false,
+      "cartoes_aninhados": [],
+      "busca": {
+        "topo": 403,
+        "base": 451,
+        "visivel": true
+      },
+      "primeira_linha": {
+        "topo": 475,
+        "base": 648,
+        "visivel": true
+      },
+      "altura_da_janela": 844
+    }
+  ],
+  "falhas": []
+}

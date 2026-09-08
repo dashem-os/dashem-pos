@@ -196,17 +196,17 @@ export const DashboardBI: React.FC<{
       </Card>
 
       <Card padding="lg">
-        <SectionHeader title="Pendências que exigem atenção" actions={<AlertTriangle className="h-5 w-5 text-amber-500" />} />
+        <SectionHeader title="Pendências que exigem atenção" actions={<AlertTriangle className="h-5 w-5 text-state-warning" />} />
         {overview.alerts.length
           ? <ul className="mt-4 space-y-2">
               {overview.alerts.map((alert) => (
-                <li key={alert} className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-semibold leading-5 text-amber-800">{alert}</li>
+                <li key={alert} className="rounded-xl border border-state-warning-border bg-state-warning-soft p-3 text-sm font-semibold leading-5 text-state-warning">{alert}</li>
               ))}
             </ul>
-          : <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-bold text-emerald-700">Nenhuma pendência no momento.</div>}
+          : <div className="mt-4 rounded-xl border border-state-success-border bg-state-success-soft p-3 text-sm font-bold text-state-success">Nenhuma pendência no momento.</div>}
         <div className="mt-4 grid grid-cols-2 gap-2">
           {operations.map(([label, value, Icon]) => (
-            <div key={label} className="rounded-xl border border-dashem-border bg-dashem-surface-elevated p-3">
+            <div key={label} className="rounded-xl bg-dashem-surface-elevated p-3">
               <Icon className="h-4 w-4 text-dashem-muted" />
               <p className="mt-2 font-black text-dashem-strong">{value}</p>
               <p className="mt-1 text-xs font-bold text-dashem-muted">{label}</p>
@@ -229,7 +229,7 @@ export const DashboardBI: React.FC<{
             const body = <>
               <div className="flex items-center justify-between">
                 <Icon className="h-5 w-5 text-dashem-muted" />
-                {ready ? <CheckCircle2 className="h-5 w-5 text-emerald-500" /> : <AlertTriangle className="h-5 w-5 text-amber-500" />}
+                {ready ? <CheckCircle2 className="h-5 w-5 text-state-success" /> : <AlertTriangle className="h-5 w-5 text-state-warning" />}
               </div>
               <p className="mt-4 text-xs font-black uppercase tracking-wide text-dashem-muted">{label}</p>
               <p className="mt-1 text-sm font-black text-dashem-strong">{value}</p>
@@ -298,8 +298,8 @@ export const DashboardBI: React.FC<{
                     <td className="py-4 text-dashem-muted">{item.shift_count}</td>
                     <td className="py-4 text-dashem-muted">{item.requested_count}</td>
                     <td className="py-4 text-dashem-muted">{item.executed_count}</td>
-                    <td className="py-4 font-bold text-emerald-600">{item.confirmed_count}</td>
-                    <td className="py-4 font-bold text-red-600">{item.failed_count}</td>
+                    <td className="py-4 font-bold text-state-success">{item.confirmed_count}</td>
+                    <td className="py-4 font-bold text-state-danger">{item.failed_count}</td>
                     <td className="py-4 font-black text-dashem-strong">{(item.confirmation_rate * 100).toFixed(1)}%</td>
                     <td className="py-4 text-right font-black text-dashem-strong">{formatCurrency(item.confirmed_amount)}</td>
                   </tr>

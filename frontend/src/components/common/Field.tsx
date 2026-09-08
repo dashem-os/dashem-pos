@@ -25,9 +25,9 @@ export const Field: React.FC<FieldProps> = ({ label, hint, error, required, clas
       <label htmlFor={id} className="text-xs font-black uppercase tracking-wide text-dashem-muted">
         {label}{required && <span className="ml-1 text-brand-ink">*</span>}
       </label>
-      {children({ id, className: `${CONTROL} ${error ? 'border-red-400' : ''}`, 'aria-invalid': Boolean(error) })}
+      {children({ id, className: `${CONTROL} ${error ? 'border-state-danger-border' : ''}`, 'aria-invalid': Boolean(error) })}
       {error
-        ? <p className="text-xs font-bold text-red-600">{error}</p>
+        ? <p className="text-xs font-bold text-state-danger">{error}</p>
         : hint ? <p className="text-xs text-dashem-muted">{hint}</p> : null}
     </div>
   )
