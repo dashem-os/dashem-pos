@@ -1,0 +1,30 @@
+{
+  "app": "http://127.0.0.1:5173",
+  "gerado_em": "2026-09-08T19:03:14.923Z",
+  "etapas": [
+    {
+      "etapa": "a marcação aparece na Gestão",
+      "mostra": true
+    },
+    {
+      "etapa": "autoridade retirada",
+      "confirmou": true
+    },
+    {
+      "etapa": "o PDV passou a pedir autorização",
+      "pediu": true
+    },
+    {
+      "etapa": "ampliar a própria autoridade",
+      "recusa": "Ninguém amplia a própria autoridade: peça a outra pessoa com acesso à Gestão."
+    }
+  ],
+  "telas": [
+    "1-acessos-com-a-autoridade-visivel",
+    "2-dialogo-da-autoridade",
+    "3-autoridade-retirada",
+    "4-pdv-pede-autorizacao",
+    "5-ampliar-a-propria-autoridade-recusado"
+  ],
+  "falhas": []
+}

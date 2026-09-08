@@ -934,6 +934,32 @@ export interface TeamMember {
   locked_until?: string
   activation_code?: string
   activation_expires_at?: string
+  /**
+   * O que esta pessoa faz sozinha entre as operações que exigem presença.
+   * Vem do mesmo cálculo que o servidor aplica no PDV — perfil mais concessões
+   * —, para a tela não poder discordar do que o balcão faz.
+   */
+  autoridade?: AutoridadeDaOperacao[]
+}
+
+export interface AutoridadeDaOperacao {
+  chave: string
+  /** O nome da operação, como o lojista a chama. Nunca a chave técnica. */
+  rotulo: string
+  sozinho: boolean
+  origem: 'PERFIL' | 'CONCESSAO' | 'RECUSA'
+}
+
+export async function marcarAutoridade(
+  headers: Record<string, string>, membershipId: string,
+  data: { chave: string; sozinho: boolean; motivo: string },
+): Promise<TeamMember> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/team/${membershipId}/autoridade`, {
+    method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível alterar a autoridade desta pessoa.')
+  return res.json()
 }
 
 export type EmployeeStatus = 'ACTIVE' | 'ON_LEAVE' | 'INACTIVE' | 'TERMINATED'

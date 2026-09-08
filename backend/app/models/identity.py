@@ -509,6 +509,11 @@ class Permission(SQLModel, table=True):
     capability_key: Optional[str] = Field(
         default=None, foreign_key="capability_definitions.key", index=True, max_length=80
     )
+    #: Esta operação exige a presença de quem tem autoridade quando o operador
+    #: não a possui — é a regra do ADR-028. Marcá-la aqui é o que permite a
+    #: Gestão listar "o que a pessoa faz sozinha" sem uma segunda lista dentro
+    #: do código: quem quiser tornar outra operação presencial marca a linha.
+    requires_presence: bool = Field(default=False, index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 

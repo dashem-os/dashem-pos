@@ -11,8 +11,10 @@ from app.core.context import TenantContext, get_tenant_context
 from app.core.database import get_session
 from app.models.identity import (
     Employee, EmployeeStatusEnum, Membership, MembershipStatusEnum,
-    OperationalCredential, RoleEnum, Store, Tenant, User,
+    OperationalCredential, Permission, PermissionGrant, PermissionGrantEffectEnum,
+    RoleEnum, Store, Tenant, User,
 )
+from app.core.permissions import profile_permissions
 from app.services import identity_service, operational_access_service, reliability_service, supabase_admin
 from app.services.quota_policy_service import QuotaCapacityExceededError, require_count_capacity
 from app.modules.governance.contracts import CountResource
@@ -21,6 +23,21 @@ from app.modules.governance.contracts import CountResource
 router = APIRouter()
 EMAIL_ROLES = {RoleEnum.ADMIN, RoleEnum.MANAGER}
 OPERATIONAL_ROLES = {RoleEnum.SUPERVISOR, RoleEnum.CASHIER, RoleEnum.OPERATOR}
+
+
+class AutoridadeDaOperacao(BaseModel):
+    """Uma operação presencial e o que esta pessoa faz com ela.
+
+    A tela fala em operação, não em chave: `rotulo` vem do nome da própria
+    permissão, e `chave` só viaja para a marcação saber o que escrever.
+    """
+
+    chave: str
+    rotulo: str
+    #: Verdadeiro quando a pessoa executa sozinha; falso quando precisa pedir.
+    sozinho: bool
+    #: De onde vem a autoridade — o perfil dela, ou uma concessão pontual.
+    origem: Literal["PERFIL", "CONCESSAO", "RECUSA"]
 
 
 class TeamMemberRead(BaseModel):
@@ -40,6 +57,7 @@ class TeamMemberRead(BaseModel):
     locked_until: Optional[datetime] = None
     activation_code: Optional[str] = None
     activation_expires_at: Optional[datetime] = None
+    autoridade: list[AutoridadeDaOperacao] = []
 
 
 class TeamInvite(BaseModel):
@@ -114,6 +132,47 @@ def _credential(session: Session, membership_id: uuid.UUID) -> Optional[Operatio
     return session.exec(select(OperationalCredential).where(OperationalCredential.membership_id == membership_id)).first()
 
 
+def _operacoes_presenciais(session: Session) -> list[Permission]:
+    """As operações que exigem presença, ditas pela própria permissão.
+
+    A marca vive na linha (migração 091). Quem tornar outra operação presencial
+    marca a linha, e esta tela passa a mostrá-la sem edição de código.
+    """
+    return list(session.exec(
+        select(Permission).where(Permission.requires_presence.is_(True)).order_by(Permission.name)
+    ).all())
+
+
+def _autoridade(session: Session, membership: Membership) -> list[AutoridadeDaOperacao]:
+    """O que esta pessoa faz sozinha, e de onde isso vem.
+
+    Não há um segundo modelo de permissão: a resposta sai do mesmo cálculo que o
+    servidor aplica — perfil mais concessões — para a tela não poder discordar
+    do PDV.
+    """
+    do_perfil = profile_permissions(session, membership)
+    concessoes = {
+        grant.permission_key: PermissionGrantEffectEnum(grant.effect)
+        for grant in session.exec(select(PermissionGrant).where(
+            PermissionGrant.membership_id == membership.id,
+            PermissionGrant.tenant_id == membership.tenant_id,
+        )).all()
+    }
+    linhas: list[AutoridadeDaOperacao] = []
+    for permissao in _operacoes_presenciais(session):
+        concessao = concessoes.get(permissao.key)
+        if concessao is PermissionGrantEffectEnum.ALLOW:
+            sozinho, origem = True, "CONCESSAO"
+        elif concessao is PermissionGrantEffectEnum.DENY:
+            sozinho, origem = False, "RECUSA"
+        else:
+            sozinho, origem = permissao.key in do_perfil, "PERFIL"
+        linhas.append(AutoridadeDaOperacao(
+            chave=permissao.key, rotulo=permissao.name, sozinho=sozinho, origem=origem,
+        ))
+    return linhas
+
+
 def _member_read(
     session: Session, membership: Membership, *,
     activation_code: Optional[str] = None,
@@ -138,6 +197,7 @@ def _member_read(
         ),
         activation_code=activation_code,
         activation_expires_at=activation_expires_at,
+        autoridade=_autoridade(session, membership),
     )
 
 
@@ -463,3 +523,94 @@ def issue_operational_activation(membership_id: uuid.UUID, data: TeamActivationI
         session, membership, activation_code=activation_code,
         activation_expires_at=activation_expires_at,
     )
+
+
+class MarcacaoDeAutoridade(BaseModel):
+    """A marcação de uma operação presencial para uma pessoa."""
+
+    model_config = ConfigDict(extra="forbid")
+    chave: str = PydanticField(min_length=3, max_length=100)
+    #: Verdadeiro para "faz sozinho"; falso para "precisa pedir".
+    sozinho: bool
+    motivo: str = PydanticField(min_length=3, max_length=280)
+
+
+@router.put("/{membership_id}/autoridade", response_model=TeamMemberRead)
+def marcar_autoridade(
+    membership_id: uuid.UUID,
+    data: MarcacaoDeAutoridade,
+    context: TenantContext = Depends(get_tenant_context),
+    session: Session = Depends(get_session),
+):
+    """Marca se esta pessoa executa uma operação presencial sozinha.
+
+    **Não há um segundo modelo de permissão.** A marcação escreve nas concessões
+    que já existem (`permission_grants`), que é a mesma fonte que o servidor
+    consulta ao decidir se abre o diálogo de autorização no PDV. Marcar aqui e
+    o PDV mudar de comportamento não são dois efeitos: são o mesmo.
+
+    Duas recusas que importam mais que a funcionalidade:
+
+    - **ninguém amplia a própria autoridade.** Quem tem a tela de acessos poderia
+      se conceder o cancelamento e cancelar sozinho — a autorização presencial
+      deixaria de ser de duas pessoas para ser de uma;
+    - **só operação marcada como presencial** entra aqui. A tela fala em
+      operações, não em chaves, e aceitar qualquer chave transformaria isto num
+      editor de permissão bruta.
+    """
+    membership = session.get(Membership, membership_id)
+    if not membership or membership.tenant_id != context.tenant_id:
+        raise HTTPException(status_code=404, detail="Acesso não encontrado.")
+
+    if context.membership_id and membership.id == context.membership_id and data.sozinho:
+        raise HTTPException(
+            status_code=403,
+            detail="Ninguém amplia a própria autoridade: peça a outra pessoa com acesso à Gestão.",
+        )
+
+    permissao = session.get(Permission, data.chave)
+    if not permissao or not permissao.requires_presence:
+        raise HTTPException(
+            status_code=422,
+            detail="Esta operação não é das que exigem presença, e não se marca por aqui.",
+        )
+
+    do_perfil = data.chave in profile_permissions(session, membership)
+    existente = session.exec(select(PermissionGrant).where(
+        PermissionGrant.membership_id == membership.id,
+        PermissionGrant.tenant_id == membership.tenant_id,
+        PermissionGrant.permission_key == data.chave,
+        PermissionGrant.store_id.is_(None),
+    )).first()
+
+    if data.sozinho == do_perfil:
+        # A marcação coincide com o perfil: a concessão pontual deixa de ter
+        # razão de existir, e mantê-la esconderia uma exceção que não é exceção.
+        if existente:
+            session.delete(existente)
+        efeito = "ALINHADO_AO_PERFIL"
+    else:
+        efeito = "ALLOW" if data.sozinho else "DENY"
+        if existente:
+            existente.effect = PermissionGrantEffectEnum(efeito)
+            existente.reason = data.motivo
+            session.add(existente)
+        else:
+            session.add(PermissionGrant(
+                tenant_id=membership.tenant_id, store_id=None, membership_id=membership.id,
+                permission_key=data.chave, effect=PermissionGrantEffectEnum(efeito),
+                reason=data.motivo,
+            ))
+
+    _audit(session, context, membership, "tenant.team.authority_changed", {
+        "membership_id": str(membership.id),
+        "operacao": data.chave,
+        "rotulo": permissao.name,
+        "sozinho": data.sozinho,
+        "efeito": efeito,
+        "vinha_do_perfil": do_perfil,
+        "motivo": data.motivo,
+    })
+    session.commit()
+    session.refresh(membership)
+    return _member_read(session, membership)

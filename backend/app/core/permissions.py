@@ -197,7 +197,7 @@ def route_requirement(method: str, path: str) -> RouteRequirement:
     raise HTTPException(status_code=403, detail="No canonical permission protects this operation.")
 
 
-def _profile_permissions(session: Session, membership: Membership) -> set[str]:
+def profile_permissions(session: Session, membership: Membership) -> set[str]:
     system_profile = session.exec(
         select(RoleProfile).where(
             RoleProfile.tenant_id.is_(None),
@@ -225,7 +225,7 @@ def effective_access(
     membership: Membership,
     store_id: Optional[object],
 ) -> EffectiveAccess:
-    permissions = _profile_permissions(session, membership)
+    permissions = profile_permissions(session, membership)
     grants_query = select(PermissionGrant).where(
         PermissionGrant.membership_id == membership.id,
         PermissionGrant.tenant_id == membership.tenant_id,

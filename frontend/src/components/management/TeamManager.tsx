@@ -30,7 +30,7 @@ const blankEmployee = (): api.EmployeeInput => ({
 })
 
 export function TeamManager() {
-  const { tenant, permissions } = usePos()
+  const { tenant, permissions, showToast } = usePos()
   const [members, setMembers] = useState<api.TeamMember[]>([])
   const [employees, setEmployees] = useState<api.Employee[]>([])
   const [stores, setStores] = useState<api.Store[]>([])
@@ -47,6 +47,11 @@ export function TeamManager() {
   const [emailForm, setEmailForm] = useState({ full_name: '', email: '', role: 'MANAGER' })
   const [pinForm, setPinForm] = useState({ employee_id: '', role: 'OPERATOR' as 'SUPERVISOR' | 'CASHIER' | 'OPERATOR', store_id: '', employee_code: '' })
   const [editingAccess, setEditingAccess] = useState<api.TeamMember | null>(null)
+  // A marcação de autoridade: quem faz sozinho e quem pede. Ela escreve nas
+  // concessões que o servidor já consulta — não há um segundo modelo aqui.
+  const [autoridadeDe, setAutoridadeDe] = useState<api.TeamMember | null>(null)
+  const [motivoDaAutoridade, setMotivoDaAutoridade] = useState('')
+  const [salvandoAutoridade, setSalvandoAutoridade] = useState('')
   const [accessForm, setAccessForm] = useState({ role: '', store_id: '', reason: '' })
   const [activationMember, setActivationMember] = useState<api.TeamMember | null>(null)
   const [activationDelivery, setActivationDelivery] = useState<api.TeamMember | null>(null)
@@ -140,6 +145,26 @@ export function TeamManager() {
     setFormOpen(true)
   }
 
+  const marcarAutoridade = async (membro: api.TeamMember, chave: string, sozinho: boolean) => {
+    if (!motivoDaAutoridade.trim() || motivoDaAutoridade.trim().length < 3) {
+      setError('Diga por que a autoridade está mudando: o motivo vai para a auditoria.')
+      return
+    }
+    setSalvandoAutoridade(chave); setError(null)
+    try {
+      const atualizado = await api.marcarAutoridade(headers, membro.membership_id, {
+        chave, sozinho, motivo: motivoDaAutoridade.trim(),
+      })
+      setAutoridadeDe(atualizado)
+      await load()
+      showToast('success', sozinho
+        ? `${atualizado.full_name} passa a fazer isso sozinha.`
+        : `${atualizado.full_name} passa a pedir autorização para isso.`)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Não foi possível alterar a autoridade.')
+    } finally { setSalvandoAutoridade('') }
+  }
+
   const startEditAccess = (member: api.TeamMember) => {
     setAccessForm({ role: member.role, store_id: member.store_id || '', reason: '' })
     setEditingAccess(member)
@@ -216,8 +241,37 @@ export function TeamManager() {
     <div className="grid gap-3 sm:grid-cols-3"><Summary icon={<Briefcase />} value={employees.length} title="Funcionários" text="Fichas cadastrais do tenant" onClick={() => setView('EMPLOYEES')} /><Summary icon={<Mail />} value={emailCount} title="Acessos por e-mail" text="Administradores e gerentes" onClick={() => setView('ACCESS')} /><Summary icon={<KeyRound />} value={pinCount} title="Acessos operacionais" text="Código, PIN, função e unidade" onClick={() => setView('ACCESS')} /></div>
     <div className="inline-flex rounded-xl border border-dashem-border bg-dashem-surface p-1"><Tab active={view === 'ACCESS'} onClick={() => setView('ACCESS')}>Acessos</Tab><Tab active={view === 'EMPLOYEES'} onClick={() => setView('EMPLOYEES')}>Cadastro de funcionários</Tab></div>
     {error && <p className="rounded-xl border border-state-danger-border bg-state-danger-soft p-4 text-sm font-bold text-state-danger">{error}</p>}
-    {view === 'ACCESS' ? <AccessTable members={members} loading={loading} saving={saving} canManage={canManage} changeStatus={changeStatus} issueActivation={setActivationMember} editAccess={startEditAccess} releaseLock={releaseLock} /> : <EmployeeTable employees={employees} stores={stores} loading={loading} canManage={canManage} edit={openEmployeeEdit} />}
+    {view === 'ACCESS' ? <AccessTable members={members} loading={loading} saving={saving} canManage={canManage} changeStatus={changeStatus} issueActivation={setActivationMember} editAccess={startEditAccess} releaseLock={releaseLock}  abrirAutoridade={(member) => { setAutoridadeDe(member); setMotivoDaAutoridade('') }}/> : <EmployeeTable employees={employees} stores={stores} loading={loading} canManage={canManage} edit={openEmployeeEdit} />}
     {!canManage && <p className="flex items-center gap-2 text-sm font-semibold text-dashem-muted"><UserRoundCog className="h-4 w-4" />Seu perfil permite consulta, mas não alteração da equipe.</p>}
+
+    {autoridadeDe && <Modal title={`Autoridade de ${autoridadeDe.full_name}`} onClose={() => setAutoridadeDe(null)}>
+      <div className="space-y-4">
+        <Info>Quem não tem a marcação pede autorização a quem tem, ali no terminal. A alteração vai para a auditoria com autor e horário.</Info>
+        <Field label="Por que está mudando" value={motivoDaAutoridade} onChange={setMotivoDaAutoridade} />
+        <div className="space-y-2">
+          {(autoridadeDe.autoridade || []).map((item) => (
+            <div key={item.chave} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-dashem-border bg-dashem-surface-elevated p-3">
+              <div className="min-w-0">
+                <p className="text-sm font-black text-dashem-strong">{item.rotulo}</p>
+                <p className="text-xs text-dashem-muted">
+                  {item.sozinho ? 'Faz sozinha' : 'Pede autorização'}
+                  {item.origem === 'PERFIL' ? ' · pela função' : ' · definido para esta pessoa'}
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={Boolean(salvandoAutoridade) || !motivoDaAutoridade.trim()}
+                onClick={() => void marcarAutoridade(autoridadeDe, item.chave, !item.sozinho)}
+                className="min-h-11 shrink-0 rounded-xl border border-dashem-border px-4 text-xs font-black text-dashem-strong disabled:opacity-40"
+              >
+                {salvandoAutoridade === item.chave ? 'Salvando...' : item.sozinho ? 'Passar a pedir' : 'Deixar fazer sozinha'}
+              </button>
+            </div>
+          ))}
+        </div>
+        {error && <p role="alert" className="text-sm font-bold text-state-danger">{error}</p>}
+      </div>
+    </Modal>}
 
     {editingAccess && <Modal title="Editar acesso" onClose={() => setEditingAccess(null)}>
       <p className="text-sm leading-6 text-dashem-muted">{editingAccess.full_name} · {editingAccess.access_mode === 'PIN' ? `código ${editingAccess.employee_code}` : editingAccess.email}</p>
@@ -256,7 +310,7 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
   return <SharedModal isOpen onClose={onClose} title={title} maxWidth="2xl">{children}</SharedModal>
 }
 
-function AccessTable({ members, loading, saving, canManage, changeStatus, issueActivation, editAccess, releaseLock }: { members: api.TeamMember[]; loading: boolean; saving: boolean; canManage: boolean; changeStatus: (member: api.TeamMember, status: string) => Promise<void>; issueActivation: (member: api.TeamMember) => void; editAccess: (member: api.TeamMember) => void; releaseLock: (member: api.TeamMember) => Promise<void> }) { return <section className="overflow-hidden rounded-2xl border border-dashem-border bg-dashem-surface">{loading ? <Loading /> : <DataTable
+function AccessTable({ members, loading, saving, canManage, changeStatus, issueActivation, editAccess, releaseLock, abrirAutoridade }: { members: api.TeamMember[]; loading: boolean; saving: boolean; canManage: boolean; changeStatus: (member: api.TeamMember, status: string) => Promise<void>; issueActivation: (member: api.TeamMember) => void; editAccess: (member: api.TeamMember) => void; releaseLock: (member: api.TeamMember) => Promise<void>; abrirAutoridade: (member: api.TeamMember) => void }) { return <section className="overflow-hidden rounded-2xl border border-dashem-border bg-dashem-surface">{loading ? <Loading /> : <DataTable
   rows={members}
   rowKey={(member) => member.membership_id}
   empty={<Empty text="Nenhum acesso concedido." />}
@@ -265,10 +319,20 @@ function AccessTable({ members, loading, saving, canManage, changeStatus, issueA
     { key: 'entry', header: 'Entrada', cell: (member) => <AccessBadge mode={member.access_mode} /> },
     { key: 'role', header: 'Função', cell: (member) => <span className="text-sm font-bold text-dashem-muted">{roleLabel[member.role] || member.role}</span> },
     { key: 'store', header: 'Unidade', cell: (member) => <span className="text-sm text-dashem-muted">{member.store_name || 'Tenant inteiro'}</span> },
+    { key: 'authority', header: 'Faz sozinho', cell: (member) => (member.autoridade?.length
+      ? <div className="flex flex-wrap gap-1">{member.autoridade.map((item) => (
+          <span key={item.chave} title={item.origem === 'PERFIL' ? 'Vem da função' : 'Definido para esta pessoa'}
+            className={`rounded-full px-2 py-1 text-xs font-black ${item.sozinho
+              ? 'bg-state-success-soft text-state-success'
+              : 'bg-dashem-bg text-dashem-muted'}`}>
+            {item.sozinho ? item.rotulo : `${item.rotulo}: pede`}
+          </span>
+        ))}</div>
+      : <span className="text-xs text-dashem-muted">—</span>) },
     { key: 'state', header: 'Estado', cell: (member) => member.locked_until
       ? <span className="rounded-full bg-state-warning-soft px-2 py-1 text-xs font-black text-state-warning">Bloqueado até {formatApiDateTime(member.locked_until, 'time')}</span>
       : <span className="rounded-full bg-dashem-bg px-2 py-1 text-xs font-black text-dashem-muted">{member.status !== 'ACTIVE' ? (member.status === 'SUSPENDED' ? 'Suspenso' : member.status) : member.credential_state === 'PENDING_ACTIVATION' ? 'Aguardando ativação' : 'Ativo'}</span> },
-    { key: 'actions', header: 'Ações', actions: true, cell: (member) => <div className="flex flex-wrap gap-2">{canManage && <Action onClick={() => editAccess(member)} tone="neutral"><Pencil className="h-4 w-4" />Editar acesso</Action>}{canManage && member.locked_until && <Action onClick={() => void releaseLock(member)} disabled={saving} tone="emerald"><Unlock className="h-4 w-4" />Liberar bloqueio</Action>}{canManage && member.access_mode === 'PIN' && <Action onClick={() => issueActivation(member)} disabled={saving} tone="violet"><RotateCcwKey className="h-4 w-4" />Nova ativação</Action>}{canManage && (member.status === 'ACTIVE' ? <Action onClick={() => void changeStatus(member, 'SUSPENDED')} disabled={saving} tone="amber"><Ban className="h-4 w-4" />Suspender</Action> : <Action onClick={() => void changeStatus(member, 'ACTIVE')} disabled={saving} tone="emerald"><ShieldCheck className="h-4 w-4" />Reativar</Action>)}</div> },
+    { key: 'actions', header: 'Ações', actions: true, cell: (member) => <div className="flex flex-wrap gap-2">{canManage && <Action onClick={() => abrirAutoridade(member)} tone="neutral"><KeyRound className="h-4 w-4" />Autoridade</Action>}{canManage && <Action onClick={() => editAccess(member)} tone="neutral"><Pencil className="h-4 w-4" />Editar acesso</Action>}{canManage && member.locked_until && <Action onClick={() => void releaseLock(member)} disabled={saving} tone="emerald"><Unlock className="h-4 w-4" />Liberar bloqueio</Action>}{canManage && member.access_mode === 'PIN' && <Action onClick={() => issueActivation(member)} disabled={saving} tone="violet"><RotateCcwKey className="h-4 w-4" />Nova ativação</Action>}{canManage && (member.status === 'ACTIVE' ? <Action onClick={() => void changeStatus(member, 'SUSPENDED')} disabled={saving} tone="amber"><Ban className="h-4 w-4" />Suspender</Action> : <Action onClick={() => void changeStatus(member, 'ACTIVE')} disabled={saving} tone="emerald"><ShieldCheck className="h-4 w-4" />Reativar</Action>)}</div> },
   ]}
 />}</section> }
 
