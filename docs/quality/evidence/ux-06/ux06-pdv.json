@@ -1,0 +1,40 @@
+{
+  "app": "http://127.0.0.1:5173",
+  "gerado_em": "2026-09-08T16:39:42.199Z",
+  "degraus": [
+    {
+      "degrau": "folga confortável",
+      "pedido": 1,
+      "aviso": "1x Coca-Cola Sem Açucar 600ml adicionado!"
+    },
+    {
+      "degrau": "o cartão em silêncio",
+      "selo": ""
+    },
+    {
+      "degrau": "crítico",
+      "aviso": "1x Coca-Cola Sem Açucar 600ml adicionado · Crítico — restarão 2 UN"
+    },
+    {
+      "degrau": "última unidade",
+      "aviso": "1x Coca-Cola Sem Açucar 600ml adicionado · Última unidade disponível"
+    },
+    {
+      "degrau": "bloqueio",
+      "aviso": "Coca-Cola Sem Açucar 600ml: Indisponível. Disponível: 0 UN"
+    },
+    {
+      "degrau": "o cartão relê a reserva",
+      "antes": "",
+      "depois": "Sem estoque"
+    }
+  ],
+  "telas": [
+    "1-pdv-com-caixa-aberto",
+    "2-primeira-inclusao-sem-alarme",
+    "3-critico",
+    "4-ultima-unidade",
+    "5-bloqueio-antes-de-incluir"
+  ],
+  "falhas": []
+}

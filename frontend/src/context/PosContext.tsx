@@ -1,11 +1,16 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback, useRef } from 'react'
 import * as api from '../services/api'
+import { avisoDeDisponibilidade } from '../domain/availabilityWarning'
 import { paymentProgress, requireAuthenticatedActor, saleNeedsCreation } from '../domain/operationalRules'
 import { resolveNicheTheme, useNicheTheme } from '../utils/nicheTheme'
 import { formatCurrency } from '../utils/format'
 
 export interface ToastInfo {
-  type: 'success' | 'error' | 'info'
+  /**
+   * `warning` existe porque "aceito, e está no fim" não é sucesso nem erro:
+   * o item entrou, e mesmo assim há algo a saber antes da próxima venda.
+   */
+  type: 'success' | 'error' | 'warning' | 'info'
   text: string
 }
 
@@ -55,7 +60,7 @@ interface PosContextType {
   toast: ToastInfo | null
 
   // Actions
-  showToast: (type: 'success' | 'error' | 'info', text: string) => void
+  showToast: (type: 'success' | 'error' | 'warning' | 'info', text: string) => void
   setOperationMode: (mode: 'COUNTER' | 'TAKEAWAY') => void
   setActiveActivity: (activity: api.BusinessNiche) => void
   startNewSale: () => Promise<void>
@@ -150,7 +155,7 @@ export const PosProvider: React.FC<{
   const [actionLoading, setActionLoading] = useState(false)
   const [toast, setToast] = useState<ToastInfo | null>(null)
 
-  const showToast = useCallback((type: 'success' | 'error' | 'info', text: string) => {
+  const showToast = useCallback((type: 'success' | 'error' | 'warning' | 'info', text: string) => {
     setToast({ type, text })
     setTimeout(() => setToast(null), 4000)
   }, [])
@@ -385,6 +390,22 @@ export const PosProvider: React.FC<{
     }
     if (actionLoading) return false
 
+    // O aviso acontece ANTES de efetivar a inclusão. O servidor continua sendo
+    // quem decide — ele recusa de todo jeito se esta tela estiver atrasada —,
+    // mas descobrir a falta aqui evita que ela apareça só no pagamento, com o
+    // cliente já esperando. A conta é a do plano corretivo: projetado =
+    // disponível − pedido.
+    const mercadoria = products.find((item) => item.id === productId)
+    const aviso = avisoDeDisponibilidade({
+      disponivel: mercadoria?.available ?? mercadoria?.quantity,
+      pedido: quantity,
+      unidade: mercadoria?.unit,
+    })
+    if (aviso.nivel === 'BLOQUEIO') {
+      showToast('error', `${mercadoria?.name ?? 'Item'}: ${aviso.mensagem}`)
+      return false
+    }
+
     try {
       setActionLoading(true)
       const hdrs = getHeaders()
@@ -403,8 +424,17 @@ export const PosProvider: React.FC<{
       const updatedSale = await api.addItemToSale(hdrs, saleToUse.id, productId, quantity)
       setCurrentSale(updatedSale)
 
-      const prod = products.find((p) => p.id === productId)
-      showToast('success', `${quantity}x ${prod?.name || 'Item'} adicionado!`)
+      const nome = mercadoria?.name || 'Item'
+      // Aceito é aceito; o aviso viaja junto com a confirmação em vez de
+      // substituí-la, para quem está no balcão não ficar em dúvida se entrou.
+      if (aviso.nivel === 'SILENCIO') showToast('success', `${quantity}x ${nome} adicionado!`)
+      else showToast('warning', `${quantity}x ${nome} adicionado · ${aviso.mensagem}`)
+
+      // A inclusão reservou estoque no servidor, então o disponível mudou. Sem
+      // reler, a grade continuaria anunciando o número de antes e o próximo
+      // aviso sairia da conta errada — a tela mostraria 9 depois de sete já
+      // terem entrado na venda.
+      void refreshData()
       return true
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Erro ao adicionar item'

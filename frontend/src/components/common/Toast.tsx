@@ -15,8 +15,10 @@ export const Toast: React.FC<ToastProps> = ({ toast }) => {
         return 'bg-state-success-strong/95 text-state-success-on-strong border-state-success shadow-xl'
       case 'error':
         return 'bg-state-danger-strong/95 text-state-danger-on-strong border-state-danger shadow-xl'
+      case 'warning':
+        return 'bg-state-warning-strong/95 text-state-warning-on-strong border-state-warning shadow-xl'
       default:
-        return 'bg-slate-900/95 text-slate-100 border-slate-700 shadow-xl'
+        return 'bg-state-info-strong/95 text-state-info-on-strong border-state-info shadow-xl'
     }
   }
 
@@ -26,6 +28,8 @@ export const Toast: React.FC<ToastProps> = ({ toast }) => {
         return <CheckCircle2 className="w-5 h-5 text-state-success-accent shrink-0" />
       case 'error':
         return <AlertCircle className="w-5 h-5 text-state-danger-accent shrink-0" />
+      case 'warning':
+        return <AlertCircle className="w-5 h-5 text-state-warning-accent shrink-0" />
       default:
         return <Info className="w-5 h-5 text-state-info-accent shrink-0" />
     }
