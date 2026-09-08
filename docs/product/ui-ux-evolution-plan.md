@@ -6,7 +6,11 @@ Objetivo: tornar a operação compreensível à primeira vista, rápida sob pres
 
 Prioridade revisada após o retorno do usuário: **Gestão primeiro**, começando pela navegação compartilhada, Produtos, Estoque, Catálogos e Categorias. O PDV permanece no escopo, após esse primeiro conjunto. A experiência gerencial é parte central do produto.
 
+Execução detalhada: [sprints UX-00 a UX-12 — Gestão e PDV](ui-ux-implementation-sprints.md). Essa trilha incorpora a decisão posterior do usuário de sete áreas com hubs de cards e prevalece sobre a estimativa e o agrupamento preliminares deste documento.
+
 ## Evidências e limites
+
+Referências de arquitetura: [ADR-034 — hierarquia da interface](../architecture/adr-034-interface-hierarchy.md) e [ADR-032 — disponibilidade prometida e compromisso de estoque](../architecture/adr-032-available-to-promise.md). O primeiro orienta a experiência da Gestão e do PDV; o segundo fundamenta a disponibilidade de estoque, respeitando seu status e a implementação vigente.
 
 Base: sete capturas fornecidas pelo usuário; leitura do ADR-034, ADR-032, plano corretivo de estoque, tokens de `frontend/src/index.css`, `cartGrouping.ts` e `PaymentDialog.tsx`. Não houve teste do ambiente publicado nem pesquisa de uso dos concorrentes.
 
@@ -61,9 +65,9 @@ As capturas mostram evolução: o resumo de estoque já passou de cartões numé
 
 ### Estrutura proposta para toda a Gestão
 
-Navegação lateral com seleção suave, unidade ativa clara e grupos previsíveis. Cabeçalho único por página, sem repetir nome da seção em um grande cartão. Abaixo, resumo acionável quando útil, barra de busca/filtros e área de trabalho. Menus, listas, estados vazios e formulários seguem o mesmo padrão.
+Na entrada, sidebar com sete áreas. Ao escolher uma área, a sidebar desaparece e o conteúdo apresenta cards das funcionalidades. No topo global, somente as ações “Menu principal” e “Sair”, com contexto textual discreto. O módulo aberto pelo card oferece retorno à sua área dentro do conteúdo. Cabeçalho único por página, resumo acionável quando útil, busca/filtros e área de trabalho seguem um padrão comum.
 
-Mapa inicial a validar com tarefas: **Início; Vendas e caixas; Produtos e estoque; Financeiro; Clientes; Equipe; Configurações**. Catálogos e Categorias ficam próximos de Produtos; dispositivos e provedores ficam em Configurações. Preservar permissões e disponibilidade de módulos: `ManagementLayout` monta a navegação por contribuições, então reorganizar visualmente exige reconciliar os rótulos e grupos dessa origem, sem inserir acessos indevidos.
+Mapa definido pelo usuário, nesta ordem: **Operação; Mercadorias; Estrutura; Pessoas; Relacionamento; Financeiro; Administração**. Os cards e destinos estão na trilha de sprints. Preservar permissões e disponibilidade de módulos: `ManagementLayout` monta a navegação por contribuições, então reorganizar visualmente exige reconciliar os rótulos e grupos dessa origem, sem inserir acessos indevidos.
 
 ### Entregas por área
 
@@ -107,7 +111,7 @@ Criar componentes de referência para botão, campo, busca, cartão de produto, 
 
 | Capacidade | Benefício | Dependência e limite |
 |---|---|---|
-| Disponibilidade antes da inclusão | Evitar descobrir falta durante pagamento | Validar implementação de ATP e concorrência; ADR-032 está marcado como proposto, não tratar como entregue |
+| Disponibilidade antes da inclusão | Evitar descobrir falta durante pagamento | Entregue no servidor em 07/09/2026: reserva na inclusão, disponível e recusa antes do pagamento, com concorrência serializada. Falta na tela o aviso antes da recusa, e falta a homologação em duas estações |
 | Favoritos sugeridos por contexto | Encontrar itens frequentes rapidamente | Histórico suficiente e controle do operador; posição estável |
 | Reposição orientada | Mostrar quais produtos exigem ação e por quê | Dados confiáveis; distinguir regra manual de previsão |
 | Recuperação de pagamento | Evitar cobrança duplicada e perda de contexto | Estado autoritativo do provedor, idempotência e fluxo existente de recuperação |

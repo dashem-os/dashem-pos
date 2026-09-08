@@ -25,7 +25,7 @@ export const ProductSearch: React.FC = () => {
     if (result.items.length) return { items: result.items, message: '' }
     const context = await api.fetchSellableProducts(headers, { ...options, pageSize: 1 })
     return { items: [], message: context.total === 0
-      ? 'Nenhum produto disponível neste contexto. Confira a publicação em Sortimentos e cardápios para esta unidade, atividade e jornada.'
+      ? 'Nenhum produto disponível neste contexto. Confira a publicação em Cardápios para esta unidade, atividade e jornada.'
       : 'Nenhuma correspondência entre os produtos publicados neste contexto. Confira o nome ou código; a Gestão pode verificar a publicação do item.' }
   }
 

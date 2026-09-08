@@ -1,6 +1,6 @@
 # ADR-032 — Disponibilidade prometida e compromisso de estoque
 
-**Status:** proposto — pendente de aceite do dono do SaaS
+**Status:** núcleo implementado e publicado em 07/09/2026 (`0a7acd0`, corrigido por `0d523aa`); extensões e homologação de duas estações pendentes — ver [Situação da implementação](#situação-da-implementação)
 **Data:** 2026-09-07
 **Origem:** dois defeitos observados na tela em 07/09/2026, com a etapa 2 já publicada
 **Relacionado:** [ADR-001](adr-001-order-versus-sale.md), [ADR-003](adr-003-table-session.md), [ADR-029](adr-029-module-boundaries-and-owner-layer.md), [ADR-033](adr-033-stock-risk-state.md), [plano corretivo](../product/inventory-operational-correction-plan.md)
@@ -140,6 +140,46 @@ O teste `test_module_boundaries.py` é o juiz.
   e comanda velha vira alerta;
 * o histórico não muda: reserva não é movimento e não aparece em
   "Movimentações recentes".
+
+## Situação da implementação
+
+Esta seção existe porque o ADR deixou de ser só intenção no meio da própria
+sprint que o citava como proposto. Ela é a resposta curta para quem for mexer
+em disponibilidade: **o que já vale, e o que ainda é papel.**
+
+### Implementado e publicado em `main`
+
+| Contrato | Onde |
+|---|---|
+| A reserva é um fato próprio, com estado e origem | `InventoryReservation` (migração 087, RLS forçada, índices únicos parciais por linha ativa) |
+| Reservar na inclusão, não no pagamento | `sale_service.add_sale_item` / `update_sale_item` |
+| Recusa antes de o cliente escolher, com o número real | 409 — "Só há *n* disponível de '*produto*'. *m* já está em vendas abertas." |
+| Cancelar e remover devolvem na hora | `release_reservations` no delete de item e no topo de `cancel_sale` |
+| Concluir consome, não devolve | `consume_reservations` em `payment_service` e `negotiation_service` |
+| Carrinho de balcão expira em 30 min; comanda não expira | `expire_stale_reservations`, varrido em `list_holdings` |
+| Duas estações não prometem a mesma unidade | `SELECT … FOR UPDATE` sobre o saldo materializado |
+| O disponível chega ao PDV | `reserved` e `available` na projeção do catálogo; `QuickProductGrid` já lê `available` |
+| Loja que nunca carregou estoque continua vendendo | sem linha de saldo não há reserva (`0d523aa`) |
+
+Provas: `backend/tests/test_inventory_reservation.py` (7 casos, incluindo o
+cenário relatado de 16 → 10 → 7) e o portão de concorrência reescrito em
+`test_pos3_gates.py`.
+
+### Ainda não implementado
+
+* **Comanda e pedido não reservam.** `order_item_id` existe na tabela e nada o
+  preenche: só a venda de balcão reserva. Uma mesa aberta ainda promete
+  mercadoria que o sistema não segura.
+* **`on_order` e `inventory_position`** — dois dos cinco números dependem de
+  compras, que não existe como módulo.
+* **A escada de mensagens no PDV.** Há recusa, não há aviso: `ProductSearch`
+  ainda mostra `quantity` enquanto a grade mostra `available`. Duas listas na
+  mesma tela respondendo números diferentes é trabalho de UX-06.
+* **Homologação em duas estações.** O cenário obrigatório — operador e
+  supervisor em sessões simultâneas — não foi executado. Nenhum teste
+  automatizado substitui essa passagem.
+* **Elevação por supervisor** (P0.3) é assunto do ADR-028, não deste; sem ela,
+  cancelar não é uma operação com duas pessoas registradas.
 
 ## Alternativa recusada
 

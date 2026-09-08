@@ -1,5 +1,7 @@
 # Roadmap Canônico V2 — Dashem Commerce OS / Dashem POS
 
+Trilha de experiência e implementação: [Gestão e PDV — UX-00 a UX-12](ui-ux-implementation-sprints.md). Define a navegação de sete áreas solicitada pelo usuário, as entregas visuais/operacionais e os novos módulos a especificar, sem renumerar as sprints deste roadmap ou declarar suas capacidades concluídas.
+
 Status: **diretriz canônica para a próxima fase de construção**  
 Data: 23 de agosto de 2026  
 Revisão: **Gate B `PASSED` em 04/09/2026 — Operational Acceptance concluída com

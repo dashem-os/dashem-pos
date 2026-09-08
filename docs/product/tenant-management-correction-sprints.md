@@ -1,5 +1,9 @@
 # Trilha corretiva — Gestão do tenant
 
+## Evolução de UI/UX — Gestão e PDV
+
+A [trilha de implementação UX-00 a UX-12](ui-ux-implementation-sprints.md) incorpora a navegação definida pelo usuário: sete áreas principais, sidebar ocultada ao abrir a área e cards para acessar funcionalidades. Inclui melhorias da Gestão e PDV e sprints próprias para novos domínios. Seu status é planejado; não altera a numeração nem os resultados históricos abaixo. A direção visual está no [plano de evolução da experiência](ui-ux-evolution-plan.md).
+
 ## Aditivo de estoque e usabilidade — 06/09/2026
 
 A homologação do dono identificou falhas de movimentação e de apresentação nas

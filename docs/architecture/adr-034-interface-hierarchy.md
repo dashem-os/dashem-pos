@@ -2,7 +2,7 @@
 
 **Status:** aceito — decisão do dono do SaaS em 07/09/2026
 **Data:** 2026-09-07
-**Origem:** revisão das telas publicadas de Produtos, Estoque, Sortimentos e Categorias
+**Origem:** revisão das telas publicadas de Produtos, Estoque, Cardápios (sortimentos) e Categorias
 **Relacionado:** [ADR-032](adr-032-available-to-promise.md), [ADR-033](adr-033-stock-risk-state.md), [identidade visual](dashem-visual-identity.md), [plano corretivo](../product/inventory-operational-correction-plan.md)
 
 ## Contexto
@@ -112,7 +112,7 @@ O resumo obedece ao pior risco relevante ([ADR-033](adr-033-stock-risk-state.md)
 | Interno | Na tela |
 |---|---|
 | Contextos operacionais habilitados | Onde este produto é vendido? — Balcão · Mesa/Comanda · Delivery |
-| Sortimentos e cardápios | Catálogos e cardápios |
+| Sortimento (agregado do domínio) | **Cardápios** — rótulo publicado na migração 086 |
 | Publicados por contexto | Onde cada item aparece |
 | Atividade de negócio | Tipo de negócio |
 | Versão esperada / v4 | não aparece na jornada diária |
