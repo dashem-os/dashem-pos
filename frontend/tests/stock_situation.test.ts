@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { requiringAction, stockSituation } from '../src/domain/stockSituation.ts'
+import { requiringAction, stockSituation, exigeAcao } from '../src/domain/stockSituation.ts'
 
 const item = (quantity: number, minimum: number) => ({
   quantity,
@@ -38,4 +38,27 @@ test('cada mercadoria exige ação uma vez', () => {
     item(9, 0),   // sem referência
   ]
   assert.equal(requiringAction(acervo), 3)
+})
+
+test('o filtro de atenção seleciona exatamente o que o resumo contou', () => {
+  // A faixa do topo diz quantas precisam de atenção e leva até elas. Se a
+  // seleção e a contagem saíssem de regras diferentes, a tela anunciaria três
+  // e mostraria outra quantidade — e a pessoa perderia a confiança nas duas.
+  const acervo = [
+    item(0, 6),   // sem estoque
+    item(10, 12), // repor
+    item(15, 12), // atenção
+    item(40, 10), // saudável
+    item(9, 0),   // sem referência
+  ]
+  const selecionados = acervo.filter(exigeAcao)
+  assert.equal(selecionados.length, requiringAction(acervo))
+  assert.deepEqual(selecionados.map((linha) => stockSituation(linha)), ['SEM_ESTOQUE', 'REPOR', 'ATENCAO'])
+})
+
+test('saudável e sem referência não entram no filtro de atenção', () => {
+  // Sem referência não é pendência: é uma política que ninguém definiu ainda,
+  // e tratá-la como urgência encheria a faixa de itens que não pedem nada.
+  assert.equal(exigeAcao(item(40, 10)), false)
+  assert.equal(exigeAcao(item(9, 0)), false)
 })

@@ -108,7 +108,12 @@ test('os indicadores não somam grandezas incompatíveis', () => {
 test('o resumo obedece ao pior risco, não à média', () => {
   // Um item em falta entre cem saudáveis não pode virar "tudo regular".
   const resumo = inventory.slice(inventory.indexOf('function Resumo'))
-  assert.match(inventory, /requiringAction\(filtered\)/)
+  // O contador lê o que a BUSCA deixou, não o que o filtro de atenção deixou.
+  // Se lesse `filtered`, ligar o filtro faria o número virar o total dele
+  // mesmo — "6 precisam de atenção · 6 acompanhados" — e desligar mudaria o
+  // número sem nada ter mudado no estoque.
+  assert.match(inventory, /requiringAction\(buscados\)/)
+  assert.doesNotMatch(inventory, /requiringAction\(filtered\)/)
   assert.match(resumo, /exigindoAcao === 0/)
   assert.match(resumo, /Estoque saudável/)
   assert.match(resumo, /Nenhum item requer ação agora/)

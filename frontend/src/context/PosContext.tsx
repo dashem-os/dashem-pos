@@ -85,7 +85,7 @@ interface PosContextType {
   closeCash: (closingBalance: number) => Promise<void>
   addCashMovement: (type: 'BLEED' | 'REINFORCEMENT', amount: number, notes?: string) => Promise<void>
   createNewProduct: (product: { name: string; sku: string; barcode?: string; image_url?: string; item_type?: 'PRODUCT' | 'SERVICE'; category_id?: string }, price: number, initialStock?: number) => Promise<api.Product | null | undefined>
-  adjustStock: (productId: string, quantity: number, type: string, reason?: string) => Promise<void>
+  adjustStock: (productId: string, quantity: number, type: string, reason?: string, idempotencyKey?: string) => Promise<void>
   refreshData: () => Promise<void>
 }
 
@@ -782,7 +782,7 @@ export const PosProvider: React.FC<{
     }
   }
 
-  const adjustStock = async (productId: string, quantity: number, type: string, reason?: string) => {
+  const adjustStock = async (productId: string, quantity: number, type: string, reason?: string, idempotencyKey?: string) => {
     if (!store) return
     try {
       setActionLoading(true)
@@ -794,7 +794,7 @@ export const PosProvider: React.FC<{
         movement_type: type,
         quantity,
         reason
-      })
+      }, idempotencyKey)
       showToast('success', 'Movimentação registrada no histórico do estoque.')
       refreshData()
     } catch (err: unknown) {

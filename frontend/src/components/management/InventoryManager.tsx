@@ -7,7 +7,7 @@ import { DataTable } from '../common/DataTable'
 import * as api from '../../services/api'
 import { formatApiDateTime } from '../../utils/format'
 import { ApiError } from '../../services/http'
-import { requiringAction, stockSituation } from '../../domain/stockSituation'
+import { exigeAcao, requiringAction, stockSituation } from '../../domain/stockSituation'
 import { DEFAULT_STOCK_REASONS, countPreview, movementAmount, movementLabel, reasonForMovement, type StockMovementType } from '../../domain/stockMovements'
 
 /**
@@ -64,20 +64,26 @@ export function InventoryManager() {
   const unitOf = (productId: string) =>
     holdings.find((item) => item.product_id === productId)?.unit || 'un'
 
-  const filtered = holdings.filter((item) => {
+  // O resumo diz quantas precisam de atenção; o filtro leva até elas. Sem isso
+  // a pessoa lia "3 produtos precisam de atenção" e tinha de procurar quais na
+  // lista inteira — que é o "procurar em menu técnico" que o aceite proíbe.
+  const [soAtencao, setSoAtencao] = useState(false)
+  const [visao, setVisao] = useState<'ESTOQUE' | 'MOVIMENTACOES'>('ESTOQUE')
+  const buscados = holdings.filter((item) => {
     const agulha = search.trim().toLocaleLowerCase('pt-BR')
     if (!agulha) return true
     return item.name.toLocaleLowerCase('pt-BR').includes(agulha)
       || item.sku.toLocaleLowerCase('pt-BR').includes(agulha)
   })
-  const semEstoque = filtered.filter((item) => item.is_out_of_stock).length
+  const filtered = soAtencao ? buscados.filter(exigeAcao) : buscados
+  const semEstoque = buscados.filter((item) => item.is_out_of_stock).length
   // Cada mercadoria conta uma vez: quem está sem estoque também está abaixo da
   // referência, e somar os dois contadores inflava o resumo.
-  const exigindoAcao = requiringAction(filtered)
+  const exigindoAcao = requiringAction(buscados)
   // Somar quilo, litro e unidade num número só produz um total que não é de
   // nada. O que dá para contar sem conversão é quantas mercadorias existem, e
   // cada saldo aparece com a sua unidade na linha.
-  const controlados = filtered.length
+  const controlados = buscados.length
 
   // ----------------------------------------------------------- movimentação
   const [selected, setSelected] = useState<api.StockHolding | null>(null)
@@ -86,6 +92,9 @@ export function InventoryManager() {
     reason: DEFAULT_STOCK_REASONS.PURCHASE,
   })
   const [movementError, setMovementError] = useState('')
+  // Uma intenção, uma chave. Ela sobrevive à tentativa que falhou, para o
+  // reenvio não virar um segundo movimento.
+  const [movementKey, setMovementKey] = useState('')
 
   // Receber mercadoria e registrar perda são duas intenções, e quem clica já
   // sabe qual é a sua. Um seletor entre as duas obrigava quem só queria repor a
@@ -93,6 +102,7 @@ export function InventoryManager() {
   const abrirMovimentacao = (item: api.StockHolding, tipo: 'PURCHASE' | 'LOSS') => {
     setSelected(item)
     setMovementError('')
+    setMovementKey(crypto.randomUUID())
     setForm({
       quantity: '', movement_type: tipo,
       reason: DEFAULT_STOCK_REASONS[tipo],
@@ -136,7 +146,7 @@ export function InventoryManager() {
     setBusy(true)
     setMovementError('')
     try {
-      await adjustStock(selected.product_id, Number(form.quantity), form.movement_type, form.reason)
+      await adjustStock(selected.product_id, Number(form.quantity), form.movement_type, form.reason, movementKey)
     } catch (reason) {
       // A recusa fica no formulário, onde a pessoa está olhando. O aviso
       // flutuante some sozinho em poucos segundos: quem digitou 999 e viu o
@@ -258,20 +268,47 @@ export function InventoryManager() {
     : undefined
 
   return (
-    <div className="space-y-6">
-      <section className="rounded-3xl border border-dashem-border bg-dashem-surface p-6">
-        <p className="text-[11px] font-black uppercase tracking-[.18em] text-state-success">Controle de mercadorias</p>
-        <h1 className="mt-2 text-3xl font-black text-dashem-strong">Estoque por unidade</h1>
-        <p className="mt-2 max-w-2xl text-sm leading-6 text-dashem-muted">
-          Quanto você tem de cada mercadoria nesta unidade.
-        </p>
+    <div className="space-y-4">
+      <section className="rounded-3xl border border-dashem-border bg-dashem-surface p-5">
+        {/*
+          Cabeçalho compacto: título, subtítulo e as duas visões na mesma linha.
+          Empilhados, eles empurravam o começo da lista para fora da tela de
+          1366x640 — e a primeira coisa que o balcão precisa ver é a lista.
+        */}
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[11px] font-black uppercase tracking-[.18em] text-state-success">Controle de mercadorias</p>
+            <h1 className="mt-1 text-2xl font-black text-dashem-strong">Estoque por unidade</h1>
+            <p className="mt-1 max-w-2xl text-sm leading-5 text-dashem-muted">
+              Quanto você tem de cada mercadoria nesta unidade.
+            </p>
+          </div>
+          <div role="tablist" aria-label="Visões do estoque" className="flex shrink-0 gap-2">
+            {([['ESTOQUE', 'Estoque'], ['MOVIMENTACOES', 'Movimentações']] as const).map(([chave, rotulo]) => (
+              <button
+                key={chave}
+                role="tab"
+                aria-selected={visao === chave}
+                onClick={() => setVisao(chave)}
+                className={`min-h-11 rounded-xl px-4 text-xs font-black transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink
+                  ${visao === chave ? 'bg-brand text-brand-contrast' : 'border border-dashem-border text-dashem-muted hover:text-dashem-strong'}`}
+              >
+                {rotulo}
+              </button>
+            ))}
+          </div>
+        </div>
         {/*
           Três contadores ocupavam um terço da tela sem dizer o que fazer. Uma
           faixa conclui, e obedece ao pior risco (ADR-034).
         */}
-        <Resumo controlados={controlados} semEstoque={semEstoque} exigindoAcao={exigindoAcao} />
+        <Resumo
+          controlados={controlados} semEstoque={semEstoque} exigindoAcao={exigindoAcao}
+          filtrando={soAtencao} aoFiltrar={() => setSoAtencao((atual) => !atual)}
+        />
       </section>
 
+      {visao === 'ESTOQUE' && (<>
       <div className="relative">
         <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-dashem-muted" />
         <input
@@ -384,7 +421,9 @@ export function InventoryManager() {
           ]}
         />
       </section>
+      </>)}
 
+      {visao === 'MOVIMENTACOES' && (
       <section className="rounded-2xl border border-dashem-border bg-dashem-surface p-5">
         <div className="flex items-center gap-2">
           <History className="h-5 w-5 text-state-success" />
@@ -410,6 +449,8 @@ export function InventoryManager() {
           )}
         </div>
       </section>
+      )}
+
 
       <Modal
         isOpen={Boolean(technical)} onClose={() => setTechnical(null)}
@@ -558,8 +599,9 @@ function Situation({ item }: { item: api.StockHolding }) {
  * saudáveis, a faixa não anuncia normalidade — ela diz que há um item exigindo
  * ação (ADR-033, ADR-034).
  */
-function Resumo({ controlados, semEstoque, exigindoAcao }: {
+function Resumo({ controlados, semEstoque, exigindoAcao, filtrando, aoFiltrar }: {
   controlados: number; semEstoque: number; exigindoAcao: number
+  filtrando: boolean; aoFiltrar: () => void
 }) {
   if (controlados === 0) return null
   if (exigindoAcao === 0) {
@@ -573,10 +615,20 @@ function Resumo({ controlados, semEstoque, exigindoAcao }: {
       </div>
     )
   }
+  // A faixa é o caminho, não só o aviso: quem lê "3 produtos precisam de
+  // atenção" quer ver os três, e não procurá-los na lista inteira.
   return (
-    <div className="mt-6 flex items-center gap-3 rounded-2xl bg-state-warning-soft p-4">
+    <button
+      type="button"
+      onClick={aoFiltrar}
+      aria-pressed={filtrando}
+      className={`mt-6 flex w-full items-center gap-3 rounded-2xl p-4 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink
+        ${filtrando
+          ? 'bg-state-warning-soft ring-2 ring-state-warning'
+          : 'bg-state-warning-soft hover:ring-2 hover:ring-state-warning-border'}`}
+    >
       <AlertTriangle className="h-5 w-5 shrink-0 text-state-warning" />
-      <div>
+      <div className="min-w-0 flex-1">
         <p className="text-sm font-black text-state-warning">
           {exigindoAcao === 1 ? '1 produto precisa de atenção' : `${exigindoAcao} produtos precisam de atenção`}
         </p>
@@ -584,7 +636,10 @@ function Resumo({ controlados, semEstoque, exigindoAcao }: {
           {controlados} acompanhados · {semEstoque === 0 ? 'nenhum sem estoque' : semEstoque === 1 ? '1 sem estoque' : `${semEstoque} sem estoque`}
         </p>
       </div>
-    </div>
+      <span className="shrink-0 text-xs font-black text-state-warning underline underline-offset-4">
+        {filtrando ? 'Ver todos' : 'Ver só estes'}
+      </span>
+    </button>
   )
 }
 

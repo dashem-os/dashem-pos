@@ -3135,11 +3135,23 @@ export async function fetchInventoryBalance(headers: Record<string, string>, sto
 
 export async function adjustInventory(
   headers: Record<string, string>,
-  data: { store_id: string; product_id: string; actor_id: string; movement_type: string; quantity: number; reason?: string }
+  data: { store_id: string; product_id: string; actor_id: string; movement_type: string; quantity: number; reason?: string },
+  /**
+   * A chave da **intenção**, não da tentativa. O servidor já sabia deduplicar
+   * por `Idempotency-Key` desde sempre; esta tela nunca mandava uma, então dois
+   * cliques em "Receber" registravam duas entradas e o estoque subia em dobro.
+   * Quem gera a chave é quem abre o formulário — repetir o envio depois de um
+   * erro de rede reusa a mesma, e o servidor devolve o mesmo movimento.
+   */
+  idempotencyKey?: string,
 ): Promise<{ movement: InventoryMovement | null; balance: InventoryBalance; movement_created: boolean }> {
   const res = await fetch(`${API_BASE_URL}/api/v1/inventory/adjust`, {
     method: 'POST',
-    headers: { ...headers, 'Content-Type': 'application/json' },
+    headers: {
+      ...headers,
+      'Content-Type': 'application/json',
+      ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
+    },
     body: JSON.stringify(data)
   })
   // A recusa do servidor diz o que aconteceu — qual mercadoria, quanto havia,

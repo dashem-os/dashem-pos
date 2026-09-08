@@ -33,10 +33,19 @@ export function stockSituation(item: SituationInput): StockSituation {
   return 'SAUDAVEL'
 }
 
+/**
+ * Se esta mercadoria exige ação hoje.
+ *
+ * O resumo do topo conta, e o filtro de atenção seleciona. Enquanto a regra
+ * vivia só dentro do contador, filtrar a lista significaria escrevê-la de novo
+ * — e duas escritas da mesma regra divergem no primeiro ajuste.
+ */
+export function exigeAcao(item: SituationInput): boolean {
+  const situacao = stockSituation(item)
+  return situacao === 'SEM_ESTOQUE' || situacao === 'REPOR' || situacao === 'ATENCAO'
+}
+
 /** Quantas mercadorias exigem ação — cada uma contada uma vez. */
 export function requiringAction(items: readonly SituationInput[]): number {
-  return items.filter((item) => {
-    const situacao = stockSituation(item)
-    return situacao === 'SEM_ESTOQUE' || situacao === 'REPOR' || situacao === 'ATENCAO'
-  }).length
+  return items.filter(exigeAcao).length
 }

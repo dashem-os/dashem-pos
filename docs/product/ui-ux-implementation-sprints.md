@@ -1,6 +1,6 @@
 # Gestão e PDV — sprints de implementação da experiência
 
-Status: UX-00 a UX-03 executadas em 08/09/2026 — inventário, navegação de sete áreas, fundação visual com escala de estados, e a jornada de Mercadorias com categorização na tela. UX-04 a UX-13 planejadas.
+Status: UX-00 a UX-04 executadas em 08/09/2026 — inventário, navegação de sete áreas, fundação visual, jornada de Mercadorias, e o estoque orientado à ação com idempotência na movimentação. UX-05 a UX-13 planejadas.
 Origem: direção explícita do usuário nesta conversa, em 07/09/2026.
 Plano visual: [evolução de UI/UX](ui-ux-evolution-plan.md).
 Referências de arquitetura para execução: [ADR-034 — hierarquia da interface e redução do esforço do operador](../architecture/adr-034-interface-hierarchy.md) e [ADR-032 — disponibilidade prometida e compromisso de estoque](../architecture/adr-032-available-to-promise.md).
@@ -167,7 +167,8 @@ Uma linha por sprint, com status, commit, evidência e pendência.
 | UX-01 | **executada** em 08/09/2026; entrada → hub → módulo, sete áreas vindas da malha (migração 090), URL como estado | [entrega](../quality/ux-01-navegacao-2026-09-08.md) · [capturas](../quality/evidence/ux-01/) · roteiro `frontend/e2e/presentation/ux01_navigation.cjs` | Duas leituras do mapa foram decididas por mim e podem ser revertidas em dado: "Validar no PDV" ficou no hub de Operação, e Provedores de pagamento virou card em Financeiro |
 | UX-02 | **executada** em 08/09/2026; escala de estados em token, um título por tela, cartão dentro de cartão removido | [entrega](../quality/ux-02-fundacao-visual-2026-09-08.md) · [capturas](../quality/evidence/ux-02/) · roteiro `frontend/e2e/presentation/ux02_foundation.cjs` | Categorias conta produto vendável em vez de produto existente — 0 na tela, 2 no banco. Entregue à UX-03, que é dona dessa tela |
 | UX-03 | **executada** em 08/09/2026; categoria no formulário de produto, contagem de categoria vinda do servidor | [entrega](../quality/ux-03-mercadorias-2026-09-08.md) · [capturas](../quality/evidence/ux-03/) · roteiro `frontend/e2e/presentation/ux03_mercadorias.cjs` | Edição longa em página/seções e a troca de linguagem técnica não entraram: mexer na estrutura do formulário toca mídia, preço e publicação juntos |
-| UX-04 a UX-13 | planejadas | — | UX-04 tem o significado de disponibilidade já implementado (ADR-032); a tela mostra o número, não recalcula a regra |
+| UX-04 | **executada** em 08/09/2026; faixa de atenção vira filtro, movimentações em visão própria, movimentação carimbada por intenção | [entrega](../quality/ux-04-estoque-2026-09-08.md) · [capturas](../quality/evidence/ux-04/) · roteiro `frontend/e2e/presentation/ux04_estoque.cjs` | Duas estações movimentando a mesma mercadoria ao mesmo tempo não foi percorrido; 3.2–3.4 do plano de estoque seguem futuras |
+| UX-05 a UX-13 | planejadas | — | UX-05 aplica os padrões aos oito módulos restantes, em entregas pequenas, com evidência por módulo |
 
 O que já está publicado veio da trilha corretiva (P0.1, P0.2 e P0.3) e das etapas de estoque, não das sprints UX. A estimativa anterior de 6–8 semanas cobre apenas a fundação gerencial e Mercadorias; não cobre toda esta trilha nem os novos domínios.
 

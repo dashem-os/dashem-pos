@@ -1,0 +1,32 @@
+{
+  "app": "http://127.0.0.1:5173",
+  "gerado_em": "2026-09-08T15:00:44.408Z",
+  "medidas": [
+    {
+      "medida": "filtro de atenção",
+      "anunciado": 3,
+      "antes": 8,
+      "depois": 3
+    },
+    {
+      "medida": "visão própria",
+      "lista_de_estoque_saiu": true,
+      "historico_presente": true
+    },
+    {
+      "medida": "carimbo da intenção",
+      "carimbos": [
+        "a2c57dbb-8e93-496a-b02a-539d7a0cf8ce",
+        "a2c57dbb-8e93-496a-b02a-539d7a0cf8ce"
+      ]
+    }
+  ],
+  "telas": [
+    "1-estoque-com-a-faixa-de-atencao",
+    "2-so-o-que-precisa-de-atencao",
+    "3-movimentacoes-em-visao-propria",
+    "4-recebimento-zero-recusado-junto-ao-campo",
+    "5-recebimento-registrado"
+  ],
+  "falhas": []
+}

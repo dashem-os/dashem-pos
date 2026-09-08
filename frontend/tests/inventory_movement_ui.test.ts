@@ -71,3 +71,21 @@ test('nenhuma tela inventa sinal negativo para representar saída', () => {
     assert.doesNotMatch(source, /:\s*-\s*(parseFloat|Number)\(/)
   }
 })
+
+test('a movimentação viaja carimbada, e o carimbo é da intenção', () => {
+  const api = readFileSync(join(root, 'services', 'api.ts'), 'utf8')
+  const contexto = context
+  const estoque = inventory
+
+  // O servidor sempre soube deduplicar por Idempotency-Key. Esta tela nunca
+  // mandava uma, então dois cliques em "Receber" registravam duas entradas.
+  assert.match(api, /'Idempotency-Key': idempotencyKey/)
+  assert.match(contexto, /api\.adjustInventory\(hdrs, \{[\s\S]*?\}, idempotencyKey\)/)
+
+  // E o carimbo nasce ao abrir o formulário, não a cada envio: uma chave por
+  // tentativa faria o reenvio depois de um erro virar um segundo movimento,
+  // que é exatamente o caso que a chave existe para impedir.
+  assert.match(estoque, /setMovementKey\(crypto\.randomUUID\(\)\)/)
+  assert.match(estoque, /form\.reason, movementKey\)/)
+  assert.doesNotMatch(estoque, /form\.reason, crypto\.randomUUID\(\)\)/)
+})
