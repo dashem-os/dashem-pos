@@ -115,3 +115,27 @@ test('a cobrança viaja carimbada, e o carimbo é da intenção', () => {
   assert.match(dialogo, /processPayment\(method, activeAmountToPay, tend, intencaoRef\.current\.chave\)/)
   assert.doesNotMatch(dialogo, /useEffect\([^)]*setIntencao/)
 })
+
+test('timeout não é recusa, e a ação principal é consultar', () => {
+  const dialogo = readFileSync(join(root, 'components', 'pos', 'PaymentDialog.tsx'), 'utf8')
+  const api = readFileSync(join(root, 'services', 'api.ts'), 'utf8')
+
+  // Quando a resposta não volta, a cobrança pode ter sido confirmada do outro
+  // lado. Anunciar erro empurraria o operador a cobrar de novo do que já foi
+  // cobrado — que é a segunda cobrança por ambiguidade que o aceite proíbe.
+  assert.match(context, /setPagamentoPendente\(\{[\s\S]{0,200}?situacao: 'DESCONHECIDO'/)
+  assert.match(dialogo, /Pendente de confirmação/)
+  assert.match(dialogo, /Verificar pagamento/)
+  assert.match(dialogo, /não quer dizer que ela foi recusada/)
+
+  // Consultar nunca cobra: ela só lê o que existe.
+  assert.match(context, /const verificarPagamento = async \(\) => \{/)
+  const consulta = context.slice(context.indexOf('const verificarPagamento'), context.indexOf('const issueFiscal'))
+  assert.doesNotMatch(consulta, /createPayment|confirmPayment/)
+
+  // E a consulta falha alto: devolver lista vazia faria "não consegui
+  // perguntar" ficar indistinguível de "nada foi cobrado".
+  assert.match(api, /export async function consultarPagamentosDaVenda/)
+  const leitura = api.slice(api.indexOf('export async function consultarPagamentosDaVenda'))
+  assert.match(leitura.slice(0, 600), /throw await apiError/)
+})

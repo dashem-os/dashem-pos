@@ -5,6 +5,17 @@ import { paymentProgress, requireAuthenticatedActor, saleNeedsCreation } from '.
 import { resolveNicheTheme, useNicheTheme } from '../utils/nicheTheme'
 import { formatCurrency } from '../utils/format'
 
+/** Uma cobrança cujo resultado não voltou, e o que a consulta já apurou. */
+export interface PagamentoPendente {
+  saleId: string
+  amount: number
+  method: api.Payment['method']
+  /** `DESCONHECIDO` até consultar; depois, o que o servidor respondeu. */
+  situacao: 'DESCONHECIDO' | 'CONFIRMADO' | 'AGUARDANDO' | 'NAO_ENCONTRADO' | 'CONSULTA_INDISPONIVEL'
+  detalhe: string
+  consultando: boolean
+}
+
 export interface ToastInfo {
   /**
    * `warning` existe porque "aceito, e está no fim" não é sucesso nem erro:
@@ -84,6 +95,17 @@ interface PosContextType {
   closeCancelModal: () => void
   closeFiscalModal: () => void
   processPayment: (method: api.Payment['method'], amount: number, tenderedAmount?: number, idempotencyKey?: string) => Promise<boolean>
+  /**
+   * O que ficou sem resposta.
+   *
+   * Quando a confirmação não volta, o pagamento **pode** ter sido criado e até
+   * confirmado no servidor: timeout não é recusa. Enquanto não se consultar, o
+   * estado é desconhecido — e a tela precisa dizer isso em vez de anunciar
+   * erro, que empurraria o operador a cobrar de novo.
+   */
+  pagamentoPendente: PagamentoPendente | null
+  /** Pergunta ao servidor o que existe para esta venda. Nunca cobra. */
+  verificarPagamento: () => Promise<void>
   issueFiscal: (simulateStatus?: string) => Promise<void>
   retryFiscal: () => Promise<void>
   openCash: (openingBalance: number) => Promise<void>
@@ -140,6 +162,7 @@ export const PosProvider: React.FC<{
   const [salesHistory, setSalesHistory] = useState<api.Sale[]>([])
   const [currentSale, setCurrentSale] = useState<api.Sale | null>(null)
   const [confirmedPayments, setConfirmedPayments] = useState<api.Payment[]>([])
+  const [pagamentoPendente, setPagamentoPendente] = useState<PagamentoPendente | null>(null)
   const [fiscalDoc, setFiscalDoc] = useState<api.FiscalDocument | null>(null)
 
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false)
@@ -640,6 +663,9 @@ export const PosProvider: React.FC<{
     if (!currentSale) return false
     try {
       setActionLoading(true)
+      // Uma tentativa nova começa sem a pendência da anterior na tela; se esta
+      // também não voltar, ela é registrada de novo, com o estado desta.
+      setPagamentoPendente(null)
       const hdrs = getHeaders()
 
       const pay = await api.createPayment(
@@ -678,10 +704,69 @@ export const PosProvider: React.FC<{
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Erro ao processar pagamento'
-      showToast('error', msg)
+      // Timeout não é recusa. A cobrança pode ter sido criada — e até
+      // confirmada — do outro lado, e anunciar "erro" empurraria o operador a
+      // cobrar de novo. O estado fica pendente e visível até alguém perguntar
+      // ao servidor o que existe.
+      setPagamentoPendente({
+        saleId: currentSale.id, amount, method,
+        situacao: 'DESCONHECIDO', detalhe: msg, consultando: false,
+      })
       return false
     } finally {
       setActionLoading(false)
+    }
+  }
+
+  /**
+   * Consulta o que existe para esta venda. **Nunca cobra.**
+   *
+   * A integração de pagamento hoje é o provedor manual do operador: não há
+   * adquirente externo para interrogar, e o que existe de autoritativo é o
+   * registro do próprio Dashem. É ele que a consulta lê — e é o suficiente
+   * para distinguir os três casos que importam: já foi confirmado, existe e
+   * aguarda, ou não chegou a existir.
+   */
+  const verificarPagamento = async () => {
+    if (!pagamentoPendente) return
+    setPagamentoPendente((atual) => (atual ? { ...atual, consultando: true } : atual))
+    try {
+      const pagamentos = await api.consultarPagamentosDaVenda(getHeaders(), pagamentoPendente.saleId)
+      const confirmados = pagamentos.filter((item) => item.status === 'CONFIRMED')
+      const aguardando = pagamentos.filter((item) => item.status === 'PENDING')
+      if (confirmados.length) {
+        const total = confirmados.reduce((soma, item) => soma + Number(item.amount), 0)
+        setConfirmedPayments(confirmados)
+        const { remaining } = paymentProgress(currentSale?.net_total ?? 0, confirmados.map((p) => p.amount))
+        setPagamentoPendente({
+          ...pagamentoPendente, consultando: false, situacao: 'CONFIRMADO',
+          detalhe: remaining <= 0.001
+            ? `A cobrança tinha sido confirmada: ${formatCurrency(total)} recebidos. Nada a refazer.`
+            : `Já confirmados ${formatCurrency(total)}. Restam ${formatCurrency(remaining)}.`,
+        })
+        if (remaining <= 0.001) setCurrentSale((prev) => (prev ? { ...prev, status: 'PAID' } : null))
+        return
+      }
+      if (aguardando.length) {
+        setPagamentoPendente({
+          ...pagamentoPendente, consultando: false, situacao: 'AGUARDANDO',
+          detalhe: 'A cobrança existe no servidor e ainda não foi confirmada. Consulte de novo em instantes; não cobre outra vez.',
+        })
+        return
+      }
+      setPagamentoPendente({
+        ...pagamentoPendente, consultando: false, situacao: 'NAO_ENCONTRADO',
+        detalhe: 'Nenhuma cobrança foi registrada para esta venda. É seguro tentar novamente.',
+      })
+    } catch (erro) {
+      // Não conseguir perguntar não é o mesmo que não haver cobrança, e a tela
+      // não pode deixar as duas parecerem iguais.
+      setPagamentoPendente({
+        ...pagamentoPendente, consultando: false, situacao: 'CONSULTA_INDISPONIVEL',
+        detalhe: erro instanceof Error
+          ? `Não foi possível consultar: ${erro.message} Leve esta venda para conferência antes de cobrar de novo.`
+          : 'Não foi possível consultar. Leve esta venda para conferência antes de cobrar de novo.',
+      })
     }
   }
 
@@ -914,6 +999,8 @@ export const PosProvider: React.FC<{
         closeCancelModal,
         closeFiscalModal,
         processPayment,
+        pagamentoPendente,
+        verificarPagamento,
         issueFiscal,
         retryFiscal,
         openCash,

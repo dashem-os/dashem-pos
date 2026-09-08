@@ -4132,6 +4132,23 @@ export async function fetchSalePayments(headers: Record<string, string>, saleId:
   return res.json()
 }
 
+/**
+ * Os pagamentos desta venda, para **consultar** o que já aconteceu.
+ *
+ * Diferente de `fetchSalePayments`, esta versão **falha alto**. A outra devolve
+ * lista vazia quando a chamada não dá certo, o que é aceitável ao montar a tela
+ * e é perigoso numa consulta: "não consegui perguntar" ficaria indistinguível
+ * de "nada foi cobrado", que é exatamente a ambiguidade que não pode existir
+ * quando alguém está decidindo se cobra de novo.
+ */
+export async function consultarPagamentosDaVenda(
+  headers: Record<string, string>, saleId: string,
+): Promise<Payment[]> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/payments?sale_id=${saleId}`, { headers })
+  if (!res.ok) throw await apiError(res, 'Não foi possível consultar os pagamentos desta venda.')
+  return res.json()
+}
+
 export async function createPayment(
   headers: Record<string, string>,
   saleId: string,

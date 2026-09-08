@@ -1,19 +1,25 @@
 {
   "app": "http://127.0.0.1:5173",
-  "gerado_em": "2026-09-08T17:21:49.782Z",
+  "gerado_em": "2026-09-08T18:28:45.180Z",
   "medidas": [
+    {
+      "medida": "a tela mostra pendência, não erro",
+      "texto": "Pendente de confirmação A resposta da cobrança de R$ 32,00 não voltou. Isso não quer dizer que ela foi recusada — pode ter sido confirmada. Consulte antes de qualquer outra coisa. Verificar pagamento"
+    },
+    {
+      "medida": "a consulta resolve",
+      "texto": "Cobrança confirmada A cobrança tinha sido confirmada: R$ 32,00 recebidos. Nada a refazer. Verificar de novo Fechar"
+    },
     {
       "medida": "carimbo na criação",
       "criacoes": [
-        "46e846fe-4ff3-4d0f-a12f-8193a6ab2d69",
-        "46e846fe-4ff3-4d0f-a12f-8193a6ab2d69"
+        "c73c8c75-a267-4659-83dc-4fa7ba9b0f1d"
       ]
     },
     {
       "medida": "carimbo na confirmação",
       "confirmacoes": [
-        "46e846fe-4ff3-4d0f-a12f-8193a6ab2d69-confirm",
-        "46e846fe-4ff3-4d0f-a12f-8193a6ab2d69-confirm"
+        "c73c8c75-a267-4659-83dc-4fa7ba9b0f1d-confirm"
       ]
     },
     {
@@ -25,7 +31,7 @@
     "1-venda-montada",
     "2-dialogo-de-pagamento",
     "3-confirmacao-perdida-na-rede",
-    "4-reenvio-da-mesma-intencao"
+    "4-consulta-resolve-a-pendencia"
   ],
   "falhas": []
 }

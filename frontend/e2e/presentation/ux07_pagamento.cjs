@@ -67,9 +67,15 @@ async function main() {
     })
     await page.route('**/api/v1/payments/*/confirm', async (rota) => {
       confirmacoes.push(rota.request().headers()['idempotency-key'] ?? null)
-      // O timeout depois do envio: o servidor recebe e responde, e a resposta
-      // não chega. É exatamente onde a segunda cobrança nascia.
-      if (abortarConfirmacao) { await rota.abort('timedout'); return }
+      if (abortarConfirmacao) {
+        // O timeout de verdade: a requisição **chega** ao servidor, que
+        // confirma, e a resposta é que se perde. É o caso que o dono nomeou —
+        // timeout não significa recusa —, e é onde anunciar "erro" empurraria
+        // o operador a cobrar de novo do que já foi cobrado.
+        await rota.fetch().catch(() => null)
+        await rota.abort('timedout')
+        return
+      }
       await rota.continue()
     })
 
@@ -99,16 +105,44 @@ async function main() {
     await page.waitForTimeout(3000)
     await shot(page, '3-confirmacao-perdida-na-rede')
 
-    // ------------------------------------------- o operador tenta de novo
+    // ------------------------------------------- a tela não chama de erro
+    const pendencia = await page.evaluate(() => {
+      const alerta = document.querySelector('[role="alert"]')
+      return alerta ? (alerta.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 260) : ''
+    })
+    relatorio.medidas.push({ medida: 'a tela mostra pendência, não erro', texto: pendencia })
+    exigir(/Pendente de confirmação/i.test(pendencia),
+      `a tela deveria mostrar pendência de confirmação, e mostrou "${pendencia}"`)
+    // Medir a afirmação, não a palavra: o painel DIZ "não quer dizer que ela foi
+    // recusada", e um regex por "recusad" reprovaria exatamente o texto certo.
+    exigir(/não quer dizer que ela foi recusada/i.test(pendencia),
+      `a tela precisa dizer que timeout não é recusa: "${pendencia}"`)
+    exigir(!/(cobrança|pagamento) recusad|falha ao cobrar|não foi possível cobrar/i.test(pendencia),
+      `a tela declarou recusa onde houve só timeout: "${pendencia}"`)
+    const temVerificar = await page.getByRole('button', { name: 'Verificar pagamento' }).count()
+    exigir(temVerificar > 0, 'a ação principal deveria ser Verificar pagamento')
+
+    // ------------------------------------------- consultar resolve o estado
     abortarConfirmacao = false
-    await confirmar.click()
-    await page.waitForTimeout(4000)
-    await shot(page, '4-reenvio-da-mesma-intencao')
+    await page.getByRole('button', { name: 'Verificar pagamento' }).first().click()
+    await page.waitForTimeout(3000)
+    const apurado = await page.evaluate(() => {
+      const alerta = document.querySelector('[role="alert"]')
+      return alerta ? (alerta.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 260) : ''
+    })
+    await shot(page, '4-consulta-resolve-a-pendencia')
+    relatorio.medidas.push({ medida: 'a consulta resolve', texto: apurado })
+    exigir(/tinha sido confirmada|Nada a refazer/i.test(apurado),
+      `a consulta deveria apurar que a cobrança já estava confirmada, e disse "${apurado}"`)
+    // O título tem de acompanhar: manter "Pendente de confirmação" depois de
+    // apurar faria o cabeçalho contradizer o texto abaixo dele.
+    exigir(/^Cobrança confirmada/.test(apurado),
+      `o título não acompanhou o estado apurado: "${apurado}"`)
 
     relatorio.medidas.push({ medida: 'carimbo na criação', criacoes })
     relatorio.medidas.push({ medida: 'carimbo na confirmação', confirmacoes })
 
-    exigir(criacoes.length >= 2, `esperava duas criações da mesma intenção, houve ${criacoes.length}`)
+    exigir(criacoes.length >= 1, `esperava ao menos uma criação carimbada, houve ${criacoes.length}`)
     exigir(criacoes.every((c) => typeof c === 'string' && c.length > 10),
       `alguma criação foi sem Idempotency-Key: ${JSON.stringify(criacoes)}`)
     exigir(new Set(criacoes).size === 1,

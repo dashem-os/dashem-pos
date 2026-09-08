@@ -60,15 +60,19 @@ funciona, resposta vazia".
 
 ## O que a medida devolve
 
-`frontend/e2e/presentation/ux07_pagamento.cjs` monta uma venda, **aborta a
-confirmação na rede** — o timeout depois do envio, forçado — e reenvia.
-Evidência em [`evidence/ux-07/`](evidence/ux-07/).
+`frontend/e2e/presentation/ux07_pagamento.cjs` monta uma venda e força o
+timeout. Evidência em [`evidence/ux-07/`](evidence/ux-07/).
 
 | Medida | Resultado |
 |---|---|
-| Carimbo na criação | `46e846fe…` nas duas tentativas — o mesmo |
-| Carimbo na confirmação | `46e846fe…-confirm` nas duas — derivado da mesma intenção |
-| O que ficou no banco | **1 pagamento, R$ 32,00 confirmados, venda `COMPLETED`** |
+| Carimbo na criação | um só, e é o mesmo em qualquer tentativa da mesma intenção |
+| Carimbo na confirmação | derivado dele, com sufixo `-confirm` |
+| O que ficou no banco | **1 pagamento, R$ 32,00 confirmados, venda paga** |
+
+O roteiro **deixou de reenviar** depois que a conduta mudou: consultar
+substituiu cobrar de novo. O carimbo continua sendo a rede de segurança de quem
+insistir, e o teste HTTP no backend continua provando que a mesma intenção
+reenviada não abre um segundo pagamento.
 
 E quatro provas HTTP no backend: a mesma intenção reenviada não abre um segundo
 pagamento; sem chave, o reenvio abre dois — que é por que a chave existe do lado
@@ -83,25 +87,83 @@ soma bate com o total; confirmar duas vezes continua confirmando uma.
   medição** antes de eu perceber o problema — o roteiro mostrou dois carimbos
   distintos entre a tentativa e o reenvio.
 
+## A pendência ficou visível, e a ação é consultar
+
+*Direção do dono em 08/09/2026: consultar primeiro; timeout não significa
+recusa; reenvio só com idempotência garantida; cancelamento só depois de
+confirmação efetiva.*
+
+**A auditoria da integração veio antes do desenho**, e mudou o desenho. O que a
+integração de pagamento sabe fazer hoje:
+
+| Capacidade | Existe? |
+|---|---|
+| Consultar o pagamento registrado no Dashem (`GET /payments?sale_id=`) | **sim** |
+| Interrogar um adquirente externo sobre a transação | **não** — o provedor em uso é `ManualOperatorPaymentProvider`, sem contraparte externa |
+| Reconciliar uma execução TEF (`POST /providers/transactions/{id}/reconcile`) | sim, mas o PDV não usa esse caminho |
+| Ler o estado de uma execução por `GET` | **não existe rota** |
+
+Então "consultar a transação existente" é, hoje, consultar **o registro
+autoritativo do próprio Dashem** — e isso basta para separar os três casos que
+decidem a conduta do operador: já confirmada, existe e aguarda, ou nunca
+existiu.
+
+Quando a resposta não volta, a tela deixa de dizer "erro" e passa a dizer:
+
+> **Pendente de confirmação** — A resposta da cobrança de R$ 32,00 não voltou.
+> Isso **não quer dizer que ela foi recusada** — pode ter sido confirmada.
+> Consulte antes de qualquer outra coisa.  → **Verificar pagamento**
+
+E a consulta resolve, com o título acompanhando o estado apurado:
+
+| O que a consulta apura | O que a tela passa a dizer |
+|---|---|
+| Pagamento confirmado | **Cobrança confirmada** — "tinha sido confirmada: R$ 32,00 recebidos. Nada a refazer." |
+| Pagamento pendente | **Cobrança registrada, ainda sem confirmação** — consulte de novo; não cobre outra vez |
+| Nenhum pagamento | **Nenhuma cobrança foi registrada** — é seguro tentar novamente |
+| Consulta indisponível | **Não foi possível consultar** — leve para conferência antes de cobrar de novo |
+
+Três decisões que sustentam isso:
+
+- **`consultarPagamentosDaVenda` falha alto.** A função que já existia devolvia
+  lista vazia quando a chamada não dava certo — aceitável ao montar a tela, e
+  perigoso numa consulta: "não consegui perguntar" ficaria indistinguível de
+  "nada foi cobrado".
+- **Consultar nunca cobra.** Um teste estático verifica que a função de consulta
+  não chama `createPayment` nem `confirmPayment`.
+- **Nenhuma nova cobrança nem cancelamento é oferecido** enquanto a pendência
+  não se resolve. Cancelar só se anunciaria depois de confirmação efetiva, e a
+  integração não dá essa confirmação hoje.
+
+### A prova, com o timeout de verdade
+
+O roteiro deixa a requisição de confirmação **chegar ao servidor** e descarta a
+resposta — que é o timeout que importa, não o que nunca saiu. Resultado:
+
+| Medida | Resultado |
+|---|---|
+| A tela mostra pendência, não erro | "Pendente de confirmação… não quer dizer que ela foi recusada" |
+| A consulta resolve | "Cobrança confirmada… R$ 32,00 recebidos. Nada a refazer." |
+| O que ficou no banco | **1 pagamento, R$ 32,00 confirmados, venda `PAID`** |
+
+Controle: removida a pendência, o roteiro reprova por não achar "Verificar
+pagamento". E o olho pegou o que a medida não perguntava — o título continuava
+"Pendente de confirmação" depois de a consulta resolver, contradizendo o texto
+abaixo dele. Agora o título acompanha o estado, e a medida exige isso.
+
 ## Portões executados
 
 | Portão | Resultado |
 |---|---|
-| `ux07_pagamento.cjs` | 3 medidas, 4 telas, 0 falhas, com o timeout forçado |
+| `ux07_pagamento.cjs` | 5 medidas, 4 telas, 0 falhas, com o timeout de verdade |
 | `ux05_modulos.cjs` | 8 auditados, 0 achados |
-| `npm test` | 195 passando, 0 falhas |
+| `npm test` | 198 passando, 0 falhas |
 | `npm run build` | limpo |
-| `pytest` do backend | suíte completa, com os dois servidores no ar |
+| `pytest` do backend | 543 passando, com os dois servidores no ar |
 
-## O que fica nomeado, não entregue
+## O que continua fora
 
-O enunciado também pede distinguir na tela **recusado, em processamento,
-confirmado e pendente de confirmação**. Hoje a tela distingue confirmado de
-falha, e o "pendente de confirmação" — o pagamento criado cuja confirmação não
-voltou — existe no banco e **não tem representação visual**: quem reenvia hoje
-acerta por causa do carimbo, não porque a tela lhe explicou o estado.
-
-Essa é a metade não entregue da UX-07, e ela precisa de decisão de produto sobre
-o que oferecer nesse estado (reenviar, consultar o provedor, cancelar). Fica
-registrada aqui em vez de ser declarada pronta. O que esta sprint fechou foi o
-buraco por onde saía a segunda cobrança.
+O estado **em processamento** — a cobrança em curso num terminal TEF — não tem
+representação, porque o PDV não usa o caminho de execução de provedor. Quando
+usar, ele terá de distinguir esse quarto estado, e aí a rota de consulta por
+`GET` de execução, que hoje não existe, passa a fazer falta.

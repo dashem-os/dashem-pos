@@ -14,7 +14,9 @@ export const PaymentDialog: React.FC = () => {
     currentSale,
     confirmedPayments,
     processPayment,
-    actionLoading
+    actionLoading,
+    pagamentoPendente,
+    verificarPagamento,
   } = usePos()
 
   const [method, setMethod] = useState<Payment['method']>('CASH')
@@ -97,6 +99,54 @@ export const PaymentDialog: React.FC = () => {
       maxWidth="md"
     >
       <div className="flex flex-col space-y-4">
+        {/*
+          A pendência vem antes de tudo, e enquanto ela existe a tela não
+          oferece cobrar de novo. Timeout não é recusa: a cobrança pode ter sido
+          confirmada do outro lado, e a única ação segura é perguntar.
+        */}
+        {pagamentoPendente && (
+          <section
+            role="alert"
+            className={`rounded-2xl border p-4 ${pagamentoPendente.situacao === 'CONFIRMADO'
+              ? 'border-state-success-border bg-state-success-soft'
+              : 'border-state-warning-border bg-state-warning-soft'}`}
+          >
+            {/*
+              O título segue o estado. Depois de a consulta apurar que a
+              cobrança existia, manter "Pendente de confirmação" faria o
+              cabeçalho contradizer o próprio texto abaixo dele.
+            */}
+            <p className={`text-sm font-black ${pagamentoPendente.situacao === 'CONFIRMADO' ? 'text-state-success' : 'text-state-warning'}`}>
+              {{
+                DESCONHECIDO: 'Pendente de confirmação',
+                CONFIRMADO: 'Cobrança confirmada',
+                AGUARDANDO: 'Cobrança registrada, ainda sem confirmação',
+                NAO_ENCONTRADO: 'Nenhuma cobrança foi registrada',
+                CONSULTA_INDISPONIVEL: 'Não foi possível consultar',
+              }[pagamentoPendente.situacao]}
+            </p>
+            <p className={`mt-1 text-sm leading-6 ${pagamentoPendente.situacao === 'CONFIRMADO' ? 'text-state-success' : 'text-state-warning'}`}>
+              {pagamentoPendente.situacao === 'DESCONHECIDO'
+                ? `A resposta da cobrança de ${formatCurrency(pagamentoPendente.amount)} não voltou. Isso não quer dizer que ela foi recusada — pode ter sido confirmada. Consulte antes de qualquer outra coisa.`
+                : pagamentoPendente.detalhe}
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button onClick={verificarPagamento} loading={pagamentoPendente.consultando}>
+                {pagamentoPendente.situacao === 'DESCONHECIDO' ? 'Verificar pagamento' : 'Verificar de novo'}
+              </Button>
+              {pagamentoPendente.situacao === 'CONFIRMADO' && (
+                <Button variant="secondary" onClick={closePaymentModal}>Fechar</Button>
+              )}
+            </div>
+            {(pagamentoPendente.situacao === 'AGUARDANDO' || pagamentoPendente.situacao === 'CONSULTA_INDISPONIVEL') && (
+              <p className="mt-3 text-xs font-bold text-state-warning">
+                Não cobre de novo enquanto isto não se resolver. Se precisar seguir com o cliente,
+                registre a venda para conferência e trate esta cobrança depois.
+              </p>
+            )}
+          </section>
+        )}
+
         {/* Financial Summary Card */}
         <div className="grid grid-cols-1 min-[400px]:grid-cols-3 gap-2 p-3 bg-slate-50 rounded-2xl border border-slate-200 text-center select-none">
           <div>
