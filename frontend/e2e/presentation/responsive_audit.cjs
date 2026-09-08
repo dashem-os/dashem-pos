@@ -57,12 +57,19 @@ const TAMANHOS = [
   },
 ]
 
+// Endereço, não rótulo. Este roteiro procurava "Sortimentos" por texto e
+// parou de achar quando a 088 renomeou o card para "Catálogos"; procurava o
+// botão "Abrir menu" e parou de achar quando a UX-01 tirou a gaveta. O que
+// ele mede é a tipografia da tela, não o caminho até ela — então o caminho
+// passa a ser o endereço canônico, que os testes de navegação já vigiam.
 const TELAS = [
-  { nome: 'produtos', rotulo: /^Produtos e pre/ },
-  { nome: 'estoque', rotulo: /^Estoque$/ },
-  { nome: 'sortimentos', rotulo: /^Sortimentos/ },
-  { nome: 'categorias', rotulo: /^Categorias$/ },
+  { nome: 'produtos', area: 'MERCADORIAS', modulo: 'products' },
+  { nome: 'estoque', area: 'MERCADORIAS', modulo: 'inventory' },
+  { nome: 'sortimentos', area: 'MERCADORIAS', modulo: 'assortments' },
+  { nome: 'categorias', area: 'MERCADORIAS', modulo: 'categories' },
 ]
+
+const enderecoDaTela = (tela) => `/manage?area=${tela.area}&module=${tela.modulo}`
 
 const MEDIDA = () => {
   const visivel = (elemento) => {
@@ -149,12 +156,8 @@ async function auditar(navegador) {
     await page.waitForTimeout(4000)
 
     for (const tela of TELAS) {
-      // Abaixo de 768px a navegação vive atrás do botão de menu.
-      const menu = page.getByRole('button', { name: 'Abrir menu' })
-      if (await menu.count() > 0 && await menu.isVisible()) await menu.click()
-      await page.waitForTimeout(400)
-      await page.getByRole('button', { name: tela.rotulo }).first().click()
-      await page.waitForTimeout(2200)
+      await page.goto(appUrl + enderecoDaTela(tela), { waitUntil: 'domcontentloaded' })
+      await page.waitForTimeout(2600)
       const medida = await page.evaluate(MEDIDA)
       relatorio.push({ tamanho: tamanho.nome, nota: tamanho.nota, tela: tela.nome, ...medida })
       await page.screenshot({ path: path.join(outDir, `${tamanho.nome}-${tela.nome}.png`), fullPage: false })
@@ -163,15 +166,9 @@ async function auditar(navegador) {
       for (const p of medida.partidas.slice(0, 4)) console.log(`        "${p.palavra}" em ${p.onde}`)
     }
 
-    // O formulário é onde a largura aperta de verdade — e no celular a
-    // navegação está atrás do menu, então voltar ao Estoque exige abri-lo.
-    const menuDoFormulario = page.getByRole('button', { name: 'Abrir menu' })
-    if (await menuDoFormulario.count() > 0 && await menuDoFormulario.isVisible()) {
-      await menuDoFormulario.click()
-      await page.waitForTimeout(400)
-    }
-    await page.getByRole('button', { name: /^Estoque$/ }).first().click().catch(() => undefined)
-    await page.waitForTimeout(1800)
+    // O formulário é onde a largura aperta de verdade.
+    await page.goto(appUrl + '/manage?area=MERCADORIAS&module=inventory', { waitUntil: 'domcontentloaded' })
+    await page.waitForTimeout(2600)
     // Sem `if`: a ação de receber tem de existir em todo tamanho. Um roteiro
     // que pula a medição quando não encontra o botão termina verde justamente
     // no caso em que a ação sumiu da tela — e o silêncio vira aprovação.

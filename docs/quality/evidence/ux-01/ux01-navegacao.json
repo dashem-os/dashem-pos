@@ -1,0 +1,186 @@
+{
+  "app": "http://127.0.0.1:5173",
+  "gerado_em": "2026-09-08T13:17:04.534Z",
+  "entrada": {
+    "barra_visivel": true,
+    "areas_na_barra": [
+      "Operação",
+      "Mercadorias",
+      "Estrutura",
+      "Pessoas",
+      "Relacionamento",
+      "Financeiro",
+      "Administração"
+    ],
+    "acoes_do_topo": [
+      "Sair"
+    ],
+    "titulo_do_topo": "Gestão",
+    "titulo_da_pagina": "O que você quer fazer?",
+    "cards": [],
+    "texto": "O que você quer fazer?\n\nVISÃO GERAL DA UNIDADE\n\nMatriz Homologação\n\nTenant de Homologação · atualizado em 08/09/2026, 10:15:09 (UTC−03:00)\n\n7 dias\n30 dias\n90 dias\nAtualizar\nAinda não há movimento registrado neste período"
+  },
+  "atritos": [
+    {
+      "atrito": "A1 voltar-do-navegador-entre-modulos",
+      "medida": {
+        "depoisDoPrimeiroVoltar": "Mercadorias",
+        "depoisDoSegundoVoltar": "O que você quer fazer?",
+        "depoisDeAvancar": "Mercadorias"
+      },
+      "resolvido": true
+    },
+    {
+      "atrito": "A2 foco-apos-navegar",
+      "medida": {
+        "tag": "H1",
+        "texto": "Operação",
+        "dentro_do_main": true
+      },
+      "resolvido": true
+    },
+    {
+      "atrito": "A3 filtro-preservado-ao-retornar",
+      "medida": {
+        "aplicavel": true,
+        "digitado": "coca",
+        "apos_retorno": "coca"
+      },
+      "resolvido": true
+    },
+    {
+      "atrito": "A4 destino-desconhecido",
+      "medida": {
+        "titulo": "Este destino não está disponível",
+        "mostra_o_pedido": true
+      },
+      "resolvido": true
+    },
+    {
+      "atrito": "A5 destino-nao-autorizado",
+      "medida": {
+        "titulo": "Este destino não está disponível",
+        "mostra_o_pedido": true
+      },
+      "resolvido": true
+    },
+    {
+      "atrito": "link legado, link direto e atualizar (não podem regredir)",
+      "medida": {
+        "titulo": "Estoques",
+        "urlNormalizada": "http://127.0.0.1:5173/manage?area=MERCADORIAS&module=inventory",
+        "aposAtualizar": "Estoques"
+      },
+      "resolvido": true
+    },
+    {
+      "atrito": "Menu principal volta à entrada, do hub e do módulo",
+      "medida": [
+        {
+          "de": "/manage?area=MERCADORIAS",
+          "titulo": "O que você quer fazer?",
+          "url": "http://127.0.0.1:5173/manage"
+        },
+        {
+          "de": "/manage?area=MERCADORIAS&module=inventory",
+          "titulo": "O que você quer fazer?",
+          "url": "http://127.0.0.1:5173/manage"
+        }
+      ],
+      "resolvido": true
+    },
+    {
+      "atrito": "A6 escape-nao-fecha-o-menu-do-celular",
+      "medida": {
+        "gaveta": "não existe mais"
+      },
+      "resolvido": true
+    }
+  ],
+  "telas": [
+    "entrada-desktop-1440x900",
+    "hub-mercadorias-desktop-1440x900",
+    "modulo-estoques-desktop-1440x900",
+    "indisponivel-fornecedores-desktop-1440x900",
+    "indisponivel-tables-desktop-1440x900",
+    "entrada-desktop-baixo-1366x640",
+    "hub-mercadorias-desktop-baixo-1366x640",
+    "entrada-celular-390x844",
+    "hub-mercadorias-celular-390x844"
+  ],
+  "contrato": [
+    {
+      "item": "sete áreas na entrada, sem oitava aba",
+      "areas": [
+        "Operação",
+        "Mercadorias",
+        "Estrutura",
+        "Pessoas",
+        "Relacionamento",
+        "Financeiro",
+        "Administração"
+      ]
+    },
+    {
+      "item": "hub de cards com barra oculta e topo de duas ações",
+      "cards": [
+        [
+          "Produtos e preços",
+          "Cadastre produtos e atualize preços."
+        ],
+        [
+          "Catálogos",
+          "Escolha os produtos vendidos em cada canal."
+        ],
+        [
+          "Categorias",
+          "Organize produtos para encontrá-los facilmente."
+        ],
+        [
+          "Estoques",
+          "Receba mercadorias e confira quantidades."
+        ]
+      ],
+      "topo": [
+        "Menu principal",
+        "Sair"
+      ]
+    }
+  ],
+  "entrada_desktop-baixo-1366x640": {
+    "barra_visivel": true,
+    "areas": 7,
+    "rotulos": [
+      "Operação",
+      "Mercadorias",
+      "Estrutura",
+      "Pessoas",
+      "Relacionamento",
+      "Financeiro",
+      "Administração"
+    ],
+    "destinos_abaixo_da_dobra": 0,
+    "acoes_do_topo": [
+      "Sair"
+    ]
+  },
+  "entrada_celular-390x844": {
+    "barra_visivel": false,
+    "areas": 7,
+    "rotulos": [
+      "Operação",
+      "Mercadorias",
+      "Estrutura",
+      "Pessoas",
+      "Relacionamento",
+      "Financeiro",
+      "Administração"
+    ],
+    "destinos_abaixo_da_dobra": 3,
+    "acoes_do_topo": [
+      "Sair"
+    ],
+    "transbordo_horizontal": false
+  },
+  "falhas": []
+}

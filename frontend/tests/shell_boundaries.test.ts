@@ -196,15 +196,18 @@ test('loads effective capabilities and permissions from the backend', async () =
 
 test('renders only backend-authorized module contributions in Gestão', async () => {
   const management = await source('../src/layouts/ManagementLayout.tsx')
+  const navegacao = await source('../src/domain/managementNavigation.ts')
   const overview = await source('../src/components/management/DashboardBI.tsx')
   const subscription = await source('../src/components/management/TenantPlanWorkspace.tsx')
   const context = await source('../src/context/PosContext.tsx')
   assert.match(context, /setContributions\(access\.contributions\)/)
-  assert.match(management, /contributions\.filter\(item => item\.surface === 'MANAGEMENT_NAV'/)
-  assert.match(management, /MODULE_IDS\.has\(item\.implementation_key/)
+  assert.match(navegacao, /item\.surface === 'MANAGEMENT_NAV'/)
+  // Card só existe para contribuição com área declarada pela malha.
+  assert.match(navegacao, /if \(!area\) return/)
   assert.match(management, /case 'subscription': return <TenantPlanWorkspace/)
-  assert.match(management, /if \(!selected\) return null/)
-  assert.match(management, /if \(!availableModules\.has\(id\)\) return/)
+  // Destino desconhecido ou não autorizado não cai calado na visão geral.
+  assert.match(navegacao, /tipo: 'INDISPONIVEL'/)
+  assert.match(management, /if \(!area\) return/)
   assert.match(overview, /availableModules\.has\(module\)/)
   assert.match(subscription, /Plano e solicitações/)
   assert.match(subscription, /CommercialRequestsPanel/)
@@ -277,7 +280,7 @@ test('the POS header still names who is on shift, exactly once', async () => {
   const rendered = [...header.matchAll(/operatorName \|\| 'Colaborador'/g)]
   const alwaysVisible = rendered.filter((match) => {
     const enclosing = header.slice(Math.max(0, match.index - 300), match.index)
-    return !/hidden/.test(enclosing)
+    return !/hidden/.test(enclosing)
   })
   assert.equal(
     alwaysVisible.length, 1,

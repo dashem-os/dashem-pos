@@ -1,6 +1,6 @@
 # Gestão e PDV — sprints de implementação da experiência
 
-Status: UX-00 executada em 08/09/2026 (inventário e baseline, sem mudança de comportamento); UX-01 a UX-13 planejadas.
+Status: UX-00 e UX-01 executadas em 08/09/2026 — inventário, e depois a navegação de sete áreas com os seis atritos medidos resolvidos. UX-02 a UX-13 planejadas.
 Origem: direção explícita do usuário nesta conversa, em 07/09/2026.
 Plano visual: [evolução de UI/UX](ui-ux-evolution-plan.md).
 Referências de arquitetura para execução: [ADR-034 — hierarquia da interface e redução do esforço do operador](../architecture/adr-034-interface-hierarchy.md) e [ADR-032 — disponibilidade prometida e compromisso de estoque](../architecture/adr-032-available-to-promise.md).
@@ -21,7 +21,7 @@ Esta trilha usa o prefixo UX para não renumerar sprints históricas nem declara
 
 ## Mapa exato e destinos
 
-Correções apenas de escrita: “Estoques”, “Contas a pagar”, “Comissões e gorjetas”, “Plano e solicitações”. O card do sortimento chama-se “Cardápios”: é o rótulo já publicado pela migração 086 e o que a tela mostra hoje. “Sortimento” continua sendo o nome do agregado no código, no banco e no domínio — a tela fala a língua de quem vende, o modelo fala a sua. Descrição explica a tarefa.
+Correções apenas de escrita: “Estoques”, “Contas a pagar”, “Comissões e gorjetas”, “Plano e solicitações”. O card do sortimento chama-se “Catálogos”, e “Cardápios” para quem contrata `FOOD_SERVICE`: a 086 trocou o rótulo para todos, e a 088 corrigiu isso movendo a palavra do nicho para `metadata_json.label_variants` da própria contribuição. Padaria vê cardápio; revendedora de beleza vê catálogo. “Sortimento” continua sendo o nome do agregado no código, no banco e no domínio — a tela fala a língua de quem vende, o modelo fala a sua. Descrição explica a tarefa.
 
 | Ordem / área | Card, na ordem pedida | Destino observado ou trabalho necessário | Descrição curta proposta |
 |---|---|---|---|
@@ -163,8 +163,9 @@ Uma linha por sprint, com status, commit, evidência e pendência.
 
 | Sprint | Status | Evidência | Pendência |
 |---|---|---|---|
-| UX-00 | **executada** em 08/09/2026 sobre `a42e578`; inventário e baseline, sem mudança de comportamento | [baseline](../quality/ux-00-baseline-2026-09-08.md) · [capturas](../quality/evidence/ux-00/) · roteiro `frontend/e2e/presentation/ux00_baseline.cjs` | O mapa acima ainda descreve o card do sortimento como "Cardápios pela 086"; a 088 tornou isso desatualizado. Corrigir antes da UX-03 |
-| UX-01 a UX-13 | planejadas | — | UX-01 recebe os seis atritos medidos (A1 a A6) e precisa preservar link direto e atualizar, que já funcionam |
+| UX-00 | **executada** em 08/09/2026 sobre `a42e578`; inventário e baseline, sem mudança de comportamento | [baseline](../quality/ux-00-baseline-2026-09-08.md) · [capturas](../quality/evidence/ux-00/) · roteiro `frontend/e2e/presentation/ux00_baseline.cjs` Nenhuma — a frase do mapa sobre "Cardápios pela 086" foi corrigida na UX-01, junto com a migração que move a área para a malha |
+| UX-01 | **executada** em 08/09/2026; entrada → hub → módulo, sete áreas vindas da malha (migração 090), URL como estado | [entrega](../quality/ux-01-navegacao-2026-09-08.md) · [capturas](../quality/evidence/ux-01/) · roteiro `frontend/e2e/presentation/ux01_navigation.cjs` | Duas leituras do mapa foram decididas por mim e podem ser revertidas em dado: "Validar no PDV" ficou no hub de Operação, e Provedores de pagamento virou card em Financeiro |
+| UX-02 a UX-13 | planejadas | — | UX-02 recebe a fundação visual sobre a navegação já reorganizada |
 
 O que já está publicado veio da trilha corretiva (P0.1, P0.2 e P0.3) e das etapas de estoque, não das sprints UX. A estimativa anterior de 6–8 semanas cobre apenas a fundação gerencial e Mercadorias; não cobre toda esta trilha nem os novos domínios.
 

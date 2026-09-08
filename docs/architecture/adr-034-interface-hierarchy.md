@@ -167,6 +167,27 @@ Essa entrega não encerra a matriz geral de apresentação do plano corretivo,
 nem as novas sprints UX. Disponibilidade de balcão e suas extensões têm status
 próprio no [ADR-032](adr-032-available-to-promise.md#situação-da-implementação).
 
+### Entrega registrada — UX-01, a hierarquia de navegação
+
+Implementada em 08/09/2026: a Gestão passa a ter três estados — entrada com as
+sete áreas, hub de cards da área escolhida, e o módulo — em vez de uma barra
+lateral com treze destinos. A [entrega](../quality/ux-01-navegacao-2026-09-08.md)
+registra os seis atritos da UX-00 remedidos na tela.
+
+**A área é dado da malha, não constante do componente.** Cada contribuição
+declara em `metadata_json` a sua área — chave, rótulo e ordem — e a frase de
+tarefa do card, gravadas pela migração `090_the_mesh_carries_the_area`. É a
+mesma regra que a 088 estabeleceu para a palavra do nicho, aplicada ao lugar:
+abrir uma área nova, reordenar as existentes ou mudar um destino de área é
+inserir ou editar linha, sem tocar em código de projeção. Contribuição sem área
+declarada não vira card — o contrato proíbe inventar destino para completar
+sete itens, e uma linha incompleta é dado faltando, não área nova.
+
+O que isso custa: quem cadastrar uma contribuição de navegação precisa declarar
+a área junto, ou o destino não aparece. `test_management_areas_mesh.py` reprova
+essa omissão na malha publicada, em vez de deixá-la aparecer como um card que
+não existe.
+
 ### Efeitos da decisão
 
 * colunas somem: `Mínimo desejado` sai da lista de Estoque e vai para o detalhe;
