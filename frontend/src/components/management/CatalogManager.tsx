@@ -189,7 +189,7 @@ export const CatalogManager: React.FC<{ onOpenAssortments?: () => void }> = ({ o
     )
     if (!created) return
     // Retrying a failed photo/price/publication must update the saved product, never create a duplicate.
-    if (!editingProduct) setEditingProduct({ ...created, sale_price: parseCurrencyInput(priceInput), cost_price: 0, margin_percent: 0, quantity: Number(stockInput || 0), minimum_stock: 0, is_low_stock: false })
+    if (!editingProduct) setEditingProduct({ ...created, sale_price: parseCurrencyInput(priceInput), cost_price: 0, margin_percent: 0, quantity: Number(stockInput || 0), reserved: 0, available: Number(stockInput || 0), minimum_stock: 0, is_low_stock: false })
 
     // The picture is attached after the product exists. A failure here leaves a
     // product without a photo, which is a state the catalogue already handles —

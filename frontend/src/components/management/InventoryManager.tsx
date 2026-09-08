@@ -312,8 +312,19 @@ export function InventoryManager() {
               ),
             },
             {
+              // Disponível é o que pode ser vendido agora. O físico e o
+              // comprometido ficam no detalhe (ADR-034).
               key: 'qty', header: 'Disponível',
-              cell: (item) => <span className="text-base font-black text-dashem-strong">{Number(item.quantity)} {item.unit}</span>,
+              cell: (item) => (
+                <div>
+                  <span className="text-base font-black text-dashem-strong">
+                    {Number(item.available ?? item.quantity)} {item.unit}
+                  </span>
+                  {Number(item.reserved) > 0 && (
+                    <p className="text-[11px] text-dashem-muted">{Number(item.reserved)} em vendas</p>
+                  )}
+                </div>
+              ),
             },
             {
               key: 'state', header: 'Situação',

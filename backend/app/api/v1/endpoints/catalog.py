@@ -121,6 +121,10 @@ class SellableProductDTO(BaseModel):
     cost_price: Decimal
     margin_percent: Decimal
     quantity: Decimal
+    # O que ainda pode ser prometido: prateleira menos o que já está em vendas
+    # e comandas abertas. É este o número que o caixa precisa ver (ADR-032).
+    reserved: Decimal = Decimal("0")
+    available: Decimal = Decimal("0")
     minimum_stock: Decimal
     is_low_stock: bool
     quick_position: Optional[int]

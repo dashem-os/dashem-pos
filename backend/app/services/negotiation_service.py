@@ -1629,6 +1629,10 @@ def finalize_negotiation(
             correlation_id=idempotency_key,
             sale_item_id=sale_item_id,
         )
+    # Mesa e comanda seguem a mesma regra do balcão: o que estava prometido
+    # sai como baixa, e não volta ao disponível.
+    inventory_service.consume_reservations(session, context, sale_id=sale.id)
+
     confirmed_intents = session.exec(select(PaymentIntent).where(
         PaymentIntent.tenant_id == context.tenant_id,
         PaymentIntent.negotiation_id == negotiation.id,

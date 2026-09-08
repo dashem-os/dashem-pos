@@ -179,6 +179,76 @@ class InventoryMovement(SQLModel, table=True):
     correlation_id: Optional[str] = Field(default=None, index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
 
+class ReservationSourceEnum(str, Enum):
+    """De onde vem o compromisso, porque a natureza decide a expiração."""
+
+    CART = "CART"
+    TAB = "TAB"
+
+
+class ReservationStatusEnum(str, Enum):
+    ACTIVE = "ACTIVE"
+    CONSUMED = "CONSUMED"
+    RELEASED = "RELEASED"
+    EXPIRED = "EXPIRED"
+
+
+class InventoryReservation(SQLModel, table=True):
+    """O que já foi prometido a uma venda ou comanda aberta.
+
+    Reserva não é movimento: nada entra, nada sai, e o histórico não a vê. Ela
+    existe para que o disponível pare de mentir enquanto a venda acontece —
+    antes disso, nove garrafas podiam ser prometidas a três caixas ao mesmo
+    tempo, e a falta só aparecia no pagamento (ADR-032).
+
+    Sem chave estrangeira para `sales` e `orders`: quem guarda a reserva é o
+    módulo de catálogo, e ele não conhece o módulo de operação (ADR-029). O
+    vínculo é o identificador, e quem cria e libera é quem é dono da venda.
+    """
+
+    __tablename__ = "inventory_reservations"
+    __table_args__ = (
+        CheckConstraint("quantity > 0", name="ck_inventory_reservation_quantity_positive"),
+        # Uma linha de venda tem no máximo uma reserva viva: sem isto, o clique
+        # repetido criaria duas promessas para a mesma unidade.
+        Index(
+            "uq_inventory_reservation_active_sale_item", "sale_item_id", unique=True,
+            postgresql_where=text("status = 'ACTIVE' AND sale_item_id IS NOT NULL"),
+        ),
+        Index(
+            "uq_inventory_reservation_active_order_item", "order_item_id", unique=True,
+            postgresql_where=text("status = 'ACTIVE' AND order_item_id IS NOT NULL"),
+        ),
+        # O disponível é lido a cada inclusão: este é o caminho quente da venda.
+        Index(
+            "ix_inventory_reservations_active_scope", "tenant_id", "store_id", "product_id",
+            postgresql_where=text("status = 'ACTIVE'"),
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(index=True)
+    store_id: uuid.UUID = Field(index=True)
+    product_id: uuid.UUID = Field(foreign_key="products.id", index=True)
+    source_type: ReservationSourceEnum = Field(
+        sa_column=Column(EnumString(ReservationSourceEnum), nullable=False, index=True),
+    )
+    sale_id: Optional[uuid.UUID] = Field(default=None, index=True)
+    sale_item_id: Optional[uuid.UUID] = Field(default=None, index=True)
+    order_id: Optional[uuid.UUID] = Field(default=None, index=True)
+    order_item_id: Optional[uuid.UUID] = Field(default=None, index=True)
+    quantity: Decimal = Field(sa_column=Column(Numeric(14, 4), nullable=False))
+    status: ReservationStatusEnum = Field(
+        default=ReservationStatusEnum.ACTIVE,
+        sa_column=Column(EnumString(ReservationStatusEnum), nullable=False, index=True),
+    )
+    reserved_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    last_activity_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    # Nulo na comanda: mesa aberta por horas é operação legítima, e devolver
+    # estoque em silêncio embaixo dela é pior do que a reserva presa.
+    expires_at: Optional[datetime] = Field(default=None, index=True)
+
+
 class InventoryBalance(SQLModel, table=True):
     __tablename__ = "inventory_balances"
     __table_args__ = (

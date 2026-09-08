@@ -133,6 +133,9 @@ export interface SellableProduct extends Omit<Product, 'tenant_id' | 'is_active'
   cost_price: number
   margin_percent: number
   quantity: number
+  reserved: number
+  /** O disponível: prateleira menos o que já está em vendas abertas. */
+  available: number
   minimum_stock: number
   is_low_stock: boolean
   quick_position?: number
@@ -3146,6 +3149,10 @@ export interface StockHolding {
   sku: string
   unit: string
   quantity: number
+  /** O que já está prometido a vendas e comandas abertas. */
+  reserved: number
+  /** O que ainda pode ser vendido: prateleira menos compromissos. */
+  available: number
   minimum_stock: number
   // Sem mínimo definido não existe "abaixo do mínimo": o que há é ausência de
   // política, e a tela precisa distinguir isso de uma situação regular.

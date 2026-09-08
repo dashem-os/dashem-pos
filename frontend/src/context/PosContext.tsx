@@ -462,8 +462,12 @@ export const PosProvider: React.FC<{
     try {
       setActionLoading(true)
       const hdrs = getHeaders()
-      const canceled = await api.cancelSale(hdrs, currentSale.id, operatorId, reason)
-      setCurrentSale(canceled)
+      await api.cancelSale(hdrs, currentSale.id, operatorId, reason)
+      // Venda cancelada não é a venda atual. Guardá-la aqui mantinha itens,
+      // total e botão de receber na tela de uma venda que o servidor já tinha
+      // encerrado — o caixa continuava vendo 27 itens de algo que não existe
+      // mais. A próxima inclusão abre uma venda nova.
+      setCurrentSale(null)
       setIsCancelModalOpen(false)
       setIsPaymentModalOpen(false)
       showToast('info', 'Venda cancelada.')

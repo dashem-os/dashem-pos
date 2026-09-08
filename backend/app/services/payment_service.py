@@ -295,6 +295,11 @@ def confirm_payment(
                     sale_item_id=item.id,
                 )
 
+        # O compromisso vira baixa na mesma transação: as reservas desta venda
+        # são consumidas, não liberadas — liberar devolveria ao disponível uma
+        # mercadoria que acabou de sair pela porta (ADR-032).
+        inventory_service.consume_reservations(session, context, sale_id=sale.id)
+
         # Atomic Audit + Outbox for Sale Paid
         reliability_service.write_audit_and_outbox(
             session=session,

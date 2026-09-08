@@ -266,6 +266,19 @@ def add_sale_item(
     session.add(item)
     session.flush()
 
+    # O compromisso nasce aqui, antes de a venda seguir: é isto que faz o
+    # disponível parar de mentir enquanto a venda acontece, e é aqui que a
+    # recusa aparece — no momento em que o item entra, não no pagamento
+    # (ADR-032). A conferência é atômica com a inclusão: a mesma transação que
+    # cria a linha reserva a mercadoria, ou nenhuma das duas acontece.
+    if product.tracks_inventory:
+        inventory_service.reserve_for_sale_item(
+            session=session, context=context, store_id=sale.store_id,
+            product_id=product_id, quantity=qty_dec,
+            sale_id=sale.id, sale_item_id=item.id,
+            product_name=product.name,
+        )
+
     # Recalculate Sale Totals
     recalculate_sale_totals(session, sale)
     session.commit()
@@ -329,6 +342,16 @@ def update_sale_item(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Item discount cannot exceed gross total.")
         
     session.add(item)
+    # Aumentar a quantidade é pedir mais mercadoria, e passa pela mesma
+    # conferência da inclusão. A própria linha não disputa consigo mesma: de
+    # 3 para 5, o que se compara com o disponível é o 5.
+    if item.tracks_inventory_snapshot:
+        inventory_service.reserve_for_sale_item(
+            session=session, context=context, store_id=sale.store_id,
+            product_id=item.product_id, quantity=quantity,
+            sale_id=sale.id, sale_item_id=item.id,
+            product_name=item.product_name,
+        )
     recalculate_sale_totals(session, sale)
     session.commit()
     session.refresh(item)
@@ -358,6 +381,9 @@ def delete_sale_item(
     if not item:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sale item not found.")
         
+    # A promessa morre com a linha que a criou: o disponível volta na mesma
+    # transação em que o item sai, e não quando alguém lembrar.
+    inventory_service.release_reservations(session, context, sale_item_id=item.id)
     session.delete(item)
     session.commit()
 
@@ -436,6 +462,10 @@ def cancel_sale(
         p.status = PaymentStatusEnum.FAILED
         session.add(p)
         
+    # Venda cancelada não segura mercadoria: o disponível volta agora, e não
+    # quando a reserva expirar.
+    inventory_service.release_reservations(session, context, sale_id=sale.id)
+
     sale.status = SaleStatusEnum.CANCELED
     sale.notes = f"{sale.notes or ''} [Cancelada: {reason or 'Sem motivo especificado'}]".strip()
     _touch_sale(sale)

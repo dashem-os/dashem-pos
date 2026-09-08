@@ -12,15 +12,33 @@ from sqlmodel import Session, select
 
 from app.core.context import TenantContext, resolve_actor, scope_tenant_query
 from app.models.catalog import (
-    Category, Combo, ComboItem, InventoryBalance, InventoryMovement, ItemTypeEnum, Modifier,
-    ModifierGroup, PlatformMediaAsset, Product, ProductModifierGroup, ProductPrice,
-    QuickAccessProduct, StoreCatalogLayout, StoreCatalogLayoutItem,
+    Category, Combo, ComboItem, InventoryBalance, InventoryMovement, InventoryReservation,
+    ItemTypeEnum, Modifier, ModifierGroup, PlatformMediaAsset, Product, ProductModifierGroup,
+    ProductPrice, QuickAccessProduct, ReservationStatusEnum, StoreCatalogLayout,
+    StoreCatalogLayoutItem,
 )
 from app.models.assortment import AssortmentProduct, SalesContextEnum
 from app.services.assortment_service import resolve_effective_product_ids
 from app.services import media_service, reliability_service
 from app.modules.capabilities.service import capability_allowed_by_activity
 from app.services.contract_entitlement_service import resolve_contract_entitlements
+
+
+def _reserved_by_product(session: Session, context, store_id, product_ids) -> dict:
+    """Quanto de cada mercadoria está prometido a vendas e comandas abertas."""
+    if not store_id or not product_ids:
+        return {}
+    linhas = session.exec(scope_tenant_query(select(
+        InventoryReservation.product_id, InventoryReservation.quantity,
+    ).where(
+        InventoryReservation.store_id == store_id,
+        InventoryReservation.product_id.in_(product_ids),
+        InventoryReservation.status == ReservationStatusEnum.ACTIVE,
+    ), InventoryReservation, context)).all()
+    total: dict = {}
+    for product_id, quantidade in linhas:
+        total[product_id] = total.get(product_id, Decimal("0.0000")) + Decimal(str(quantidade))
+    return total
 
 
 def _product_search(search: str):
@@ -337,6 +355,17 @@ def list_sellable_products(
         )}
         item.update(margin_percent=margin.quantize(Decimal("0.01")), is_low_stock=bool(values["tracks_inventory"] and Decimal(str(values["quantity"])) <= Decimal(str(values["minimum_stock"]))))
         items.append(item)
+
+    # Reservado por produto, numa consulta só: o caixa lê esta lista a cada
+    # inclusão, e uma consulta por linha transformaria a venda em espera.
+    if items:
+        comprometido = _reserved_by_product(
+            session, context, context.store_id, [item["id"] for item in items],
+        )
+        for item in items:
+            reservado = comprometido.get(item["id"], Decimal("0.0000"))
+            item["reserved"] = reservado
+            item["available"] = Decimal(str(item["quantity"])) - reservado
 
     # The picture is resolved and signed here, for the whole page at once. A card
     # that signed its own URL would turn a window of twenty items into twenty

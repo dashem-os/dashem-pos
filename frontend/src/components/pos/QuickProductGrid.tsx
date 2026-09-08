@@ -108,7 +108,9 @@ export const QuickProductGrid: React.FC = () => {
       <div className="grid grid-cols-1 min-[420px]:grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4" aria-label="Produtos disponíveis para venda">
         {filteredProducts.map((product) => {
           const price = Number(product.sale_price)
-          const stock = Number(product.quantity)
+          // O caixa promete o que está disponível, não o que está na
+          // prateleira: sete garrafas numa comanda aberta não estão à venda.
+          const stock = Number(product.available ?? product.quantity)
           const isService = product.item_type === 'SERVICE'
           // Ausência de categoria não é informação (ADR-034). Serviço continua
           // dito porque muda o que a pessoa espera do item.
@@ -132,7 +134,7 @@ export const QuickProductGrid: React.FC = () => {
                   O cartão só fala de estoque quando há risco, e fala em
                   português — não em número solto (ADR-034).
                 */}
-                {!isService && product.is_low_stock && (
+                {!isService && (product.is_low_stock || stock <= 5) && (
                   <span
                     className={`shrink-0 rounded-md border px-2 py-0.5 text-xs font-bold ${
                       stock > 0

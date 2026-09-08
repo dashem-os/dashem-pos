@@ -1,14 +1,15 @@
 import uuid
 from decimal import Decimal, InvalidOperation, ROUND_DOWN
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional, Tuple, Union
 from sqlalchemy import func
 from sqlmodel import Session, select, text
 from fastapi import HTTPException, status
 from app.core.context import TenantContext, resolve_actor, scope_tenant_query
 from app.models.catalog import (
-    InventoryBalance, InventoryCount, InventoryMovement, MovementOriginEnum,
-    MovementTypeEnum, Product,
+    InventoryBalance, InventoryCount, InventoryMovement, InventoryReservation,
+    MovementOriginEnum, MovementTypeEnum, Product, ReservationSourceEnum,
+    ReservationStatusEnum,
 )
 from app.services import reliability_service
 
@@ -496,6 +497,21 @@ def list_holdings(
         )
     produtos = session.exec(query.order_by(Product.name)).all()
 
+    # Abrir a tela de estoque é um dos momentos determinísticos em que a
+    # reserva vencida do balcão é recolhida. Idempotente: marca e não faz mais
+    # nada (ADR-032).
+    expire_stale_reservations(session, context)
+
+    comprometido = {}
+    for linha in session.exec(scope_tenant_query(select(
+        InventoryReservation.product_id, InventoryReservation.quantity,
+    ).where(
+        InventoryReservation.store_id == store_id,
+        InventoryReservation.status == ReservationStatusEnum.ACTIVE,
+    ), InventoryReservation, context)).all():
+        product_id, quantidade = linha
+        comprometido[product_id] = comprometido.get(product_id, Decimal("0.0000")) + Decimal(str(quantidade))
+
     saldos = {
         row.product_id: row
         for row in session.exec(scope_tenant_query(select(InventoryBalance).where(
@@ -513,6 +529,8 @@ def list_holdings(
             "sku": produto.sku,
             "unit": produto.unit,
             "quantity": quantidade,
+            "reserved": comprometido.get(produto.id, Decimal("0.0000")),
+            "available": quantidade - comprometido.get(produto.id, Decimal("0.0000")),
             "minimum_stock": minimo,
             # Sem mínimo definido, "abaixo do mínimo" não quer dizer nada: o que
             # existe ali é ausência de política, e a tela precisa distinguir as
@@ -523,6 +541,189 @@ def list_holdings(
             "version": 0 if saldo is None else saldo.version,
         })
     return acervo
+
+
+# ---------------------------------------------------------------- reserva
+# Trinta minutos de inatividade, deslizantes: cada alteração da venda renova.
+# Carrinho abandonado não pode segurar mercadoria a tarde inteira, e comanda não
+# expira — decisão do dono do SaaS em 07/09/2026, registrada no ADR-032.
+CART_RESERVATION_TTL = timedelta(minutes=30)
+
+
+def _lock_balance_row(session: Session, context: TenantContext,
+                      store_id: uuid.UUID, product_id: uuid.UUID) -> InventoryBalance:
+    """Materializa e bloqueia o saldo, para que duas estações serializem aqui.
+
+    `FOR UPDATE` não bloqueia linha inexistente: sem materializar, dois caixas
+    promovendo o primeiro item do mesmo produto passariam os dois.
+    """
+    session.exec(text("""
+        INSERT INTO inventory_balances
+            (id, tenant_id, store_id, product_id, quantity, minimum_stock, version, updated_at)
+        VALUES (:id, :tenant_id, :store_id, :product_id, 0, 0, 0, :now)
+        ON CONFLICT (tenant_id, store_id, product_id) DO NOTHING;
+    """), params={
+        "id": str(uuid.uuid4()), "tenant_id": str(context.tenant_id),
+        "store_id": str(store_id), "product_id": str(product_id),
+        "now": datetime.utcnow(),
+    })
+    return session.exec(scope_tenant_query(select(InventoryBalance).where(
+        InventoryBalance.store_id == store_id,
+        InventoryBalance.product_id == product_id,
+    ), InventoryBalance, context).with_for_update()).one()
+
+
+def reserved_quantity(session: Session, context: TenantContext, store_id: uuid.UUID,
+                      product_id: uuid.UUID, *, ignore_sale_item_id: Optional[uuid.UUID] = None) -> Decimal:
+    """Quanto já está prometido a vendas e comandas abertas nesta unidade."""
+    query = scope_tenant_query(select(InventoryReservation).where(
+        InventoryReservation.store_id == store_id,
+        InventoryReservation.product_id == product_id,
+        InventoryReservation.status == ReservationStatusEnum.ACTIVE,
+    ), InventoryReservation, context)
+    if ignore_sale_item_id is not None:
+        query = query.where(InventoryReservation.sale_item_id != ignore_sale_item_id)
+    return sum((Decimal(str(linha.quantity)) for linha in session.exec(query).all()), Decimal("0.0000"))
+
+
+def available_to_promise(session: Session, context: TenantContext, store_id: uuid.UUID,
+                         product_id: uuid.UUID, *, ignore_sale_item_id: Optional[uuid.UUID] = None) -> Decimal:
+    """O que ainda pode ser prometido: prateleira menos compromissos vivos."""
+    balance = session.exec(scope_tenant_query(select(InventoryBalance).where(
+        InventoryBalance.store_id == store_id,
+        InventoryBalance.product_id == product_id,
+    ), InventoryBalance, context)).first()
+    on_hand = Decimal(str(balance.quantity)) if balance else Decimal("0.0000")
+    return on_hand - reserved_quantity(session, context, store_id, product_id,
+                                       ignore_sale_item_id=ignore_sale_item_id)
+
+
+def reserve_for_sale_item(
+    session: Session,
+    context: TenantContext,
+    store_id: uuid.UUID,
+    product_id: uuid.UUID,
+    quantity: Union[float, Decimal],
+    *,
+    sale_id: uuid.UUID,
+    sale_item_id: uuid.UUID,
+    source_type: ReservationSourceEnum = ReservationSourceEnum.CART,
+    product_name: Optional[str] = None,
+) -> InventoryReservation:
+    """Promete `quantity` desta mercadoria a uma linha de venda, ou recusa.
+
+    A recusa é a percepção que faltava: ela acontece quando o item entra na
+    venda, e não no pagamento. O bloqueio do saldo é o que impede duas estações
+    de prometerem as mesmas unidades — a segunda espera a primeira e vê o
+    disponível já reduzido.
+    """
+    pedida = exact_quantity(quantity, field="quantidade")
+    if pedida <= 0:
+        raise HTTPException(status_code=400, detail="Quantidade reservada precisa ser positiva.")
+
+    balance = _lock_balance_row(session, context, store_id, product_id)
+    on_hand = Decimal(str(balance.quantity))
+    # A própria linha não disputa consigo mesma: aumentar de 3 para 5 compara o
+    # 5 com o disponível, não o 5 somado ao 3 que já era dela.
+    comprometido = reserved_quantity(session, context, store_id, product_id,
+                                     ignore_sale_item_id=sale_item_id)
+    disponivel = on_hand - comprometido
+    if pedida > disponivel:
+        nome = product_name or "esta mercadoria"
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Só há {_humano(disponivel)} disponível de '{nome}'."
+                + (f" {_humano(comprometido)} já está em vendas abertas."
+                   if comprometido > 0 else "")
+            ),
+        )
+
+    agora = datetime.utcnow()
+    existente = session.exec(scope_tenant_query(select(InventoryReservation).where(
+        InventoryReservation.sale_item_id == sale_item_id,
+        InventoryReservation.status == ReservationStatusEnum.ACTIVE,
+    ), InventoryReservation, context)).first()
+    if existente:
+        existente.quantity = pedida
+        existente.last_activity_at = agora
+        existente.expires_at = (agora + CART_RESERVATION_TTL
+                                if existente.source_type is ReservationSourceEnum.CART else None)
+        session.add(existente)
+        session.flush()
+        return existente
+
+    reserva = InventoryReservation(
+        tenant_id=context.tenant_id, store_id=store_id, product_id=product_id,
+        source_type=source_type, sale_id=sale_id, sale_item_id=sale_item_id,
+        quantity=pedida, status=ReservationStatusEnum.ACTIVE,
+        reserved_at=agora, last_activity_at=agora,
+        expires_at=agora + CART_RESERVATION_TTL if source_type is ReservationSourceEnum.CART else None,
+    )
+    session.add(reserva)
+    session.flush()
+    return reserva
+
+
+def _humano(valor: Decimal) -> str:
+    """Quantidade como se escreve numa prateleira, sem quatro casas."""
+    inteiro = valor.quantize(Decimal("1")) if valor == valor.to_integral_value() else valor.normalize()
+    return str(inteiro)
+
+
+def _encerrar(session: Session, context: TenantContext, *, novo_status: ReservationStatusEnum,
+              sale_id: Optional[uuid.UUID] = None,
+              sale_item_id: Optional[uuid.UUID] = None) -> int:
+    if sale_id is None and sale_item_id is None:
+        raise ValueError("Informe a venda ou a linha da venda.")
+    query = scope_tenant_query(select(InventoryReservation).where(
+        InventoryReservation.status == ReservationStatusEnum.ACTIVE,
+    ), InventoryReservation, context)
+    if sale_id is not None:
+        query = query.where(InventoryReservation.sale_id == sale_id)
+    if sale_item_id is not None:
+        query = query.where(InventoryReservation.sale_item_id == sale_item_id)
+    encerradas = 0
+    for reserva in session.exec(query).all():
+        reserva.status = novo_status
+        reserva.last_activity_at = datetime.utcnow()
+        session.add(reserva)
+        encerradas += 1
+    session.flush()
+    return encerradas
+
+
+def release_reservations(session: Session, context: TenantContext, *,
+                         sale_id: Optional[uuid.UUID] = None,
+                         sale_item_id: Optional[uuid.UUID] = None) -> int:
+    """Devolve o prometido ao disponível: item removido, venda cancelada."""
+    return _encerrar(session, context, novo_status=ReservationStatusEnum.RELEASED,
+                     sale_id=sale_id, sale_item_id=sale_item_id)
+
+
+def consume_reservations(session: Session, context: TenantContext, *, sale_id: uuid.UUID) -> int:
+    """A venda saiu: o compromisso vira baixa, na mesma transação dela."""
+    return _encerrar(session, context, novo_status=ReservationStatusEnum.CONSUMED, sale_id=sale_id)
+
+
+def expire_stale_reservations(session: Session, context: TenantContext) -> int:
+    """Determinístico e idempotente: marca vencidas e não faz mais nada.
+
+    Só alcança carrinho de balcão. Comanda não tem vencimento, e devolver
+    estoque em silêncio embaixo de uma mesa aberta seria pior do que a reserva
+    presa — o alerta de comanda antiga é outro assunto, e não é este roteiro.
+    """
+    vencidas = session.exec(scope_tenant_query(select(InventoryReservation).where(
+        InventoryReservation.status == ReservationStatusEnum.ACTIVE,
+        InventoryReservation.source_type == ReservationSourceEnum.CART,
+        InventoryReservation.expires_at.is_not(None),
+        InventoryReservation.expires_at < datetime.utcnow(),
+    ), InventoryReservation, context)).all()
+    for reserva in vencidas:
+        reserva.status = ReservationStatusEnum.EXPIRED
+        session.add(reserva)
+    session.flush()
+    return len(vencidas)
 
 
 def get_balance(session: Session, context: TenantContext, store_id: uuid.UUID, product_id: uuid.UUID) -> InventoryBalance:

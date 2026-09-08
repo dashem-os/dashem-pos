@@ -245,6 +245,8 @@ class StockHolding(BaseModel):
     sku: str
     unit: str
     quantity: Decimal
+    reserved: Decimal = Decimal("0")
+    available: Decimal = Decimal("0")
     minimum_stock: Decimal
     has_minimum: bool
     is_low_stock: bool

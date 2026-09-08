@@ -1,0 +1,225 @@
+"""O que está prometido a uma venda aberta não pode ser prometido de novo.
+
+Em 07/09/2026 o banco publicado mostrava uma venda aberta com 18 unidades de um
+produto cujo saldo era 16, e nenhum número do sistema sabia disso: o estoque só
+se movia na conclusão, e entre adicionar o primeiro item e pagar não havia nada
+segurando mercadoria. A falta aparecia como recusa no pagamento — depois de o
+cliente já ter escolhido.
+
+Estes testes fixam o contrato do ADR-032: reservar reduz o disponível na hora,
+a recusa acontece na inclusão, cancelar devolve, concluir consome, e duas
+estações concorrentes não prometem as mesmas unidades.
+"""
+
+import uuid
+from decimal import Decimal
+
+import pytest
+from fastapi import HTTPException
+from sqlmodel import Session, select
+
+from app.core.context import TenantContext
+from app.core.database import engine
+from app.core.tenancy import set_platform_db_context, set_tenant_db_context
+from app.models.catalog import (
+    InventoryReservation, MovementTypeEnum, Product, ReservationSourceEnum,
+    ReservationStatusEnum,
+)
+from app.models.identity import Store, Tenant, TenantStatusEnum
+from app.services import inventory_service
+
+
+def _session() -> Session:
+    return Session(engine, expire_on_commit=False)
+
+
+def _context(session: Session) -> TenantContext:
+    suffix = uuid.uuid4().hex[:8]
+    set_platform_db_context(session)
+    tenant = Tenant(name=f"Reserva {suffix}", slug=f"reserva-{suffix}", status=TenantStatusEnum.ACTIVE)
+    session.add(tenant)
+    session.flush()
+    store = Store(tenant_id=tenant.id, name="Matriz", code=f"RSV-{suffix}")
+    session.add(store)
+    session.commit()
+    context = TenantContext(
+        tenant_id=tenant.id, store_id=store.id, user_id=uuid.uuid4(),
+        auth_subject=f"caixa-{suffix}",
+    )
+    set_tenant_db_context(session, context.tenant_id, context.store_id, context.user_id)
+    return context
+
+
+def _product(session: Session, context: TenantContext) -> uuid.UUID:
+    suffix = uuid.uuid4().hex[:8]
+    product = Product(
+        tenant_id=context.tenant_id, name=f"Coca-Cola {suffix}", sku=f"RSV-{suffix}",
+        tracks_inventory=True,
+    )
+    session.add(product)
+    session.commit()
+    return product.id
+
+
+def _receive(session, context, product_id, quantity: str) -> None:
+    inventory_service.adjust_stock(
+        session=session, context=context, store_id=context.store_id,
+        product_id=product_id, actor_id=context.user_id,
+        movement_type=MovementTypeEnum.PURCHASE, quantity=Decimal(quantity),
+        reason="Carga inicial",
+    )
+    session.commit()
+
+
+def _reserve(session, context, product_id, quantity: str, *, sale_item_id=None, sale_id=None):
+    return inventory_service.reserve_for_sale_item(
+        session=session, context=context, store_id=context.store_id,
+        product_id=product_id, quantity=Decimal(quantity),
+        sale_id=sale_id or uuid.uuid4(), sale_item_id=sale_item_id or uuid.uuid4(),
+        product_name="Coca-Cola",
+    )
+
+
+def test_reserving_reduces_what_can_still_be_promised():
+    with _session() as session:
+        context = _context(session)
+        product_id = _product(session, context)
+        _receive(session, context, product_id, "16")
+
+        assert inventory_service.available_to_promise(
+            session, context, context.store_id, product_id) == Decimal("16.0000")
+
+        _reserve(session, context, product_id, "10")
+        session.commit()
+
+        # O saldo físico não mudou: a mercadoria continua na prateleira.
+        balance = inventory_service.get_balance(session, context, context.store_id, product_id)
+        assert Decimal(str(balance.quantity)) == Decimal("16.0000")
+        # O que mudou é o que ainda pode ser prometido.
+        assert inventory_service.available_to_promise(
+            session, context, context.store_id, product_id) == Decimal("6.0000")
+
+
+def test_the_second_station_cannot_promise_what_the_first_already_did():
+    """O cenário exato do relato: 16 na prateleira, 10 numa venda, 7 na outra."""
+    with _session() as session:
+        context = _context(session)
+        product_id = _product(session, context)
+        _receive(session, context, product_id, "16")
+        _reserve(session, context, product_id, "10")
+        session.commit()
+
+        with pytest.raises(HTTPException) as recusa:
+            _reserve(session, context, product_id, "7")
+
+    assert recusa.value.status_code == 409
+    assert "6" in recusa.value.detail
+    assert "vendas abertas" in recusa.value.detail
+
+
+def test_releasing_gives_the_goods_back_immediately():
+    with _session() as session:
+        context = _context(session)
+        product_id = _product(session, context)
+        _receive(session, context, product_id, "16")
+        sale_id = uuid.uuid4()
+        _reserve(session, context, product_id, "10", sale_id=sale_id)
+        session.commit()
+
+        inventory_service.release_reservations(session, context, sale_id=sale_id)
+        session.commit()
+
+        assert inventory_service.available_to_promise(
+            session, context, context.store_id, product_id) == Decimal("16.0000")
+        # E a outra estação passa a conseguir o que antes foi recusado.
+        _reserve(session, context, product_id, "7")
+        session.commit()
+        assert inventory_service.available_to_promise(
+            session, context, context.store_id, product_id) == Decimal("9.0000")
+
+
+def test_consuming_does_not_give_the_goods_back():
+    """Concluir não é liberar: a mercadoria saiu pela porta."""
+    with _session() as session:
+        context = _context(session)
+        product_id = _product(session, context)
+        _receive(session, context, product_id, "16")
+        sale_id = uuid.uuid4()
+        _reserve(session, context, product_id, "10", sale_id=sale_id)
+        session.commit()
+
+        inventory_service.consume_reservations(session, context, sale_id=sale_id)
+        inventory_service.adjust_stock(
+            session=session, context=context, store_id=context.store_id,
+            product_id=product_id, actor_id=context.user_id,
+            movement_type=MovementTypeEnum.SALE, quantity=Decimal("10"),
+            reason="Venda consumada",
+        )
+        session.commit()
+
+        balance = inventory_service.get_balance(session, context, context.store_id, product_id)
+        assert Decimal(str(balance.quantity)) == Decimal("6.0000")
+        assert inventory_service.available_to_promise(
+            session, context, context.store_id, product_id) == Decimal("6.0000")
+
+
+def test_changing_the_quantity_does_not_compete_with_itself():
+    """De 3 para 5, o que se compara com o disponível é o 5, não o 8."""
+    with _session() as session:
+        context = _context(session)
+        product_id = _product(session, context)
+        _receive(session, context, product_id, "6")
+        sale_item_id = uuid.uuid4()
+        _reserve(session, context, product_id, "3", sale_item_id=sale_item_id)
+        session.commit()
+
+        _reserve(session, context, product_id, "5", sale_item_id=sale_item_id)
+        session.commit()
+
+        assert inventory_service.available_to_promise(
+            session, context, context.store_id, product_id) == Decimal("1.0000")
+        vivas = session.exec(select(InventoryReservation).where(
+            InventoryReservation.sale_item_id == sale_item_id,
+            InventoryReservation.status == ReservationStatusEnum.ACTIVE,
+        )).all()
+        assert len(vivas) == 1, "a mesma linha criou duas promessas"
+
+
+def test_the_counter_cart_expires_and_the_tab_does_not():
+    with _session() as session:
+        context = _context(session)
+        product_id = _product(session, context)
+        _receive(session, context, product_id, "20")
+
+        carrinho = _reserve(session, context, product_id, "5")
+        comanda = _reserve(session, context, product_id, "5")
+        comanda.source_type = ReservationSourceEnum.TAB
+        comanda.expires_at = None
+        session.add(comanda)
+        # Um carrinho abandonado meia hora atrás.
+        carrinho.expires_at = carrinho.reserved_at.replace(year=carrinho.reserved_at.year - 1)
+        session.add(carrinho)
+        session.commit()
+
+        assert inventory_service.expire_stale_reservations(session, context) == 1
+        session.commit()
+
+        session.refresh(carrinho)
+        session.refresh(comanda)
+        assert carrinho.status is ReservationStatusEnum.EXPIRED
+        assert comanda.status is ReservationStatusEnum.ACTIVE, "mesa aberta não devolve estoque sozinha"
+        # Rodar de novo não muda nada: a varredura é idempotente.
+        assert inventory_service.expire_stale_reservations(session, context) == 0
+
+
+def test_promising_more_than_exists_is_refused_before_the_payment():
+    with _session() as session:
+        context = _context(session)
+        product_id = _product(session, context)
+        _receive(session, context, product_id, "2")
+
+        with pytest.raises(HTTPException) as recusa:
+            _reserve(session, context, product_id, "3")
+
+    assert recusa.value.status_code == 409
+    assert "2" in recusa.value.detail
