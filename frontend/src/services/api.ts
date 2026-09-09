@@ -4540,3 +4540,102 @@ export async function archivePayable(
   if (!res.ok) throw await apiError(res, 'Não foi possível arquivar a conta.')
   return res.json()
 }
+
+// ===========================================================================
+// Diagnóstico e acesso assistido (UX-12)
+//
+// O servidor devolve a frase pronta em `resumo`. É de propósito: se cada tela
+// redigir a sua, duas partes do produto passam a responder a mesma pergunta com
+// palavras diferentes — e o lojista não sabe qual acreditar.
+// ===========================================================================
+
+export type SituacaoDoDiagnostico = 'SAUDAVEL' | 'ATENCAO' | 'PARADO' | 'NAO_VERIFICADO'
+
+export interface VerificacaoDoSistema {
+  chave: string
+  titulo: string
+  situacao: SituacaoDoDiagnostico
+  resumo: string
+  detalhes: Record<string, unknown>
+}
+
+export interface AparelhoNoDiagnostico {
+  id: string
+  nome: string
+  tipo: string
+  situacao: SituacaoDoDiagnostico
+  visto_em?: string | null
+  minutos_sem_sinal?: number | null
+}
+
+export interface Diagnostico {
+  verificado_em: string
+  situacao_geral: SituacaoDoDiagnostico
+  verificacoes: VerificacaoDoSistema[]
+  aparelhos: AparelhoNoDiagnostico[]
+}
+
+export type SituacaoDoAcesso = 'PENDING' | 'APPROVED' | 'REVOKED' | 'EXPIRED'
+
+export interface AcessoAssistido {
+  id: string
+  situacao: SituacaoDoAcesso
+  /** Derivada no servidor: a hora contra o prazo, não uma coluna gravada. */
+  expirado: boolean
+  /** Só é `true` quando a autorização realmente vale agora. */
+  vale_agora: boolean
+  escopo: string[]
+  motivo: string
+  /** Quem está pedindo. A autorização é nominal: vale só para esta pessoa. */
+  solicitante: string
+  solicitante_email?: string | null
+  expira_em: string
+  aprovado_em?: string | null
+  revogado_em?: string | null
+  solicitado_em: string
+  /** Quando e por que uma aprovação anterior deixou de valer. */
+  invalidada_em?: string | null
+  invalidada_porque?: string | null
+}
+
+export async function fetchDiagnostico(
+  headers: Record<string, string>,
+): Promise<Diagnostico> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/diagnostics`, { headers })
+  if (!res.ok) throw await apiError(res, 'Não foi possível verificar o sistema.')
+  return res.json()
+}
+
+export async function fetchAcessosAssistidos(
+  headers: Record<string, string>,
+): Promise<AcessoAssistido[]> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/diagnostics/acesso-assistido`, { headers })
+  if (!res.ok) throw await apiError(res, 'Não foi possível carregar os acessos do suporte.')
+  return res.json()
+}
+
+export async function aprovarAcessoAssistido(
+  headers: Record<string, string>, grantId: string, motivo: string,
+): Promise<AcessoAssistido> {
+  const res = await fetch(
+    `${API_BASE_URL}/api/v1/diagnostics/acesso-assistido/${grantId}/aprovacao`,
+    {
+      method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ motivo }),
+    })
+  if (!res.ok) throw await apiError(res, 'Não foi possível autorizar o acesso.')
+  return res.json()
+}
+
+export async function revogarAcessoAssistido(
+  headers: Record<string, string>, grantId: string, motivo: string,
+): Promise<AcessoAssistido> {
+  const res = await fetch(
+    `${API_BASE_URL}/api/v1/diagnostics/acesso-assistido/${grantId}/revogacao`,
+    {
+      method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ motivo }),
+    })
+  if (!res.ok) throw await apiError(res, 'Não foi possível revogar o acesso.')
+  return res.json()
+}

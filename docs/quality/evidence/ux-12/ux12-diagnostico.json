@@ -1,0 +1,34 @@
+{
+  "app": "http://127.0.0.1:5173",
+  "gerado_em": "2026-09-09T11:03:10.385Z",
+  "etapas": [
+    {
+      "etapa": "o card existe em Administração"
+    },
+    {
+      "etapa": "o diagnóstico responde",
+      "dizQueEsta": false
+    },
+    {
+      "etapa": "o pedido chega ao lojista",
+      "escopo": true,
+      "nomeia": true
+    },
+    {
+      "etapa": "autorizar",
+      "valendo": true
+    },
+    {
+      "etapa": "cortar",
+      "saiuDoValendo": true
+    }
+  ],
+  "telas": [
+    "1-card-em-administracao",
+    "2-diagnostico",
+    "3-pedido-esperando-decisao",
+    "4-acesso-autorizado",
+    "5-acesso-cortado"
+  ],
+  "falhas": []
+}

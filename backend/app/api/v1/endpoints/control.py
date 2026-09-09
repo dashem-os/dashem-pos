@@ -21,6 +21,7 @@ from app.models.platform import (
     CommercialPilot, PilotObservation, PilotIncidentGate,
 )
 from app.models.reliability import AuditEvent, OutboxEvent, OutboxStatusEnum, ServiceHeartbeat
+from app.api.v1.endpoints.diagnostics import autorizacao_assistida_valida
 from app.services import reliability_service
 from app.modules.capabilities.registry import CAPABILITY_REGISTRY, IMPLEMENTED_CAPABILITIES, resolve_dependencies
 
@@ -291,20 +292,50 @@ def transition_lead(lead_id: uuid.UUID, data: LeadTransition, principal: AuthPri
 
 @router.get("/tenants/{tenant_id}/workspace")
 def control_workspace(tenant_id: uuid.UUID, principal: AuthPrincipal = Depends(get_current_principal), session: Session = Depends(get_session)):
-    _actor(session, principal); _tenant(session, tenant_id)
+    # O ator é usado: a autorização de acesso assistido é nominal.
+    actor = _actor(session, principal); _tenant(session, tenant_id)
     checkpoints = {item.key: item for item in session.exec(select(TenantOnboardingCheckpoint).where(TenantOnboardingCheckpoint.tenant_id == tenant_id)).all()}
     contracts = list(session.exec(select(TenantContract).where(TenantContract.tenant_id == tenant_id).order_by(TenantContract.version.desc())).all())
     deliveries = list(session.exec(select(IdentityDeliveryEvent).where(IdentityDeliveryEvent.tenant_id == tenant_id).order_by(IdentityDeliveryEvent.occurred_at.desc()).limit(50)).all())
     grants = list(session.exec(select(AssistedSupportGrant).where(AssistedSupportGrant.tenant_id == tenant_id).order_by(AssistedSupportGrant.created_at.desc())).all())
     incidents = list(session.exec(select(PlatformIncident).where(PlatformIncident.tenant_id == tenant_id).order_by(PlatformIncident.opened_at.desc())).all())
-    pending = int(session.exec(select(func.count()).select_from(OutboxEvent).where(OutboxEvent.tenant_id == tenant_id, OutboxEvent.status.in_({OutboxStatusEnum.PENDING, OutboxStatusEnum.PROCESSING}))).one() or 0)
-    failed_rows = list(session.exec(select(OutboxEvent).where(OutboxEvent.tenant_id == tenant_id, OutboxEvent.status == OutboxStatusEnum.FAILED).order_by(OutboxEvent.created_at.desc()).limit(5)).all())
-    last_audit = session.exec(select(func.max(AuditEvent.created_at)).where(AuditEvent.tenant_id == tenant_id)).one()
+    # O estado operacional do tenant só é lido com autorização **dele**. Esta
+    # é a porta única do acesso assistido, e é o que torna a revogação efetiva
+    # em vez de decorativa: revogar muda a linha, e a leitura seguinte já não
+    # encontra autorização. O resto do workspace — contrato, plano, onboarding
+    # — é governança do Owner sobre o próprio cliente e não passa por aqui.
+    # A autorização é **nominal**: vale para quem pediu, não para quem alcança
+    # o console. Sem passar `actor.id` aqui, uma autorização dada a uma pessoa
+    # abriria a porta para qualquer outra da plataforma — e a tela do lojista
+    # continuaria dizendo que ele sabe quem tem acesso aos dados dele.
+    autorizado = autorizacao_assistida_valida(
+        session, tenant_id, profissional_id=actor.id, escopo="operations",
+    )
+    if autorizado is None:
+        operacoes = {
+            "acesso": "SEM_AUTORIZACAO",
+            "motivo": (
+                "Você não tem autorização de acesso assistido válida para este "
+                "tenant. Peça o acesso em seu nome e aguarde a aprovação do "
+                "responsável pela empresa."
+            ),
+        }
+    else:
+        pending = int(session.exec(select(func.count()).select_from(OutboxEvent).where(OutboxEvent.tenant_id == tenant_id, OutboxEvent.status.in_({OutboxStatusEnum.PENDING, OutboxStatusEnum.PROCESSING}))).one() or 0)
+        failed_rows = list(session.exec(select(OutboxEvent).where(OutboxEvent.tenant_id == tenant_id, OutboxEvent.status == OutboxStatusEnum.FAILED).order_by(OutboxEvent.created_at.desc()).limit(5)).all())
+        last_audit = session.exec(select(func.max(AuditEvent.created_at)).where(AuditEvent.tenant_id == tenant_id)).one()
+        operacoes = {
+            "acesso": "AUTORIZADO",
+            "autorizado_para": str(autorizado.requested_by),
+            "autorizacao_expira_em": autorizado.expires_at,
+            "backlog": pending, "failed": len(failed_rows), "last_sync_at": last_audit,
+            "last_errors": [{"event_type": row.event_type, "occurred_at": row.occurred_at, "detail": (row.last_error or "Falha sem detalhe instrumentado")[:180]} for row in failed_rows],
+        }
     return {
         "tenant_id": tenant_id, "contracts": contracts,
         "onboarding": [checkpoints.get(key) or {"key": key, "label": label, "status": "PENDING", "evidence": {}} for key, label in ONBOARDING_KEYS],
         "identity_timeline": deliveries, "support_grants": grants, "incidents": incidents,
-        "operations": {"backlog": pending, "failed": len(failed_rows), "last_sync_at": last_audit, "last_errors": [{"event_type": row.event_type, "occurred_at": row.occurred_at, "detail": (row.last_error or "Falha sem detalhe instrumentado")[:180]} for row in failed_rows]},
+        "operations": operacoes,
     }
 
 
@@ -354,13 +385,23 @@ def decide_support(grant_id: uuid.UUID, data: SupportGrantDecision, principal: A
     grant = session.get(AssistedSupportGrant, grant_id)
     if grant is None:
         raise HTTPException(status_code=404, detail="Autorização de suporte não encontrada.")
-    if data.status not in {SupportGrantStatusEnum.APPROVED, SupportGrantStatusEnum.REVOKED}:
-        raise HTTPException(status_code=422, detail="Decisão deve aprovar ou revogar o suporte.")
-    grant.status = data.status; grant.approved_by = actor.id
+    # A plataforma pede e pode desistir. **Aprovar deixou de ser dela** em
+    # 08/09/2026: quem autoriza alguém a entrar nos dados de uma loja é quem
+    # responde pela loja. Antes, a plataforma pedia e a plataforma decidia — e
+    # o dono dos dados não aparecia em nenhum dos dois lados.
     if data.status == SupportGrantStatusEnum.APPROVED:
-        grant.approved_at = datetime.utcnow()
-    else:
-        grant.revoked_at = datetime.utcnow()
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "A aprovação do acesso assistido é do responsável autorizado do "
+                "tenant, em Administração › Diagnóstico e suporte."
+            ),
+        )
+    if data.status != SupportGrantStatusEnum.REVOKED:
+        raise HTTPException(status_code=422, detail="Decisão deve revogar o suporte.")
+    grant.status = data.status
+    grant.revoked_at = datetime.utcnow()
+    grant.revoked_by = actor.id
     session.add(grant)
     _audit(session, actor, grant.tenant_id, "control.support.decided", f"support:{grant.id}", {"status": data.status.value, "reason": data.reason})
     session.commit(); session.refresh(grant)

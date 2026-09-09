@@ -395,6 +395,18 @@ class AssistedSupportGrant(SQLModel, table=True):
     expires_at: datetime = Field(index=True)
     approved_at: Optional[datetime] = None
     revoked_at: Optional[datetime] = None
+    #: Quem cortou o acesso. Revogar sem dizer quem revogou deixa a auditoria
+    #: com metade da história.
+    revoked_by: Optional[uuid.UUID] = Field(default=None, foreign_key="users.id", index=True)
+    #: Quando e por que uma aprovação **anterior** deixou de valer.
+    #:
+    #: A migração 095 devolveu a pendente tudo o que a plataforma havia
+    #: aprovado sozinha. Apagar `approved_by` e `approved_at` para isso
+    #: destruiria o registro de quem aprovou e quando — e a pergunta "por que
+    #: essa autorização caiu?" ficaria sem resposta. Os dois campos originais
+    #: continuam onde estavam; estes dois contam o que aconteceu com eles.
+    invalidated_at: Optional[datetime] = Field(default=None, index=True)
+    invalidated_reason: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
 
 

@@ -12,9 +12,21 @@ test('loads Control, Gestão, POS and KDS as independent route bundles', async (
   assert.match(app, /lazy\(\(\) => import\('\.\/components\/owner\/PlatformOwnerConsole'\)/)
 })
 
-test('keeps technical diagnostics outside the tenant management shell', async () => {
+test('keeps platform-technical diagnostics outside the tenant management shell', async () => {
   const management = await source('../src/layouts/ManagementLayout.tsx')
-  assert.doesNotMatch(management, /Diagnostics|Diagnóstico|API conectada/)
+  const tela = await source('../src/components/management/DiagnosticsManager.tsx')
+
+  // A UX-12 levou **um** diagnóstico para a Gestão: o do lojista, que responde
+  // "está tudo funcionando?" com a palavra dele. O que esta regra guarda
+  // continua sendo o outro — o painel técnico da plataforma, com componente,
+  // latência, versão e nível de autenticação. Esse nunca foi assunto de quem
+  // está no balcão, e continua fora.
+  const jargaoDaPlataforma = /API conectada|PlatformHealth|system-health|latency_ms|AAL2|outbox|backlog/i
+  assert.doesNotMatch(management, jargaoDaPlataforma)
+  assert.doesNotMatch(tela, jargaoDaPlataforma)
+
+  // E o módulo do lojista entra pela malha, como qualquer outro card.
+  assert.match(management, /case 'diagnostics': return <DiagnosticsManager \/>/)
 })
 
 test('lets Gestão open the terminal surface without granting management to operational sessions', async () => {

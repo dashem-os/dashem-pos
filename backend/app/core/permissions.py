@@ -99,6 +99,12 @@ def route_requirement(method: str, path: str) -> RouteRequirement:
         if "/sessions" in path:
             return RouteRequirement("table.session.open" if path.endswith("/sessions") else "table.session.update")
         return RouteRequirement("table.manage")
+    if path.startswith("/api/v1/diagnostics"):
+        # Ver se está tudo funcionando é de quem opera a loja. Autorizar quem
+        # entra nos dados da empresa é de quem responde por ela.
+        if "/acesso-assistido" in path and method != "GET":
+            return RouteRequirement("support.access.manage")
+        return RouteRequirement("diagnostics.read")
     if path.startswith("/api/v1/payables"):
         # Reverter fica separado de dar baixa de propósito: quem registra o dia
         # a dia não precisa poder desfazer o de ontem.

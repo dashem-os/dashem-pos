@@ -61,6 +61,9 @@ MODULE_OF_SURFACE = {
     "reconciliations": "finance",
     "channels": "channels",
     "channel-catalog": "channels",
+    # O diagnóstico é leitura sobre o estado do próprio tenant, e a
+    # autorização de acesso assistido mora junto com ele.
+    "diagnostics": "insight",
     "management": "insight",
     # The Owner layer governs tenants. `capabilities` sits here because it reads
     # the Owner's grant — app.models.platform and contract_entitlement — and is

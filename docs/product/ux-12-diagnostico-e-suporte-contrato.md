@@ -87,6 +87,11 @@ Regras fixadas:
 - Pedir ajuda: um canal para abrir o chamado, carregando junto o diagnóstico
   acima — porque a primeira pergunta do suporte é sempre essa.
 
+**A autorização é nominal.** Ela vale para o profissional que pediu, e para
+mais ninguém: a porta compara quem está lendo com quem pediu, e a tela do
+lojista nomeia essa pessoa. Autorizar uma equipe inteira teria de estar escrito
+no pedido e é decisão do dono — o silêncio não autoriza.
+
 **Decidido: aprovação obrigatória, sem caminho de emergência nesta entrega.**
 Nenhum acesso assistido passa a valer sem que um responsável autorizado do
 tenant aprove, e o que ele aprova é explícito — escopo, prazo e motivo à vista.
@@ -129,3 +134,8 @@ Isso torna inválido, por construção, qualquer acesso que estivesse valendo se
 aprovação do dono dos dados. A migração trata os pendentes como pendentes — não
 os aprova em massa para "não quebrar" — e quem precisar de acesso pede de novo,
 agora para quem tem de autorizar.
+
+**E preserva o histórico dessa transição.** Quem aprovou e quando continuam
+gravados; duas colunas novas dizem quando e por que aquela aprovação perdeu
+validade. Invalidar apagando os campos destruiria o registro exatamente na
+migração que existe para dar dono à decisão.

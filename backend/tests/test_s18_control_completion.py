@@ -64,10 +64,21 @@ def test_s18_control_legacy_contract_writer_is_closed_and_support_remains_audite
             principal, session,
         )
         assert support.status == SupportGrantStatusEnum.PENDING
+        # A plataforma pede e pode desistir; **aprovar deixou de ser dela** em
+        # 08/09/2026 (UX-12). Quem autoriza alguém a entrar nos dados de uma
+        # loja é quem responde pela loja, em Administração › Diagnóstico e
+        # suporte. Antes, a plataforma pedia e a plataforma decidia.
+        with pytest.raises(HTTPException) as aprovacao_da_plataforma:
+            decide_support(
+                support.id, SupportGrantDecision(status=SupportGrantStatusEnum.APPROVED, reason="Cliente aprovou janela assistida."), principal, session,
+            )
+        assert aprovacao_da_plataforma.value.status_code == 403
+        assert "responsável autorizado" in str(aprovacao_da_plataforma.value.detail)
+
         support = decide_support(
-            support.id, SupportGrantDecision(status=SupportGrantStatusEnum.APPROVED, reason="Cliente aprovou janela assistida."), principal, session,
+            support.id, SupportGrantDecision(status=SupportGrantStatusEnum.REVOKED, reason="Atendimento encerrado antes da janela."), principal, session,
         )
-        assert support.approved_by == owner.id and support.approved_at is not None
+        assert support.revoked_by == owner.id and support.revoked_at is not None
 
         incident = create_incident(
             IncidentCreate(tenant_id=tenant_id, title="Fila transacional retida", severity="SEV2", component="outbox", sanitized_summary="Eventos aguardam nova tentativa sem perda confirmada."),
