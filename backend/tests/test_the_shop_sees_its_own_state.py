@@ -12,26 +12,41 @@ prazo vence, e esse processo não existe.
 """
 
 import asyncio
+import json
 import os
 import uuid
 from datetime import datetime, timedelta
 
 import httpx
 import pytest
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.api.v1.endpoints.control import (
     SupportGrantCreate, SupportGrantDecision, control_workspace, decide_support,
     request_support,
 )
+from app.api.v1.endpoints.diagnostics import registrar_no_historico
 from app.core.database import engine
+from app.core.tenancy import set_platform_db_context
 from app.core.security import AuthPrincipal
 from app.models.identity import AuthIdentity, User
 from app.models.platform import (
-    PlatformMembership, PlatformRoleEnum, SupportGrantStatusEnum,
+    AssistedSupportGrant, PlatformMembership, PlatformRoleEnum,
+    SupportGrantEventTypeEnum, SupportGrantStatusEnum,
 )
+from app.models.reliability import AuditEvent
 
 BASE_URL = os.getenv("TEST_BASE_URL", "http://localhost:8002")
+
+
+def _janela_da_plataforma(session: Session) -> None:
+    """A política das tabelas é forçada: sem janela aberta, a linha não existe.
+
+    As rotas abrem a janela sozinhas — `require_platform_role` faz isso. Uma
+    sessão crua de teste não faz, e `session.get` devolve `None` sem erro, o que
+    parece dado ausente e é política funcionando.
+    """
+    set_platform_db_context(session, None)
 
 
 def _plataforma(session: Session) -> tuple[AuthPrincipal, User]:
@@ -551,3 +566,142 @@ async def test_o_diagnostico_afirma_so_o_que_mediu():
         # A abrangência vai no dado, para nenhuma tela concluir mais que a medida.
         assert "aparelho desconectado" in fila["detalhes"]["abrange"]
         assert "Tudo o que você registrou" not in fila["resumo"]
+
+
+@pytest.mark.asyncio
+async def test_o_historico_sobrevive_a_reaprovacao():
+    """A sequência inteira: pedido → aprovação → invalidação → nova aprovação.
+
+    A 095 preservava a aprovação anterior nas colunas da concessão, e isso
+    resolvia **um** momento. Não resolvia o seguinte: aprovar de novo
+    sobrescreve `approved_by` e `approved_at` e limpa a marca da invalidação,
+    porque estado atual é sempre uma coisa só. A transição sumia.
+
+    Agora cada decisão é um lançamento, nada é sobrescrito, e o histórico se lê
+    de ponta a ponta — inclusive a invalidação que a nova aprovação apagou da
+    linha.
+    """
+    async with httpx.AsyncClient(base_url=BASE_URL, timeout=30) as client:
+        ctx = await _tenant(client)
+        h, tenant_id = ctx["headers"], ctx["tenant"]["id"]
+
+        # --- 1. o suporte pede
+        with Session(engine) as session:
+            profissional, pessoa = _plataforma(session)
+            # O nome sai da sessão agora: depois de fechá-la, o objeto está
+            # solto e ler um atributo tenta recarregar do banco.
+            nome_de_quem_pediu = pessoa.full_name
+            concessao = request_support(
+                uuid.UUID(tenant_id),
+                SupportGrantCreate(
+                    scope=["operations"], reason="Investigar fila travada",
+                    expires_at=datetime.utcnow() + timedelta(hours=6),
+                ),
+                profissional, session,
+            )
+            grant_id = str(concessao.id)
+
+        # --- 2. o responsável aprova
+        primeira = await client.post(
+            f"/api/v1/diagnostics/acesso-assistido/{grant_id}/aprovacao",
+            headers=h, json={"motivo": "Primeira autorização, combinada por telefone"})
+        assert primeira.status_code == 200, primeira.text
+
+        # --- 3. a aprovação perde validade, como a 095 fez em massa
+        with Session(engine) as session:
+            _janela_da_plataforma(session)
+            linha = session.get(AssistedSupportGrant, uuid.UUID(grant_id))
+            linha.status = SupportGrantStatusEnum.PENDING
+            linha.invalidated_at = datetime.utcnow()
+            linha.invalidated_reason = "Regra nova exige aprovação do responsável"
+            session.add(linha)
+            registrar_no_historico(
+                session, linha, SupportGrantEventTypeEnum.INVALIDATED,
+                motivo=linha.invalidated_reason,
+            )
+            session.commit()
+
+        # O lojista vê o motivo da queda enquanto ela está em vigor.
+        antes = (await client.get("/api/v1/diagnostics/acesso-assistido", headers=h)).json()[0]
+        assert antes["invalidada_porque"] == "Regra nova exige aprovação do responsável"
+        assert antes["vale_agora"] is False
+
+        # --- 4. o responsável aprova de novo
+        segunda = await client.post(
+            f"/api/v1/diagnostics/acesso-assistido/{grant_id}/aprovacao",
+            headers=h, json={"motivo": "Reautorizei sob a regra nova"})
+        assert segunda.status_code == 200, segunda.text
+        depois = segunda.json()
+
+        # A linha esqueceu — é o trabalho dela guardar só o estado atual.
+        assert depois["invalidada_em"] is None
+        assert depois["invalidada_porque"] is None
+        assert depois["vale_agora"] is True
+
+        # --- 5. o histórico não esqueceu
+        tipos = [lancamento["tipo"] for lancamento in depois["historico"]]
+        assert tipos == ["REQUESTED", "APPROVED", "INVALIDATED", "APPROVED"], tipos
+
+        pedido, aprovacao_antiga, queda, aprovacao_nova = depois["historico"]
+        assert pedido["quem"] == nome_de_quem_pediu
+        assert "Investigar fila travada" in pedido["motivo"]
+        assert aprovacao_antiga["motivo"] == "Primeira autorização, combinada por telefone"
+        assert queda["motivo"] == "Regra nova exige aprovação do responsável"
+        # A invalidação não tem autor: ela veio de uma regra, não de alguém.
+        assert queda["quem"] is None
+        assert aprovacao_nova["motivo"] == "Reautorizei sob a regra nova"
+
+        # E a ordem é cronológica, para o histórico se ler de cima para baixo.
+        marcas = [lancamento["ocorreu_em"] for lancamento in depois["historico"]]
+        assert marcas == sorted(marcas)
+
+        # --- 6. revogar também entra, e não apaga o que veio antes
+        cortado = (await client.post(
+            f"/api/v1/diagnostics/acesso-assistido/{grant_id}/revogacao",
+            headers=h, json={"motivo": "O atendimento terminou"})).json()
+        assert [l["tipo"] for l in cortado["historico"]] == [
+            "REQUESTED", "APPROVED", "INVALIDATED", "APPROVED", "REVOKED",
+        ]
+
+
+@pytest.mark.asyncio
+async def test_a_auditoria_da_reaprovacao_diz_o_que_ela_substituiu():
+    """O evento tem de carregar os valores que a gravação apagou.
+
+    Sem isso, quem lê a auditoria vê "aprovado" e não sabe que havia uma
+    aprovação anterior, nem que ela tinha caído.
+    """
+    async with httpx.AsyncClient(base_url=BASE_URL, timeout=30) as client:
+        ctx = await _tenant(client)
+        h, tenant_id = ctx["headers"], ctx["tenant"]["id"]
+        concessao = _pedir_acesso(tenant_id)
+        grant_id = concessao["id"]
+
+        await client.post(f"/api/v1/diagnostics/acesso-assistido/{grant_id}/aprovacao",
+                          headers=h, json={"motivo": "Primeira"})
+        with Session(engine) as session:
+            _janela_da_plataforma(session)
+            linha = session.get(AssistedSupportGrant, uuid.UUID(grant_id))
+            linha.status = SupportGrantStatusEnum.PENDING
+            linha.invalidated_at = datetime.utcnow()
+            linha.invalidated_reason = "Caiu pela regra nova"
+            session.add(linha)
+            session.commit()
+        await client.post(f"/api/v1/diagnostics/acesso-assistido/{grant_id}/aprovacao",
+                          headers=h, json={"motivo": "Segunda"})
+
+        with Session(engine) as session:
+            _janela_da_plataforma(session)
+            eventos = session.exec(
+                select(AuditEvent)
+                .where(AuditEvent.target == f"support:{grant_id}",
+                       AuditEvent.action == "tenant.support_access.approved")
+                .order_by(AuditEvent.created_at)
+            ).all()
+            assert len(eventos) == 2
+            substituido = json.loads(eventos[-1].payload)["substituiu"]
+
+        assert substituido["invalidada_porque"] == "Caiu pela regra nova"
+        assert substituido["aprovada_em"] is not None, (
+            "o evento não disse que já havia uma aprovação anterior"
+        )

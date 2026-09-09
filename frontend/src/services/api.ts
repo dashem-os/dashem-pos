@@ -4596,6 +4596,21 @@ export interface AcessoAssistido {
   /** Quando e por que uma aprovação anterior deixou de valer. */
   invalidada_em?: string | null
   invalidada_porque?: string | null
+  /**
+   * A razão da autorização: pedido, aprovação, invalidação, nova aprovação,
+   * revogação. Nada aqui é sobrescrito — a linha guarda o estado atual, esta
+   * lista guarda o que aconteceu.
+   */
+  historico: LancamentoDoAcesso[]
+}
+
+export type TipoDeLancamentoDoAcesso = 'REQUESTED' | 'APPROVED' | 'INVALIDATED' | 'REVOKED'
+
+export interface LancamentoDoAcesso {
+  tipo: TipoDeLancamentoDoAcesso
+  quem?: string | null
+  motivo?: string | null
+  ocorreu_em: string
 }
 
 export async function fetchDiagnostico(

@@ -1,6 +1,6 @@
 {
   "app": "http://127.0.0.1:5173",
-  "gerado_em": "2026-09-09T11:03:10.385Z",
+  "gerado_em": "2026-09-09T13:08:00.952Z",
   "etapas": [
     {
       "etapa": "o card existe em Administração"
@@ -19,8 +19,16 @@
       "valendo": true
     },
     {
+      "etapa": "o histórico se lê na tela",
+      "pedido": true,
+      "aprovacao": true
+    },
+    {
       "etapa": "cortar",
       "saiuDoValendo": true
+    },
+    {
+      "etapa": "o histórico sobrevive ao corte"
     }
   ],
   "telas": [
@@ -28,7 +36,9 @@
     "2-diagnostico",
     "3-pedido-esperando-decisao",
     "4-acesso-autorizado",
-    "5-acesso-cortado"
+    "5-historico-do-acesso",
+    "6-acesso-cortado",
+    "7-historico-apos-o-corte"
   ],
   "falhas": []
 }

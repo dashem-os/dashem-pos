@@ -56,7 +56,7 @@ test('elapsed time is measured from the UTC instant', () => {
 const SERVER_DATE_FIELDS = [
   'aprovado_em', 'as_of', 'competence', 'competence_date', 'discount_ends_on',
   'discount_review_on', 'discount_starts_on', 'due_date', 'due_on', 'end_date',
-  'ends_on', 'expira_em', 'hire_date', 'invalidada_em', 'metric_date', 'occurred_on', 'period_end',
+  'ends_on', 'expira_em', 'hire_date', 'invalidada_em', 'ocorreu_em', 'metric_date', 'occurred_on', 'period_end',
   'period_start', 'promised_for', 'reserved_for', 'review_on', 'revogado_em',
   'solicitado_em', 'source_watermark', 'start_date', 'starts_on', 'verificado_em',
   'visto_em', 'watermark',

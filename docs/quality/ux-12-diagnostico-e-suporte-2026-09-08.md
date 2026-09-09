@@ -92,11 +92,37 @@ volta a pendente.** Mas a primeira versão fazia isso limpando `approved_by` e
 `approved_at`, o que destruía o registro de quem aprovou e quando — justamente
 na migração que existe para dar dono à decisão.
 
-Agora nada é apagado: os dois campos originais continuam onde estavam, e duas
-colunas novas — `invalidated_at` e `invalidated_reason` — dizem quando e por
-que aquela aprovação perdeu validade. O lojista lê o motivo na própria tela. É
-a mesma disciplina da reversão de baixa na UX-10: desfazer é um registro a
-mais, nunca um registro a menos.
+A 095 passou a preservar nas próprias colunas: os dois campos originais ficam
+onde estavam, e `invalidated_at` e `invalidated_reason` dizem quando e por que
+aquela aprovação perdeu validade.
+
+### E a razão, porque preservar num momento só não bastava
+
+A segunda revisão do dono achou o buraco que sobrava: **isso resolvia a
+invalidação em massa, e não resolvia o momento seguinte.** Quando o responsável
+aprova de novo, `approved_by` e `approved_at` são sobrescritos e a marca da
+invalidação é limpa — porque estado atual é sempre uma coisa só. A transição
+sumia, e o evento de auditoria daquela aprovação nem sequer dizia o que ele
+estava substituindo. Meu comentário no código afirmava que "o histórico fica na
+auditoria", e o trecho ao lado não registrava nada disso.
+
+A concessão ganhou o que as contas a pagar têm desde a UX-10: **uma razão de
+lançamentos** (`assisted_support_grant_events`, migração 096). Cada decisão é
+uma linha — pedido, aprovação, invalidação, nova aprovação, revogação — nada é
+sobrescrito, e o histórico se lê de ponta a ponta na tela do lojista. O que já
+estava gravado nas colunas virou linha na migração, para o histórico não
+começar do zero naquela data.
+
+Duas escolhas que o formato obrigou a tomar:
+
+- **a invalidação não tem autor.** Ela veio de uma regra, não de alguém, e o
+  campo fica vazio. Inventar um autor seria pior do que admitir que não há —
+  e é por isso que a tela escreve "Perdeu a validade", não "cancelado";
+- **o nome de quem agiu é gravado no lançamento**, não só o identificador. O
+  cadastro pode sumir; o histórico não pode ficar sem dono por causa disso.
+
+E o evento de auditoria da nova aprovação passou a carregar `substituiu`, com
+quem havia aprovado, quando, e por que aquilo tinha caído.
 
 ### A ressalva que não pode ser omitida
 
@@ -112,7 +138,7 @@ chamada, não para decorar.
 
 ## A travessia na tela
 
-`frontend/e2e/presentation/ux12_diagnostico.cjs` — 5 etapas, 5 telas, 0 falhas.
+`frontend/e2e/presentation/ux12_diagnostico.cjs` — 7 etapas, 7 telas, 0 falhas.
 
 | Etapa | Evidência |
 |---|---|
@@ -120,7 +146,9 @@ chamada, não para decorar.
 | O diagnóstico responde, sem jargão e sem prometer mais do que mediu | `2-diagnostico.png` |
 | O pedido do suporte chega, com escopo, motivo e prazo | `3-pedido-esperando-decisao.png` |
 | Autorizar, e ele passar para "valendo agora" | `4-acesso-autorizado.png` |
-| Cortar, e ele sair de "valendo" para "encerrados" | `5-acesso-cortado.png` |
+| **O histórico na tela**: quem pediu, e quem autorizou | `5-historico-do-acesso.png` |
+| Cortar, e ele sair de "valendo" para "encerrados" | `6-acesso-cortado.png` |
+| O corte entrar no histórico, sem apagar o que veio antes | `7-historico-apos-o-corte.png` |
 
 O pedido é semeado por `backend/tests/support/seed_support_request.py`, que faz
 o que o suporte faria — com usuário de plataforma e segundo fator. Inventar a
@@ -129,7 +157,7 @@ produz.
 
 ## Os controles
 
-Oito regras desfeitas de propósito, oito reprovações:
+Dez regras desfeitas de propósito, dez reprovações:
 
 | O que foi desfeito | O que reprovou |
 |---|---|
@@ -141,6 +169,13 @@ Oito regras desfeitas de propósito, oito reprovações:
 | **O vínculo nominal** (`requested_by` na porta) | a autorização de uma pessoa abriu o acesso para outra |
 | A identificação de quem pede | a tela voltou a mostrar um pedido anônimo |
 | Os textos limitados ao que foi medido | as duas frases voltaram a prometer mais do que a medição entrega |
+| **O lançamento da aprovação na razão** | a reaprovação apagou a invalidação e o histórico ficou sem ela |
+| O `substituiu` no evento de auditoria | a auditoria deixou de dizer que havia uma aprovação anterior |
+
+E o guarda de datas do repositório acusou o campo `em` do lançamento: um nome
+curto demais para ser protegido — pô-lo na convenção casaria com qualquer
+palavra terminada assim, e enfraqueceria a regra em vez de estendê-la. Virou
+`ocorreu_em`, que é o padrão da casa e diz o que aconteceu.
 
 **Uma prova minha não servia, e o controle mostrou.** A primeira versão do teste
 de expiração só cobria "não dá para aprovar fora do prazo" — e passava mesmo com
@@ -157,12 +192,12 @@ defeito que era do roteiro.
 
 | Portão | Resultado |
 |---|---|
-| `pytest tests/test_the_shop_sees_its_own_state.py` | 15 provas, incluindo as quatro da revisão |
-| `pytest` completo | **586 passando**, 15 pulados, 1 xfailed, 0 falhas |
+| `pytest tests/test_the_shop_sees_its_own_state.py` | 17 provas, incluindo as seis das duas revisões |
+| `pytest` completo | **588 passando**, 15 pulados, 1 xfailed, 0 falhas |
 | `npm test` | 198 passando |
 | `npm run build` | limpo |
 | `alembic check` | sem operações novas |
-| `ux12_diagnostico.cjs` | 5 etapas, 5 telas, 0 falhas — e reprova sem o efeito da revogação |
+| `ux12_diagnostico.cjs` | 7 etapas, 7 telas, 0 falhas — e reprova sem o efeito da revogação |
 
 Um guarda do repositório precisou ser reescrito, não afrouxado:
 `keeps technical diagnostics outside the tenant management shell` proibia a
@@ -171,21 +206,20 @@ plataforma — componente, latência, versão, nível de autenticação — e n�
 diagnóstico do lojista que esta sprint entrega. A regra passou a nomear o que
 proíbe, e continua acusando: pôr "API conectada" na tela reprova.
 
-## O que continua aberto
+## O que continua aberto, e de que tipo
 
-Esta sprint entrega o diagnóstico e o controle de acesso, e **não fecha a
-UX-12**. Ficam abertos, nomeados:
+Classificação combinada com o dono em 09/09/2026 — as quatro linhas não são a
+mesma coisa, e tratá-las como se fossem esconde o que falta de verdade:
 
-- **O canal real de suporte.** Sem ele não há botão de abrir chamado. Será
-  informado pelo dono.
-- **O caminho de emergência** de acesso, fora da primeira entrega por decisão
-  do dono. Enquanto não existir, não há porta dos fundos: sem aprovação do
-  tenant, não há acesso.
-- **Autorizar uma equipe** em vez de uma pessoa. Hoje é sempre nominal. Se a
-  operação real precisar disso, tem de estar escrito no pedido e é decisão do
-  dono.
+| Item | Como tratar |
+|---|---|
+| **Canal real de suporte** | Pendência para concluir "pedir ajuda". Depende da definição do dono |
+| **Caminho de emergência** | Fora do escopo por decisão. **Não impede fechar a primeira versão** |
+| **Autorização de equipe** | Evolução possível, sem necessidade de implementar agora |
+| **Lacunas de homologação** | Trabalho pendente a executar |
+| **UX-11** | Depende dos exemplos de cálculo do dono |
 
-E seguem abertas as lacunas de homologação da UX-08, até serem verificadas na
+As lacunas de homologação da UX-08 seguem abertas até serem verificadas na
 tela: dois destinos nunca percorridos, catálogo volumoso não exercitado,
 concorrência de duas estações, o estado "em processamento" do TEF, e conceder
 autoridade a um operador e vê-lo agir sozinho.

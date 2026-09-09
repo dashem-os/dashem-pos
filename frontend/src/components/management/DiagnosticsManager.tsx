@@ -237,6 +237,7 @@ export function DiagnosticsManager() {
                   <p className="text-[11px] text-dashem-muted">
                     {acesso.escopo.join(', ') || 'sem escopo'} · {acesso.motivo}
                   </p>
+                  <Historico lancamentos={acesso.historico} />
                 </div>
               ))}
             </div>
@@ -275,6 +276,7 @@ function Pedido({ acesso, podeDecidir, ocupado, decidir }: {
           {acesso.invalidada_porque}
         </p>
       )}
+      <Historico lancamentos={acesso.historico} />
       {podeDecidir ? (
         <div className="mt-3 flex flex-wrap gap-2">
           {pendente && (
@@ -306,6 +308,48 @@ function Pedido({ acesso, podeDecidir, ocupado, decidir }: {
       )}
     </div>
   )
+}
+
+/**
+ * A razão da autorização, de cima para baixo.
+ *
+ * A linha da concessão guarda o estado atual, e estado atual é sempre uma coisa
+ * só: aprovar de novo apaga quem tinha aprovado e a marca da invalidação. Sem
+ * isto na tela, o lojista veria "autorizado" sem saber que já houve uma
+ * autorização antes, nem por que ela caiu.
+ */
+function Historico({ lancamentos }: { lancamentos: api.LancamentoDoAcesso[] }) {
+  if (!lancamentos || lancamentos.length === 0) return null
+  return (
+    <details className="mt-3">
+      <summary className="cursor-pointer text-[11px] font-black uppercase tracking-wide text-brand-ink-soft">
+        Histórico ({lancamentos.length})
+      </summary>
+      <ol className="mt-2 space-y-1.5 border-l border-dashem-border pl-3">
+        {lancamentos.map((lancamento, indice) => (
+          <li key={`${lancamento.tipo}-${lancamento.ocorreu_em}-${indice}`}>
+            <p className="text-[11px] font-black text-dashem-strong">
+              {rotuloDoLancamento(lancamento.tipo)}
+              {lancamento.quem ? ` · ${lancamento.quem}` : ''}
+            </p>
+            <p className="text-[11px] text-dashem-muted">
+              {dataHora(lancamento.ocorreu_em)}
+              {lancamento.motivo ? ` · ${lancamento.motivo}` : ''}
+            </p>
+          </li>
+        ))}
+      </ol>
+    </details>
+  )
+}
+
+function rotuloDoLancamento(tipo: api.TipoDeLancamentoDoAcesso): string {
+  if (tipo === 'REQUESTED') return 'Acesso pedido'
+  if (tipo === 'APPROVED') return 'Você autorizou'
+  // Ninguém decidiu: uma regra tirou a validade. Dizer "cancelado" botaria
+  // culpa em alguém que não agiu.
+  if (tipo === 'INVALIDATED') return 'Perdeu a validade'
+  return 'Acesso cortado'
 }
 
 function Simbolo({ situacao }: { situacao: api.SituacaoDoDiagnostico }) {

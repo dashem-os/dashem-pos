@@ -410,6 +410,51 @@ class AssistedSupportGrant(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
 
 
+class SupportGrantEventTypeEnum(str, Enum):
+    #: O suporte pediu.
+    REQUESTED = "REQUESTED"
+    #: O responsável pelo tenant autorizou.
+    APPROVED = "APPROVED"
+    #: Uma aprovação anterior perdeu validade — por regra nova, não por decisão
+    #: de ninguém.
+    INVALIDATED = "INVALIDATED"
+    #: Alguém cortou: o tenant, ou a própria plataforma desistindo.
+    REVOKED = "REVOKED"
+
+
+class AssistedSupportGrantEvent(SQLModel, table=True):
+    """A razão de uma autorização de acesso: o que houve, quando e de quem.
+
+    A linha de `assisted_support_grants` guarda **o estado atual**, e estado
+    atual é sempre uma coisa só: reaprovar sobrescreve quem tinha aprovado,
+    quando, e apaga a marca da invalidação. Sem uma razão, essa transição some —
+    e a pergunta "quem já teve acesso a estes dados, e por que aquilo caiu?"
+    fica sem resposta justamente onde ela mais importa.
+
+    É a mesma forma de `payable_ledger_entries` na UX-10, pela mesma razão:
+    desfazer é um registro a mais, nunca um registro a menos.
+    """
+
+    __tablename__ = "assisted_support_grant_events"
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(foreign_key="tenants.id", index=True)
+    grant_id: uuid.UUID = Field(
+        foreign_key="assisted_support_grants.id", ondelete="RESTRICT", index=True,
+    )
+    event_type: SupportGrantEventTypeEnum = Field(
+        sa_column=Column(EnumString(SupportGrantEventTypeEnum), nullable=False, index=True),
+    )
+    #: Quem agiu. Nulo quando ninguém agiu — a invalidação por regra nova não
+    #: tem autor, e inventar um seria pior do que admitir isso.
+    actor_id: Optional[uuid.UUID] = Field(default=None, foreign_key="users.id", index=True)
+    #: O nome de quem agiu, gravado no momento. O cadastro pode sumir; o
+    #: histórico não pode ficar sem dono por causa disso.
+    actor_label: Optional[str] = Field(default=None, max_length=200)
+    reason: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    occurred_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+
+
 class PlatformIncident(SQLModel, table=True):
     __tablename__ = "platform_incidents"
 

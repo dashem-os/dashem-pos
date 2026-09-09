@@ -150,17 +150,50 @@ async function main() {
     exigir(!/esperando a sua decisão/i.test(autorizado),
       'depois de autorizar, o pedido não deveria continuar esperando decisão')
 
-    // ================== 5. cortar, e ver que cortou
+    // ================== 5. o histórico sobrevive à reaprovação
+    // Aprovar de novo sobrescreve quem tinha aprovado e apaga a marca da
+    // invalidação: estado atual é sempre uma coisa só. O que aconteceu fica
+    // na razão, e é isto que a tela precisa mostrar.
+    // `<summary>` não é `button` para o Playwright: procurar por papel aqui
+    // esgota o tempo e a falha sai parecendo defeito da tela.
+    await page.getByText(/^Histórico \(/).first().click()
+    await page.waitForTimeout(900)
+    const comHistorico = await naTela(page)
+    await shot(page, '5-historico-do-acesso')
+    relatorio.etapas.push({
+      etapa: 'o histórico se lê na tela',
+      pedido: /acesso pedido/i.test(comHistorico),
+      aprovacao: /você autorizou/i.test(comHistorico),
+    })
+    exigir(/acesso pedido/i.test(comHistorico),
+      'o histórico deveria começar em quem pediu')
+    exigir(/você autorizou/i.test(comHistorico),
+      'o histórico deveria registrar a autorização do lojista')
+    exigir(new RegExp(pedido.solicitante).test(comHistorico),
+      'o histórico deveria nomear quem pediu')
+
+    // ================== 6. cortar, e ver que cortou
     page.once('dialog', (dialogo) => dialogo.accept('O atendimento terminou'))
     await page.getByRole('button', { name: 'Cortar acesso' }).first().click()
     await page.waitForTimeout(2800)
     const cortado = await naTela(page)
-    await shot(page, '5-acesso-cortado')
+    await shot(page, '6-acesso-cortado')
     relatorio.etapas.push({ etapa: 'cortar', saiuDoValendo: !/valendo agora/i.test(cortado) })
     exigir(!/valendo agora/i.test(cortado),
       'depois de cortar, o acesso não deveria continuar valendo')
     exigir(/encerrados/i.test(cortado),
       'o acesso cortado deveria aparecer entre os encerrados, não sumir')
+
+    // ================== 7. e o histórico continua inteiro depois do corte
+    await page.getByText(/^ENCERRADOS/i).first().click()
+    await page.waitForTimeout(900)
+    await page.getByText(/^Histórico \(/).first().click().catch(() => null)
+    await page.waitForTimeout(900)
+    const depoisDoCorte = await naTela(page)
+    await shot(page, '7-historico-apos-o-corte')
+    relatorio.etapas.push({ etapa: 'o histórico sobrevive ao corte' })
+    exigir(/acesso cortado/i.test(depoisDoCorte),
+      'o corte deveria entrar no histórico, não apagar o que veio antes')
   } finally {
     await navegador.close()
   }

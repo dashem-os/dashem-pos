@@ -14,14 +14,16 @@ from app.core.security import AuthPrincipal, get_current_principal
 from app.models.identity import Store, Tenant, User
 from app.models.platform import (
     AssistedSupportGrant, ControlStatusEnum, IdentityDeliveryEvent, Lead,
-    LeadStatusEnum, PlatformIncident, PlatformRoleEnum, SupportGrantStatusEnum,
+    LeadStatusEnum, PlatformIncident, PlatformRoleEnum, SupportGrantStatusEnum, SupportGrantEventTypeEnum,
     TenantCapability, TenantContract, TenantOnboardingCheckpoint,
     CapabilityProfileRevision, CapabilityProfileRevisionItem, TenantProfileAssignment,
     OperationalHardeningRun, OperationalHardeningEvidence,
     CommercialPilot, PilotObservation, PilotIncidentGate,
 )
 from app.models.reliability import AuditEvent, OutboxEvent, OutboxStatusEnum, ServiceHeartbeat
-from app.api.v1.endpoints.diagnostics import autorizacao_assistida_valida
+from app.api.v1.endpoints.diagnostics import (
+    autorizacao_assistida_valida, registrar_no_historico,
+)
 from app.services import reliability_service
 from app.modules.capabilities.registry import CAPABILITY_REGISTRY, IMPLEMENTED_CAPABILITIES, resolve_dependencies
 
@@ -374,6 +376,12 @@ def request_support(tenant_id: uuid.UUID, data: SupportGrantCreate, principal: A
         raise HTTPException(status_code=422, detail="O prazo do suporte deve estar no futuro.")
     grant = AssistedSupportGrant(tenant_id=tenant_id, requested_by=actor.id, scope=sorted(set(data.scope)), reason=data.reason.strip(), expires_at=data.expires_at)
     session.add(grant); session.flush()
+    # O pedido é o primeiro lançamento da razão: o histórico começa em quem
+    # pediu, não na primeira decisão do lojista.
+    registrar_no_historico(
+        session, grant, SupportGrantEventTypeEnum.REQUESTED,
+        actor_id=actor.id, motivo=grant.reason, quando=grant.created_at,
+    )
     _audit(session, actor, tenant_id, "control.support.requested", f"support:{grant.id}", {"scope": grant.scope, "expires_at": grant.expires_at.isoformat(), "reason": grant.reason})
     session.commit(); session.refresh(grant)
     return grant
@@ -403,6 +411,10 @@ def decide_support(grant_id: uuid.UUID, data: SupportGrantDecision, principal: A
     grant.revoked_at = datetime.utcnow()
     grant.revoked_by = actor.id
     session.add(grant)
+    registrar_no_historico(
+        session, grant, SupportGrantEventTypeEnum.REVOKED,
+        actor_id=actor.id, motivo=data.reason,
+    )
     _audit(session, actor, grant.tenant_id, "control.support.decided", f"support:{grant.id}", {"status": data.status.value, "reason": data.reason})
     session.commit(); session.refresh(grant)
     return grant

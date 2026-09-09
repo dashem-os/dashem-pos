@@ -26,7 +26,14 @@ Três regras que atravessam tudo aqui:
 
 **Parte 2 — quem entra nos meus dados.** `assisted_support_grants` era pedido
 pela plataforma e decidido pela plataforma. O dono dos dados não via, não
-aprovava e não revogava. Agora quem decide é ele.
+aprovava e não revogava. Agora quem decide é ele, e **é sempre nominal**: a
+autorização vale para o profissional que pediu, e a tela diz quem é.
+
+A linha da concessão guarda o estado atual, que é sempre uma coisa só. O que
+aconteceu com ela fica em `assisted_support_grant_events` — pedido, aprovação,
+invalidação, nova aprovação, revogação — e nada ali é sobrescrito. É a mesma
+forma da razão das contas a pagar, pela mesma razão: desfazer é um registro a
+mais, nunca um registro a menos.
 
 Uma ressalva registrada de propósito: hoje **nenhuma rota de plataforma
 atravessa para dentro da operação do tenant** — não há impersonação, e o console
@@ -50,7 +57,10 @@ from app.core.context import TenantContext, get_tenant_context, resolve_actor
 from app.core.database import get_session
 from app.models.device import OperationalDevice, OperationalDeviceStatusEnum
 from app.models.identity import User
-from app.models.platform import AssistedSupportGrant, SupportGrantStatusEnum
+from app.models.platform import (
+    AssistedSupportGrant, AssistedSupportGrantEvent, SupportGrantEventTypeEnum,
+    SupportGrantStatusEnum,
+)
 from app.models.reliability import OutboxEvent, OutboxStatusEnum
 from app.services import reliability_service
 
@@ -96,6 +106,18 @@ class Diagnostico(BaseModel):
     aparelhos: List[AparelhoNoDiagnostico]
 
 
+class LancamentoDoAcesso(BaseModel):
+    """Uma decisão na vida de uma autorização. A razão é a lista delas."""
+
+    tipo: SupportGrantEventTypeEnum
+    quem: Optional[str] = None
+    motivo: Optional[str] = None
+    #: `ocorreu_em`, não `em`: um campo de data precisa de nome que a convenção
+    #: do frontend consiga guardar, e "em" casaria com qualquer palavra
+    #: terminada assim.
+    ocorreu_em: datetime
+
+
 class AcessoAssistido(BaseModel):
     id: uuid.UUID
     situacao: SupportGrantStatusEnum
@@ -115,9 +137,14 @@ class AcessoAssistido(BaseModel):
     revogado_em: Optional[datetime] = None
     solicitado_em: datetime
     #: Quando e por que uma aprovação anterior deixou de valer. A migração 095
-    #: preenche estes campos em vez de apagar quem aprovou.
+    #: preenche estes campos em vez de apagar quem aprovou. Eles falam do
+    #: **estado atual** e são limpos numa nova aprovação — o que aconteceu fica
+    #: no histórico abaixo, que não se apaga.
     invalidada_em: Optional[datetime] = None
     invalidada_porque: Optional[str] = None
+    #: Pedido, aprovação, invalidação, nova aprovação, revogação — em ordem.
+    #: Nada aqui é sobrescrito: é a razão da autorização.
+    historico: List[LancamentoDoAcesso] = []
 
 
 class DecisaoDeAcesso(BaseModel):
@@ -182,6 +209,47 @@ def _quem_pediu(session: Session, concessao: AssistedSupportGrant) -> tuple[str,
     return (pessoa.full_name or pessoa.email or "Profissional sem nome"), pessoa.email
 
 
+def registrar_no_historico(
+    session: Session,
+    concessao: AssistedSupportGrant,
+    tipo: SupportGrantEventTypeEnum,
+    actor_id: Optional[uuid.UUID] = None,
+    motivo: Optional[str] = None,
+    quando: Optional[datetime] = None,
+) -> AssistedSupportGrantEvent:
+    """Uma decisão a mais na razão. **Nunca uma a menos.**
+
+    O nome de quem agiu é gravado agora, junto: o cadastro pode sumir, e o
+    histórico não pode ficar sem dono por causa disso. Quando ninguém agiu — a
+    invalidação por regra nova não tem autor — o campo fica vazio, porque
+    inventar um autor seria pior do que admitir que não há.
+    """
+    pessoa = session.get(User, actor_id) if actor_id else None
+    lancamento = AssistedSupportGrantEvent(
+        tenant_id=concessao.tenant_id, grant_id=concessao.id, event_type=tipo,
+        actor_id=pessoa.id if pessoa else None,
+        actor_label=(pessoa.full_name or pessoa.email) if pessoa else None,
+        reason=motivo, occurred_at=quando or datetime.utcnow(),
+    )
+    session.add(lancamento)
+    return lancamento
+
+
+def _historico(session: Session, concessao: AssistedSupportGrant) -> List[LancamentoDoAcesso]:
+    lancamentos = session.exec(
+        select(AssistedSupportGrantEvent)
+        .where(AssistedSupportGrantEvent.grant_id == concessao.id)
+        .order_by(AssistedSupportGrantEvent.occurred_at)
+    ).all()
+    return [
+        LancamentoDoAcesso(
+            tipo=item.event_type, quem=item.actor_label,
+            motivo=item.reason, ocorreu_em=item.occurred_at,
+        )
+        for item in lancamentos
+    ]
+
+
 def _ler_acesso(session: Session, concessao: AssistedSupportGrant) -> AcessoAssistido:
     agora = datetime.utcnow()
     expirado = concessao.expires_at <= agora
@@ -195,6 +263,7 @@ def _ler_acesso(session: Session, concessao: AssistedSupportGrant) -> AcessoAssi
         revogado_em=concessao.revoked_at, solicitado_em=concessao.created_at,
         invalidada_em=concessao.invalidated_at,
         invalidada_porque=concessao.invalidated_reason,
+        historico=_historico(session, concessao),
     )
 
 
@@ -459,23 +528,42 @@ def aprovar_acesso(
             ),
         )
     actor_id = resolve_actor(context)
+
+    # O que esta aprovação vai sobrescrever, lido **antes** de sobrescrever.
+    # Estado atual é sempre uma coisa só: aprovar de novo apaga quem tinha
+    # aprovado, quando, e a marca da invalidação. Sem registrar isto aqui, a
+    # transição desaparecia — e era esse o buraco que a razão vem tapar.
+    aprovacao_anterior = {
+        "aprovada_por": str(concessao.approved_by) if concessao.approved_by else None,
+        "aprovada_em": concessao.approved_at.isoformat() if concessao.approved_at else None,
+        "invalidada_em": (
+            concessao.invalidated_at.isoformat() if concessao.invalidated_at else None
+        ),
+        "invalidada_porque": concessao.invalidated_reason,
+    }
+
     concessao.status = SupportGrantStatusEnum.APPROVED
     concessao.approved_by = _usuario_real(session, actor_id)
     concessao.approved_at = datetime.utcnow()
-    # A decisão nova é a que vale: a marca da invalidação anterior sai, e o
-    # histórico de que ela existiu fica na auditoria.
     concessao.invalidated_at = None
     concessao.invalidated_reason = None
     session.add(concessao)
+    registrar_no_historico(
+        session, concessao, SupportGrantEventTypeEnum.APPROVED,
+        actor_id=actor_id, motivo=data.motivo,
+    )
     reliability_service.write_audit_and_outbox(
         session, tenant_id=context.tenant_id, store_id=None, actor_id=actor_id,
         action="tenant.support_access.approved", target=f"support:{concessao.id}",
         audit_payload={"scope": list(concessao.scope or []), "motivo": data.motivo,
-                       "expira_em": concessao.expires_at.isoformat()},
+                       "expira_em": concessao.expires_at.isoformat(),
+                       # O evento diz o que ele substituiu.
+                       "substituiu": aprovacao_anterior},
         aggregate_type="assisted_support_grant", aggregate_id=str(concessao.id),
         event_type="tenant.support_access.approved",
         outbox_payload={"scope": list(concessao.scope or []),
-                        "expira_em": concessao.expires_at.isoformat()},
+                        "expira_em": concessao.expires_at.isoformat(),
+                        "substituiu": aprovacao_anterior},
     )
     session.commit()
     session.refresh(concessao)
@@ -507,6 +595,10 @@ def revogar_acesso(
     concessao.revoked_at = datetime.utcnow()
     concessao.revoked_by = _usuario_real(session, actor_id)
     session.add(concessao)
+    registrar_no_historico(
+        session, concessao, SupportGrantEventTypeEnum.REVOKED,
+        actor_id=actor_id, motivo=data.motivo,
+    )
     reliability_service.write_audit_and_outbox(
         session, tenant_id=context.tenant_id, store_id=None, actor_id=actor_id,
         action="tenant.support_access.revoked", target=f"support:{concessao.id}",

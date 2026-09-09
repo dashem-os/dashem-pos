@@ -139,3 +139,11 @@ agora para quem tem de autorizar.
 gravados; duas colunas novas dizem quando e por que aquela aprovação perdeu
 validade. Invalidar apagando os campos destruiria o registro exatamente na
 migração que existe para dar dono à decisão.
+
+Preservar num momento só, porém, não basta: a **reaprovação** sobrescreve quem
+aprovou e limpa a marca da invalidação, porque estado atual é sempre uma coisa
+só. Por isso a concessão tem uma **razão de lançamentos**
+(`assisted_support_grant_events`): pedido, aprovação, invalidação, nova
+aprovação e revogação são linhas, nada é sobrescrito, e o lojista lê a sequência
+inteira na tela. A invalidação por regra nova entra sem autor — ela não foi
+decisão de ninguém.
