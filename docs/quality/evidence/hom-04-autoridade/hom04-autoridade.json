@@ -1,6 +1,6 @@
 {
   "app": "http://127.0.0.1:5199",
-  "gerado_em": "2026-09-09T18:20:05.620Z",
+  "gerado_em": "2026-09-09T22:30:00.313Z",
   "etapas": [
     {
       "etapa": "sem autoridade, cancelar pede a segunda pessoa"
@@ -10,12 +10,12 @@
       "status": 200
     },
     {
-      "etapa": "concessão não alcança a sessão já aberta",
-      "telaAindaPede": true,
-      "observacao": "erra para o lado seguro: pede autorização que já não seria necessária"
+      "etapa": "a concessão alcança a sessão aberta, sem recarregar",
+      "avisou": true,
+      "ms": 15885
     },
     {
-      "etapa": "relida a sessão, a operadora cancela sozinha",
+      "etapa": "com a autoridade que chegou sozinha, a operadora cancela sem supervisor",
       "semDialogo": true
     },
     {
@@ -29,14 +29,20 @@
     {
       "etapa": "retirada com a sessão aberta: a tela tenta, o servidor decide",
       "telaMostrouRecusa": true
+    },
+    {
+      "etapa": "a retirada alcança a sessão aberta, sem recarregar",
+      "avisou": true,
+      "ms": 20038,
+      "voltouAPedirSupervisor": true
     }
   ],
   "telas": [
     "01-gestao-aberta",
     "02-sem-autoridade-pede-supervisor",
-    "03-concessao-nao-chega-a-sessao-aberta",
-    "04-com-autoridade-cancela-sozinha",
-    "05-retirada-com-sessao-aberta"
+    "03-com-autoridade-cancela-sozinha",
+    "04-retirada-com-sessao-aberta",
+    "05-retirada-chega-e-a-tela-volta-a-pedir-supervisor"
   ],
   "servidor": {
     "venda_apos_retirada": {

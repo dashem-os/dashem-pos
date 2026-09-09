@@ -171,6 +171,22 @@ async function fecharAutorizacao(page) {
   }
 }
 
+/**
+ * Espera um aviso aparecer na tela, sem recarregar.
+ *
+ * A conferência de autoridade bate a cada 30 segundos; o limite generoso é para
+ * não confundir "não propaga" com "ainda não bateu". O tempo medido vai para o
+ * relatório: é ele que diz quanto o balcão espera.
+ */
+async function esperaAviso(page, expressao, limiteMs) {
+  const fim = Date.now() + limiteMs
+  while (Date.now() < fim) {
+    if (expressao.test(await naTela(page))) return true
+    await page.waitForTimeout(500)
+  }
+  return false
+}
+
 async function tentarCancelar(page) {
   await page.getByRole('button', { name: /Cancelar venda/i }).first().click()
   await page.waitForTimeout(900)
@@ -213,24 +229,31 @@ async function run() {
     exigir(concessao.status === 200,
       `conceder deveria dar certo, e voltou ${concessao.status}: ${concessao.corpo}`)
 
-    // A sessão da operadora **continua aberta**. Ela leu as permissões ao
-    // entrar, e a concessão é depois disso: a tela ainda vai pedir supervisor.
-    const aindaPede = await tentarCancelar(operadora)
-    await shot(operadora, 'concessao-nao-chega-a-sessao-aberta')
+    // A sessão da operadora **continua aberta**, e ela leu as permissões ao
+    // entrar. Até 09/09/2026 a concessão simplesmente não chegava ali: era
+    // preciso sair e voltar. Agora a tela reconfere a própria autoridade, e o
+    // que se mede é **sem recarregar nada**.
+    const inicioDaConcessao = Date.now()
+    const chegou = await esperaAviso(operadora, /Suas autorizações mudaram/i, 60000)
+    const msDaConcessao = Date.now() - inicioDaConcessao
     relatorio.etapas.push({
-      etapa: 'concessão não alcança a sessão já aberta',
-      telaAindaPede: /Autorização do supervisor/i.test(aindaPede),
-      observacao: 'erra para o lado seguro: pede autorização que já não seria necessária',
+      etapa: 'a concessão alcança a sessão aberta, sem recarregar',
+      avisou: chegou, ms: msDaConcessao,
     })
-    await fecharAutorizacao(operadora)
+    // Parar aqui é deliberado. Sem a propagação, os passos seguintes encontram a
+    // tela pedindo supervisor onde não deviam, empilham diálogos e falham por
+    // motivos que não são o que se está medindo — foi o que aconteceu quando
+    // desliguei a conferência de propósito. Uma reprovação legível vale mais que
+    // quatro reprovações embaralhadas.
+    if (!exigir(chegou,
+      `a tela precisa perceber a concessão sem recarregar, e não percebeu em ${msDaConcessao}ms`)) {
+      throw new Error('sem a propagação, o resto da travessia mede outra coisa')
+    }
 
-    // Reabrindo, a tela lê de novo — e aí ela cancela sozinha.
-    await operadora.reload({ waitUntil: 'domcontentloaded' })
-    await operadora.waitForTimeout(6000)
     const sozinhaAgora = await tentarCancelar(operadora)
     await shot(operadora, 'com-autoridade-cancela-sozinha')
     relatorio.etapas.push({
-      etapa: 'relida a sessão, a operadora cancela sozinha',
+      etapa: 'com a autoridade que chegou sozinha, a operadora cancela sem supervisor',
       semDialogo: !/Autorização do supervisor/i.test(sozinhaAgora),
     })
     exigir(!/Autorização do supervisor/i.test(sozinhaAgora),
@@ -244,9 +267,11 @@ async function run() {
     exigir(retirada.status === 200,
       `retirar deveria dar certo, e voltou ${retirada.status}: ${retirada.corpo}`)
 
-    // **A pergunta desta travessia.** A tela da operadora ainda acha que pode:
-    // ela vai mandar o cancelamento sem cabeçalho de supervisor. Quem tem de
-    // recusar é o servidor.
+    // **A janela entre a retirada e a próxima conferência.** A tela ainda acha
+    // que pode, porque a batida de autoridade não chegou: ela vai mandar o
+    // cancelamento sem cabeçalho de supervisor. É aqui que se vê quem segura a
+    // linha quando a tela está atrasada — e é o servidor, sempre. A propagação
+    // encurta essa janela; ela nunca foi o que impedia o cancelamento.
     const depoisDaRetirada = await tentarCancelar(operadora)
     await shot(operadora, 'retirada-com-sessao-aberta')
     const recusou = /não tem autorização|Autorização do supervisor/i.test(depoisDaRetirada)
@@ -282,6 +307,29 @@ async function run() {
       'a venda foi cancelada por quem já não tinha autoridade: o carrinho esvaziou')
     exigir(recusou,
       `com a autoridade retirada, a tela precisa mostrar a recusa: "${depoisDaRetirada.slice(0, 160)}"`)
+
+    // ---------------------------------------- 4. e a retirada também chega
+    //
+    // O outro sentido, e o que mais incomodava: quem perdeu a autoridade só
+    // descobria pela recusa, na frente do cliente. Fechado o diálogo, a tela
+    // reconfere e passa a pedir supervisor sozinha, sem recarregar.
+    await fecharAutorizacao(operadora)
+    const inicioDaRetirada = Date.now()
+    const avisouDaRetirada = await esperaAviso(operadora, /Suas autorizações mudaram/i, 60000)
+    const msDaRetirada = Date.now() - inicioDaRetirada
+    await montarVenda(operadora)
+    const pedeDeNovo = await tentarCancelar(operadora)
+    await shot(operadora, 'retirada-chega-e-a-tela-volta-a-pedir-supervisor')
+    relatorio.etapas.push({
+      etapa: 'a retirada alcança a sessão aberta, sem recarregar',
+      avisou: avisouDaRetirada, ms: msDaRetirada,
+      voltouAPedirSupervisor: /Autorização do supervisor/i.test(pedeDeNovo),
+    })
+    exigir(avisouDaRetirada,
+      `a tela precisa perceber a retirada sem recarregar, e não percebeu em ${msDaRetirada}ms`)
+    exigir(/Autorização do supervisor/i.test(pedeDeNovo),
+      `depois da retirada, cancelar precisa voltar a pedir supervisor: "${pedeDeNovo.slice(0, 200)}"`)
+    await fecharAutorizacao(operadora)
     // A venda da retirada continua aberta no servidor, e a única cancelada é a
     // que a operadora cancelou **quando tinha** a autoridade. Se a retirada
     // tivesse passado, este número seria 2 — e a tela não contaria isso.

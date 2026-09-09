@@ -240,3 +240,106 @@ def test_the_refusal_is_written_the_way_a_person_would_say_it():
     # Sem reserva nenhuma, a falta é da prateleira e não de outra venda.
     assert _recusa("Coca-Cola Lata", Decimal("0"), Decimal("0")) == (
         "Não há 'Coca-Cola Lata' em estoque nesta unidade.")
+
+
+def test_two_simultaneous_inclusions_race_for_the_last_unit_and_only_one_wins():
+    """A corrida construída, não torcida.
+
+    A homologação de 09/09/2026 deixou isto como pendência específica: a
+    travessia de duas estações é **sequencial** — espera a primeira pôr a
+    unidade no carrinho antes de mandar a segunda tentar. Isso prova que uma
+    reserva concluída impede a segunda inclusão; não prova que duas inclusões
+    **simultâneas** se resolvem no banco.
+
+    Uma prova que dispara as duas e torce pelo escalonador mede o escalonador.
+    Esta constrói a corrida: a estação 1 abre transação, trava a linha do saldo
+    e **segura**. A estação 2 dispara enquanto a trava está de pé, e a diferença
+    aparece no relógio — ela só volta depois que a 1 solta.
+
+    Sem o `FOR UPDATE` de `_lock_balance_row`, a estação 2 não esperaria nada:
+    leria o mesmo disponível que a 1 leu e prometeria a mesma unidade.
+    """
+    import threading
+    import time
+
+    with _session() as preparo:
+        context = _context(preparo)
+        product_id = _product(preparo, context)
+        _receive(preparo, context, product_id, "1")
+        tenant_id, store_id, user_id = context.tenant_id, context.store_id, context.user_id
+
+    def contexto_de(session: Session) -> TenantContext:
+        ctx = TenantContext(tenant_id=tenant_id, store_id=store_id, user_id=user_id,
+                            auth_subject="corrida")
+        set_tenant_db_context(session, tenant_id, store_id, user_id)
+        return ctx
+
+    segurando = threading.Event()
+    pode_soltar = threading.Event()
+    resultado = {}
+
+    def estacao_1():
+        """Trava a linha do saldo e segura, como uma inclusão em andamento."""
+        with _session() as session:
+            ctx = contexto_de(session)
+            inventory_service._lock_balance_row(session, ctx, store_id, product_id)
+            segurando.set()
+            pode_soltar.wait(timeout=30)
+            # E então conclui a promessa da última unidade.
+            _reserve(session, ctx, product_id, "1")
+            session.commit()
+            resultado["estacao_1"] = "reservou"
+
+    primeira = threading.Thread(target=estacao_1)
+    primeira.start()
+    assert segurando.wait(timeout=30), "a estação 1 não chegou a travar a linha"
+
+    # A estação 2 dispara **com a trava de pé**. Ela não pode passar por cima.
+    def estacao_2():
+        comeco = time.perf_counter()
+        with _session() as session:
+            ctx = contexto_de(session)
+            try:
+                _reserve(session, ctx, product_id, "1")
+                session.commit()
+                resultado["estacao_2"] = "reservou"
+            except HTTPException as recusa:
+                session.rollback()
+                resultado["estacao_2"] = "recusada"
+                resultado["motivo"] = str(recusa.detail)
+        resultado["espera_ms"] = (time.perf_counter() - comeco) * 1000
+
+    segunda = threading.Thread(target=estacao_2)
+    segunda.start()
+
+    # Meio segundo de trava de pé: se a estação 2 já tivesse terminado aqui, ela
+    # não teria esperado por nada, e a prova não valeria.
+    time.sleep(0.5)
+    assert "estacao_2" not in resultado, (
+        "a estação 2 concluiu com a linha travada: a inclusão não serializa no banco"
+    )
+
+    pode_soltar.set()
+    primeira.join(timeout=30)
+    segunda.join(timeout=30)
+
+    assert resultado.get("estacao_1") == "reservou"
+    assert resultado.get("estacao_2") == "recusada", resultado
+    # O relógio é a prova de que houve espera, e não sorte de escalonamento.
+    assert resultado["espera_ms"] > 400, resultado
+    assert "vendas abertas" in resultado.get("motivo", ""), resultado
+
+    # E o servidor, ao fim: uma promessa só, e a prateleira não ficou negativa.
+    with _session() as conferencia:
+        ctx = contexto_de(conferencia)
+        reservas = conferencia.exec(select(InventoryReservation).where(
+            InventoryReservation.tenant_id == tenant_id,
+            InventoryReservation.product_id == product_id,
+            InventoryReservation.status == ReservationStatusEnum.ACTIVE,
+        )).all()
+        assert len(reservas) == 1, reservas
+        assert sum(Decimal(str(r.quantity)) for r in reservas) == Decimal("1.0000")
+        assert inventory_service.available_to_promise(
+            conferencia, ctx, store_id, product_id) == Decimal("0.0000")
+        saldo = inventory_service.get_balance(conferencia, ctx, store_id, product_id)
+        assert Decimal(str(saldo.quantity)) == Decimal("1.0000"), "a prateleira não muda ao reservar"

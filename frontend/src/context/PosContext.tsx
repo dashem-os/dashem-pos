@@ -353,6 +353,46 @@ export const PosProvider: React.FC<{
     }
   }, [tenant, store, refreshData, operationMode])
 
+  /**
+   * A autoridade muda enquanto a tela está aberta.
+   *
+   * Medido na homologação de 09/09/2026: a gestora concede ou retira
+   * `sale.cancel` de uma operadora com o turno em andamento, e a tela não fica
+   * sabendo — ela leu as permissões uma vez, ao entrar. O servidor segura os
+   * dois lados (recusa quem já não pode, e a UX-13 tem prova disso), então
+   * nunca foi falha de segurança; era atrito de operação, e nos dois sentidos:
+   * quem ganhou autoridade continuava sendo obrigado a chamar supervisor, e
+   * quem a perdeu só descobria pela recusa, na frente do cliente.
+   *
+   * Quem reconfere é a própria tela, pelo mesmo caminho por onde leu a primeira
+   * vez. Isso vale para o balcão e para a Gestão — as duas passam por aqui — e
+   * não acopla autorização ao encanamento do turno operacional.
+   */
+  useEffect(() => {
+    if (!tenant || !store) return
+    let vivo = true
+    const conferirAutoridade = async () => {
+      try {
+        const access = await api.fetchEffectiveAccess({ 'X-Tenant-ID': tenant.id, 'X-Store-ID': store.id })
+        if (!vivo) return
+        setPermissions((atuais) => {
+          const antes = [...atuais].sort().join('|')
+          const agora = [...access.permissions].sort().join('|')
+          if (antes === agora) return atuais
+          // Só avisa quando muda de verdade. Um aviso a cada 30 segundos seria
+          // ruído, e ruído é o que faz a pessoa parar de ler avisos.
+          showToast('info', 'Suas autorizações mudaram. A tela já está usando as novas.')
+          return access.permissions
+        })
+      } catch {
+        // Rede oscilando não é mudança de autoridade: a próxima batida tenta de
+        // novo, e quem decide continua sendo o servidor a cada requisição.
+      }
+    }
+    const batida = window.setInterval(() => { void conferirAutoridade() }, 30_000)
+    return () => { vivo = false; window.clearInterval(batida) }
+  }, [tenant, store, showToast])
+
   useEffect(() => {
     if (!tenant || !store || !register || !operatorId) return
     const headers = { 'X-Tenant-ID': tenant.id, 'X-Store-ID': store.id }

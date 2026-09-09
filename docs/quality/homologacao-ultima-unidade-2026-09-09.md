@@ -67,21 +67,36 @@ antes de mandar a estação 2 tentar. Isso comprova uma coisa, e não a outra:
 
 | Prova | Situação |
 |---|---|
-| Duas estações, e a segunda encontra a unidade **já reservada** | **demonstrada** aqui |
-| Duas inclusões **simultâneas** disputando a unidade antes de qualquer reserva concluir | **não demonstrada** |
+| Duas estações, e a segunda encontra a unidade **já reservada** | **demonstrada** aqui, pela tela |
+| Duas inclusões **simultâneas** disputando a unidade antes de qualquer reserva concluir | **demonstrada** em 09/09/2026, por prova determinística no backend |
 
-A segunda linha não é "provavelmente também funciona". O mecanismo existe —
+A segunda linha não era "provavelmente também funciona". O mecanismo existe —
 `inventory_service` materializa a linha de saldo e a trava com `FOR UPDATE`
-antes de reservar, com o comentário explicando que `FOR UPDATE` não bloqueia
-linha inexistente — mas **ler o código não é prova**. Nenhum teste do
-repositório constrói essa corrida: `test_the_second_station_cannot_promise_what_the_first_already_did`
-reserva, faz commit, e só então tenta de novo — o mesmo formato sequencial deste
-roteiro.
+antes de reservar — mas **ler o código não é prova**, e nenhum teste do
+repositório construía essa corrida.
 
-Fica como pendência específica, e o formato que ela pede é o que a UX-10 usou
-para a corrida das contas a pagar: uma transação própria segura a linha do saldo
-enquanto a inclusão é disparada, e a diferença aparece no relógio. Uma prova que
-passa com e sem a trava mede o escalonador, não a regra.
+### A corrida construída — fechada em 09/09/2026
+
+`test_two_simultaneous_inclusions_race_for_the_last_unit_and_only_one_wins`, em
+`backend/tests/test_inventory_reservation.py`, não torce pelo escalonador: ele
+constrói a corrida. Uma unidade na prateleira, e:
+
+1. a estação 1 abre transação, trava a linha do saldo com `FOR UPDATE` e
+   **segura**;
+2. a estação 2 dispara a inclusão **com a trava de pé**;
+3. meio segundo depois, a prova exige que a estação 2 **ainda não tenha
+   terminado** — se ela tivesse, não teria esperado por nada;
+4. a estação 1 solta, promete a unidade e faz commit;
+5. a estação 2 é recusada, e o relógio dela mostra a espera.
+
+Ao fim: **uma** reserva ativa, disponível zero, e a prateleira em 1 — reservar
+não move mercadoria.
+
+**O controle é o que dá valor a isso.** Tirando o `with_for_update()` de
+`_lock_balance_row`, a estação 2 terminou em **71ms** com a linha "travada" e
+**prometeu a mesma unidade**: a prova reprova com *"a estação 2 concluiu com a
+linha travada: a inclusão não serializa no banco"*. Ela passa com a trava e
+reprova sem ela — que é a única forma de a medida falar sobre a regra.
 
 **Também não** percorrido: disputa com mais de duas estações, disputa em
 unidades diferentes da mesma empresa, e disputa sobre mercadoria com reserva de
@@ -93,7 +108,7 @@ canal (pedido de delivery segurando estoque). Ficam nomeadas, não implícitas.
 |---|---|
 | Dois destinos nunca percorridos | fechada em 09/09/2026 |
 | Duas estações, a segunda achando a unidade já reservada | **fechada em 09/09/2026** |
-| **Duas inclusões simultâneas disputando a última unidade** | **aberta** — pendência específica, com o formato de prova descrito acima |
+| **Duas inclusões simultâneas disputando a última unidade** | **fechada em 09/09/2026**, com o controle que reprova sem a trava |
 | Conceder e retirar autoridade de um operador | aberta — próxima |
 | Catálogo volumoso não exercitado | aberta |
 | Estado "em processamento" do TEF | aberta |

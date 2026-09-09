@@ -21,16 +21,24 @@ tela. As duas direções erram, e não erram igual:
 | Concessão que não chegou | mais **restritiva** que a realidade: pede autorização que já não seria necessária | incomoda |
 | Retirada que não chegou | mais **permissiva** que a realidade: deixa agir sozinho quem já não pode | é aqui que o servidor precisa recusar |
 
+**As duas direções foram resolvidas.** A tela reconfere a própria autoridade a
+cada 30 segundos, pelo mesmo caminho por onde a leu ao entrar
+(`/capabilities/effective`), e avisa **só quando muda**. Não é o encanamento do
+turno operacional: a Gestão passa pelo mesmo contexto, então a mudança alcança
+as duas telas. E não substitui nada — quem decide continua sendo o servidor, a
+cada requisição.
+
 ## A jornada, como foi percorrida
 
 | Etapa | O que aconteceu | Evidência |
 |---|---|---|
 | Sem autoridade, cancelar | a operadora CAIXA recebe o pedido de autorização do supervisor | `02-sem-autoridade-pede-supervisor.png` |
 | A gestora concede | `PUT /team/{vínculo}/autoridade`, 200 | — |
-| **Sessão aberta, concessão nova** | a tela **ainda pede** supervisor: ela leu as permissões antes | `03-concessao-nao-chega-a-sessao-aberta.png` |
-| Recarregando a sessão | agora a operadora cancela sozinha, sem diálogo | `04-com-autoridade-cancela-sozinha.png` |
+| **A concessão alcança a sessão aberta** | a tela avisa sozinha, em **15885ms**, **sem recarregar** | — |
+| Cancelar de novo | agora sem diálogo nenhum | `03-com-autoridade-cancela-sozinha.png` |
 | A gestora retira | 200 | — |
-| **Sessão aberta, autoridade retirada** | a tela tenta cancelar sozinha, e o **servidor recusa** | `05-retirada-com-sessao-aberta.png` |
+| **Na janela antes da próxima batida** | a tela ainda acha que pode, tenta, e o **servidor recusa** | `04-retirada-com-sessao-aberta.png` |
+| **A retirada alcança a sessão aberta** | em **20038ms** a tela volta a pedir supervisor, sozinha | `05-retirada-chega-e-a-tela-volta-a-pedir-supervisor.png` |
 
 **A resposta à pergunta é a boa.** Com a autoridade retirada e a sessão ainda
 aberta, a tela mandou o cancelamento sem cabeçalho de supervisor — porque ainda
@@ -94,14 +102,23 @@ servidor** de que a venda não foi cancelada.
 Isto é travessia de navegador contra a API local, com semeadura própria — não é
 simulação de tela, e não é integração com serviço externo, que aqui não existe.
 
-**Não** percorrido: o mesmo com `sale.discount`; a propagação da mudança para
-uma sessão aberta **sem** recarregar (hoje ela não acontece, e a tela erra para
-o lado seguro na concessão e para o lado inseguro na retirada — sendo o servidor
-quem segura); e retirada durante uma requisição já em voo.
+**Não** percorrido: o mesmo com `sale.discount`; retirada durante uma requisição
+já em voo; e propagação para uma aba que o navegador colocou em segundo plano,
+onde o relógio do temporizador é do navegador, não do produto.
 
-A propagação fica nomeada como assunto próprio: **a tela não é avisada quando a
-autoridade muda**. Não é falha de segurança, porque o servidor recusa; é atrito
-de operação, e a decisão de resolver isso — e como — é do dono.
+### O controle da propagação
+
+Desligando a reconferência — o temporizador continua batendo e não pergunta nada
+— a travessia **para exatamente onde deveria**: *"a tela precisa perceber a
+concessão sem recarregar, e não percebeu em 60007ms"*, e então interrompe.
+
+Interromper ali é deliberado. Na primeira tentativa deste controle a travessia
+seguiu adiante, encontrou a tela pedindo supervisor onde já não devia, empilhou
+diálogos e reprovou quatro vezes por motivos que **não** eram o que se media.
+Uma reprovação legível vale mais que quatro embaralhadas.
+
+O código também tem portão próprio em `frontend/tests/shell_boundaries.test.ts`:
+a travessia é rodada à mão, e a conferência periódica não pode sumir em silêncio.
 
 ## Lacunas de homologação, depois desta
 
@@ -110,9 +127,10 @@ de operação, e a decisão de resolver isso — e como — é do dono.
 | Dois destinos nunca percorridos | fechada em 09/09/2026 |
 | Duas estações, a segunda achando a unidade já reservada | fechada em 09/09/2026 |
 | **Conceder e retirar autoridade, com sessão aberta** | **fechada em 09/09/2026** |
-| Duas inclusões simultâneas disputando a última unidade | aberta, pendência específica |
-| Catálogo volumoso não exercitado | aberta — próxima |
-| Estado "em processamento" do TEF | aberta |
-| Propagação da mudança de autoridade para sessão aberta | aberta, nomeada aqui |
+| **Propagação da mudança de autoridade para sessão aberta** | **fechada em 09/09/2026**, nos dois sentidos |
+| Catálogo volumoso não exercitado | fechada em 09/09/2026 |
+| Estado "em processamento" do TEF | fechada em 09/09/2026 |
+| Resposta tardia e reconciliação pelo worker | fechada em 09/09/2026 |
+| Duas inclusões simultâneas disputando a última unidade | fechada em 09/09/2026, por prova determinística |
 | Transação real com provedor | aberta, pendência separada |
-| Vínculo de maquininha | aberta, pendência separada |
+| Vínculo de maquininha percorrido pela tela | aberta, pendência separada |

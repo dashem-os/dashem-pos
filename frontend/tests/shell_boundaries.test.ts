@@ -147,6 +147,20 @@ test('keeps the persisted operational session alive and returns to PIN after ser
   assert.match(api, /\[401, 403, 409\]\.includes\(res\.status\)/)
 })
 
+test('a mudança de autoridade alcança a tela que já está aberta', async () => {
+  // Medido na homologação de 09/09/2026: conceder ou retirar `sale.cancel` com o
+  // turno em andamento não chegava à tela, que lera as permissões ao entrar. O
+  // servidor sempre segurou os dois lados; o que faltava era a tela parar de
+  // errar — pedindo supervisor de quem já pode, e deixando clicar quem já não
+  // pode até a recusa chegar na frente do cliente.
+  const context = await source('../src/context/PosContext.tsx')
+  assert.match(context, /window\.setInterval\(\(\) => \{ void conferirAutoridade\(\) \}, 30_000\)/)
+  assert.match(context, /api\.fetchEffectiveAccess\(\{ 'X-Tenant-ID': tenant\.id, 'X-Store-ID': store\.id \}\)/)
+  // Avisar só quando muda: um aviso a cada batida é ruído.
+  assert.match(context, /if \(antes === agora\) return atuais/)
+  assert.match(context, /Suas autorizações mudaram/)
+})
+
 test('keeps employee registration independent from operational credentials', async () => {
   const team = await source('../src/components/management/TeamManager.tsx')
   const api = await source('../src/services/api.ts')
