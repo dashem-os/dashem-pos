@@ -3,7 +3,7 @@ from sqlmodel import Session, select
 
 from app.core.context import TenantContext, get_tenant_context
 from app.core.database import get_session
-from app.modules.capabilities.service import effective_capabilities
+from app.modules.capabilities.service import effective_capabilities, tenant_activity_keys
 from app.models.platform import ModuleContribution, TenantProfileAssignment, CapabilityProfileRevision
 from app.services.contract_entitlement_service import resolve_contract_entitlements
 from app.services.starter_catalog_service import is_homologation_tenant
@@ -54,12 +54,21 @@ def get_effective_capabilities(
     )).first()
     revision = session.get(CapabilityProfileRevision, assignment.revision_id) if assignment else None
     contract_snapshot = resolve_contract_entitlements(session, context.tenant_id)
-    activities = set(contract_snapshot.activity_keys) if contract_snapshot else set()
+    # **A mesma fonte que o portão usa.** Antes, a resposta lia atividade só do
+    # contrato versionado, enquanto `capability_allowed_by_activity` lia de
+    # `tenant_activity_keys` — que cai no perfil declarado quando não há
+    # contrato. Os dois discordavam, e o efeito era o pior possível: para um
+    # tenant com perfil FOOD_SERVICE e sem contrato, o servidor **autorizava**
+    # `table_service` e devolvia o card de Ambientes e mesas, e a tela o
+    # escondia, porque `activities` vinha vazio. A jornada existia e não tinha
+    # como ser alcançada.
+    declaradas = list(tenant_activity_keys(session, context.tenant_id))
+    activities = set(declaradas)
     return {
         "capabilities": capabilities,
         "permissions": list(context.permissions),
         "contributions": [_labelled(item, activities) for item in visible],
-        "activities": list(contract_snapshot.activity_keys) if contract_snapshot else [],
+        "activities": declaradas,
         # Lets the console offer the starter catalogue only where it belongs.
         "homologation": is_homologation_tenant(session, context.tenant_id),
         "contract": (

@@ -1,0 +1,57 @@
+{
+  "app": "http://127.0.0.1:5199",
+  "gerado_em": "2026-09-09T15:32:03.530Z",
+  "etapas": [
+    {
+      "etapa": "o card existe com tef habilitado por override de homologação"
+    },
+    {
+      "etapa": "a tela parte do nada configurado"
+    },
+    {
+      "etapa": "configurar provedor",
+      "apareceu": true
+    },
+    {
+      "etapa": "parear bridge",
+      "gerouCodigo": true
+    },
+    {
+      "etapa": "pareado não é conectado"
+    },
+    {
+      "etapa": "protocolo incompatível é acusado na tela",
+      "acusou": true
+    },
+    {
+      "etapa": "simulação: heartbeat aceito com o protocolo certo",
+      "status": 200,
+      "protocolo": "1.0",
+      "observacao": "não há bridge instalado; quem bateu foi este roteiro"
+    },
+    {
+      "etapa": "a tela mostra a conexão que o bridge relatou",
+      "versao": true
+    },
+    {
+      "etapa": "integração real com provedor",
+      "percorrida": false,
+      "motivo": "nenhuma transação TEF foi executada e nenhum provedor foi contatado"
+    }
+  ],
+  "telas": [
+    "1-card-em-financeiro",
+    "2-tela-sem-provedor",
+    "3-provedor-configurado",
+    "4-codigo-de-pareamento",
+    "5-bridge-pareado-sem-conexao",
+    "6-bridge-fala-e-nao-serve",
+    "7-conexao-relatada-pelo-bridge"
+  ],
+  "camadas": {
+    "configuracao_na_tela": "percorrida",
+    "simulacao_de_bridge": "percorrida — heartbeat enviado por este roteiro",
+    "integracao_real_com_provedor": "NÃO percorrida"
+  },
+  "falhas": []
+}

@@ -1,0 +1,44 @@
+{
+  "app": "http://127.0.0.1:5199",
+  "gerado_em": "2026-09-09T15:24:27.967Z",
+  "etapas": [
+    {
+      "etapa": "o card aparece com a atividade declarada"
+    },
+    {
+      "etapa": "cadastrar ambiente",
+      "apareceu": true
+    },
+    {
+      "etapa": "cadastrar mesa",
+      "noAmbiente": true
+    },
+    {
+      "etapa": "sinalizar impedimento",
+      "mostraMotivo": true
+    },
+    {
+      "etapa": "liberar",
+      "voltou": true
+    },
+    {
+      "etapa": "ambiente com mesa não se arquiva",
+      "recusou": true
+    },
+    {
+      "etapa": "permissão: vê o mapa, não configura",
+      "veOMapa": true
+    }
+  ],
+  "telas": [
+    "1-card-em-estrutura",
+    "2-tela-do-atendimento",
+    "3-ambiente-cadastrado",
+    "4-mesa-no-mapa",
+    "5-mesa-impedida",
+    "6-mesa-liberada",
+    "7-ambiente-com-mesa",
+    "8-ve-o-mapa-sem-configurar"
+  ],
+  "falhas": []
+}
