@@ -1,15 +1,15 @@
 {
   "app": "http://127.0.0.1:5199",
-  "gerado_em": "2026-09-09T20:17:14.779Z",
+  "gerado_em": "2026-09-09T21:22:56.621Z",
   "camadas": {
     "configuracao": "percorrida — provedor, bridge e vínculo pelas rotas do produto",
     "simulacao_de_bridge": "percorrida — heartbeat enviado pelo roteiro de cenário",
     "integracao_real_com_provedor": "NÃO percorrida — BridgeQueuedAdapter, nenhum provedor contatado"
   },
   "mesa": {
-    "id": "58a7a22f-b341-4643-855a-0d624e710e21",
+    "id": "93257fee-7eb1-4a0a-bfa4-7b7f01a35008",
     "name": "Mesa 7",
-    "code": "M-F4CFE4"
+    "code": "M-F90B9C"
   },
   "etapas": [
     {
@@ -37,11 +37,28 @@
       "cancelar_reserva": false
     },
     {
-      "etapa": "com a cobrança em voo, a tela não propõe outra",
+      "etapa": "processamento parcial: a tela propõe o que sobra, não o que falta",
+      "valor_proposto": "62.00",
+      "diz_o_teto": true,
+      "mostra_em_processamento": true,
+      "frase": "Máximo a cobrar agora: R$ 62,00."
+    },
+    {
+      "etapa": "valor acima do saldo cobrável é barrado antes do envio",
+      "botao_ligado": false,
+      "explicou": true,
+      "frase": "passa do que dá para cobrar agora (R$ 62,00)."
+    },
+    {
+      "etapa": "e o servidor recusa o mesmo valor, se alguém passar por fora",
+      "status": 409
+    },
+    {
+      "etapa": "com a conta inteira em voo, a tela não propõe mais nada",
       "valor_proposto": "0.00",
       "botao_ligado": false,
       "avisa": true,
-      "mostra_em_processamento": true
+      "frase": "Não há valor para cobrar agora: R$ 80,00 desta conta está numa cobrança sem resposta."
     },
     {
       "etapa": "consultar o provider não resolve sozinho, e não libera",
@@ -57,11 +74,16 @@
     "01-salao-com-a-mesa-ocupada",
     "02-conta-aberta-com-tef-online",
     "03-a-cobranca-saiu-e-nao-voltou",
-    "04-nova-cobranca-nao-e-oferecida",
-    "05-consultar-nao-solta-a-conta"
+    "04-acima-do-teto-e-bloqueado-antes-do-envio",
+    "05-nova-cobranca-nao-e-oferecida",
+    "06-consultar-nao-solta-a-conta"
   ],
   "servidor": {
-    "negotiation_id": "39e5d954-a4d2-4b71-961b-b4c280d49f01",
+    "negotiation_id": "0a81b2f1-46ef-49be-8112-d020dd0018f1",
+    "acima_do_teto": {
+      "status": 409,
+      "corpo": "{\"detail\":\"Parcela excede o saldo reservável de 62.0000.\"}"
+    },
     "parcela": {
       "status": 200,
       "parcela": {
@@ -70,13 +92,13 @@
         "pode_cancelar": false,
         "pode_consultar": true
       },
-      "em_processamento": "18.0000",
+      "em_processamento": "80.0000",
       "confirmado": "0",
-      "falta": "18.0000"
+      "falta": "80.0000"
     },
     "tentativa_de_soltar": {
       "status": 409,
-      "corpo": "{\"detail\":{\"code\":\"EXTERNAL_CHARGE_IN_FLIGHT\",\"message\":\"Existe cobrança externa sem resultado conhecido. Consulte o pagamento antes de decidir sobre esta parcela.\",\"action\":\"cancel\",\"payment_intent_id\":\"6c3cdea7-83f4-4543-9e2c-faa4db41e6db\",\"provider_transaction_id\":\"60d0759c-3da6-4e51-9b81-854c82588e09\",\"provider_status\":\"UNKNOWN\"}}"
+      "corpo": "{\"detail\":{\"code\":\"EXTERNAL_CHARGE_IN_FLIGHT\",\"message\":\"Existe cobrança externa sem resultado conhecido. Consulte o pagamento antes de decidir sobre esta parcela.\",\"action\":\"cancel\",\"payment_intent_id\":\"31ce0f3a-9d7c-42c4-bdbc-542e747d72dd\",\"provider_transaction_id\":\"d5e448c9-d450-46e6-8c02-d40c44441c43\",\"provider_status\":\"PROCESSING\"}}"
     }
   },
   "falhas": []

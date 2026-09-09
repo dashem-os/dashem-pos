@@ -137,23 +137,34 @@ def montar(fixture_path: Path, saida: Path, base: str) -> None:
         f"/api/v1/tables/sessions/{sessao['id']}/orders",
         {"display_reference": "Comanda 1", "actor_id": gestora}, idempotente=True,
     )
-    sku, produto_id = next(iter(fixture["produtos"].items()))
-    api.post(f"/api/v1/orders/{comanda['id']}/items", {
-        "product_id": produto_id, "quantity": 1, "actor_id": gestora,
-    }, idempotente=True)
+    # **Dois itens, de propósito.** Com um só, cobrar parte da conta pelo TEF
+    # trava tudo — e o cenário de processamento **parcial** não existe. Com o
+    # chopp e a porção, cobrar o chopp deixa a porção cobrável, que é onde a
+    # tela precisa dizer qual é o teto.
+    consumo = []
+    for sku, produto_id in fixture["produtos"].items():
+        item = api.post(f"/api/v1/orders/{comanda['id']}/items", {
+            "product_id": produto_id, "quantity": 1, "actor_id": gestora,
+        }, idempotente=True)
+        consumo.append({"sku": sku, "produto_id": produto_id,
+                        "valor": str(item.get("unit_price", ""))})
 
     fixture.update({
         "provider_configuration_id": configuracao["id"],
         "provider_code": configuracao["provider_code"],
+        # O código de pareamento é o segredo com que o bridge se identifica. Ele
+        # entra na fixture porque o roteiro de resposta tardia fala **como** o
+        # bridge; é cenário local de homologação, e nada disto vai para produção.
         "bridge_terminal": {"id": terminal["id"], "code": terminal["terminal_code"],
                             "status": terminal_online["status"],
-                            "bridge_version": terminal_online.get("bridge_version")},
+                            "bridge_version": terminal_online.get("bridge_version"),
+                            "pairing_code": pareamento["pairing_code"]},
         "payment_device_binding_id": vinculo["id"],
         "terminal_token": autorizacao["terminal_token"],
         "service_table": {"id": mesa["id"], "name": mesa["name"], "code": mesa["code"]},
         "table_session_id": sessao["id"],
         "order_id": comanda["id"],
-        "item_sku": sku,
+        "consumo": consumo,
         # O que este roteiro construiu, e sob que rótulo. Sem isto a evidência
         # da travessia não consegue separar configuração de integração real.
         "camadas": {

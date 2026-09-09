@@ -1117,3 +1117,79 @@ async def test_s25_1_a_replayed_integral_refund_closes_the_parcel():
             "o replay entregou o estorno integral como não quantificado, e a "
             "parcela ficou retida"
         )
+
+
+@pytest.mark.asyncio
+async def test_s25_1_the_sweep_settles_the_parcel_once_and_a_second_sweep_adds_nothing():
+    """A resposta que ninguém foi ver, e o varrimento passando duas vezes.
+
+    A janela já tem prova: `_apply_result` grava a transação antes de tocar a
+    parcela, e uma queda entre os dois commits deixa cartão aprovado ao lado de
+    parcela aberta. O que faltava é o **desfecho não assistido**: ninguém abre a
+    tela, ninguém consulta, e é o varrimento do worker que fecha a conta.
+
+    E ele roda em laço. Passar de novo sobre a mesma linha não pode confirmar
+    duas vezes, nem liberar saldo: a mercadoria continua quitada por uma pessoa
+    só, o confirmado continua sendo o valor da cobrança, e a segunda passada não
+    encontra mais nada para fazer.
+    """
+    from app.models.provider import ProviderTransaction, ProviderTransactionStatusEnum
+    from app.services.provider_service import recover_unapplied_results
+
+    async with httpx.AsyncClient(base_url=BASE_URL) as client:
+        headers, store, actor, table_session = await _table_with_menu(client, "Sweep")
+        tenant_id = headers["X-Tenant-ID"]
+        register_id = await _register(client, headers, store, actor)
+        negotiation = await _open(client, headers, store, table_session, actor)
+        whisky = _by_name(negotiation)["Whisky"]["order_item_id"]
+        tef = await _tef(client, headers, {"id": tenant_id}, store, actor, register_id, "SWP")
+        criada = await _reserve(client, headers, negotiation["id"], actor, 40, whisky, "Astra",
+                                binding=tef["binding"]["id"])
+        intent_id = (await _pending(criada))["id"]
+        enviada = await client.post("/api/v1/providers/transactions", headers={
+            **headers, "Idempotency-Key": f"exec-{uuid.uuid4()}",
+        }, json={"payment_intent_id": intent_id, "payment_device_binding_id": tef["binding"]["id"],
+                 "actor_id": actor})
+        transaction_id = enviada.json()["transaction"]["id"]
+
+    # Exatamente a queda: a resposta está na linha, a parcela não a ouviu.
+    with Session(engine) as db:
+        set_platform_db_context(db)
+        linha = db.get(ProviderTransaction, uuid.UUID(transaction_id))
+        linha.status = ProviderTransactionStatusEnum.CONFIRMED
+        linha.nsu, linha.authorization_code = "NSU-SWEEP", "OK"
+        db.add(linha)
+        db.commit()
+        assert db.get(PaymentIntent, uuid.UUID(intent_id)).status.value == "PROCESSING"
+
+        # Ninguém abriu a tela. Quem fecha é o varrimento.
+        primeira = recover_unapplied_results(db, limit=10_000)
+        assert uuid.UUID(transaction_id) in primeira, "o varrimento não alcançou a linha travada"
+        db.expire_all()
+        assert db.get(PaymentIntent, uuid.UUID(intent_id)).status.value == "CONFIRMED"
+
+    async with httpx.AsyncClient(base_url=BASE_URL) as client:
+        depois = (await client.get(f"/api/v1/negotiations/{negotiation['id']}", headers=headers)).json()
+        assert float(depois["confirmed_amount"]) == 40
+        assert float(depois["processing_amount"]) == 0
+        assert _by_name(depois)["Whisky"]["settled_by"] == ["Astra"]
+        divergencias_antes = len(depois["divergences"])
+
+    # A segunda passada. O worker roda em laço, e isto é o que ele faz de novo.
+    with Session(engine) as db:
+        set_platform_db_context(db)
+        segunda = recover_unapplied_results(db, limit=10_000)
+        assert uuid.UUID(transaction_id) not in segunda, (
+            "a linha já aplicada voltou para o varrimento; aplicá-la de novo é "
+            "onde nasce confirmação em dobro"
+        )
+
+    async with httpx.AsyncClient(base_url=BASE_URL) as client:
+        final = (await client.get(f"/api/v1/negotiations/{negotiation['id']}", headers=headers)).json()
+        # Nada dobrou, e nada foi solto: o dinheiro é o mesmo de antes.
+        assert float(final["confirmed_amount"]) == 40, final["confirmed_amount"]
+        assert float(final["remaining_amount"]) == float(depois["remaining_amount"])
+        assert _by_name(final)["Whisky"]["settled_by"] == ["Astra"]
+        assert len(final["divergences"]) == divergencias_antes, final["divergences"]
+        parcelas = [row for row in final["intents"] if row["id"] == intent_id]
+        assert len(parcelas) == 1 and parcelas[0]["status"] == "CONFIRMED"

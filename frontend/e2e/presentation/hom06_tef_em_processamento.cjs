@@ -110,6 +110,40 @@ async function tentarSoltarPelaApi(page, intentId) {
   }, [apiUrl, fixture.tenant_id, fixture.store_id, fixture.manager_token, intentId, fixture.gestora_id])
 }
 
+/** Cobrar por fora da tela — para conferir que o servidor decide sozinho. */
+async function tentarCobrar(page, negotiationId, valor) {
+  return page.evaluate(async ([api, tenant, store, token, conta, quanto, ator]) => {
+    const resposta = await fetch(`${api}/api/v1/negotiations/${conta}/intents`, {
+      method: 'POST',
+      headers: {
+        'X-Tenant-ID': tenant, 'X-Store-ID': store, Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json', 'Idempotency-Key': `hom06-cobrar-${Date.now()}`,
+      },
+      body: JSON.stringify({ method: 'PIX', amount: quanto, allocations: [], actor_id: ator }),
+    })
+    return { status: resposta.status, corpo: (await resposta.text()).slice(0, 300) }
+  }, [apiUrl, fixture.tenant_id, fixture.store_id, fixture.manager_token,
+      negotiationId, valor, fixture.gestora_id])
+}
+
+/** A conta desta sessão. Reabri-la devolve a mesma: `open_negotiation` procura a
+ *  negociação ativa pelo escopo antes de criar outra. */
+async function contaDaSessao(page) {
+  return page.evaluate(async ([api, tenant, store, token, sessao, loja, ator]) => {
+    const resposta = await fetch(`${api}/api/v1/negotiations`, {
+      method: 'POST',
+      headers: {
+        'X-Tenant-ID': tenant, 'X-Store-ID': store, Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json', 'Idempotency-Key': `hom06-conta-${Date.now()}`,
+      },
+      body: JSON.stringify({ store_id: loja, table_session_id: sessao, order_ids: [], actor_id: ator }),
+    })
+    if (!resposta.ok) return null
+    return (await resposta.json()).id || null
+  }, [apiUrl, fixture.tenant_id, fixture.store_id, fixture.manager_token,
+      fixture.table_session_id, fixture.store_id, fixture.gestora_id])
+}
+
 /** A parcela, como o servidor a descreve. */
 async function parcelaNoServidor(page, negotiationId) {
   return page.evaluate(async ([api, tenant, store, token, conta]) => {
@@ -214,6 +248,14 @@ async function run() {
     exigir(online,
       `a tela deveria declarar o TEF online — o bridge bateu heartbeat: "${naConta.slice(0, 240)}"`)
 
+    // A conta é identificada agora: os controles pelo servidor precisam dela
+    // antes da primeira cobrança, não depois.
+    const negociacaoDaTela = await contaDaSessao(page)
+    relatorio.servidor.negotiation_id = negociacaoDaTela
+    if (!exigir(Boolean(negociacaoDaTela), 'não achei a conta desta sessão para conferir no servidor')) {
+      throw new Error('sem a conta, os controles pelo servidor não podem ser feitos')
+    }
+
     // ---------------------------------------- 3. cobrar pelo TEF
     const meio = page.getByLabel('Meio de pagamento')
     await meio.selectOption('TEF_CREDIT')
@@ -247,32 +289,89 @@ async function run() {
     exigir(temCancelar === 0,
       'a tela ofereceu "Cancelar reserva" para uma parcela cuja cobrança não teve resposta')
 
-    // ---------------------------------------- 4b. e nova cobrança, também não
+    // ---------------------------------------- 4b. processamento PARCIAL
     //
-    // A outra metade da regra do dono. O servidor já recusava a segunda
-    // cobrança — com "Parcela excede o saldo reservável de 0.0000", que ninguém
-    // no balcão entende — mas a tela dizia "Falta R$ 18,00", propunha esse valor
-    // e deixava o botão aceso. Descobrir pela recusa não é ser avisado.
-    const propoe = await page.getByLabel('Valor da parcela').inputValue()
+    // A conta tem R$ 80,00 e R$ 18,00 saíram numa cobrança sem resposta. Sobra
+    // parte cobrável — e é aqui que a tela precisa dizer **qual é o teto**,
+    // antes do envio. O servidor recusa o que passa dele; descobrir pela recusa
+    // não é ser avisado, e a recusa dele fala em "saldo reservável".
     const botaoCobrar = page.getByRole('button', { name: /Registrar parcela no meio selecionado/ })
+    const campoValor = page.getByLabel('Valor da parcela')
+    const propoeParcial = await campoValor.inputValue()
+    const parcial = await naTela(page)
+    const dizOTeto = /Máximo a cobrar agora: R\$\s*62,00/.test(parcial)
+    const mostraEmProcessamento = /Em processamento/i.test(parcial)
+    relatorio.etapas.push({
+      etapa: 'processamento parcial: a tela propõe o que sobra, não o que falta',
+      valor_proposto: propoeParcial, diz_o_teto: dizOTeto,
+      mostra_em_processamento: mostraEmProcessamento,
+      frase: (parcial.match(/Máximo a cobrar agora[^.]*\./) || ['—'])[0],
+    })
+    exigir(Number(propoeParcial) === 62,
+      `com R$ 18,00 em voo numa conta de R$ 80,00, a tela deveria propor 62,00 e propôs ${propoeParcial}`)
+    exigir(dizOTeto,
+      `a tela precisa dizer o teto antes do envio: "${parcial.slice(0, 300)}"`)
+    exigir(mostraEmProcessamento,
+      '"Falta R$ 80,00" sozinho engana: a conta precisa mostrar quanto está em processamento')
+
+    // Digitar acima do teto: bloqueado **antes** de sair, com o porquê.
+    await campoValor.fill('70.00')
+    await page.waitForTimeout(600)
+    const acima = await naTela(page)
+    const bloqueou = !(await botaoCobrar.isEnabled())
+    const explicou = /passa do que dá para cobrar agora/i.test(acima)
+    // A foto tem de mostrar a frase que está sendo provada — rolar até o botão
+    // deixava o aviso logo abaixo da borda. Rola-se até o **aviso**.
+    const avisoDoTeto = page.getByText(/passa do que dá para cobrar agora/i).first()
+    if (await avisoDoTeto.count()) await avisoDoTeto.scrollIntoViewIfNeeded()
+    await page.waitForTimeout(400)
+    await shot(page, 'acima-do-teto-e-bloqueado-antes-do-envio')
+    relatorio.etapas.push({
+      etapa: 'valor acima do saldo cobrável é barrado antes do envio',
+      botao_ligado: !bloqueou, explicou,
+      frase: (acima.match(/passa do que dá para cobrar agora[^.]*\./) || ['—'])[0],
+    })
+    exigir(bloqueou,
+      'o botão continuou aceso com valor acima do saldo cobrável')
+    exigir(explicou,
+      `a tela precisa explicar por que o valor não cabe: "${acima.slice(0, 300)}"`)
+
+    // **A validação do servidor continua sendo a que decide.** A tela poupa a
+    // tentativa; ela não substitui a regra.
+    const acimaNoServidor = await tentarCobrar(page, negociacaoDaTela, 70)
+    relatorio.servidor.acima_do_teto = acimaNoServidor
+    relatorio.etapas.push({
+      etapa: 'e o servidor recusa o mesmo valor, se alguém passar por fora',
+      status: acimaNoServidor.status,
+    })
+    exigir(acimaNoServidor.status === 409,
+      `o servidor deveria recusar 70,00 com 409, e devolveu ${acimaNoServidor.status}: ${acimaNoServidor.corpo}`)
+    exigir(/saldo reserv/i.test(acimaNoServidor.corpo),
+      `a recusa do servidor deveria falar do saldo reservável: ${acimaNoServidor.corpo}`)
+
+    // ---------------------------------------- 4c. cobrando o resto, trava tudo
+    await campoValor.fill('62.00')
+    await page.getByRole('button', { name: /Registrar parcela no meio selecionado/ }).click()
+    await esperaTexto(page, /Não há valor para cobrar agora/i, 30000)
+    const propoe = await campoValor.inputValue()
     const cobrarLigado = await botaoCobrar.isEnabled()
     const naTelaAgora = await naTela(page)
     const avisa = /Não há valor para cobrar agora/i.test(naTelaAgora)
-    const mostraEmProcessamento = /Em processamento/i.test(naTelaAgora)
+    const avisoDeBloqueio = page.getByText(/Não há valor para cobrar agora/i).first()
+    if (await avisoDeBloqueio.count()) await avisoDeBloqueio.scrollIntoViewIfNeeded()
+    await page.waitForTimeout(400)
     await shot(page, 'nova-cobranca-nao-e-oferecida')
     relatorio.etapas.push({
-      etapa: 'com a cobrança em voo, a tela não propõe outra',
-      valor_proposto: propoe, botao_ligado: cobrarLigado,
-      avisa: avisa, mostra_em_processamento: mostraEmProcessamento,
+      etapa: 'com a conta inteira em voo, a tela não propõe mais nada',
+      valor_proposto: propoe, botao_ligado: cobrarLigado, avisa,
+      frase: (naTelaAgora.match(/Não há valor para cobrar agora[^.]*\./) || ['—'])[0],
     })
     exigir(Number(propoe) === 0,
-      `a tela propôs cobrar ${propoe} enquanto a cobrança anterior não teve resposta`)
+      `a tela propôs cobrar ${propoe} com a conta inteira sem resposta`)
     exigir(!cobrarLigado,
-      'o botão de cobrar continuou aceso com a cobrança anterior sem resposta')
+      'o botão de cobrar continuou aceso com a conta inteira sem resposta')
     exigir(avisa,
       `a tela precisa dizer por que não dá para cobrar agora: "${naTelaAgora.slice(0, 300)}"`)
-    exigir(mostraEmProcessamento,
-      '"Falta R$ 18,00" sozinho engana: a conta precisa mostrar quanto está em processamento')
 
     // ---------------------------------------- 5. consultar não solta nada
     const conta = await page.evaluate(() => {
@@ -292,24 +391,7 @@ async function run() {
       'depois de consultar, sem resposta do provider, a parcela precisa continuar aguardando')
 
     // ---------------------------------------- 6. o servidor, e a tentativa de soltar à mão
-    // A conta da sessão não vem no projetado da mesa. Abri-la de novo devolve a
-    // mesma: `open_negotiation` procura a negociação ativa pelo escopo antes de
-    // criar outra — é o que a própria tela faz ao reabrir a conta.
-    const negociacaoId = await page.evaluate(async ([api, tenant, store, token, sessao, loja, ator]) => {
-      const resposta = await fetch(`${api}/api/v1/negotiations`, {
-        method: 'POST',
-        headers: {
-          'X-Tenant-ID': tenant, 'X-Store-ID': store, Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json', 'Idempotency-Key': `hom06-conta-${Date.now()}`,
-        },
-        body: JSON.stringify({ store_id: loja, table_session_id: sessao, order_ids: [], actor_id: ator }),
-      })
-      if (!resposta.ok) return null
-      return (await resposta.json()).id || null
-    }, [apiUrl, fixture.tenant_id, fixture.store_id, fixture.manager_token,
-        fixture.table_session_id, fixture.store_id, fixture.gestora_id])
-    relatorio.servidor.negotiation_id = negociacaoId
-
+    const negociacaoId = negociacaoDaTela
     if (negociacaoId) {
       const noServidor = await parcelaNoServidor(page, negociacaoId)
       relatorio.servidor.parcela = noServidor

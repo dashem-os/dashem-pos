@@ -68,8 +68,16 @@ naquela função**, com o comentário de origem explicando por quê. Nem o saldo
 o preço filtram ou ordenam a grade: são enfeite da página, e enfeite se resolve
 para 50 linhas, não para mil.
 
-Isso não é ajuste de número mágico. Ele deixa o custo da página **independente do
-tamanho do acervo**, que é a propriedade que faltava.
+Isso não é ajuste de número mágico: tira do caminho da página a junção que o
+plano apontou como causa.
+
+**O que está medido, e só isso.** Nas condições desta travessia — 1.203 produtos
+vendáveis num tenant, 40 mil na tabela, 50 por página — a primeira e a última
+janela da grade custam o mesmo (168ms e 213ms), e antes custavam 4.996ms e
+4.569ms. Duas janelas medidas não são uma curva: **não** foi medido como a
+página se comporta com dez mil produtos, com mais tenants, ou com outra
+distribuição de saldos. Dizer que o custo ficou "independente do tamanho do
+acervo" seria conclusão maior que a medida.
 
 > O preço ficou onde está. Tirando **só** as junções de preço, a consulta
 > continua em 5.632ms — o laço do saldo segue lá. Tirando só o saldo, ela cai a
@@ -109,8 +117,9 @@ O aviso está em `04-seletor-avisa-que-ha-mais-do-que-cabe.png`, e o produto do
 fim do alfabeto, achado pela busca, em `05-seletor-acha-o-fim-do-alfabeto.png`.
 A travessia reprova se o aviso sumir com o acervo maior que o teto.
 
-Aumentar o corte de 200 para 500 só moveria a parede. Buscar no servidor é o que
-se estende para dez mil produtos.
+Aumentar o corte de 200 para 500 só moveria a parede: o seletor voltaria a
+depender de o acervo caber na resposta. Buscar no servidor tira essa dependência
+do caminho — **medido aqui com 1.203 produtos**, e não além disso.
 
 ## O que ficou medido
 
@@ -118,6 +127,7 @@ se estende para dez mil produtos.
 |---|---|---|
 | Grade, página 1 (servidor) | **168ms** | mediana de três, descartada a primeira batida; cruas: 332/221/142/168 |
 | Grade, última janela (24ª) | **213ms** | cruas: 284/186/213/236 |
+| Acervo medido | 1.203 vendáveis no tenant, 40.830 na tabela | é o cenário a que estes números se referem |
 | Busca no balcão, até o cartão | **831ms** | digitar → produto na tela |
 | Catálogo mestre sem busca | **131ms** | 200 linhas, o teto declarado |
 | Tela do PDV, recarregar → 1º cartão | 1.315ms | **não é medida do produto** |

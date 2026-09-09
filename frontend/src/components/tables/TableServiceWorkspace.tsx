@@ -500,6 +500,10 @@ function CheckoutSettlement({
   // TEF em processamento (09/09/2026).
   const processing = Number(negotiation.processing_amount ?? 0)
   const cobravelAgora = cobravelAgoraDe(negotiation)
+  // Centavo de tolerância: o valor digitado vem de um campo de texto, e comparar
+  // decimais sem folga reprova um "62.00" que é exatamente o limite.
+  const pedido = Number(amount)
+  const acimaDoLimite = Number.isFinite(pedido) && pedido - cobravelAgora > 0.005
   const lines = negotiation.item_settlements ?? []
   const openLines = lines.filter((row) => Number(row.available_amount) > 0)
   const pickedTotal = lines
@@ -590,7 +594,7 @@ function CheckoutSettlement({
       {mode === 'PEOPLE' && <div className="grid grid-cols-[92px_1fr] items-end gap-2">
         <label className="block text-[10px] font-black uppercase text-slate-500">Pessoas
           <input aria-label="Quantidade de pessoas" type="number" min="1" step="1" value={people}
-            onChange={(event) => { onPeople(event.target.value); onAmount((remaining / Math.max(1, Number(event.target.value) || 1)).toFixed(2)) }}
+            onChange={(event) => { onPeople(event.target.value); onAmount((cobravelAgora / Math.max(1, Number(event.target.value) || 1)).toFixed(2)) }}
             className="mt-1 h-11 w-full rounded-xl border border-emerald-200 px-3 text-sm font-black" />
         </label>
         <p className="pb-3 text-xs text-slate-600">{formatCurrency(share)} por pessoa. O valor abaixo continua editável para quem paga a mais.</p>
@@ -608,8 +612,8 @@ function CheckoutSettlement({
             <option value="TEF_DEBIT">Débito via TEF</option>
           </>}
         </select>
-        <input aria-label="Valor da parcela" type="number" min="0.01" step="0.01" value={amount} onChange={(event) => onAmount(event.target.value)} className="h-11 rounded-xl border border-emerald-200 px-3 text-sm font-black" />
-        <button disabled={busy || cobravelAgora <= 0 || Number(amount) <= 0 || (mode === 'ITEMS' && picked.length === 0)} onClick={onPay} className="col-span-2 h-11 rounded-xl bg-emerald-700 text-xs font-black text-white disabled:opacity-40">
+        <input aria-label="Valor da parcela" type="number" min="0.01" step="0.01" max={cobravelAgora.toFixed(2)} value={amount} onChange={(event) => onAmount(event.target.value)} className={`h-11 rounded-xl border px-3 text-sm font-black ${acimaDoLimite ? 'border-amber-500 bg-amber-50' : 'border-emerald-200'}`} />
+        <button disabled={busy || cobravelAgora <= 0 || acimaDoLimite || Number(amount) <= 0 || (mode === 'ITEMS' && picked.length === 0)} onClick={onPay} className="col-span-2 h-11 rounded-xl bg-emerald-700 text-xs font-black text-white disabled:opacity-40">
           {mode === 'ITEMS' ? `Pagar ${picked.length} item(ns)` : 'Registrar parcela no meio selecionado'}
         </button>
       </div>
@@ -621,6 +625,18 @@ function CheckoutSettlement({
       */}
       {cobravelAgora <= 0 && processing > 0 && <p className="rounded-lg bg-amber-100 px-3 py-2 text-[11px] font-bold leading-5 text-amber-900">
         Não há valor para cobrar agora: {formatCurrency(processing)} desta conta está numa cobrança sem resposta. Consulte o pagamento acima antes de cobrar de novo.
+      </p>}
+      {/*
+        Processamento **parcial**: parte da conta está em voo e parte continua
+        cobrável. O limite é dito antes do envio, com o porquê ao lado — o
+        servidor continua recusando o que passar dele, e é ele quem decide;
+        aqui a pessoa só deixa de descobrir isso por tentativa.
+      */}
+      {cobravelAgora > 0 && processing > 0 && <p className="rounded-lg bg-amber-50 px-3 py-2 text-[11px] font-bold leading-5 text-amber-900">
+        Máximo a cobrar agora: {formatCurrency(cobravelAgora)}. Os outros {formatCurrency(processing)} desta conta estão numa cobrança sem resposta.
+      </p>}
+      {acimaDoLimite && <p className="rounded-lg bg-amber-200 px-3 py-2 text-[11px] font-black leading-5 text-amber-950">
+        {formatCurrency(pedido)} passa do que dá para cobrar agora ({formatCurrency(cobravelAgora)}). Reduza o valor ou consulte a cobrança que está sem resposta.
       </p>}
       <p className="text-[11px] leading-5 text-slate-500">A mesa continua aberta enquanto houver saldo. Quem já pagou não some do consumo: o item fica marcado com o nome de quem quitou.</p>
     </div>}

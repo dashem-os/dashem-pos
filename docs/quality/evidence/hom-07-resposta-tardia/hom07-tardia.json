@@ -1,0 +1,106 @@
+{
+  "app": "http://127.0.0.1:5199",
+  "gerado_em": "2026-09-09T21:43:14.404Z",
+  "camadas": {
+    "resposta_tardia": "enviada por este roteiro, no papel do bridge",
+    "integracao_real_com_provedor": "NÃO percorrida — nenhum provedor foi contatado",
+    "reconciliacao_pelo_worker": "provada no backend, não por tela"
+  },
+  "etapas": [
+    {
+      "etapa": "a cobrança de R$ 18,00 sai e fica sem resposta"
+    },
+    {
+      "etapa": "a tela aberta não é avisada da resposta tardia",
+      "ainda_aguardando": true
+    },
+    {
+      "etapa": "retomando a tela, a confirmação está lá",
+      "parcela_confirmada": true,
+      "sem_aguardando": true,
+      "sem_metrica_de_processamento": true
+    },
+    {
+      "etapa": "o provider repete a mesma resposta duas vezes",
+      "confirmado": "18.0000",
+      "parcelas": 1
+    },
+    {
+      "etapa": "uma recusa chega depois da confirmação",
+      "confirmado": "18.0000",
+      "divergencias": [
+        "STATE_REGRESSION_REFUSED"
+      ]
+    },
+    {
+      "etapa": "a divergência aparece para quem opera, e nada foi liberado",
+      "mostra": true
+    }
+  ],
+  "telas": [
+    "01-a-cobranca-em-voo",
+    "02-retomada-mostra-a-confirmacao",
+    "03-a-contradicao-fica-registrada-na-tela"
+  ],
+  "servidor": {
+    "negotiation_id": "67e971f5-d5f3-4992-800b-781d4cc7790e",
+    "recusa_de_cancelamento": 409,
+    "resposta_tardia": {
+      "status": 200,
+      "corpo": "{\"transaction\":{\"id\":\"f04e6ad0-6f97-41db-9a3d-d509e015175c\",\"tenant_id\":\"2e08fa65-9fe6-4d87-82be-1e7c81b23bc7\",\"store_id\":\"d6e0cef8-4dc3-4f30-bc4a-b999dbf8aa7d\",\"payment_intent_id\":\"68913350-fc10-4deb"
+    },
+    "depois_da_tardia": {
+      "status": 200,
+      "confirmado": "18.0000",
+      "em_processamento": "0.0000",
+      "falta": "62.0000",
+      "parcelas": [
+        {
+          "id": "68913350-fc10-4deb-9431-f8ec621b3894",
+          "situacao": "CONFIRMED",
+          "valor": "18.0000"
+        }
+      ],
+      "divergencias": []
+    },
+    "repetidas": [
+      200,
+      200
+    ],
+    "depois_de_repetir": {
+      "status": 200,
+      "confirmado": "18.0000",
+      "em_processamento": "0.0000",
+      "falta": "62.0000",
+      "parcelas": [
+        {
+          "id": "68913350-fc10-4deb-9431-f8ec621b3894",
+          "situacao": "CONFIRMED",
+          "valor": "18.0000"
+        }
+      ],
+      "divergencias": []
+    },
+    "contradiz": {
+      "status": 200,
+      "corpo": "{\"transaction\":{\"id\":\"f04e6ad0-6f97-41db-9a3d-d509e015175c\",\"tenant_id\":\"2e08fa65-9fe6-4d87-82be-1e7c81b23bc7\",\"store_id\":\"d6e0cef8-4dc3-4f30-bc4a-b999dbf8aa7d\",\"payment_intent_id\":\"68913350-fc10-4deb"
+    },
+    "depois_da_contradicao": {
+      "status": 200,
+      "confirmado": "18.0000",
+      "em_processamento": "0.0000",
+      "falta": "62.0000",
+      "parcelas": [
+        {
+          "id": "68913350-fc10-4deb-9431-f8ec621b3894",
+          "situacao": "CONFIRMED",
+          "valor": "18.0000"
+        }
+      ],
+      "divergencias": [
+        "STATE_REGRESSION_REFUSED"
+      ]
+    }
+  },
+  "falhas": []
+}
