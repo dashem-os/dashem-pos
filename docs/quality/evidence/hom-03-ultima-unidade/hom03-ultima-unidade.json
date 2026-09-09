@@ -1,0 +1,55 @@
+{
+  "app": "http://127.0.0.1:5199",
+  "gerado_em": "2026-09-09T16:25:03.211Z",
+  "etapas": [
+    {
+      "etapa": "a primeira estação põe a última unidade no carrinho"
+    },
+    {
+      "etapa": "a segunda estação é recusada enquanto a unidade está prometida",
+      "mensagem": "Não há mais 'Coca-Cola Lata' para vender agora: 1 unidade está em vendas abertas."
+    },
+    {
+      "etapa": "a recusa relê a prateleira, e o cartão para de convidar",
+      "cartao": "Sem estoque"
+    },
+    {
+      "etapa": "a primeira estação fecha a venda",
+      "confirmou": true
+    },
+    {
+      "etapa": "depois da venda, a segunda continua recusada — e por outro motivo",
+      "mensagem": "sem mensagem"
+    }
+  ],
+  "telas": [
+    "01-estacao-1-com-a-ultima-unidade",
+    "02-estacao-2-recusada-por-venda-aberta",
+    "03-estacao-2-grade-relida",
+    "04-estacao-1-pagamento",
+    "05-estacao-1-venda-fechada",
+    "06-estacao-2-recusada-apos-a-venda"
+  ],
+  "servidor": {
+    "durante_a_disputa": {
+      "fisico": "1.0000",
+      "reservado": "1.0000",
+      "disponivel": "0.0000"
+    },
+    "ao_fim": {
+      "fisico": "0.0000",
+      "reservado": "0.0000",
+      "disponivel": "0.0000"
+    },
+    "vendas": {
+      "status": 200,
+      "com_o_produto": 1,
+      "fechadas": 1,
+      "situacoes": [
+        "COMPLETED"
+      ]
+    },
+    "reservado_ao_fim": "0.0000"
+  },
+  "falhas": []
+}

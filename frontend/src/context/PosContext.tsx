@@ -429,6 +429,10 @@ export const PosProvider: React.FC<{
     })
     if (aviso.nivel === 'BLOQUEIO') {
       showToast('error', `${mercadoria?.name ?? 'Item'}: ${aviso.mensagem}`)
+      // Reler também aqui. O aviso saiu da conta desta tela, e a prateleira
+      // pode ter mudado desde a última leitura — é justamente quando ela mudou
+      // que a recusa aparece.
+      void refreshData()
       return false
     }
 
@@ -465,6 +469,12 @@ export const PosProvider: React.FC<{
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Erro ao adicionar item'
       showToast('error', msg)
+      // **A recusa do servidor é a prova de que esta tela está atrasada.**
+      // Relia-se depois de incluir e não depois de ser recusado, e o efeito
+      // aparecia na disputa de duas estações: o aviso dizia "nada disponível
+      // agora" e o cartão ao lado continuava anunciando "Última unidade",
+      // convidando a operadora a clicar de novo.
+      void refreshData()
       return false
     } finally {
       setActionLoading(false)

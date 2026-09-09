@@ -47,12 +47,14 @@ CAPABILITIES = (
     "supervisor_override", "table_service",
 )
 
-# O produto do cenário: dezesseis na prateleira, e é sobre ele que as duas
-# estações vão discordar.
+# O produto do cenário: por padrão dezesseis na prateleira, e é sobre ele que as
+# duas estações vão discordar. `--saldo 1` monta o cenário da **última unidade**,
+# em que as duas querem a mesma peça e só uma pode levar.
 CATALOGO = (
     ("Coca-Cola Lata", "COC-051", "8.00", "16", "0"),
     ("Hambúrguer Artesanal Bacon", "HAB-01", "32.00", "15", "12"),
 )
+PRODUTO_DISPUTADO = "COC-051"
 
 CODIGO_SUPERVISORA = "SUP-01"
 PIN_SUPERVISORA = "4826"
@@ -97,7 +99,7 @@ def _pessoa(session: Session, tenant, loja, *, nome: str, papel: RoleEnum, apeli
     return usuario, vinculo, subject, email
 
 
-def seed(output: Path) -> None:
+def seed(output: Path, saldo_disputado: str | None = None) -> None:
     sufixo = uuid.uuid4().hex[:6]
 
     with Session(engine) as session:
@@ -183,8 +185,15 @@ def seed(output: Path) -> None:
             produtos[sku] = produto.id
             session.add(ProductPrice(tenant_id=tenant.id, store_id=loja.id, product_id=produto.id,
                                      sale_price=Decimal(preco), cost_price=Decimal(preco) / 2))
+            # O saldo do produto disputado pode ser trocado pela linha de
+            # comando: é a diferença entre o cenário de autoridade (dezesseis,
+            # com sete recusadas) e o da última unidade (uma só, e duas pessoas
+            # a querendo ao mesmo tempo).
+            quantidade = (
+                saldo_disputado if (saldo_disputado and sku == PRODUTO_DISPUTADO) else saldo
+            )
             session.add(InventoryBalance(tenant_id=tenant.id, store_id=loja.id,
-                                         product_id=produto.id, quantity=Decimal(saldo),
+                                         product_id=produto.id, quantity=Decimal(quantidade),
                                          minimum_stock=Decimal(minimo), version=1))
 
         cardapio = Assortment(tenant_id=tenant.id, code="CARDAPIO-LOJA",
@@ -227,15 +236,24 @@ def seed(output: Path) -> None:
                            "employee_code": CODIGO_SUPERVISORA, "pin": PIN_SUPERVISORA,
                            "terminal_token": terminais[1]},
             "products": {sku: str(pid) for sku, pid in produtos.items()},
+            "disputado": {"sku": PRODUTO_DISPUTADO,
+                          "product_id": str(produtos[PRODUTO_DISPUTADO]),
+                          "saldo": saldo_disputado or "16"},
         }
 
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(fixture, indent=2, ensure_ascii=False), encoding="utf-8")
+    na_prateleira = saldo_disputado or "16"
     print("duas estações semeadas: operadora CAIXA e supervisora com código "
-          f"{CODIGO_SUPERVISORA}; Coca-Cola com 16 na prateleira")
+          f"{CODIGO_SUPERVISORA}; Coca-Cola com {na_prateleira} na prateleira")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", required=True, type=Path)
-    seed(parser.parse_args().output)
+    parser.add_argument(
+        "--saldo", default=None,
+        help="Saldo do produto disputado. Use 1 para o cenário da última unidade.",
+    )
+    argumentos = parser.parse_args()
+    seed(argumentos.output, saldo_disputado=argumentos.saldo)
