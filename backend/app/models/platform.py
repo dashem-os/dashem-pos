@@ -432,7 +432,12 @@ class AssistedSupportGrantEvent(SQLModel, table=True):
     fica sem resposta justamente onde ela mais importa.
 
     É a mesma forma de `payable_ledger_entries` na UX-10, pela mesma razão:
-    desfazer é um registro a mais, nunca um registro a menos.
+    desfazer é um registro a mais, nunca um a menos.
+
+    **O que garante isso é o fluxo, não o banco.** Só `registrar_no_historico`
+    escreve aqui, e nenhuma rota atualiza ou apaga um lançamento. A política da
+    plataforma nesta tabela permite `UPDATE` e `DELETE` — tornar a linha
+    imutável de verdade seria outra decisão, e ela não foi tomada.
     """
 
     __tablename__ = "assisted_support_grant_events"

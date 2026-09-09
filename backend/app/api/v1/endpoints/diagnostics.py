@@ -31,9 +31,15 @@ autorização vale para o profissional que pediu, e a tela diz quem é.
 
 A linha da concessão guarda o estado atual, que é sempre uma coisa só. O que
 aconteceu com ela fica em `assisted_support_grant_events` — pedido, aprovação,
-invalidação, nova aprovação, revogação — e nada ali é sobrescrito. É a mesma
-forma da razão das contas a pagar, pela mesma razão: desfazer é um registro a
-mais, nunca um registro a menos.
+invalidação, nova aprovação, revogação. É a mesma forma da razão das contas a
+pagar, pela mesma razão: desfazer é um registro a mais, nunca um a menos.
+
+**Os fluxos daqui só acrescentam.** Nenhuma rota atualiza nem apaga um
+lançamento, e é por isso que o histórico sobrevive à reaprovação. A política da
+plataforma nesta tabela, porém, continua permitindo `UPDATE` e `DELETE`: o
+histórico está preservado pelo comportamento implementado, **não** por
+imutabilidade garantida no banco. Dizer o contrário seria prometer mais do que
+existe.
 
 Uma ressalva registrada de propósito: hoje **nenhuma rota de plataforma
 atravessa para dentro da operação do tenant** — não há impersonação, e o console
@@ -143,7 +149,7 @@ class AcessoAssistido(BaseModel):
     invalidada_em: Optional[datetime] = None
     invalidada_porque: Optional[str] = None
     #: Pedido, aprovação, invalidação, nova aprovação, revogação — em ordem.
-    #: Nada aqui é sobrescrito: é a razão da autorização.
+    #: A razão da autorização: os fluxos só acrescentam lançamentos.
     historico: List[LancamentoDoAcesso] = []
 
 
@@ -217,7 +223,11 @@ def registrar_no_historico(
     motivo: Optional[str] = None,
     quando: Optional[datetime] = None,
 ) -> AssistedSupportGrantEvent:
-    """Uma decisão a mais na razão. **Nunca uma a menos.**
+    """Uma decisão a mais na razão.
+
+    Este é o **único** ponto por onde um lançamento entra, e não existe caminho
+    de aplicação que atualize ou apague um. É daqui que vem a preservação do
+    histórico — do comportamento, não de uma trava do banco.
 
     O nome de quem agiu é gravado agora, junto: o cadastro pode sumir, e o
     histórico não pode ficar sem dono por causa disso. Quando ninguém agiu — a

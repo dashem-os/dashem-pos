@@ -317,6 +317,9 @@ function Pedido({ acesso, podeDecidir, ocupado, decidir }: {
  * só: aprovar de novo apaga quem tinha aprovado e a marca da invalidação. Sem
  * isto na tela, o lojista veria "autorizado" sem saber que já houve uma
  * autorização antes, nem por que ela caiu.
+ *
+ * O que chega aqui é o que o servidor gravou: os fluxos de lá só acrescentam
+ * lançamentos. Não é uma trava de banco, é o comportamento das rotas.
  */
 function Historico({ lancamentos }: { lancamentos: api.LancamentoDoAcesso[] }) {
   if (!lancamentos || lancamentos.length === 0) return null

@@ -1,4 +1,4 @@
-"""A autorização de acesso passa a ter razão, e ela não se apaga.
+"""A autorização de acesso ganha uma razão, e os fluxos só acrescentam nela.
 
 A 095 preservou a aprovação anterior nas próprias colunas da concessão, e isso
 resolvia **um** momento: a invalidação em massa. Não resolvia o seguinte.
@@ -10,9 +10,13 @@ pergunta "quem já teve acesso a estes dados, e por que aquela aprovação caiu?
 fica sem resposta exatamente onde ela mais importa.
 
 Esta migração dá à concessão a mesma forma que as contas a pagar têm desde a
-UX-10: **uma razão de lançamentos**. Cada decisão é uma linha, nada é
-sobrescrito, e o histórico se lê de ponta a ponta — pedido, aprovação,
-invalidação, nova aprovação, revogação.
+UX-10: **uma razão de lançamentos**. Cada decisão é uma linha, e o histórico se
+lê de ponta a ponta — pedido, aprovação, invalidação, nova aprovação, revogação.
+
+A preservação vem do **fluxo da aplicação**, que só acrescenta: as políticas
+abaixo dão à plataforma acesso completo à tabela, e não trancam `UPDATE` nem
+`DELETE`. Uma tabela imutável de verdade é outra decisão, e ela não foi tomada
+aqui.
 
 O que já estava registrado nas colunas vira linha aqui, para o histórico não
 começar do zero na data desta migração.

@@ -144,6 +144,10 @@ Preservar num momento só, porém, não basta: a **reaprovação** sobrescreve q
 aprovou e limpa a marca da invalidação, porque estado atual é sempre uma coisa
 só. Por isso a concessão tem uma **razão de lançamentos**
 (`assisted_support_grant_events`): pedido, aprovação, invalidação, nova
-aprovação e revogação são linhas, nada é sobrescrito, e o lojista lê a sequência
-inteira na tela. A invalidação por regra nova entra sem autor — ela não foi
-decisão de ninguém.
+aprovação e revogação são linhas, e o lojista lê a sequência inteira na tela. A
+invalidação por regra nova entra sem autor — ela não foi decisão de ninguém.
+
+A preservação é do **fluxo**: as rotas só acrescentam lançamentos, e nenhuma
+atualiza ou apaga. A política da plataforma na tabela ainda permite `UPDATE` e
+`DELETE` — imutabilidade garantida no banco seria outra decisão, e não foi
+tomada.

@@ -4598,8 +4598,8 @@ export interface AcessoAssistido {
   invalidada_porque?: string | null
   /**
    * A razão da autorização: pedido, aprovação, invalidação, nova aprovação,
-   * revogação. Nada aqui é sobrescrito — a linha guarda o estado atual, esta
-   * lista guarda o que aconteceu.
+   * revogação. A linha guarda o estado atual; esta lista guarda o que
+   * aconteceu, e os fluxos do servidor só acrescentam lançamentos.
    */
   historico: LancamentoDoAcesso[]
 }

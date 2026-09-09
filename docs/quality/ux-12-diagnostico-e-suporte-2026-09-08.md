@@ -113,7 +113,31 @@ sobrescrito, e o histórico se lê de ponta a ponta na tela do lojista. O que j�
 estava gravado nas colunas virou linha na migração, para o histórico não
 começar do zero naquela data.
 
-Duas escolhas que o formato obrigou a tomar:
+### Duas ressalvas registradas, a pedido do dono
+
+**Nenhuma reaprovação perdeu dados entre a 095 e a 096.** A migração recupera o
+que ainda estivesse nas colunas; se alguma concessão tivesse sido reaprovada
+entre as duas, o que já fora sobrescrito não voltaria. Verificado em 09/09/2026,
+comparando, por concessão, os lançamentos `APPROVED` da razão com os eventos de
+auditoria `tenant.support_access.approved`:
+
+| Base | Concessões | Aprovações em auditoria | Divergências |
+|---|---|---|---|
+| Produção (leitura) | **0** | **0** | nenhuma — não havia o que perder |
+| Local de desenvolvimento | 463 | — | 1, e é artefato meu |
+
+A única divergência local é o tenant de teste `diagnostico-6e071d06`, criado
+durante o controle em que removi `registrar_no_historico` de propósito para ver
+a prova reprovar. Não é caso de produção nem de uso real.
+
+**O histórico é preservado pelos fluxos, não por imutabilidade do banco.**
+Nenhuma rota atualiza ou apaga um lançamento — só `registrar_no_historico`
+escreve, e ele só acrescenta. Mas a política da plataforma na tabela permite
+`UPDATE` e `DELETE`. Dizer "nada pode ser sobrescrito" seria afirmar mais do que
+a proteção existente sustenta; trancar a tabela de verdade é outra decisão, e
+não foi tomada aqui.
+
+### Duas escolhas que o formato obrigou a tomar:
 
 - **a invalidação não tem autor.** Ela veio de uma regra, não de alguém, e o
   campo fica vazio. Inventar um autor seria pior do que admitir que não há —
