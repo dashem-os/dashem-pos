@@ -49,6 +49,8 @@ const CONSOLIDADAS = [
   'components/management/ReceivablesManager.tsx',
   'components/management/TenantPlanWorkspace.tsx',
   'components/management/CommercialRequestsPanel.tsx',
+  // UX-09: domínio novo nasce já falando token.
+  'components/management/SupplierManager.tsx',
 ]
 
 const PALETA_CRUA = /\b(?:text|bg|border|ring|from|via|to|divide|outline|decoration|shadow)-(?:violet|indigo|purple|fuchsia|pink|blue|sky|cyan|teal|emerald|green|lime|yellow|amber|orange|red|rose)-\d{2,3}\b/g

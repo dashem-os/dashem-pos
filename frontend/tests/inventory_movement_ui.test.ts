@@ -86,8 +86,11 @@ test('a movimentação viaja carimbada, e o carimbo é da intenção', () => {
   // tentativa faria o reenvio depois de um erro virar um segundo movimento,
   // que é exatamente o caso que a chave existe para impedir.
   assert.match(estoque, /setMovementKey\(crypto\.randomUUID\(\)\)/)
-  assert.match(estoque, /form\.reason, movementKey\)/)
-  assert.doesNotMatch(estoque, /form\.reason, crypto\.randomUUID\(\)\)/)
+  // A chamada passou a levar também de quem veio a mercadoria, e por isso
+  // ocupa mais de uma linha. O que esta regra guarda continua sendo o
+  // carimbo: a chave da intenção viaja junto com o motivo.
+  assert.match(estoque, /form\.reason,[\s\S]{0,20}?movementKey[,)]/)
+  assert.doesNotMatch(estoque, /form\.reason,\s*crypto\.randomUUID\(\)\)/)
 })
 
 test('a cobrança viaja carimbada, e o carimbo é da intenção', () => {

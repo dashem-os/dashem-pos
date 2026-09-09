@@ -112,7 +112,10 @@ interface PosContextType {
   closeCash: (closingBalance: number) => Promise<void>
   addCashMovement: (type: 'BLEED' | 'REINFORCEMENT', amount: number, notes?: string) => Promise<void>
   createNewProduct: (product: { name: string; sku: string; barcode?: string; image_url?: string; item_type?: 'PRODUCT' | 'SERVICE'; category_id?: string }, price: number, initialStock?: number) => Promise<api.Product | null | undefined>
-  adjustStock: (productId: string, quantity: number, type: string, reason?: string, idempotencyKey?: string) => Promise<void>
+  adjustStock: (
+    productId: string, quantity: number, type: string, reason?: string,
+    idempotencyKey?: string, supplierId?: string | null,
+  ) => Promise<void>
   refreshData: () => Promise<void>
 }
 
@@ -912,7 +915,10 @@ export const PosProvider: React.FC<{
     }
   }
 
-  const adjustStock = async (productId: string, quantity: number, type: string, reason?: string, idempotencyKey?: string) => {
+  const adjustStock = async (
+    productId: string, quantity: number, type: string, reason?: string,
+    idempotencyKey?: string, supplierId?: string | null,
+  ) => {
     if (!store) return
     try {
       setActionLoading(true)
@@ -923,7 +929,10 @@ export const PosProvider: React.FC<{
         actor_id: operatorId,
         movement_type: type,
         quantity,
-        reason
+        reason,
+        // De quem veio. A coluna existia e nenhuma tela a preenchia, então a
+        // pergunta "quem entregou isto?" continuava sem resposta no histórico.
+        supplier_id: supplierId || null
       }, idempotencyKey)
       showToast('success', 'Movimentação registrada no histórico do estoque.')
       refreshData()

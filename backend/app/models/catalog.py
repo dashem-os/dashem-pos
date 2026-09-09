@@ -162,6 +162,10 @@ class InventoryMovement(SQLModel, table=True):
     # de venda — e nulo também no histórico anterior a este vínculo, onde
     # ausência não prova ausência de baixa.
     sale_item_id: Optional[uuid.UUID] = Field(default=None, foreign_key="sale_items.id", index=True)
+    #: De quem veio esta mercadoria. Só faz sentido em entrada, e é opcional:
+    #: muita reposição de bairro chega sem fornecedor cadastrado, e exigir um
+    #: bloquearia o registro do que de fato entrou na prateleira.
+    supplier_id: Optional[uuid.UUID] = Field(default=None, foreign_key="suppliers.id", index=True)
     movement_type: MovementTypeEnum = Field(
         default=MovementTypeEnum.ADJUSTMENT,
         sa_column=Column(EnumString(MovementTypeEnum), nullable=False, index=True),

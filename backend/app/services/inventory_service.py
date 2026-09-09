@@ -136,6 +136,9 @@ def adjust_stock(
     correlation_id: Optional[str] = None,
     sale_item_id: Optional[uuid.UUID] = None,
     origin: Optional[MovementOriginEnum] = None,
+    #: De quem veio a mercadoria, quando se sabe. É o vínculo que responde
+    #: "de quem veio esta entrada?" — e não existe pedido de compra por trás.
+    supplier_id: Optional[uuid.UUID] = None,
 ) -> Tuple[Optional[InventoryMovement], InventoryBalance, bool]:
     actor_id = resolve_actor(context, actor_id)
     qty_dec = signed_variation(movement_type, quantity)
@@ -229,6 +232,7 @@ def adjust_stock(
         correlation_id=correlation_id,
         sale_item_id=sale_item_id,
         origin=origin,
+        supplier_id=supplier_id,
     )
     session.add(movement)
 

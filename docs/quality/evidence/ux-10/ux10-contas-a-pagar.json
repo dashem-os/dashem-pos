@@ -1,0 +1,52 @@
+{
+  "app": "http://127.0.0.1:5173",
+  "gerado_em": "2026-09-09T01:23:01.747Z",
+  "etapas": [
+    {
+      "etapa": "o card existe em Financeiro"
+    },
+    {
+      "etapa": "lançar",
+      "apareceram": true
+    },
+    {
+      "etapa": "vencida é derivada",
+      "acusou": true
+    },
+    {
+      "etapa": "dinheiro com vírgula",
+      "escreveu": true
+    },
+    {
+      "etapa": "baixa parcial",
+      "saldo": true
+    },
+    {
+      "etapa": "reverter",
+      "voltou": true,
+      "mostraAsDuas": true
+    },
+    {
+      "etapa": "ajuste",
+      "avisa": true
+    },
+    {
+      "etapa": "receber mercadoria não gera dívida",
+      "contasAntes": 2,
+      "contasDepois": 2
+    }
+  ],
+  "telas": [
+    "1-card-em-financeiro",
+    "2-tela-vazia",
+    "3-contas-lancadas",
+    "4-baixa-parcial-preenchida",
+    "5-baixa-parcial-registrada",
+    "6-baixa-desfeita",
+    "7-ajuste-preenchido",
+    "8-ajuste-lancado",
+    "9-recebimento-feito",
+    "10-nenhuma-divida-nova"
+  ],
+  "falhas": []
+}

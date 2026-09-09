@@ -38,11 +38,15 @@ MODULE_OF_MODEL = {
     "device": "identity",
     "catalog": "catalog",
     "assortment": "catalog",
+    # Quem fornece a mercadoria fica com a mercadoria: o vínculo é do
+    # recebimento, e finanças pode ler catálogo quando precisar do favorecido.
+    "supplier": "catalog",
     "order": "operation",
     "sale": "operation",
     "table_service": "operation",
     "transfer": "operation",
     "production": "operation",
+    "payable": "finance",
     "payment": "finance",
     "negotiation": "finance",
     "provider": "finance",

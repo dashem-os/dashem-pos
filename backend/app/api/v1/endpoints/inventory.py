@@ -29,6 +29,10 @@ class StockAdjustDTO(BaseModel):
     movement_type: MovementTypeEnum
     quantity: float
     reason: Optional[str] = None
+    #: De quem veio a mercadoria. Só faz sentido em entrada, e é opcional:
+    #: reposição de bairro chega sem fornecedor cadastrado, e exigir um
+    #: bloquearia o registro do que de fato entrou na prateleira.
+    supplier_id: Optional[uuid.UUID] = None
 
 class StockAdjustResponse(BaseModel):
     movement: Optional[InventoryMovement]
@@ -104,6 +108,7 @@ def adjust_stock_endpoint(
         movement_type=data.movement_type,
         quantity=data.quantity,
         reason=data.reason,
+        supplier_id=data.supplier_id,
         correlation_id=x_correlation_id
     )
 

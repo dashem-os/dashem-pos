@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowLeft, BadgeDollarSign, Banknote, Boxes, Building2, ChefHat, FileCheck2, FileText, Handshake, Home,
   Layers, LayoutGrid, LogOut, Monitor, CreditCard, Package, Plug, Settings, ShoppingCart,
-  Store as StoreIcon, Tags, Users, Wallet,
+  ReceiptText, Store as StoreIcon, Tags, Users, Wallet,
 } from 'lucide-react'
 import { usePos } from '../context/PosContext'
 import { useAuth } from '../context/AuthContext'
@@ -23,6 +23,8 @@ import { InventoryManager } from '../components/management/InventoryManager'
 import { ReceivablesManager } from '../components/management/ReceivablesManager'
 import { CustomerManager } from '../components/management/CustomerManager'
 import { TenantPlanWorkspace } from '../components/management/TenantPlanWorkspace'
+import { SupplierManager } from '../components/management/SupplierManager'
+import { PayablesManager } from '../components/management/PayablesManager'
 import { AreaHub } from '../components/management/AreaHub'
 import {
   EstadoDaGestao, acharArea, ehConteudoDaEntrada, enderecoDe,
@@ -34,6 +36,7 @@ const ICONES: Record<string, React.ComponentType<{ className?: string }>> = {
   overview: Home, sales: FileText, cash: Banknote, channels: Plug,
   receivables: BadgeDollarSign, products: Package, assortments: Layers, categories: Tags,
   inventory: Boxes, customers: Users, tables: ChefHat, devices: Monitor, team: Users,
+  suppliers: Building2, payables: ReceiptText,
   subscription: FileCheck2, payment_providers: CreditCard,
 }
 
@@ -54,6 +57,8 @@ function conteudoDoModulo(id: string, abrir: (destino: string) => void, disponiv
     case 'categories': return <CategoryManager />
     case 'inventory': return <InventoryManager />
     case 'customers': return <CustomerManager />
+    case 'suppliers': return <SupplierManager />
+    case 'payables': return <PayablesManager />
     case 'cash': return <CashManager />
     case 'receivables': return <ReceivablesManager />
     case 'tables': return <ServiceSetupManager />

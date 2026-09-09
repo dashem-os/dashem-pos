@@ -263,6 +263,9 @@ export interface InventoryMovement {
   origin?: 'COUNT' | 'TECHNICAL_ADJUSTMENT' | null
   quantity: number
   reason?: string
+  // De quem veio a mercadoria. Nulo em perda, em venda, e em todo recebimento
+  // anterior ao seletor — onde a pergunta não chegou a ser feita.
+  supplier_id?: string | null
   created_at: string
 }
 
@@ -3161,7 +3164,12 @@ export async function fetchInventoryBalance(headers: Record<string, string>, sto
 
 export async function adjustInventory(
   headers: Record<string, string>,
-  data: { store_id: string; product_id: string; actor_id: string; movement_type: string; quantity: number; reason?: string },
+  data: {
+    store_id: string; product_id: string; actor_id: string
+    movement_type: string; quantity: number; reason?: string
+    /** De quem veio esta mercadoria. Opcional: nem toda reposição tem cadastro. */
+    supplier_id?: string | null
+  },
   /**
    * A chave da **intenção**, não da tentativa. O servidor já sabia deduplicar
    * por `Idempotency-Key` desde sempre; esta tela nunca mandava uma, então dois
@@ -4287,5 +4295,248 @@ export async function retryFiscalDocument(
 export async function getFiscalDocument(headers: Record<string, string>, fiscalDocumentId: string): Promise<FiscalDocument> {
   const res = await fetch(`${API_BASE_URL}/api/v1/fiscal/documents/${fiscalDocumentId}`, { headers })
   if (!res.ok) throw new Error('Documento fiscal não encontrado')
+  return res.json()
+}
+
+// ----------------------------------------------------------------------
+// FORNECEDORES
+// ----------------------------------------------------------------------
+
+export interface SupplierContact {
+  id: string
+  supplier_id: string
+  name: string
+  role?: string
+  email?: string
+  phone?: string
+  is_primary: boolean
+}
+
+export interface Supplier {
+  id: string
+  tenant_id: string
+  name: string
+  legal_name?: string
+  document?: string
+  status: 'ACTIVE' | 'INACTIVE'
+  notes?: string
+  contacts: SupplierContact[]
+  /** Quantos recebimentos já foram atribuídos a ele. Zero é uma resposta. */
+  recebimentos: number
+}
+
+export async function fetchSuppliers(
+  headers: Record<string, string>, options: { busca?: string; incluirInativos?: boolean } = {},
+): Promise<Supplier[]> {
+  const parametros = new URLSearchParams()
+  if (options.busca) parametros.set('busca', options.busca)
+  if (options.incluirInativos) parametros.set('incluir_inativos', 'true')
+  const res = await fetch(`${API_BASE_URL}/api/v1/suppliers?${parametros}`, { headers })
+  if (!res.ok) throw await apiError(res, 'Não foi possível carregar os fornecedores.')
+  return res.json()
+}
+
+export async function createSupplier(
+  headers: Record<string, string>, idempotencyKey: string,
+  // `null` é o que apaga o campo. `undefined` some do JSON e o valor antigo fica.
+  data: { name: string; legal_name?: string | null; document?: string | null; notes?: string | null },
+): Promise<Supplier> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/suppliers`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível cadastrar o fornecedor.')
+  return res.json()
+}
+
+export async function updateSupplier(
+  headers: Record<string, string>, supplierId: string,
+  data: {
+    name?: string
+    // `null` apaga; ausente mantém o que já estava gravado.
+    legal_name?: string | null; document?: string | null; notes?: string | null
+    status?: 'ACTIVE' | 'INACTIVE'
+  },
+): Promise<Supplier> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/suppliers/${supplierId}`, {
+    method: 'PATCH', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível salvar o fornecedor.')
+  return res.json()
+}
+
+export async function addSupplierContact(
+  headers: Record<string, string>, supplierId: string,
+  data: { name: string; role?: string; email?: string; phone?: string; is_primary: boolean },
+): Promise<Supplier> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/suppliers/${supplierId}/contatos`, {
+    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível adicionar o contato.')
+  return res.json()
+}
+
+export async function removeSupplierContact(
+  headers: Record<string, string>, supplierId: string, contactId: string,
+): Promise<Supplier> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/suppliers/${supplierId}/contatos/${contactId}`, {
+    method: 'DELETE', headers,
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível remover o contato.')
+  return res.json()
+}
+
+// ===========================================================================
+// Contas a pagar (UX-10)
+//
+// O contrato está em docs/product/ux-10-contas-a-pagar-contrato.md. Duas coisas
+// que este cliente carrega e a tela não pode esquecer: `Idempotency-Key` em toda
+// escrita, porque dinheiro não se registra duas vezes; e `version` em toda
+// operação sobre saldo, porque duas pessoas pagando a mesma conta ao mesmo
+// tempo não podem pagá-la duas vezes.
+// ===========================================================================
+
+export type PayableStatus = 'OPEN' | 'PARTIALLY_PAID' | 'PAID' | 'ARCHIVED'
+export type PayableEntryType = 'ISSUE' | 'PAYMENT' | 'ADJUSTMENT' | 'REVERSAL'
+
+export interface PayableLedgerEntry {
+  id: string
+  entry_type: PayableEntryType
+  amount: string
+  method?: string | null
+  reason?: string | null
+  reverses_entry_id?: string | null
+  /** Preenchido no lançamento que foi desfeito, para a tela dizer isso na linha. */
+  reversed_by_entry_id?: string | null
+  occurred_on: string
+  created_at: string
+}
+
+export interface Payable {
+  id: string
+  tenant_id: string
+  store_id?: string | null
+  supplier_id?: string | null
+  payee_name: string
+  description?: string | null
+  status: PayableStatus
+  principal_amount: string
+  paid_amount: string
+  balance: string
+  due_on: string
+  version: number
+  archived_at?: string | null
+  archived_reason?: string | null
+  /** Derivada no servidor, nunca gravada: não há coluna "vencida". */
+  is_overdue: boolean
+  /** Negativo quando já venceu. Zero é "vence hoje". */
+  days_to_due: number
+  ledger: PayableLedgerEntry[]
+}
+
+export type PayableFilter = 'ABERTAS' | 'VENCIDAS' | 'PAGAS' | 'ARQUIVADAS' | 'TODAS'
+
+export async function fetchPayables(
+  headers: Record<string, string>,
+  options: { situacao?: PayableFilter; venceAte?: string; supplierId?: string; busca?: string } = {},
+): Promise<Payable[]> {
+  const parametros = new URLSearchParams()
+  if (options.situacao) parametros.set('situacao', options.situacao)
+  if (options.venceAte) parametros.set('vence_ate', options.venceAte)
+  if (options.supplierId) parametros.set('supplier_id', options.supplierId)
+  if (options.busca) parametros.set('busca', options.busca)
+  const res = await fetch(`${API_BASE_URL}/api/v1/payables?${parametros}`, { headers })
+  if (!res.ok) throw await apiError(res, 'Não foi possível carregar as contas a pagar.')
+  return res.json()
+}
+
+export async function fetchPayable(
+  headers: Record<string, string>, payableId: string,
+): Promise<Payable> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/payables/${payableId}`, { headers })
+  if (!res.ok) throw await apiError(res, 'Não foi possível abrir a conta.')
+  return res.json()
+}
+
+export async function createPayable(
+  headers: Record<string, string>, idempotencyKey: string,
+  data: {
+    supplier_id?: string | null; payee_name?: string | null; store_id?: string | null
+    description?: string | null; amount: string; due_on: string
+  },
+): Promise<Payable> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/payables`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível lançar a conta.')
+  return res.json()
+}
+
+export async function updatePayable(
+  headers: Record<string, string>, payableId: string,
+  data: {
+    payee_name?: string | null; supplier_id?: string | null
+    description?: string | null; due_on?: string
+  },
+): Promise<Payable> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/payables/${payableId}`, {
+    method: 'PATCH', headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível salvar a conta.')
+  return res.json()
+}
+
+export async function settlePayable(
+  headers: Record<string, string>, payableId: string, idempotencyKey: string,
+  data: { amount: string; occurred_on?: string; method?: string | null; reason?: string | null; version: number },
+): Promise<Payable> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/payables/${payableId}/baixas`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível registrar a baixa.')
+  return res.json()
+}
+
+export async function adjustPayable(
+  headers: Record<string, string>, payableId: string, idempotencyKey: string,
+  data: { amount: string; reason: string; occurred_on?: string; version: number },
+): Promise<Payable> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/payables/${payableId}/ajustes`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível lançar o ajuste.')
+  return res.json()
+}
+
+export async function reversePayableEntry(
+  headers: Record<string, string>, payableId: string, idempotencyKey: string,
+  data: { entry_id: string; reason: string; version: number },
+): Promise<Payable> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/payables/${payableId}/reversoes`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível reverter o lançamento.')
+  return res.json()
+}
+
+export async function archivePayable(
+  headers: Record<string, string>, payableId: string,
+  data: { reason: string; version: number },
+): Promise<Payable> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/payables/${payableId}/arquivamento`, {
+    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível arquivar a conta.')
   return res.json()
 }

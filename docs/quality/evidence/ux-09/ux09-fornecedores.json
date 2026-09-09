@@ -1,0 +1,64 @@
+{
+  "app": "http://127.0.0.1:5173",
+  "gerado_em": "2026-09-09T01:23:38.900Z",
+  "etapas": [
+    {
+      "etapa": "o card existe em Relacionamento",
+      "descricao": true
+    },
+    {
+      "etapa": "cadastrar",
+      "apareceu": true
+    },
+    {
+      "etapa": "localizar pelo documento",
+      "achou": true
+    },
+    {
+      "etapa": "contatos",
+      "guardou": true
+    },
+    {
+      "etapa": "nada promete pedido de compra"
+    },
+    {
+      "etapa": "CNPJ alfanumérico",
+      "naTela": true
+    },
+    {
+      "etapa": "apagar o documento",
+      "apagou": true
+    },
+    {
+      "etapa": "documento de outro",
+      "recusou": true
+    },
+    {
+      "etapa": "seletor no recebimento",
+      "existe": true
+    },
+    {
+      "etapa": "histórico nomeia o fornecedor",
+      "achou": true
+    },
+    {
+      "etapa": "o fornecedor conta o recebimento",
+      "deixouDeSerZero": true
+    }
+  ],
+  "telas": [
+    "1-card-em-relacionamento",
+    "2-tela-vazia",
+    "3-fornecedor-cadastrado",
+    "4-contatos",
+    "5-lista-final",
+    "6-cnpj-alfanumerico",
+    "7-documento-apagado",
+    "8-documento-de-outro-recusado",
+    "9-estoques",
+    "10-recebimento-com-fornecedor",
+    "11-historico-de-quem-veio",
+    "12-fornecedor-com-recebimento"
+  ],
+  "falhas": []
+}

@@ -99,6 +99,20 @@ def route_requirement(method: str, path: str) -> RouteRequirement:
         if "/sessions" in path:
             return RouteRequirement("table.session.open" if path.endswith("/sessions") else "table.session.update")
         return RouteRequirement("table.manage")
+    if path.startswith("/api/v1/payables"):
+        # Reverter fica separado de dar baixa de propósito: quem registra o dia
+        # a dia não precisa poder desfazer o de ontem.
+        if method == "GET":
+            return RouteRequirement("payable.read")
+        if path.endswith("/reversoes"):
+            return RouteRequirement("payable.reverse")
+        if path.endswith("/baixas") or path.endswith("/ajustes"):
+            return RouteRequirement("payable.settle")
+        return RouteRequirement("payable.manage")
+    if path.startswith("/api/v1/suppliers"):
+        # Ler quem fornece é consulta; cadastrar e editar é administração do
+        # acervo comercial, e não faz parte do que se precisa para vender.
+        return RouteRequirement("supplier.read" if method == "GET" else "supplier.manage")
     if path.startswith("/api/v1/devices"):
         if path.endswith("/heartbeat"):
             return RouteRequirement("device.heartbeat")

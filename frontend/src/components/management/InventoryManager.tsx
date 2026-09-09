@@ -90,6 +90,7 @@ export function InventoryManager() {
   const [form, setForm] = useState({
     quantity: '', movement_type: 'PURCHASE',
     reason: DEFAULT_STOCK_REASONS.PURCHASE,
+    supplier_id: '',
   })
   const [movementError, setMovementError] = useState('')
   // Uma intenção, uma chave. Ela sobrevive à tentativa que falhou, para o
@@ -106,9 +107,41 @@ export function InventoryManager() {
     setForm({
       quantity: '', movement_type: tipo,
       reason: DEFAULT_STOCK_REASONS[tipo],
+      supplier_id: '',
     })
   }
   const recebendo = form.movement_type === 'PURCHASE'
+
+  // ------------------------------------------------------- de quem veio
+  // O vínculo do recebimento com o fornecedor existia no banco e não tinha por
+  // onde ser informado: a coluna nascia nula em todo recebimento, e o histórico
+  // continuava sem responder "quem entregou isto?". Perda não tem fornecedor —
+  // o seletor só aparece quando se está recebendo.
+  const podeVerFornecedores = permissions.includes('supplier.read')
+  const [fornecedores, setFornecedores] = useState<api.Supplier[]>([])
+  useEffect(() => {
+    if (!podeVerFornecedores) return
+    let ativo = true
+    // Inclui os arquivados de propósito: o seletor só oferece os ativos, mas o
+    // histórico precisa saber o nome de quem entregou antes de ser arquivado.
+    api.fetchSuppliers(headers, { incluirInativos: true })
+      .then((lista) => { if (ativo) setFornecedores(lista) })
+      // Falhar aqui não pode impedir o recebimento: o vínculo é opcional, e
+      // travar a reposição por causa dele seria trocar um dado ausente por
+      // uma prateleira parada.
+      .catch(() => { if (ativo) setFornecedores([]) })
+    return () => { ativo = false }
+  }, [podeVerFornecedores, headers])
+  // Guardar o vínculo sem mostrá-lo de volta é o mesmo que não guardar: quem
+  // recebeu precisa reler no histórico de quem veio aquela entrada.
+  const nomeDoFornecedor = useCallback(
+    (id: string) => fornecedores.find((f) => f.id === id)?.name || null,
+    [fornecedores],
+  )
+  const ativos = useMemo(
+    () => fornecedores.filter((f) => f.status === 'ACTIVE'),
+    [fornecedores],
+  )
 
   // ------------------------------------------------------------- mínimo
   // Configurar o mínimo é decisão de política, não movimentação: nada entra,
@@ -146,7 +179,10 @@ export function InventoryManager() {
     setBusy(true)
     setMovementError('')
     try {
-      await adjustStock(selected.product_id, Number(form.quantity), form.movement_type, form.reason, movementKey)
+      await adjustStock(
+        selected.product_id, Number(form.quantity), form.movement_type, form.reason,
+        movementKey, recebendo ? form.supplier_id || null : null,
+      )
     } catch (reason) {
       // A recusa fica no formulário, onde a pessoa está olhando. O aviso
       // flutuante some sozinho em poucos segundos: quem digitou 999 e viu o
@@ -439,7 +475,14 @@ export function InventoryManager() {
                   {movementAmount(Number(item.quantity), unitOf(item.product_id))}
                 </span>
               </span>
-              <span className="text-dashem-muted">{formatApiDateTime(item.created_at)}</span>
+              <span className="text-dashem-muted">
+                {formatApiDateTime(item.created_at)}
+                {item.supplier_id && nomeDoFornecedor(item.supplier_id) && (
+                  <span className="ml-2 font-bold text-dashem-strong">
+                    de {nomeDoFornecedor(item.supplier_id)}
+                  </span>
+                )}
+              </span>
             </div>
           ))}
           {movements.length === 0 && (
@@ -549,6 +592,28 @@ export function InventoryManager() {
         <form onSubmit={submit} className="space-y-4">
           <Field label={recebendo ? 'Quantidade recebida' : 'Quantidade perdida'} type="number" value={form.quantity} onChange={(value) => setForm({ ...form, quantity: value })} placeholder={recebendo ? 'Ex.: 24' : 'Ex.: 2'} />
           <Field label="Motivo" value={form.reason} onChange={(value) => setForm({ ...form, reason: value })} />
+          {recebendo && podeVerFornecedores && (
+            <label className="block">
+              <span className="mb-1.5 block text-xs font-black uppercase tracking-wide text-brand-ink-soft">
+                De quem veio
+              </span>
+              <select
+                value={form.supplier_id}
+                onChange={(evento) => setForm({ ...form, supplier_id: evento.target.value })}
+                className="h-12 w-full rounded-xl border border-brand-line bg-brand-surface px-3 text-sm font-bold text-brand-ink"
+              >
+                <option value="">Não informar</option>
+                {ativos.map((fornecedor) => (
+                  <option key={fornecedor.id} value={fornecedor.id}>{fornecedor.name}</option>
+                ))}
+              </select>
+              <span className="mt-1.5 block text-xs font-semibold text-brand-ink-soft">
+                {ativos.length === 0
+                  ? 'Nenhum fornecedor cadastrado ainda. Cadastre em Relacionamento › Fornecedores.'
+                  : 'Opcional. Informado, o recebimento passa a dizer quem entregou.'}
+              </span>
+            </label>
+          )}
           {movementError && (
             <p role="alert" className="rounded-xl border border-state-danger-border bg-state-danger-soft p-3 text-xs font-bold text-state-danger">
               {movementError}

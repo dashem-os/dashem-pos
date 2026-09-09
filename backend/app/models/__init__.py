@@ -275,3 +275,5 @@ __all__ = [
     "StorageMeterSource", "StorageMeasurement", "StorageProviderMeasurement", "StorageReservation",
     "Assortment", "AssortmentScope", "AssortmentProduct", "AssortmentStatusEnum", "SalesContextEnum",
 ]
+from app.models.supplier import Supplier, SupplierContact, SupplierStatusEnum
+from app.models.payable import Payable, PayableLedgerEntry, PayableEntryTypeEnum, PayableStatusEnum
