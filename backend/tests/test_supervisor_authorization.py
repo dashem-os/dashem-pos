@@ -96,7 +96,11 @@ def test_the_till_alone_cannot_cancel():
         with pytest.raises(HTTPException) as recusa:
             authorize_tenant_context(session, _principal(caixa), tenant_id, store_id, *CANCELAR)
     assert recusa.value.status_code == 403
-    assert "sale.cancel" in recusa.value.detail
+    # Esta é a recusa que a operadora lê no balcão. Ela nomeia a operação em
+    # português e não vaza a chave da permissão — foi assim que "Missing
+    # permission: sale.cancel" apareceu na tela, na travessia hom04.
+    assert recusa.value.detail == "Você não tem autorização para cancelar venda. Peça a quem tem."
+    assert "sale.cancel" not in recusa.value.detail
 
 
 def test_the_supervisor_at_the_counter_authorizes_this_one_operation():

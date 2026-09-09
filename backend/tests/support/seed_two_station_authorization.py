@@ -132,7 +132,7 @@ def seed(output: Path, saldo_disputado: str | None = None) -> None:
             estacoes.append((registradora, terminal))
         caixa = estacoes[0][0]
 
-        gestora, _vinculo_gestora, _sub_gestora, _email_gestora = _pessoa(
+        gestora, _vinculo_gestora, sub_gestora, email_gestora = _pessoa(
             session, tenant, loja, nome="Marcela Almeida", papel=RoleEnum.TENANT_OWNER,
             apelido="gestora", sufixo=sufixo,
         )
@@ -236,6 +236,12 @@ def seed(output: Path, saldo_disputado: str | None = None) -> None:
                            "employee_code": CODIGO_SUPERVISORA, "pin": PIN_SUPERVISORA,
                            "terminal_token": terminais[1]},
             "products": {sku: str(pid) for sku, pid in produtos.items()},
+            # A gestora entra pela Gestão e é ela quem concede e retira
+            # autoridade. O vínculo da operadora vem junto porque é nele que a
+            # marcação é escrita.
+            "manager": {"email": email_gestora, "token": _token(sub_gestora, email_gestora),
+                        "name": "Marcela Almeida", "role": "TENANT_OWNER"},
+            "operator_membership_id": str(vinculo_op.id),
             "disputado": {"sku": PRODUTO_DISPUTADO,
                           "product_id": str(produtos[PRODUTO_DISPUTADO]),
                           "saldo": saldo_disputado or "16"},

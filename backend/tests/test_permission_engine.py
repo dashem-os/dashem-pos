@@ -1,3 +1,4 @@
+import re
 import uuid
 
 import pytest
@@ -51,6 +52,18 @@ def _identity(session: Session, tenant: Tenant, role: RoleEnum, suffix: str):
     return subject, membership
 
 
+def _recusa_de_autoridade(detail: str, operacao: str, chave: str) -> None:
+    """A recusa 403 é lida por quem está no balcão, não por quem programa.
+
+    Ela nomeia a operação em português — o mesmo nome que a tela de acessos
+    mostra — e não vaza a chave da permissão. Foi assim que ``sale.cancel``
+    apareceu para uma operadora de caixa, em inglês, na travessia hom04.
+    """
+    assert detail == f"Você não tem autorização para {operacao}. Peça a quem tem."
+    assert chave not in detail
+    assert not re.search(r"[a-z]+\.[a-z]+", detail), f"chave de permissão na recusa: {detail}"
+
+
 def test_permission_capability_context_and_store_grant_are_all_required():
     suffix = uuid.uuid4().hex[:8]
     with Session(engine) as session:
@@ -99,7 +112,7 @@ def test_permission_capability_context_and_store_grant_are_all_required():
                 "POST", "/api/v1/catalog/products",
             )
         assert sibling_store.value.status_code == 403
-        assert "catalog.update" in sibling_store.value.detail
+        _recusa_de_autoridade(sibling_store.value.detail, "administrar catálogo", "catalog.update")
 
     with Session(engine) as session:
         admin = authorize_tenant_context(
@@ -148,7 +161,7 @@ def test_explicit_deny_overrides_system_role_profile():
                 "POST", f"/api/v1/sales/{uuid.uuid4()}/cancel",
             )
         assert denied.value.status_code == 403
-        assert "sale.cancel" in denied.value.detail
+        _recusa_de_autoridade(denied.value.detail, "cancelar venda", "sale.cancel")
 
 
 def test_only_tenant_administrator_profile_can_manage_the_team():
@@ -177,7 +190,7 @@ def test_only_tenant_administrator_profile_can_manage_the_team():
                 "POST", "/api/v1/team/invitations",
             )
         assert manager.value.status_code == 403
-        assert "team.manage" in manager.value.detail
+        _recusa_de_autoridade(manager.value.detail, "administrar equipe", "team.manage")
 
 
 def test_contract_requests_have_a_dedicated_tenant_permission():
@@ -210,7 +223,7 @@ def test_contract_requests_have_a_dedicated_tenant_permission():
                 "POST", "/api/v1/commercial-requests",
             )
         assert manager.value.status_code == 403
-        assert "contract.request" in manager.value.detail
+        _recusa_de_autoridade(manager.value.detail, "solicitar alteração contratual", "contract.request")
 
 
 def test_permission_mapping_downgrades_on_a_trailing_slash_and_routing_is_what_saves_it():

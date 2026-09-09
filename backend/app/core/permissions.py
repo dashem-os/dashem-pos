@@ -290,7 +290,20 @@ def enforce_effective_access(
     access = effective_access(session, membership, store_id)
     if requirement.permission not in access.permissions:
         if elevate is None:
-            raise HTTPException(status_code=403, detail=f"Missing permission: {requirement.permission}")
+            # A recusa é lida por quem está no balcão, e "Missing permission:
+            # sale.cancel" não ensina nada a ela: é inglês e é chave de
+            # permissão. O cadastro já tem o nome da operação em português —
+            # é o mesmo que a tela de acessos mostra — e é ele que vai aqui.
+            registro = session.get(Permission, requirement.permission)
+            operacao = (registro.name or "").strip().lower() if registro else ""
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    f"Você não tem autorização para {operacao}. Peça a quem tem."
+                    if operacao else
+                    "Você não tem autorização para esta operação. Peça a quem tem."
+                ),
+            )
         elevate(requirement.permission)
         access = EffectiveAccess(
             permissions=access.permissions + (requirement.permission,),

@@ -1,0 +1,51 @@
+{
+  "app": "http://127.0.0.1:5199",
+  "gerado_em": "2026-09-09T18:20:05.620Z",
+  "etapas": [
+    {
+      "etapa": "sem autoridade, cancelar pede a segunda pessoa"
+    },
+    {
+      "etapa": "a gestora concede a autoridade",
+      "status": 200
+    },
+    {
+      "etapa": "concessão não alcança a sessão já aberta",
+      "telaAindaPede": true,
+      "observacao": "erra para o lado seguro: pede autorização que já não seria necessária"
+    },
+    {
+      "etapa": "relida a sessão, a operadora cancela sozinha",
+      "semDialogo": true
+    },
+    {
+      "etapa": "a gestora retira a autoridade",
+      "status": 200
+    },
+    {
+      "etapa": "a frase da recusa, como o balcão a lê",
+      "texto": "Você não tem autorização para cancelar venda."
+    },
+    {
+      "etapa": "retirada com a sessão aberta: a tela tenta, o servidor decide",
+      "telaMostrouRecusa": true
+    }
+  ],
+  "telas": [
+    "01-gestao-aberta",
+    "02-sem-autoridade-pede-supervisor",
+    "03-concessao-nao-chega-a-sessao-aberta",
+    "04-com-autoridade-cancela-sozinha",
+    "05-retirada-com-sessao-aberta"
+  ],
+  "servidor": {
+    "venda_apos_retirada": {
+      "carrinho_na_tela": "1 item",
+      "abertas_no_servidor": 1,
+      "canceladas_no_servidor": 1,
+      "leitura_do_servidor": "HTTP 200/200",
+      "recusa": "Você não tem autorização para cancelar venda."
+    }
+  },
+  "falhas": []
+}
