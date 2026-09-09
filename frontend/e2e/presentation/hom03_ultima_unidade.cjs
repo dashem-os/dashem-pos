@@ -17,6 +17,12 @@
  * E confere no servidor o que as telas disseram: quantas vendas existem, o que
  * ficou reservado e qual é o saldo. Saldo negativo aqui é o defeito que o
  * cenário existe para não deixar passar.
+ *
+ * **O que este roteiro NÃO faz.** Ele é sequencial: espera a estação 1 pôr a
+ * unidade no carrinho antes de mandar a estação 2 tentar. Prova que uma reserva
+ * já concluída impede a segunda inclusão — não prova que duas inclusões
+ * **simultâneas** disputando a mesma unidade se resolvem no banco. Essa é outra
+ * prova, e ela precisa construir a corrida em vez de torcer pelo escalonador.
  */
 const fs = require('node:fs')
 const path = require('node:path')

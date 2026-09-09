@@ -1,4 +1,4 @@
-# Homologação — duas estações sobre a última unidade
+# Homologação — a segunda estação e a unidade já reservada
 
 Data: 09/09/2026 · trilha: [sprints da experiência](../product/ui-ux-implementation-sprints.md) ·
 evidência: [`evidence/hom-03-ultima-unidade/`](evidence/hom-03-ultima-unidade/) ·
@@ -62,20 +62,38 @@ mesma coisa — `03-estacao-2-grade-relida.png`.
 
 ## Alcance desta evidência
 
-Percorrido: duas estações reais, cada uma com o seu terminal autorizado e a sua
-pessoa entrando por código e PIN, disputando a mesma unidade, com conferência no
-servidor.
+**O roteiro é sequencial.** Ele espera a estação 1 pôr a unidade no carrinho
+antes de mandar a estação 2 tentar. Isso comprova uma coisa, e não a outra:
 
-**Não** percorrido aqui: disputa com mais de duas estações, disputa em unidades
-diferentes da mesma empresa, e disputa sobre mercadoria com reserva de canal
-(pedido de delivery segurando estoque). Ficam nomeadas, não implícitas.
+| Prova | Situação |
+|---|---|
+| Duas estações, e a segunda encontra a unidade **já reservada** | **demonstrada** aqui |
+| Duas inclusões **simultâneas** disputando a unidade antes de qualquer reserva concluir | **não demonstrada** |
+
+A segunda linha não é "provavelmente também funciona". O mecanismo existe —
+`inventory_service` materializa a linha de saldo e a trava com `FOR UPDATE`
+antes de reservar, com o comentário explicando que `FOR UPDATE` não bloqueia
+linha inexistente — mas **ler o código não é prova**. Nenhum teste do
+repositório constrói essa corrida: `test_the_second_station_cannot_promise_what_the_first_already_did`
+reserva, faz commit, e só então tenta de novo — o mesmo formato sequencial deste
+roteiro.
+
+Fica como pendência específica, e o formato que ela pede é o que a UX-10 usou
+para a corrida das contas a pagar: uma transação própria segura a linha do saldo
+enquanto a inclusão é disparada, e a diferença aparece no relógio. Uma prova que
+passa com e sem a trava mede o escalonador, não a regra.
+
+**Também não** percorrido: disputa com mais de duas estações, disputa em
+unidades diferentes da mesma empresa, e disputa sobre mercadoria com reserva de
+canal (pedido de delivery segurando estoque). Ficam nomeadas, não implícitas.
 
 ## Lacunas de homologação, depois desta
 
 | Lacuna | Estado |
 |---|---|
 | Dois destinos nunca percorridos | fechada em 09/09/2026 |
-| **Concorrência de duas estações pela última unidade** | **fechada em 09/09/2026** |
+| Duas estações, a segunda achando a unidade já reservada | **fechada em 09/09/2026** |
+| **Duas inclusões simultâneas disputando a última unidade** | **aberta** — pendência específica, com o formato de prova descrito acima |
 | Conceder e retirar autoridade de um operador | aberta — próxima |
 | Catálogo volumoso não exercitado | aberta |
 | Estado "em processamento" do TEF | aberta |
