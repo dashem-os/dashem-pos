@@ -1,0 +1,104 @@
+{
+  "app": "http://127.0.0.1:5199",
+  "gerado_em": "2026-09-09T19:17:25.910Z",
+  "acervo": {
+    "vendaveis": 1203,
+    "produto_do_fim": "Zimbro Desidratado 5kg"
+  },
+  "etapas": [
+    {
+      "etapa": "a grade do balcão abre com o acervo grande",
+      "ms": 1315,
+      "abrange": "do recarregamento até o primeiro cartão; inclui o Vite de desenvolvimento, então NÃO é medida do produto — fica como sinal de que a tela subiu, não como prova de desempenho"
+    },
+    {
+      "etapa": "a grade pagina o acervo grande, e o servidor responde",
+      "total": 1203,
+      "por_pagina": 50,
+      "pagina_1_ms": 168,
+      "ultima_pagina_ms": 213,
+      "medida": "mediana de três, descartada a primeira batida",
+      "cruas": {
+        "pagina_1": [
+          332,
+          221,
+          142,
+          168
+        ],
+        "ultima": [
+          284,
+          186,
+          213,
+          236
+        ]
+      }
+    },
+    {
+      "etapa": "a busca acha e vende o produto do fim do alfabeto",
+      "produto": "Zimbro Desidratado 5kg",
+      "ms": 831
+    },
+    {
+      "etapa": "o catálogo mestre, como o seletor o recebe",
+      "devolvidos": 200,
+      "de": 1203,
+      "ultimo_nome": "Detergente Tipo 034",
+      "ms": 131
+    },
+    {
+      "etapa": "o seletor de produtos do sortimento",
+      "tem_busca": true
+    }
+  ],
+  "telas": [
+    "01-grade-sob-mil-e-duzentos",
+    "02-busca-acha-o-fim-do-alfabeto",
+    "03-gestao-sortimentos",
+    "04-seletor-avisa-que-ha-mais-do-que-cabe",
+    "05-seletor-acha-o-fim-do-alfabeto"
+  ],
+  "medidas": {
+    "primeira_pagina_da_grade_ms": 1315,
+    "pagina_1_do_servidor_ms": 168,
+    "ultima_pagina_do_servidor_ms": 213,
+    "busca_ms": 831
+  },
+  "servidor": {
+    "grade": {
+      "primeira": {
+        "status": 200,
+        "total": 1203,
+        "itens": 50,
+        "ms": 168,
+        "tempos": [
+          332,
+          221,
+          142,
+          168
+        ]
+      },
+      "ultima": {
+        "status": 200,
+        "total": 1203,
+        "itens": 3,
+        "ms": 213,
+        "tempos": [
+          284,
+          186,
+          213,
+          236
+        ]
+      }
+    },
+    "catalogo_mestre": {
+      "status": 200,
+      "ms": 131,
+      "quantos": 200,
+      "primeiro": "Arroz Tipo 001",
+      "ultimo": "Detergente Tipo 034",
+      "tem_o_do_fim": false
+    },
+    "aviso_do_teto": true
+  },
+  "falhas": []
+}

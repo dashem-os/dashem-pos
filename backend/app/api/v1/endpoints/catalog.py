@@ -243,8 +243,17 @@ def create_product_endpoint(data: ProductCreateDTO, context: TenantContext = Dep
 
 
 @router.get("/products", response_model=List[Product])
-def list_products_endpoint(category_id: Optional[uuid.UUID] = None, search: Optional[str] = None, context: TenantContext = Depends(get_tenant_context), session: Session = Depends(get_session)):
-    return catalog_service.list_products(session, context, category_id, search)
+def list_products_endpoint(
+    category_id: Optional[uuid.UUID] = None,
+    search: Optional[str] = None,
+    limit: int = Query(
+        default=catalog_service.LIMITE_DO_CATALOGO_MESTRE, ge=1, le=500,
+        description="Teto de linhas. Uma resposta com exatamente este tamanho pode ter cortado: refine a busca.",
+    ),
+    context: TenantContext = Depends(get_tenant_context),
+    session: Session = Depends(get_session),
+):
+    return catalog_service.list_products(session, context, category_id, search, limit)
 
 
 @router.patch("/products/{product_id}", response_model=Product)

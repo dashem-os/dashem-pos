@@ -2724,8 +2724,20 @@ export async function createStore(tenantId: string, name: string, code: string):
 // CATALOG & INVENTORY ENDPOINTS
 // ----------------------------------------------------------------------
 
-export async function fetchProducts(headers: Record<string, string>, search?: string): Promise<Product[]> {
-  const url = search ? `${API_BASE_URL}/api/v1/catalog/products?search=${encodeURIComponent(search)}` : `${API_BASE_URL}/api/v1/catalog/products`
+/**
+ * Catálogo mestre do tenant, com teto explícito.
+ *
+ * O servidor corta em `limit` linhas. Quem chama precisa passar o número para
+ * poder reconhecer o corte: uma resposta com exatamente `limit` itens pode ter
+ * deixado produtos de fora, e a tela tem de dizer isso em vez de fingir que a
+ * lista está inteira.
+ */
+export const LIMITE_DO_CATALOGO_MESTRE = 200
+
+export async function fetchProducts(headers: Record<string, string>, search?: string, limit: number = LIMITE_DO_CATALOGO_MESTRE): Promise<Product[]> {
+  const params = new URLSearchParams({ limit: String(limit) })
+  if (search) params.set('search', search)
+  const url = `${API_BASE_URL}/api/v1/catalog/products?${params.toString()}`
   const res = await fetch(url, { headers })
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))

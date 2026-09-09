@@ -56,6 +56,19 @@ CATALOGO = (
 )
 PRODUTO_DISPUTADO = "COC-051"
 
+# `--volume N` acrescenta N produtos ao acervo, para medir busca e grade sob
+# carga. Os nomes se espalham pelo alfabeto de propósito: quem lista ordenado
+# por nome e corta em algum número mostra o começo do alfabeto e esconde o fim.
+FAMILIAS = (
+    "Arroz", "Biscoito", "Café", "Detergente", "Erva-mate", "Farinha",
+    "Goiabada", "Hambúrguer", "Iogurte", "Jujuba", "Ketchup", "Leite",
+    "Macarrão", "Néctar", "Óleo", "Pão", "Queijo", "Refrigerante",
+    "Sabonete", "Tempero", "Uva-passa", "Vinagre",
+)
+#: O produto do fim do alfabeto. Ele existe, é vendável, e é o que qualquer
+#: corte silencioso vai deixar de fora — por isso a travessia procura por ele.
+PRODUTO_DO_FIM = ("Zimbro Desidratado 5kg", "ZIM-0001", "74.90")
+
 CODIGO_SUPERVISORA = "SUP-01"
 PIN_SUPERVISORA = "4826"
 CODIGO_OPERADORA = "CX-01"
@@ -74,6 +87,44 @@ def _token(subject: str, email: str) -> str:
         },
         settings.AUTH_TEST_SECRET, algorithm="HS256",
     )
+
+
+def _catalogo_volumoso(session: Session, tenant, loja, quantos: int) -> dict[str, uuid.UUID]:
+    """Acervo grande, com nomes espalhados pelo alfabeto e um produto no fim dele.
+
+    Não é enfeite: a medida de "catálogo volumoso" precisa de um produto que
+    esteja comprovadamente **depois** de qualquer corte por ordem de nome.
+    """
+    criados: dict[str, uuid.UUID] = {}
+    for indice in range(quantos):
+        familia = FAMILIAS[indice % len(FAMILIAS)]
+        numero = indice // len(FAMILIAS) + 1
+        nome = f"{familia} Tipo {numero:03d}"
+        sku = f"VOL-{indice + 1:05d}"
+        preco = Decimal("3.50") + Decimal(indice % 40)
+        produto = Product(tenant_id=tenant.id, name=nome, sku=sku, unit="UN",
+                          item_type=ItemTypeEnum.PRODUCT, tracks_inventory=True)
+        session.add(produto)
+        session.flush()
+        criados[sku] = produto.id
+        session.add(ProductPrice(tenant_id=tenant.id, store_id=loja.id, product_id=produto.id,
+                                 sale_price=preco, cost_price=preco / 2))
+        session.add(InventoryBalance(tenant_id=tenant.id, store_id=loja.id,
+                                     product_id=produto.id, quantity=Decimal("40"),
+                                     minimum_stock=Decimal("0"), version=1))
+
+    nome_fim, sku_fim, preco_fim = PRODUTO_DO_FIM
+    produto = Product(tenant_id=tenant.id, name=nome_fim, sku=sku_fim, unit="UN",
+                      item_type=ItemTypeEnum.PRODUCT, tracks_inventory=True)
+    session.add(produto)
+    session.flush()
+    criados[sku_fim] = produto.id
+    session.add(ProductPrice(tenant_id=tenant.id, store_id=loja.id, product_id=produto.id,
+                             sale_price=Decimal(preco_fim), cost_price=Decimal(preco_fim) / 2))
+    session.add(InventoryBalance(tenant_id=tenant.id, store_id=loja.id,
+                                 product_id=produto.id, quantity=Decimal("12"),
+                                 minimum_stock=Decimal("0"), version=1))
+    return criados
 
 
 def _pessoa(session: Session, tenant, loja, *, nome: str, papel: RoleEnum, apelido: str, sufixo: str):
@@ -99,7 +150,7 @@ def _pessoa(session: Session, tenant, loja, *, nome: str, papel: RoleEnum, apeli
     return usuario, vinculo, subject, email
 
 
-def seed(output: Path, saldo_disputado: str | None = None) -> None:
+def seed(output: Path, saldo_disputado: str | None = None, volume: int = 0) -> None:
     sufixo = uuid.uuid4().hex[:6]
 
     with Session(engine) as session:
@@ -196,6 +247,11 @@ def seed(output: Path, saldo_disputado: str | None = None) -> None:
                                          product_id=produto.id, quantity=Decimal(quantidade),
                                          minimum_stock=Decimal(minimo), version=1))
 
+        # O acervo volumoso entra antes do cardápio para ser vendável junto com
+        # o resto: a grade do PDV lê o sortimento, não a tabela de produtos.
+        volumosos = _catalogo_volumoso(session, tenant, loja, volume) if volume else {}
+        produtos.update(volumosos)
+
         cardapio = Assortment(tenant_id=tenant.id, code="CARDAPIO-LOJA",
                               name="Cardápio Principal da Loja", version=1,
                               description="O que a loja vende no balcão.")
@@ -242,6 +298,12 @@ def seed(output: Path, saldo_disputado: str | None = None) -> None:
             "manager": {"email": email_gestora, "token": _token(sub_gestora, email_gestora),
                         "name": "Marcela Almeida", "role": "TENANT_OWNER"},
             "operator_membership_id": str(vinculo_op.id),
+            "volume": {
+                "quantos": len(volumosos),
+                "produto_do_fim": {"nome": PRODUTO_DO_FIM[0], "sku": PRODUTO_DO_FIM[1],
+                                   "product_id": str(volumosos[PRODUTO_DO_FIM[1]])}
+                if volumosos else None,
+            },
             "disputado": {"sku": PRODUTO_DISPUTADO,
                           "product_id": str(produtos[PRODUTO_DISPUTADO]),
                           "saldo": saldo_disputado or "16"},
@@ -250,8 +312,10 @@ def seed(output: Path, saldo_disputado: str | None = None) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(fixture, indent=2, ensure_ascii=False), encoding="utf-8")
     na_prateleira = saldo_disputado or "16"
+    quantos = fixture["volume"]["quantos"]
+    extra = f"; acervo com {quantos + len(CATALOGO)} produtos vendáveis" if quantos else ""
     print("duas estações semeadas: operadora CAIXA e supervisora com código "
-          f"{CODIGO_SUPERVISORA}; Coca-Cola com {na_prateleira} na prateleira")
+          f"{CODIGO_SUPERVISORA}; Coca-Cola com {na_prateleira} na prateleira{extra}")
 
 
 if __name__ == "__main__":
@@ -261,5 +325,9 @@ if __name__ == "__main__":
         "--saldo", default=None,
         help="Saldo do produto disputado. Use 1 para o cenário da última unidade.",
     )
+    parser.add_argument(
+        "--volume", default=0, type=int,
+        help="Quantos produtos extras semear, para o cenário de catálogo volumoso.",
+    )
     argumentos = parser.parse_args()
-    seed(argumentos.output, saldo_disputado=argumentos.saldo)
+    seed(argumentos.output, saldo_disputado=argumentos.saldo, volume=argumentos.volume)

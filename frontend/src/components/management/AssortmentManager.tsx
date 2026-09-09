@@ -59,7 +59,14 @@ export const AssortmentManager: React.FC = () => {
   const [managingProductsAssortment, setManagingProductsAssortment] = useState<api.Assortment | null>(null)
   const [assortmentProducts, setAssortmentProducts] = useState<api.AssortmentProductItem[]>([])
   const [productsLoading, setProductsLoading] = useState(false)
-  const [availableMasterProducts, setAvailableMasterProducts] = useState<api.Product[]>([])
+  // O catálogo mestre não cabe num seletor. Medido na homologação de catálogo
+  // volumoso: com 1.203 produtos, a lista parava na letra D — sem dizer nada — e
+  // o produto que a pessoa queria simplesmente não estava lá. Quem busca é o
+  // servidor, e a tela avisa quando a resposta veio no teto.
+  const [buscaNoCatalogo, setBuscaNoCatalogo] = useState('')
+  const [resultadosDoCatalogo, setResultadosDoCatalogo] = useState<api.Product[]>([])
+  const [buscandoNoCatalogo, setBuscandoNoCatalogo] = useState(false)
+  const [catalogoVeioNoTeto, setCatalogoVeioNoTeto] = useState(false)
   const [selectedProductIdToAdd, setSelectedProductIdToAdd] = useState('')
 
   // Form states for Create/Edit
@@ -106,16 +113,30 @@ export const AssortmentManager: React.FC = () => {
     loadAssortments()
   }, [loadAssortments])
 
-  // Load master products for linking
-  const loadMasterProducts = useCallback(async () => {
+  // Busca no catálogo mestre, para vincular ao sortimento.
+  const buscarNoCatalogo = useCallback(async (termo: string) => {
     if (!tenant) return
+    setBuscandoNoCatalogo(true)
     try {
-      const prods = await api.fetchProducts(headers())
-      setAvailableMasterProducts(prods.filter(p => p.is_active && p.available_for_sale))
+      const linhas = await api.fetchProducts(headers(), termo.trim() || undefined)
+      // Exatamente o teto significa que pode haver mais: dizer isso é o que
+      // separa "não existe" de "não coube".
+      setCatalogoVeioNoTeto(linhas.length === api.LIMITE_DO_CATALOGO_MESTRE)
+      setResultadosDoCatalogo(linhas.filter(p => p.is_active && p.available_for_sale))
     } catch (e) {
       console.error(e)
+      setResultadosDoCatalogo([])
+    } finally {
+      setBuscandoNoCatalogo(false)
     }
   }, [tenant, headers])
+
+  // O balcão digita; a busca espera a pessoa parar antes de ir ao servidor.
+  useEffect(() => {
+    if (!managingProductsAssortment) return
+    const agendada = window.setTimeout(() => { void buscarNoCatalogo(buscaNoCatalogo) }, 300)
+    return () => window.clearTimeout(agendada)
+  }, [managingProductsAssortment, buscaNoCatalogo, buscarNoCatalogo])
 
   // Load products of selected assortment
   const loadAssortmentProducts = useCallback(async (assortmentId: string) => {
@@ -159,8 +180,10 @@ export const AssortmentManager: React.FC = () => {
   const openManageProducts = (ass: api.Assortment) => {
     setManagingProductsAssortment(ass)
     setSelectedProductIdToAdd('')
+    setBuscaNoCatalogo('')
+    setResultadosDoCatalogo([])
+    setCatalogoVeioNoTeto(false)
     loadAssortmentProducts(ass.id)
-    loadMasterProducts()
   }
 
   const toggleScope = (storeId: string, ctx: api.SalesContext) => {
@@ -839,32 +862,81 @@ export const AssortmentManager: React.FC = () => {
             </div>
 
             {/* Link product picker */}
-            {canManage && (
-              <div className="p-3 bg-dashem-bg rounded-2xl border border-dashem-border flex flex-col sm:flex-row items-center gap-3">
-                <select
-                  value={selectedProductIdToAdd}
-                  onChange={(e) => setSelectedProductIdToAdd(e.target.value)}
-                  className="w-full sm:flex-1 h-10 px-3 rounded-xl bg-dashem-surface border border-dashem-border text-dashem-strong text-xs font-medium focus:border-dashem-red outline-none"
-                >
-                  <option value="">Selecione um produto do catálogo mestre...</option>
-                  {availableMasterProducts
-                    .filter(mp => !assortmentProducts.some(ap => ap.id === mp.id))
-                    .map(mp => (
-                      <option key={mp.id} value={mp.id}>
-                        {mp.name} ({mp.sku})
-                      </option>
+            {canManage && (() => {
+              const naoVinculados = resultadosDoCatalogo
+                .filter(mp => !assortmentProducts.some(ap => ap.id === mp.id))
+              const escolhido = naoVinculados.find(mp => mp.id === selectedProductIdToAdd)
+              return (
+                <div className="p-3 bg-dashem-bg rounded-2xl border border-dashem-border space-y-3">
+                  <div className="flex flex-col sm:flex-row items-center gap-3">
+                    <div className="relative w-full sm:flex-1">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-dashem-muted" />
+                      <input
+                        type="search"
+                        value={buscaNoCatalogo}
+                        onChange={(e) => { setBuscaNoCatalogo(e.target.value); setSelectedProductIdToAdd('') }}
+                        placeholder="Buscar no catálogo mestre por nome, código ou SKU..."
+                        className="w-full h-10 pl-9 pr-3 rounded-xl bg-dashem-surface border border-dashem-border text-dashem-strong text-xs font-medium focus:border-dashem-red outline-none"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      disabled={!selectedProductIdToAdd || actionLoading}
+                      onClick={handleLinkProduct}
+                      className="w-full sm:w-auto px-4 py-2 rounded-xl bg-dashem-red text-brand-contrast text-xs font-bold hover:bg-dashem-red-light disabled:opacity-50 shrink-0"
+                    >
+                      Vincular ao {palavra.Singular}
+                    </button>
+                  </div>
+
+                  {escolhido && (
+                    <p className="text-xs font-bold text-dashem-strong">
+                      Escolhido: {escolhido.name} ({escolhido.sku})
+                    </p>
+                  )}
+
+                  <div className="max-h-48 overflow-auto rounded-xl border border-dashem-border bg-dashem-surface">
+                    {buscandoNoCatalogo ? (
+                      <p className="p-3 text-xs text-dashem-muted flex items-center gap-2">
+                        <RefreshCw className="h-3.5 w-3.5 animate-spin text-dashem-red" />Buscando no catálogo mestre...
+                      </p>
+                    ) : naoVinculados.length === 0 ? (
+                      <p className="p-3 text-xs text-dashem-muted">
+                        {buscaNoCatalogo.trim()
+                          ? `Nenhum produto do catálogo mestre corresponde a "${buscaNoCatalogo.trim()}".`
+                          : 'Digite para procurar um produto do catálogo mestre.'}
+                      </p>
+                    ) : naoVinculados.map(mp => (
+                      <button
+                        key={mp.id}
+                        type="button"
+                        onClick={() => setSelectedProductIdToAdd(mp.id)}
+                        className={`w-full text-left px-3 py-2 text-xs border-b border-dashem-border last:border-b-0 transition ${
+                          mp.id === selectedProductIdToAdd
+                            ? 'bg-dashem-red/10 text-dashem-strong font-bold'
+                            : 'text-dashem-strong hover:bg-dashem-bg'
+                        }`}
+                      >
+                        {mp.name} <span className="text-dashem-muted">({mp.sku})</span>
+                      </button>
                     ))}
-                </select>
-                <button
-                  type="button"
-                  disabled={!selectedProductIdToAdd || actionLoading}
-                  onClick={handleLinkProduct}
-                  className="w-full sm:w-auto px-4 py-2 rounded-xl bg-dashem-red text-brand-contrast text-xs font-bold hover:bg-dashem-red-light disabled:opacity-50 shrink-0"
-                >
-                  Vincular ao {palavra.Singular}
-                </button>
-              </div>
-            )}
+                  </div>
+
+                  {/*
+                    O servidor corta a lista num teto. Antes esse corte era mudo:
+                    a pessoa via a lista acabar na letra D e concluía que o
+                    produto não existia. Agora a tela diz que há mais.
+                  */}
+                  {catalogoVeioNoTeto && (
+                    <p className="text-xs font-bold text-dashem-red flex items-center gap-1.5">
+                      <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                      Há mais produtos do que cabe nesta resposta ({api.LIMITE_DO_CATALOGO_MESTRE}).
+                      Refine a busca para alcançar o que procura.
+                    </p>
+                  )}
+                </div>
+              )
+            })()}
 
             {/* List of linked products */}
             <div className="flex-1 overflow-auto border border-dashem-border rounded-2xl">

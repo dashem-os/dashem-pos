@@ -41,6 +41,32 @@ def _reserved_by_product(session: Session, context, store_id, product_ids) -> di
     return total
 
 
+def _balances_by_product(session: Session, context, store_id, product_ids) -> dict:
+    """O que está na prateleira, para os produtos desta página.
+
+    Isto já foi um `LEFT JOIN` dentro da consulta paginada, e era o item mais
+    caro do balcão. A política de RLS de `inventory_balances` tem um `EXISTS`
+    sobre `stores`; um predicado assim não é *leakproof*, então o PostgreSQL o
+    aplica **antes** das condições de junção — e a junção vira laço aninhado com
+    filtro, sem usar `ix_inventory_balances_product_id`.
+
+    Medido na homologação de catálogo volumoso, com 1.203 produtos vendáveis e
+    40 mil na tabela: a página custava 4.563ms com a junção e 36ms sem ela, com
+    723.003 linhas descartadas pelo filtro de junção. Buscar os saldos das 50
+    linhas da página, depois do `LIMIT`, é o mesmo caminho que as reservas e as
+    imagens já usavam ali — e custa 3ms.
+    """
+    if not store_id or not product_ids:
+        return {}
+    linhas = session.exec(scope_tenant_query(select(
+        InventoryBalance.product_id, InventoryBalance.quantity, InventoryBalance.minimum_stock,
+    ).where(
+        InventoryBalance.store_id == store_id,
+        InventoryBalance.product_id.in_(product_ids),
+    ), InventoryBalance, context)).all()
+    return {product_id: (quantidade, minimo) for product_id, quantidade, minimo in linhas}
+
+
 def _product_search(search: str):
     # Portable PostgreSQL accent folding without requiring an installed extension.
     accents = 'áàâãäåéèêëíìîïóòôõöúùûüçñýÿ'
@@ -236,13 +262,22 @@ def delete_product(session: Session, context: TenantContext, product_id: uuid.UU
         raise HTTPException(status_code=409, detail="Este produto está vinculado a vendas, pedidos ou outras operações. Arquive-o para preservar esses registros.") from exc
 
 
-def list_products(session: Session, context: TenantContext, category_id: Optional[uuid.UUID] = None, search: Optional[str] = None) -> List[Product]:
+#: Teto de linhas do catálogo mestre numa resposta. Ele protege o servidor, e
+#: por isso continua existindo — mas quem chama precisa **pedir** o tamanho para
+#: saber que houve corte: uma resposta com exatamente `limit` linhas pode ter
+#: deixado gente de fora. Cortar em silêncio foi o defeito medido na homologação
+#: de catálogo volumoso: com 1.203 produtos, o seletor de sortimento parava na
+#: letra D e não dizia nada.
+LIMITE_DO_CATALOGO_MESTRE = 200
+
+
+def list_products(session: Session, context: TenantContext, category_id: Optional[uuid.UUID] = None, search: Optional[str] = None, limit: int = LIMITE_DO_CATALOGO_MESTRE) -> List[Product]:
     query = scope_tenant_query(select(Product).where(Product.is_active.is_(True)), Product, context)
     if category_id:
         query = query.where(Product.category_id == category_id)
     if search:
         query = query.where(_product_search(search))
-    return list(session.exec(query.order_by(Product.name).limit(200)).all())
+    return list(session.exec(query.order_by(Product.name).limit(limit)).all())
 
 
 def create_product_price(session: Session, context: TenantContext, product_id: uuid.UUID, cost_price: float, sale_price: float, store_id: Optional[uuid.UUID] = None) -> ProductPrice:
@@ -338,10 +373,12 @@ def list_sellable_products(
             return {"items": [], "total": 0, "page": page, "page_size": page_size}
 
     StorePrice, GlobalPrice = aliased(ProductPrice), aliased(ProductPrice)
-    Balance, Quick = aliased(InventoryBalance), aliased(QuickAccessProduct)
+    Quick = aliased(QuickAccessProduct)
     sale_price = func.coalesce(StorePrice.sale_price, GlobalPrice.sale_price, 0)
     cost_price = func.coalesce(StorePrice.cost_price, GlobalPrice.cost_price, 0)
-    quantity, minimum = func.coalesce(Balance.quantity, 0), func.coalesce(Balance.minimum_stock, 0)
+    # O saldo **não** entra aqui: ver `_balances_by_product`. Nem o saldo nem o
+    # preço filtram ou ordenam esta consulta — são enfeite da página, e enfeite
+    # se resolve depois do `LIMIT`, para 50 linhas em vez de mil.
     query = (
         select(
             Product.id, Product.name, Product.sku, Product.barcode, Product.description,
@@ -350,13 +387,11 @@ def list_sellable_products(
             Product.requires_fulfillment, Product.available_for_sale,
             Product.allows_multi_flavor, Product.production_destination,
             sale_price.label("sale_price"), cost_price.label("cost_price"),
-            quantity.label("quantity"), minimum.label("minimum_stock"),
             Quick.position.label("quick_position"), func.count().over().label("total_count"),
         )
         .outerjoin(Category, and_(Category.id == Product.category_id, Category.tenant_id == Product.tenant_id))
         .outerjoin(StorePrice, and_(StorePrice.product_id == Product.id, StorePrice.tenant_id == Product.tenant_id, StorePrice.store_id == context.store_id))
         .outerjoin(GlobalPrice, and_(GlobalPrice.product_id == Product.id, GlobalPrice.tenant_id == Product.tenant_id, GlobalPrice.store_id.is_(None)))
-        .outerjoin(Balance, and_(Balance.product_id == Product.id, Balance.tenant_id == Product.tenant_id, Balance.store_id == context.store_id))
         .outerjoin(Quick, and_(Quick.product_id == Product.id, Quick.tenant_id == Product.tenant_id, Quick.store_id == context.store_id, Quick.membership_id == context.membership_id))
         .where(
             Product.tenant_id == context.tenant_id,
@@ -374,6 +409,9 @@ def list_sellable_products(
         query = query.where(_product_search(search))
     query = query.order_by(case((Quick.position.is_(None), 1), else_=0), Quick.position, Product.name).offset((page - 1) * page_size).limit(page_size)
     rows = session.exec(query).all()
+    prateleira = _balances_by_product(
+        session, context, context.store_id, [row._mapping["id"] for row in rows],
+    )
     items: list[dict[str, Any]] = []
     for row in rows:
         values = row._mapping
@@ -383,9 +421,16 @@ def list_sellable_products(
             "id", "name", "sku", "barcode", "description", "image_url", "unit", "item_type",
             "category_id", "category_name", "tracks_inventory", "requires_fulfillment",
             "available_for_sale", "allows_multi_flavor", "production_destination",
-            "sale_price", "cost_price", "quantity", "minimum_stock", "quick_position",
+            "sale_price", "cost_price", "quick_position",
         )}
-        item.update(margin_percent=margin.quantize(Decimal("0.01")), is_low_stock=bool(values["tracks_inventory"] and Decimal(str(values["quantity"])) <= Decimal(str(values["minimum_stock"]))))
+        # Sem linha de saldo o produto não está com estoque negativo: ele nunca
+        # foi contado nesta unidade. Zero é o que a junção externa devolvia.
+        quantidade, minimo = prateleira.get(values["id"], (Decimal("0"), Decimal("0")))
+        item.update(
+            quantity=quantidade, minimum_stock=minimo,
+            margin_percent=margin.quantize(Decimal("0.01")),
+            is_low_stock=bool(values["tracks_inventory"] and Decimal(str(quantidade)) <= Decimal(str(minimo))),
+        )
         items.append(item)
 
     # Reservado por produto, numa consulta só: o caixa lê esta lista a cada
