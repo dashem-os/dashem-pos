@@ -1,0 +1,83 @@
+{
+  "app": "http://127.0.0.1:5199",
+  "gerado_em": "2026-09-09T20:17:14.779Z",
+  "camadas": {
+    "configuracao": "percorrida — provedor, bridge e vínculo pelas rotas do produto",
+    "simulacao_de_bridge": "percorrida — heartbeat enviado pelo roteiro de cenário",
+    "integracao_real_com_provedor": "NÃO percorrida — BridgeQueuedAdapter, nenhum provedor contatado"
+  },
+  "mesa": {
+    "id": "58a7a22f-b341-4643-855a-0d624e710e21",
+    "name": "Mesa 7",
+    "code": "M-F4CFE4"
+  },
+  "etapas": [
+    {
+      "etapa": "a atendente assume a operação do salão",
+      "pessoa": "Bruna Salles",
+      "perfil": "CASHIER"
+    },
+    {
+      "etapa": "a atendente abre o caixa do salão"
+    },
+    {
+      "etapa": "a mesa abre com o consumo lançado"
+    },
+    {
+      "etapa": "a conta abre e a tela declara o estado do TEF",
+      "online": true
+    },
+    {
+      "etapa": "a cobrança sai e o provider não responde",
+      "frase": "Aguardando conciliação há menos de um minuto · a cobrança saiu e o provider ainda não respondeu."
+    },
+    {
+      "etapa": "as duas ações não são simétricas, e a tela não as oferece juntas",
+      "consultar_pagamento": true,
+      "cancelar_reserva": false
+    },
+    {
+      "etapa": "com a cobrança em voo, a tela não propõe outra",
+      "valor_proposto": "0.00",
+      "botao_ligado": false,
+      "avisa": true,
+      "mostra_em_processamento": true
+    },
+    {
+      "etapa": "consultar o provider não resolve sozinho, e não libera",
+      "continua_aguardando": true,
+      "pagina": "/tables"
+    },
+    {
+      "etapa": "soltar a parcela por fora da tela também é recusado",
+      "status": 409
+    }
+  ],
+  "telas": [
+    "01-salao-com-a-mesa-ocupada",
+    "02-conta-aberta-com-tef-online",
+    "03-a-cobranca-saiu-e-nao-voltou",
+    "04-nova-cobranca-nao-e-oferecida",
+    "05-consultar-nao-solta-a-conta"
+  ],
+  "servidor": {
+    "negotiation_id": "39e5d954-a4d2-4b71-961b-b4c280d49f01",
+    "parcela": {
+      "status": 200,
+      "parcela": {
+        "situacao": "PROCESSING",
+        "aguardando": true,
+        "pode_cancelar": false,
+        "pode_consultar": true
+      },
+      "em_processamento": "18.0000",
+      "confirmado": "0",
+      "falta": "18.0000"
+    },
+    "tentativa_de_soltar": {
+      "status": 409,
+      "corpo": "{\"detail\":{\"code\":\"EXTERNAL_CHARGE_IN_FLIGHT\",\"message\":\"Existe cobrança externa sem resultado conhecido. Consulte o pagamento antes de decidir sobre esta parcela.\",\"action\":\"cancel\",\"payment_intent_id\":\"6c3cdea7-83f4-4543-9e2c-faa4db41e6db\",\"provider_transaction_id\":\"60d0759c-3da6-4e51-9b81-854c82588e09\",\"provider_status\":\"UNKNOWN\"}}"
+    }
+  },
+  "falhas": []
+}

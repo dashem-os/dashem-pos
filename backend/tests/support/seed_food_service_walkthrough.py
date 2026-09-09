@@ -27,6 +27,7 @@ jornada se percorre na tela.
 """
 
 import argparse
+from decimal import Decimal
 import json
 import uuid
 from datetime import datetime, timezone
@@ -38,10 +39,16 @@ from sqlmodel import Session, select
 from app.core.config import settings
 from app.core.database import engine
 from app.core.tenancy import set_platform_db_context
+from app.services import operational_access_service
 from app.models.identity import (
-    AuthIdentity, Membership, MembershipStatusEnum, PermissionGrant,
-    PermissionGrantEffectEnum, Register, RoleEnum, Store, Tenant, TenantStatusEnum, User,
+    AuthIdentity, Employee, EmployeeStatusEnum, Membership, MembershipStatusEnum,
+    OperationalCredential, PermissionGrant, PermissionGrantEffectEnum, Register,
+    RoleEnum, Store, Tenant, TenantStatusEnum, User,
 )
+from app.models.assortment import (
+    Assortment, AssortmentProduct, AssortmentScope, SalesContextEnum,
+)
+from app.models.catalog import ItemTypeEnum, Product, ProductPrice
 from app.models.device import OperationalDevice, OperationalDeviceTypeEnum
 from app.models.platform import (
     CapabilityProfileRevision, TenantCapability, TenantProfileAssignment,
@@ -58,6 +65,10 @@ CAPABILITIES = (
 #: TEF não é vendável, e por isso não entra na lista acima. Ele entra pela
 #: exceção de homologação do ADR-031, declarada na própria linha.
 CAPABILITY_DE_HOMOLOGACAO = "tef"
+
+#: Quem atende o salão entra por código e PIN, não por e-mail.
+CODIGO_ATENDENTE = "ATD01"
+PIN_ATENDENTE = "7412"
 
 PERFIL = "FOOD_SERVICE"
 
@@ -172,11 +183,75 @@ def semear(saida: Path) -> None:
                          name="Caixa do salão", code=f"CXS-{sufixo}")
         session.add(caixa)
         session.flush()
-        session.add(OperationalDevice(
+        # Quem atende o salão. A Gestão e a operação são portas diferentes: a
+        # gestora entra por e-mail com vínculo de tenant, e o salão exige
+        # código e PIN num terminal autorizado, com vínculo **na unidade**. São
+        # duas pessoas de propósito — a mesma não serve para as duas portas.
+        subject_atendente = str(uuid.uuid4())
+        email_atendente = f"atendente-{sufixo}@dashem.test"
+        atendente = User(email=email_atendente, full_name="Bruna Salles",
+                         password_setup_completed_at=datetime.now(timezone.utc))
+        session.add(atendente)
+        session.flush()
+        session.add(AuthIdentity(
+            user_id=atendente.id, provider="supabase", provider_subject=subject_atendente,
+            provider_email=email_atendente, email_verified=True,
+        ))
+        vinculo_atendente = Membership(
+            user_id=atendente.id, tenant_id=tenant.id, store_id=loja.id,
+            role=RoleEnum.CASHIER, status=MembershipStatusEnum.ACTIVE,
+        )
+        session.add(vinculo_atendente)
+        session.flush()
+        empregada = Employee(
+            tenant_id=tenant.id, user_id=atendente.id, home_store_id=loja.id,
+            employee_number=CODIGO_ATENDENTE, full_name="Bruna Salles",
+            status=EmployeeStatusEnum.ACTIVE,
+        )
+        session.add(empregada)
+        session.flush()
+        salt, pin_hash, iteracoes = operational_access_service.new_pin_secret(PIN_ATENDENTE)
+        session.add(OperationalCredential(
+            tenant_id=tenant.id, store_id=loja.id, user_id=atendente.id,
+            membership_id=vinculo_atendente.id, employee_id=empregada.id,
+            employee_code=CODIGO_ATENDENTE, pin_salt=salt, pin_hash=pin_hash,
+            pin_iterations=iteracoes, pin_activated_at=datetime.utcnow(),
+        ))
+
+        aparelho = OperationalDevice(
             tenant_id=tenant.id, store_id=loja.id, code=f"POS-{sufixo}",
             name="Terminal do salão", device_type=OperationalDeviceTypeEnum.POS,
             register_id=caixa.id,
-        ))
+        )
+        session.add(aparelho)
+        session.flush()
+
+        # Uma conta só existe se houver o que consumir. Dois itens de salão,
+        # num cardápio que alcança mesa e balcão — é o mínimo para a comanda
+        # ter valor e a liquidação ter parcela.
+        produtos = {}
+        for nome, sku, preco in (("Chopp Pilsen 500ml", f"CHP-{sufixo}", "18.00"),
+                                 ("Porção de Bolinho de Bacalhau", f"BOL-{sufixo}", "62.00")):
+            produto = Product(tenant_id=tenant.id, name=nome, sku=sku, unit="UN",
+                              item_type=ItemTypeEnum.PRODUCT, tracks_inventory=False)
+            session.add(produto)
+            session.flush()
+            produtos[sku] = produto.id
+            session.add(ProductPrice(tenant_id=tenant.id, store_id=loja.id,
+                                     product_id=produto.id, sale_price=Decimal(preco),
+                                     cost_price=Decimal(preco) / 2))
+
+        cardapio = Assortment(tenant_id=tenant.id, code=f"CARDAPIO-{sufixo}",
+                              name="Cardápio do salão", version=1,
+                              description="O que o salão serve.")
+        session.add(cardapio)
+        session.flush()
+        for contexto in (SalesContextEnum.TABLE, SalesContextEnum.COUNTER):
+            session.add(AssortmentScope(tenant_id=tenant.id, assortment_id=cardapio.id,
+                                        store_id=loja.id, sales_context=contexto))
+        for ordem, sku in enumerate(produtos):
+            session.add(AssortmentProduct(tenant_id=tenant.id, assortment_id=cardapio.id,
+                                          product_id=produtos[sku], sort_order=ordem * 10))
         session.commit()
 
         fixture = {
@@ -184,6 +259,12 @@ def semear(saida: Path) -> None:
             "store_id": str(loja.id), "store_name": loja.name,
             "manager_email": email, "manager_token": _token(subject, email),
             "register_id": str(caixa.id),
+            "operational_device_id": str(aparelho.id),
+            "gestora_id": str(gestora.id),
+            "atendente": {"email": email_atendente, "name": "Bruna Salles",
+                          "role": "CASHIER", "employee_code": CODIGO_ATENDENTE,
+                          "pin": PIN_ATENDENTE, "user_id": str(atendente.id)},
+            "produtos": {sku: str(pid) for sku, pid in produtos.items()},
             "limited_email": email_limitada,
             "limited_token": _token(subject_limitada, email_limitada),
             "perfil": PERFIL, "revisao": revisao.version,

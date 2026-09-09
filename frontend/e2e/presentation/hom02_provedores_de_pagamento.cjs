@@ -6,8 +6,10 @@
  * diferentes, e misturá-las é como um cadastro vira "integração pronta" num
  * relatório:
  *
- * 1. **configuração na tela** — cadastrar provedor, parear bridge, vincular
- *    maquininha. É o que esta travessia percorre de ponta a ponta;
+ * 1. **configuração na tela** — cadastrar provedor e parear bridge. É o que
+ *    esta travessia percorre de ponta a ponta. **Vincular maquininha não está
+ *    aqui**: o vínculo de aparelho é pendência separada, e escrevê-lo nesta
+ *    lista foi imprecisão minha — as etapas abaixo não o percorrem;
  * 2. **simulação** — o heartbeat do bridge é chamado por este roteiro, no
  *    papel do Dashem TEF Bridge. Prova que a tela reflete a conexão relatada;
  *    **não** prova que existe um bridge instalado nem que ele fala com alguém;

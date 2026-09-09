@@ -272,7 +272,7 @@ function SessionPanel({ session, availableSessions, availableTables, headers, pr
         ...(scopedOrder ? { order_ids: [scopedOrder.id] } : { table_session_id: session.id }),
         actor_id: operatorId,
       })
-      setSettledOrderId(scopedOrder?.id || ''); setNegotiation(opened); setPaymentAmount(String(Number(opened.remaining_amount).toFixed(2)))
+      setSettledOrderId(scopedOrder?.id || ''); setNegotiation(opened); setPaymentAmount(cobravelAgoraDe(opened).toFixed(2))
       if (registerId && permissions.includes('provider.read')) {
         const [bindings, terminals] = await Promise.all([
           api.fetchPaymentDeviceBindings(headers, registerId),
@@ -326,12 +326,17 @@ function SessionPanel({ session, availableSessions, availableTables, headers, pr
           payment_intent_id: pending.id, payment_device_binding_id: tefBinding.id, actor_id: operatorId,
         })
         setNegotiation(execution.negotiation)
+        // O valor proposto tem de ser recalculado aqui também. Sem isto o campo
+        // guardava o valor de quando a conta abriu, e a tela continuava
+        // oferecendo cobrar de novo o que já estava numa cobrança sem resposta.
+        setPaymentAmount(cobravelAgoraDe(execution.negotiation).toFixed(2))
+        setPickedItems([]); setPayerLabel('')
         showToast('info', execution.transaction.status === 'CONFIRMED' ? 'Parcela TEF confirmada.' : 'Transação enviada ao bridge; aguardando resultado ou reconciliação.')
         return
       }
       const confirmed = await api.confirmNegotiationPaymentIntent(headers, pending.id, crypto.randomUUID(), operatorId)
       setNegotiation(confirmed); setPickedItems([]); setPayerLabel('')
-      setPaymentAmount(String(Number(confirmed.remaining_amount).toFixed(2)))
+      setPaymentAmount(cobravelAgoraDe(confirmed).toFixed(2))
       showToast('success', `Parcela confirmada. Falta ${formatCurrency(Number(confirmed.remaining_amount))}.`)
     } catch (error) { showToast('error', error instanceof Error ? error.message : 'Não foi possível confirmar a parcela.') }
     finally { setBusy(false) }
@@ -358,7 +363,7 @@ function SessionPanel({ session, availableSessions, availableTables, headers, pr
         reason: 'Reserva cancelada no balcão sem cobrança iniciada', actor_id: operatorId,
       })
       setNegotiation(updated); setPickedItems([])
-      setPaymentAmount(String(Number(updated.remaining_amount).toFixed(2)))
+      setPaymentAmount(cobravelAgoraDe(updated).toFixed(2))
       showToast('success', 'Reserva cancelada; o item voltou a ficar disponível.')
     } catch (error) { showToast('error', error instanceof Error ? error.message : 'Não foi possível cancelar a reserva.') }
     finally { setBusy(false) }
@@ -370,7 +375,7 @@ function SessionPanel({ session, availableSessions, availableTables, headers, pr
         amount, reason, actor_id: operatorId,
       })
       setNegotiation(updated); setPickedItems([])
-      setPaymentAmount(String(Number(updated.remaining_amount).toFixed(2)))
+      setPaymentAmount(cobravelAgoraDe(updated).toFixed(2))
       const parcel = updated.intents.find((row) => row.id === intentId)
       // Pedir não é devolver: enquanto o adquirente não disser quanto reverteu,
       // a conta não muda, e a tela precisa dizer isso em vez de comemorar.
@@ -442,6 +447,16 @@ const intentStatusLabel: Record<api.PaymentIntentStatus, string> = {
   PENDING: 'aguardando', PROCESSING: 'processando', CONFIRMED: 'confirmado',
   FAILED: 'falhou', CANCELED: 'cancelado',
 }
+/**
+ * Quanto se pode cobrar agora nesta conta.
+ *
+ * Não é `remaining_amount`: uma cobrança sem resposta já segura a sua parte, e
+ * propor o valor inteiro faz a tela sugerir uma segunda cobrança que o servidor
+ * recusa. O valor proposto na tela sai daqui, sempre.
+ */
+const cobravelAgoraDe = (conta: api.CheckoutNegotiation): number =>
+  Math.max(0, Number(conta.remaining_amount) - Number(conta.processing_amount ?? 0))
+
 const methodLabel: Record<api.NegotiationPaymentMethod, string> = {
   CASH: 'Dinheiro', PIX: 'PIX', CREDIT_CARD: 'Crédito', DEBIT_CARD: 'Débito',
   STORE_CREDIT: 'Crediário',
@@ -478,18 +493,25 @@ function CheckoutSettlement({
   onRefund: (intentId: string, amount: number, reason: string) => void
 }) {
   const remaining = Number(negotiation.remaining_amount)
+  // O que se pode cobrar **agora** não é o que falta: uma cobrança sem resposta
+  // já segura a sua parte da conta. Propor o valor inteiro convidava a operadora
+  // a mandar uma segunda cobrança que o servidor recusa — e a recusa dele fala
+  // em "saldo reservável", que não é língua de balcão. Medido na homologação do
+  // TEF em processamento (09/09/2026).
+  const processing = Number(negotiation.processing_amount ?? 0)
+  const cobravelAgora = cobravelAgoraDe(negotiation)
   const lines = negotiation.item_settlements ?? []
   const openLines = lines.filter((row) => Number(row.available_amount) > 0)
   const pickedTotal = lines
     .filter((row) => picked.includes(row.order_item_id))
     .reduce((total, row) => total + Number(row.available_amount), 0)
-  const share = Math.max(0, Number(people) || 0) > 0 ? remaining / Number(people) : 0
+  const share = Math.max(0, Number(people) || 0) > 0 ? cobravelAgora / Number(people) : 0
 
   // Choosing a way to pay proposes an amount; the operator may still overwrite it.
   const choose = (next: PayMode) => {
     onMode(next); onPicked([])
-    if (next === 'ALL') onAmount(remaining.toFixed(2))
-    if (next === 'PEOPLE') onAmount((remaining / Math.max(1, Number(people) || 1)).toFixed(2))
+    if (next === 'ALL') onAmount(cobravelAgora.toFixed(2))
+    if (next === 'PEOPLE') onAmount((cobravelAgora / Math.max(1, Number(people) || 1)).toFixed(2))
     if (next === 'ITEMS') onAmount('0.00')
   }
   const toggle = (row: api.ItemSettlement) => {
@@ -508,9 +530,15 @@ function CheckoutSettlement({
       </div>
       <CreditCard className="h-5 w-5 text-emerald-700" />
     </div>
-    <div className="grid grid-cols-1 min-[400px]:grid-cols-3 gap-2 rounded-xl bg-white p-3 text-center">
+    {/*
+      "Falta R$ 18,00" com R$ 18,00 em cobrança sem resposta é verdade pela
+      metade: falta mesmo, e não se pode cobrar agora. A quarta métrica aparece
+      só quando existe cobrança em voo, e é ela que explica a diferença.
+    */}
+    <div className={`grid grid-cols-1 gap-2 rounded-xl bg-white p-3 text-center ${processing > 0 ? 'min-[400px]:grid-cols-4' : 'min-[400px]:grid-cols-3'}`}>
       <Metric label="Total" value={formatCurrency(Number(negotiation.total_due))} />
       <Metric label="Confirmado" value={formatCurrency(Number(negotiation.confirmed_amount))} />
+      {processing > 0 && <Metric label="Em processamento" value={formatCurrency(processing)} />}
       <Metric label="Falta" value={formatCurrency(remaining)} />
     </div>
 
@@ -581,10 +609,19 @@ function CheckoutSettlement({
           </>}
         </select>
         <input aria-label="Valor da parcela" type="number" min="0.01" step="0.01" value={amount} onChange={(event) => onAmount(event.target.value)} className="h-11 rounded-xl border border-emerald-200 px-3 text-sm font-black" />
-        <button disabled={busy || Number(amount) <= 0 || (mode === 'ITEMS' && picked.length === 0)} onClick={onPay} className="col-span-2 h-11 rounded-xl bg-emerald-700 text-xs font-black text-white disabled:opacity-40">
+        <button disabled={busy || cobravelAgora <= 0 || Number(amount) <= 0 || (mode === 'ITEMS' && picked.length === 0)} onClick={onPay} className="col-span-2 h-11 rounded-xl bg-emerald-700 text-xs font-black text-white disabled:opacity-40">
           {mode === 'ITEMS' ? `Pagar ${picked.length} item(ns)` : 'Registrar parcela no meio selecionado'}
         </button>
       </div>
+      {/*
+        A regra é do dono: não oferecer nova cobrança sem resolver o estado
+        anterior. O servidor já recusava — com "Parcela excede o saldo
+        reservável de 0.0000", que ninguém no balcão entende. Agora a tela
+        explica antes, em vez de deixar a pessoa descobrir pela recusa.
+      */}
+      {cobravelAgora <= 0 && processing > 0 && <p className="rounded-lg bg-amber-100 px-3 py-2 text-[11px] font-bold leading-5 text-amber-900">
+        Não há valor para cobrar agora: {formatCurrency(processing)} desta conta está numa cobrança sem resposta. Consulte o pagamento acima antes de cobrar de novo.
+      </p>}
       <p className="text-[11px] leading-5 text-slate-500">A mesa continua aberta enquanto houver saldo. Quem já pagou não some do consumo: o item fica marcado com o nome de quem quitou.</p>
     </div>}
 
