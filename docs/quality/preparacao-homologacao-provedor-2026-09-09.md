@@ -57,7 +57,7 @@ Sem ela, a cobrança sai do Dashem e **não chega à maquininha**.
 
 ### 2. Credenciais e ambiente de homologação do provedor
 
-Nada disso existe no repositório, e nada deve existir: são segredos.
+Credenciais são segredos e não devem ser gravadas no repositório. Documentação pública, requisitos de instalação e identificação do ambiente podem ser registrados sem valores secretos.
 
 | O que é preciso | Quem fornece | Onde entra |
 |---|---|---|
@@ -89,7 +89,7 @@ não é caminho de execução, e a homologação real não deve começar por ele
 
 ## O roteiro da homologação, quando houver provedor
 
-Os cenários abaixo já têm equivalente percorrido **com bridge simulado**. O que
+A tabela abaixo distingue cenários com equivalente simulado, parcial e ainda não percorrido. O que
 muda na homologação real é o outro lado do fio: cada linha precisa ser refeita
 com provedor de verdade, e o resultado comparado com o que se conhece.
 
@@ -137,3 +137,6 @@ planejamento. **Não são bloqueios**; são o que a evidência atual não cobre:
 4. Se a **classificação de divergência** é requisito com prova própria, ou só o
    valor financeiro;
 5. Se **débito** entra na primeira homologação ou fica para depois.
+
+
+Registro consolidado de pausa, decisões do dono e ordem de retomada: [pausa técnica](../product/pausa-tecnica-2026-09-09.md).
