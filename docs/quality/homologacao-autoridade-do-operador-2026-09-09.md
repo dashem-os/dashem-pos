@@ -21,12 +21,19 @@ tela. As duas direções erram, e não erram igual:
 | Concessão que não chegou | mais **restritiva** que a realidade: pede autorização que já não seria necessária | incomoda |
 | Retirada que não chegou | mais **permissiva** que a realidade: deixa agir sozinho quem já não pode | é aqui que o servidor precisa recusar |
 
-**As duas direções foram resolvidas.** A tela reconfere a própria autoridade a
-cada 30 segundos, pelo mesmo caminho por onde a leu ao entrar
-(`/capabilities/effective`), e avisa **só quando muda**. Não é o encanamento do
-turno operacional: a Gestão passa pelo mesmo contexto, então a mudança alcança
-as duas telas. E não substitui nada — quem decide continua sendo o servidor, a
-cada requisição.
+**As duas direções passaram a ser alcançadas.** A tela faz uma **consulta
+periódica de 30 segundos** à própria autoridade, pelo mesmo caminho por onde a
+leu ao entrar (`/capabilities/effective`), e avisa **só quando muda**. Não é o
+encanamento do turno operacional: a Gestão passa pelo mesmo contexto, então a
+mudança alcança as duas telas.
+
+**Isto é uma consulta periódica, não um prazo garantido.** A cadência é de 30
+segundos e nada promete que a mudança chegue em qualquer tempo determinado: rede
+indisponível adia a consulta até a batida seguinte, e uma aba em segundo plano
+tem o temporizador limitado pelo navegador, não pelo produto. O que **não**
+depende disso é a proteção: quem decide continua sendo o servidor, a cada
+requisição, e é ele que recusa enquanto a tela estiver atrasada — como esta
+mesma travessia mostra na janela entre a retirada e a batida.
 
 ## A jornada, como foi percorrida
 
@@ -34,11 +41,11 @@ cada requisição.
 |---|---|---|
 | Sem autoridade, cancelar | a operadora CAIXA recebe o pedido de autorização do supervisor | `02-sem-autoridade-pede-supervisor.png` |
 | A gestora concede | `PUT /team/{vínculo}/autoridade`, 200 | — |
-| **A concessão alcança a sessão aberta** | a tela avisa sozinha, em **15885ms**, **sem recarregar** | — |
+| **A concessão alcança a sessão aberta** | a tela avisa sozinha, **sem recarregar** — **15,9s nesta execução** | — |
 | Cancelar de novo | agora sem diálogo nenhum | `03-com-autoridade-cancela-sozinha.png` |
 | A gestora retira | 200 | — |
 | **Na janela antes da próxima batida** | a tela ainda acha que pode, tenta, e o **servidor recusa** | `04-retirada-com-sessao-aberta.png` |
-| **A retirada alcança a sessão aberta** | em **20038ms** a tela volta a pedir supervisor, sozinha | `05-retirada-chega-e-a-tela-volta-a-pedir-supervisor.png` |
+| **A retirada alcança a sessão aberta** | a tela volta a pedir supervisor, sozinha — **20,0s nesta execução** | `05-retirada-chega-e-a-tela-volta-a-pedir-supervisor.png` |
 
 **A resposta à pergunta é a boa.** Com a autoridade retirada e a sessão ainda
 aberta, a tela mandou o cancelamento sem cabeçalho de supervisor — porque ainda
@@ -102,9 +109,14 @@ servidor** de que a venda não foi cancelada.
 Isto é travessia de navegador contra a API local, com semeadura própria — não é
 simulação de tela, e não é integração com serviço externo, que aqui não existe.
 
+Os dois tempos acima são **medições de uma execução**, com a aba em primeiro
+plano e a rede local respondendo. Não são prazo, não são média, e não devem ser
+lidos como compromisso: a única coisa fixa no código é a cadência de 30 segundos
+da consulta.
+
 **Não** percorrido: o mesmo com `sale.discount`; retirada durante uma requisição
-já em voo; e propagação para uma aba que o navegador colocou em segundo plano,
-onde o relógio do temporizador é do navegador, não do produto.
+já em voo; a consulta falhando por rede indisponível; e a aba em segundo plano,
+onde quem limita o temporizador é o navegador.
 
 ### O controle da propagação
 

@@ -1,0 +1,96 @@
+{
+  "app": "http://127.0.0.1:5199",
+  "gerado_em": "2026-09-09T23:29:55.870Z",
+  "alcance": {
+    "configuracao_pela_tela": "percorrida — o vínculo é criado clicando",
+    "bridge": "simulado — heartbeat enviado pelo roteiro de cenário",
+    "maquininha_fisica": "NÃO existe",
+    "transacao_real_com_provedor": "NÃO percorrida"
+  },
+  "etapas": [
+    {
+      "etapa": "a unidade ainda não tem maquininha vinculada",
+      "diz": true
+    },
+    {
+      "etapa": "o diálogo só oferece terminal pareado com este caixa e provedor",
+      "terminais": [
+        "Selecione",
+        "BRIDGE-E7D661 · Online"
+      ]
+    },
+    {
+      "etapa": "a maquininha aparece vinculada ao caixa",
+      "listaModo": true
+    },
+    {
+      "etapa": "com o vínculo ativo, o balcão pode cobrar por TEF",
+      "tem": true
+    },
+    {
+      "etapa": "pausar com motivo de dois caracteres não passa",
+      "dialogo_continua_aberto": true,
+      "situacao_no_servidor": "ACTIVE"
+    },
+    {
+      "etapa": "o vínculo fica pausado, e o motivo fica à vista",
+      "mostraMotivo": true
+    },
+    {
+      "etapa": "com o vínculo pausado, o balcão não oferece mais TEF",
+      "tem": false
+    },
+    {
+      "etapa": "reativado o vínculo, o balcão volta a ter TEF",
+      "tem": true
+    }
+  ],
+  "telas": [
+    "01-sem-vinculo-a-tela-diz-o-que-falta",
+    "02-dialogo-de-vinculo-preenchido",
+    "03-vinculo-criado-e-listado",
+    "04-balcao-com-tef-disponivel",
+    "05-vinculo-pausado-com-motivo",
+    "06-balcao-sem-tef-com-o-vinculo-pausado",
+    "07-balcao-recupera-o-tef"
+  ],
+  "servidor": {
+    "depois_de_criar": {
+      "status": 200,
+      "linhas": [
+        {
+          "id": "d0404b95-1f57-45b6-aa07-4f8a18398b6b",
+          "situacao": "ACTIVE",
+          "modo": "TEF_BRIDGE",
+          "motivo": null,
+          "terminal": "84b7be13-b9be-4841-b869-2b224c5c21f6"
+        }
+      ]
+    },
+    "depois_de_pausar": {
+      "status": 200,
+      "linhas": [
+        {
+          "id": "d0404b95-1f57-45b6-aa07-4f8a18398b6b",
+          "situacao": "PAUSED",
+          "modo": "TEF_BRIDGE",
+          "motivo": "Maquininha recolhida para manutenção pela adquirente",
+          "terminal": "84b7be13-b9be-4841-b869-2b224c5c21f6"
+        }
+      ]
+    },
+    "depois_de_reativar": {
+      "status": 200,
+      "linhas": [
+        {
+          "id": "d0404b95-1f57-45b6-aa07-4f8a18398b6b",
+          "situacao": "ACTIVE",
+          "modo": "TEF_BRIDGE",
+          "motivo": null,
+          "terminal": "84b7be13-b9be-4841-b869-2b224c5c21f6"
+        }
+      ]
+    }
+  },
+  "falhas": []
+}

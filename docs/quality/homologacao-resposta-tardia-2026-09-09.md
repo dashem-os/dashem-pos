@@ -80,27 +80,34 @@ E a tela retomada **mostra** o registro, em vez de escondê-lo —
 > aplicado a esta conta. O registro fica aqui até alguém decidir; nada foi
 > liberado nem cobrado por conta disso.
 
-## O controle, e o que ele revelou
+## O controle, e o que ele comprova — e o que não
 
 Desliguei a guarda que impede a transação de retroceder — `_apply_result` deixou
-de lembrar que já havia resposta terminal. **A travessia continuou passando.**
+de lembrar que já havia resposta terminal. **A travessia continuou passando**, e
+a divergência mudou de `STATE_REGRESSION_REFUSED` para `LATE_FAILURE`.
 
-Isso não é falha da medida: é **defesa em profundidade**, e vale registrar qual
-é a segunda camada. Uma resposta `FAILED` só derruba parcela que ainda esteja
-aberta (`intent.status in OPEN_INTENTS`); parcela já confirmada nunca é reaberta
-por resposta de provider, e o fato vira divergência. Com a primeira guarda
-desligada, o dinheiro ficou exatamente onde estava — o que mudou foi só a
-**classificação**: `LATE_FAILURE` em vez de `STATE_REGRESSION_REFUSED`.
+**O que isso comprova:** naquele cenário, com aquela guarda desligada, os valores
+financeiros continuaram corretos — confirmado R$ 18,00, falta R$ 62,00, uma
+parcela, ainda `CONFIRMED`. É um resultado sobre dinheiro, e é o que as
+asserções desta travessia medem.
 
-| Guarda | O que ela impede | Divergência que ela produz |
+**O que isso não comprova:** um controle que não falha não estabelece, sozinho,
+que existe uma segunda guarda independente. A leitura abaixo é a explicação que
+o código oferece, e ela é plausível — não é prova produzida aqui:
+
+| Guarda aparente | O que ela impediria | Divergência associada |
 |---|---|---|
 | A transação não retrocede | aplicar resposta antiga sobre resposta terminal | `STATE_REGRESSION_REFUSED` |
-| A parcela confirmada não reabre | derrubar parcela encerrada por resposta de provider | `LATE_FAILURE` |
+| A parcela confirmada não reabre (`intent.status in OPEN_INTENTS`) | derrubar parcela encerrada por resposta de provider | `LATE_FAILURE` |
 
-As asserções desta travessia são sobre **dinheiro** — confirmado, falta, número
-de parcelas, situação da parcela — e é por isso que elas seguraram com uma das
-duas guardas desligada. Escrever uma asserção sobre qual guarda atuou faria a
-travessia acusar esse controle, e mediria arquitetura em vez de dinheiro.
+Afirmar "defesa em profundidade" com base neste controle seria conclusão maior
+que a medida, e a retiro.
+
+**Se a classificação da divergência for requisito** — e não só o valor —, ela
+precisa de prova própria, dirigida a ela. Ela não deve ser enxertada nas
+asserções desta travessia: aqui se mede dinheiro, e misturar as duas coisas faria
+a travessia acusar mudanças de arquitetura que não movem centavo nenhum. Fica
+registrado como item de cobertura, não como bloqueio.
 
 ## A reconciliação pelo worker
 

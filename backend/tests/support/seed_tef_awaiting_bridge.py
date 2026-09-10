@@ -62,7 +62,7 @@ class Api:
         return resposta.json()
 
 
-def montar(fixture_path: Path, saida: Path, base: str) -> None:
+def montar(fixture_path: Path, saida: Path, base: str, *, com_vinculo: bool = True) -> None:
     fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
     api = Api(base, fixture)
     marca = uuid.uuid4().hex[:6]
@@ -101,7 +101,10 @@ def montar(fixture_path: Path, saida: Path, base: str) -> None:
         raise RuntimeError(f"o terminal não ficou ONLINE: {terminal_online['status']}")
 
     # ---- 3. vínculo de maquininha -----------------------------------------
-    vinculo = api.post("/api/v1/providers/device-bindings", {
+    #
+    # `--sem-vinculo` deixa este passo de fora: é o que a travessia do vínculo
+    # pela tela precisa, porque quem tem de criá-lo lá é a gestora, clicando.
+    vinculo = None if not com_vinculo else api.post("/api/v1/providers/device-bindings", {
         "store_id": fixture["store_id"], "register_id": fixture["register_id"],
         "operational_device_id": fixture["operational_device_id"],
         "provider_configuration_id": configuracao["id"],
@@ -159,7 +162,7 @@ def montar(fixture_path: Path, saida: Path, base: str) -> None:
                             "status": terminal_online["status"],
                             "bridge_version": terminal_online.get("bridge_version"),
                             "pairing_code": pareamento["pairing_code"]},
-        "payment_device_binding_id": vinculo["id"],
+        "payment_device_binding_id": vinculo["id"] if vinculo else None,
         "terminal_token": autorizacao["terminal_token"],
         "service_table": {"id": mesa["id"], "name": mesa["name"], "code": mesa["code"]},
         "table_session_id": sessao["id"],
@@ -176,7 +179,8 @@ def montar(fixture_path: Path, saida: Path, base: str) -> None:
     saida.parent.mkdir(parents=True, exist_ok=True)
     saida.write_text(json.dumps(fixture, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"salão pronto: mesa {mesa['name']}, bridge {terminal['terminal_code']} "
-          f"{terminal_online['status']}, vínculo {vinculo['id']}")
+          f"{terminal_online['status']}, vínculo "
+          f"{vinculo['id'] if vinculo else 'NÃO criado (a tela vai criá-lo)'}")
 
 
 if __name__ == "__main__":
@@ -185,5 +189,10 @@ if __name__ == "__main__":
                         help="Saída de seed_food_service_walkthrough.py")
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--api", default="http://127.0.0.1:8004")
+    parser.add_argument(
+        "--sem-vinculo", action="store_true",
+        help="Não cria o vínculo de maquininha: a travessia da tela o cria.",
+    )
     argumentos = parser.parse_args()
-    montar(argumentos.fixture, argumentos.output, argumentos.api)
+    montar(argumentos.fixture, argumentos.output, argumentos.api,
+           com_vinculo=not argumentos.sem_vinculo)
