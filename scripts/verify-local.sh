@@ -35,7 +35,8 @@ docker exec -e TEST_BASE_URL="$IN_CONTAINER_API" "$BACKEND_CONTAINER" python -m 
   --ignore=tests/test_frontend_api_contract.py \
   --ignore=tests/test_supabase_storage_adapter.py \
   --ignore=tests/test_surface_reachability.py \
-  --ignore=tests/test_capability_readiness.py \n  --ignore=tests/test_food_rule_impact_report.py
+  --ignore=tests/test_capability_readiness.py \
+  --ignore=tests/test_food_rule_impact_report.py
 
 step "Backend: testes que leem o repositório inteiro"
 # The running container only mounts backend/, so these read frontend/, docs/ and
