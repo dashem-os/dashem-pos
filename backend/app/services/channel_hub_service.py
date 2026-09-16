@@ -9,10 +9,7 @@ from sqlmodel import Session, select
 from app.core.config import settings
 from app.core.context import TenantContext, resolve_actor, scope_tenant_query
 from app.models.catalog import SalesChannel, SalesChannelTypeEnum
-from app.models.channel_hub import (
-    ChannelInboxEvent, ChannelOutboundMessage,
-    ExternalOrderMapping, MerchantConnection, MerchantConnectionStatusEnum,
-)
+from app.models.channel_hub import ChannelInboxEvent, MerchantConnection, MerchantConnectionStatusEnum
 from app.modules.channels import registry as channel_registry
 from app.modules.channels.contracts import ChannelCapability
 from app.services import reliability_service
@@ -171,44 +168,3 @@ def list_inbox(session: Session, context: TenantContext, limit: int = 100) -> li
     return list(session.exec(scope_tenant_query(
         select(ChannelInboxEvent).order_by(ChannelInboxEvent.received_at.desc()).limit(limit), ChannelInboxEvent, context,
     )).all())
-
-
-def queue_outbound(
-    session: Session, context: TenantContext, order_id: uuid.UUID, *,
-    message_type: str, payload: dict, actor_id: Optional[uuid.UUID], idempotency_key: str,
-) -> ChannelOutboundMessage:
-    actor = _actor(context, actor_id)
-    existing = session.exec(select(ChannelOutboundMessage).where(
-        ChannelOutboundMessage.tenant_id == context.tenant_id,
-        ChannelOutboundMessage.idempotency_key == idempotency_key,
-    )).first()
-    request_hash = _hash({"order_id": str(order_id), "message_type": message_type, "payload": payload})
-    if existing:
-        if existing.request_hash != request_hash:
-            raise HTTPException(status_code=409, detail="Idempotency-Key reutilizada com outro outbound.")
-        return existing
-    mapping = session.exec(select(ExternalOrderMapping).where(
-        ExternalOrderMapping.tenant_id == context.tenant_id,
-        ExternalOrderMapping.order_id == order_id,
-    )).first()
-    if not mapping:
-        raise HTTPException(status_code=404, detail="Order não possui origem externa.")
-    message = ChannelOutboundMessage(
-        tenant_id=context.tenant_id, store_id=mapping.store_id,
-        merchant_connection_id=mapping.merchant_connection_id, order_id=order_id,
-        message_type=message_type, payload=payload, idempotency_key=idempotency_key,
-        request_hash=request_hash, created_by=actor,
-    )
-    session.add(message)
-    reliability_service.write_audit_and_outbox(
-        session=session, tenant_id=context.tenant_id, store_id=mapping.store_id, actor_id=actor,
-        action="channel.outbound.queued", target=f"CHANNEL-OUTBOUND-{message.id}",
-        audit_payload={"order_id": str(order_id), "message_type": message_type},
-        aggregate_type="channel_outbound", aggregate_id=str(message.id),
-        event_type="channel.outbound.queued", outbox_payload={
-            "merchant_connection_id": str(mapping.merchant_connection_id),
-            "order_id": str(order_id), "message_type": message_type, "payload": payload,
-        },
-    )
-    session.commit(); session.refresh(message)
-    return message

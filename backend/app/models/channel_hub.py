@@ -70,9 +70,13 @@ class ChannelRetentionBasisEnum(str, Enum):
 
 
 class ChannelOutboundStatusEnum(str, Enum):
+    """Where a notice to the channel is (S10.1, §3.6). `PENDING` is never a delivery."""
+
     PENDING = "PENDING"
+    SENDING = "SENDING"
     DELIVERED = "DELIVERED"
     RETRY = "RETRY"
+    UNCONFIRMED = "UNCONFIRMED"
     DEAD_LETTER = "DEAD_LETTER"
 
 
@@ -273,8 +277,13 @@ class ChannelOutboundMessage(SQLModel, table=True):
     attempt_count: int = Field(default=0, ge=0)
     idempotency_key: str = Field(max_length=160, index=True)
     request_hash: str = Field(max_length=64)
+    # Legado do S10: texto livre. O executor grava só `last_error_code`.
     last_error: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     next_retry_at: Optional[datetime] = Field(default=None, index=True)
+    lease_expires_at: Optional[datetime] = Field(default=None)
+    delivered_at: Optional[datetime] = Field(default=None, index=True)
+    provider_reference: Optional[str] = Field(default=None, max_length=200)
+    last_error_code: Optional[str] = Field(default=None, max_length=80)
     created_by: uuid.UUID = Field(index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

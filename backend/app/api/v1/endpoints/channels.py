@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, BackgroundTasks, Depends, Header
 from pydantic import BaseModel, ConfigDict, Field
 from sqlmodel import Session
 
@@ -11,6 +11,7 @@ from app.core.database import get_session
 from app.models.channel_hub import (
     ChannelInboxStatusEnum, ChannelOutboundStatusEnum, MerchantConnectionStatusEnum,
 )
+from app.modules.channels import outbound as channel_outbound
 from app.services import channel_hub_service
 
 
@@ -89,8 +90,9 @@ class OutboundDTO(BaseModel):
     payload: dict
     status: ChannelOutboundStatusEnum
     attempt_count: int
-    last_error: Optional[str]
+    last_error_code: Optional[str] = None
     next_retry_at: Optional[datetime]
+    delivered_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
 
@@ -135,11 +137,13 @@ def list_channel_inbox_endpoint(limit: int = 100, context: TenantContext = Depen
 
 @router.post("/orders/{order_id}/outbound", response_model=OutboundDTO)
 def queue_channel_outbound_endpoint(
-    order_id: uuid.UUID, data: OutboundCreateDTO,
+    order_id: uuid.UUID, data: OutboundCreateDTO, background: BackgroundTasks,
     idempotency_key: str = Header(alias="Idempotency-Key", min_length=8, max_length=160),
     context: TenantContext = Depends(get_tenant_context), session: Session = Depends(get_session),
 ):
-    return channel_hub_service.queue_outbound(
+    message = channel_outbound.enqueue(
         session, context, order_id, message_type=data.message_type,
         payload=data.payload, actor_id=data.actor_id, idempotency_key=idempotency_key,
     )
+    background.add_task(channel_outbound.deliver_now, [message.id])
+    return message

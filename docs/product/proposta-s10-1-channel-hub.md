@@ -71,6 +71,54 @@ apoia no contrato definido aqui. Nada nesta proposta autoriza dizer que iFood,
   - na tela, o prazo vencido diz que a limpeza ainda não é automática. A coluna
     do pedido ainda mostra UUID, e o formulário ainda pede referência de cofre:
     são do passo 7.
+- **Passo 6** — o dono autorizou concluir o executor sem escolher regras de
+  comportamento do pedido. Migração `100_the_notice_leaves`; código em
+  `app/modules/channels/outbound.py`; rotas `GET /channels/outbound` e
+  `POST /channels/outbound/{message_id}/resend` (esta sob `channel.manage`).
+  Provas em `test_channel_outbound.py` e na mesma bancada, que ganhou um aviso em
+  cada situação.
+
+  O que as provas afirmam, sem ir além:
+  - **entregue só com confirmação**: `DELIVERED` só quando o adaptador responde
+    entregue, ou quando, consultado, diz que chegou. Falha transitória vai para
+    `RETRY` com espera que dobra; recusa permanente ou seis tentativas vão para
+    `DEAD_LETTER`, e "Reenviar" recomeça as tentativas (R12);
+  - **tempo esgotado não vira sucesso nem falha**: com canal que deduplica pela
+    identidade do aviso (E4), a mesma identidade é reenviada; sem isso, o aviso
+    fica `UNCONFIRMED` e o canal é **consultado** antes de qualquer envio (E5).
+    Um não entregue cujo último resultado foi ambíguo também consulta antes ao ser
+    reenviado. O controle — enviar sem consultar — produz duas chamadas, e o
+    teste as vê (R13);
+  - **nenhuma transação aberta durante a chamada**: reivindica com lease e
+    confirma, chama, e só grava o resultado se o lease ainda for daquela
+    tentativa. O controle — gravar sem conferir o lease — deixa uma resposta
+    atrasada sobrescrever a tentativa seguinte, e o teste a vê;
+  - **capacidade não declarada não é chamada** (R18);
+  - **nada pessoal na fila** (P4): aviso com chave que nomeia pessoa é recusado
+    com `NOTICE_PAYLOAD_PERSONAL`; auditoria e outbox levam identificadores e
+    códigos. O executor não lê a camada de contato: nenhum conector real existe
+    para precisar dela;
+  - na bancada, em 1280 e 390 px: cada situação em linguagem de operação, o
+    limite sem worker hospedado dito na tela, "Reenviar" só no não entregue e só
+    com `channel.manage`, e nenhum conteúdo do aviso na tela. O controle — botão
+    em toda linha — parou na asserção que o mede. A bancada continua **não**
+    sendo a travessia autenticada.
+
+  Divergências e limites:
+  - **quem gera os avisos não foi implementado.** §3.6 diz que os eventos do
+    Order Engine para pedidos externos geram avisos; escolher quais transições
+    avisam o canal é regra de comportamento do pedido, e virou a **D8**. Hoje um
+    aviso só existe quando alguém o enfileira pela rota existente
+    `POST /channels/orders/{order_id}/outbound`, que passou a usar o executor;
+  - **R14 não foi medido**: nenhum teste compara a latência da venda local com
+    canal indisponível contra uma linha de base. O que existe é estrutural — a
+    chamada ao canal não segura transação nem roda na requisição da venda —, e
+    isso não é a medida;
+  - matar o processo no meio de uma chamada não foi exercitado; o que foi provado
+    é o lease vencido levar à consulta antes do reenvio;
+  - `last_error`, texto livre do S10, fica sem escrita; o executor grava só código;
+  - o tipo de aviso é vocabulário do conector de referência; a tela traduz os
+    cinco conhecidos e mostra o código de qualquer outro.
 - Nada foi removido de dado nenhum; retenção continua **não implementada**.
 
 ## 0.1 O que mudou da revisão 2 para a 3
@@ -306,6 +354,7 @@ do canal continua origem `MARKETPLACE`, distinto de TEF e de repasse.
 - **Quem gera os avisos.** Os eventos que o Order Engine já publica na fila
   interna, para pedidos com origem externa. O conjunto inicial se limita às
   transições que já existem; aviso sem transição correspondente não é inventado.
+  *Não implementado no passo 6: depende da D8 (§8).*
 - **O aviso não carrega dado pessoal para a outbox** (C13, H17): a outbox leva
   identificadores; o conteúdo que o canal precisar é montado pelo executor na
   hora do envio, a partir das camadas com prazo.
@@ -671,7 +720,8 @@ assinatura, eventos, respostas aos avisos e indisponibilidade.
 
 ## 7. Ordem de implementação
 
-Passos 1 a 4 autorizados pelo dono em 16/09/2026.
+Passos 1 a 4 autorizados pelo dono em 16/09/2026. Passo 6 e a parte estrutural do 7 autorizados em
+16/09/2026, sem escolher D1, D2 nem regra de comportamento do pedido.
 
 0. **Feito em 16/09/2026:** guarda contra log com dado pessoal (P11).
 1. **Feito (`ffa4384`):** módulo, contrato por capacidades e conector de
@@ -688,7 +738,8 @@ Passos 1 a 4 autorizados pelo dono em 16/09/2026.
    usa o comportamento conservador — `NEEDS_REVIEW`, a produção não é cancelada
    sozinha — até D2.
 5. Valores do canal, depois de D1 (R11).
-6. Executor de avisos (R12–R14, R18, P4).
+6. **Feito:** executor de avisos (R12, R13, R18, P4). **R14 não medido.** A
+   geração automática de avisos a partir das transições do pedido espera a D8.
 7. Tela e travessia, com retenção visível e sem dado pessoal (R20, P6, P10).
 8. Gate do S10.1: todos os R, P1–P11 e P17–P21, com os limites escritos e a purga
    declarada como **não implementada**.
@@ -707,6 +758,7 @@ Passos 1 a 4 autorizados pelo dono em 16/09/2026.
 | **D5** | Rota antiga `/channels/webhooks` | Seguida na autorização dos passos 1 a 4: sai no passo 2; só os testes a usam |
 | **D6** | Âncora para evento que nunca vira pedido | **Decidida em 16/09/2026** (§3.7.4): payload conta da recepção, até 30 dias; contato, se um dia for extraído antes da aplicação, conta da classificação definitiva, até 90 dias; quarentena não reinicia o relógio; ressalvado `LEGAL_HOLD` |
 | **D7** | Quem pode ler contato, registrar e liberar legal hold, estender retenção e executar limpeza | **Decidida em 16/09/2026** (§3.7.8): quatro permissões por ação, acesso mínimo, auditoria, acúmulo permitido. **Concessão a perfis pendente**: definir e testar antes de abrir as rotas e antes de qualquer piloto com canal |
+| **D8** | Quais transições do pedido geram aviso ao canal, e com que tipo | Pendente, aberta no passo 6. Até a decisão, nenhum aviso nasce sozinho: só pela rota explícita. Depende de D2 para cancelamento e da escolha do primeiro canal para o vocabulário |
 
 Fora do alcance desta proposta, e não perguntado aqui: escolha do primeiro canal,
 contratação, preços, planos e o S13.2.

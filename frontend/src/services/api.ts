@@ -3877,6 +3877,35 @@ export async function validateMerchantConnection(headers: Record<string, string>
   return res.json()
 }
 
+/** A notice to the channel. PENDING is in the queue, never a delivery; no payload and no person travel here. */
+export interface ChannelNotice {
+  id: string
+  order_id: string
+  external_order_id?: string | null
+  message_type: string
+  status: 'PENDING' | 'SENDING' | 'DELIVERED' | 'RETRY' | 'UNCONFIRMED' | 'DEAD_LETTER'
+  attempt_count: number
+  last_error_code?: string | null
+  next_retry_at?: string | null
+  delivered_at?: string | null
+  created_at: string
+}
+
+export async function fetchChannelNotices(headers: Record<string, string>): Promise<ChannelNotice[]> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/channels/outbound`, { headers })
+  if (!res.ok) throw await apiError(res, 'Não foi possível carregar os avisos ao canal.')
+  return res.json()
+}
+
+/** A person sends a notice the channel never took. If its last answer was ambiguous, the server asks the channel first. */
+export async function resendChannelNotice(headers: Record<string, string>, messageId: string, actorId?: string): Promise<ChannelNotice> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/channels/outbound/${messageId}/resend`, {
+    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ actor_id: actorId }),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível reenviar o aviso.')
+  return res.json()
+}
+
 /** A person retakes a quarantined or reviewed event. The server never moves its deadline. */
 export async function resumeChannelInboxEvent(headers: Record<string, string>, eventId: string, actorId?: string): Promise<Pick<ChannelInboxEvent, 'id' | 'status' | 'quarantine_code' | 'quarantine_reason' | 'order_id' | 'retention_until'>> {
   const res = await fetch(`${API_BASE_URL}/api/v1/channels/inbox/${eventId}/resume`, {

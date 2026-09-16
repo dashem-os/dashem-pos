@@ -80,10 +80,15 @@ def sweep_channel_inbox() -> int:
     # unwired port raises instead of answering zero, so it is wired here.
     import app.services.negotiation_service  # noqa: F401
 
+    from app.modules.channels import outbound
+
     processed = inbox.sweep()
     if processed:
         logger.info("Processed %s channel inbox events left behind", processed)
-    return processed
+    delivered = outbound.sweep()
+    if delivered:
+        logger.info("Attempted %s channel notices left behind", delivered)
+    return processed + delivered
 
 
 def process_one_event() -> bool:

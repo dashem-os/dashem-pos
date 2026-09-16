@@ -25,8 +25,9 @@ from typing import Mapping, Optional
 
 from app.core.config import settings
 from app.modules.channels.contracts import (
-    ChannelCapability, ExternalContact, ExternalEvent, ExternalEventKind, ExternalOrder,
-    ExternalOrderLine, IngressEnvelope, PayloadRejected, SignatureRejected, ValidationOutcome,
+    ChannelCapability, DeliveryOutcome, DeliveryResult, ExternalContact, ExternalEvent,
+    ExternalEventKind, ExternalOrder, ExternalOrderLine, IngressEnvelope, OutboundNotice,
+    PayloadRejected, SignatureRejected, ValidationOutcome,
 )
 
 
@@ -82,6 +83,21 @@ class ReferenceChannelAdapter:
         ChannelCapability.ORDER_EVENTS,
         ChannelCapability.ORDER_STATUS_OUTBOUND,
     })
+
+    # O canal simulado deduplica pelo identificador do aviso (E4). Vocabulário de
+    # avisos deste conector, e de nenhum canal real.
+    idempotent_delivery = True
+    supported_notice_types = frozenset({
+        "ORDER_ACCEPTED", "ORDER_READY", "ORDER_DISPATCHED", "ORDER_CONCLUDED", "ORDER_CANCELLED",
+    })
+
+    def send_notice(self, notice: OutboundNotice) -> DeliveryOutcome:
+        if notice.message_type not in self.supported_notice_types:
+            return DeliveryOutcome(DeliveryResult.PERMANENT, code="NOTICE_TYPE_NOT_SUPPORTED")
+        return DeliveryOutcome(DeliveryResult.DELIVERED, provider_reference=f"ref-{notice.notice_id}")
+
+    def confirm_notice(self, notice: OutboundNotice):
+        return True
 
     def validate_connection(self, merchant_external_id: str) -> ValidationOutcome:
         if merchant_external_id and merchant_external_id.strip():

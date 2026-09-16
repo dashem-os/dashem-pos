@@ -9,6 +9,10 @@ right after the response (trigger (a) of the inbox).
 `POST /channels/inbox/{event_id}/resume` is a person retaking a quarantined or
 reviewed event. It is a `/channels` mutation, so the route map requires
 `channel.manage`; it never moves a retention deadline.
+
+`GET /channels/outbound` lists notices to the channel — no payload, no person —
+and `POST /channels/outbound/{message_id}/resend` sends a dead letter again under
+`channel.manage`.
 """
 
 import uuid
@@ -22,8 +26,8 @@ from sqlmodel import Session
 
 from app.core.context import TenantContext, get_tenant_context, resolve_actor
 from app.core.database import get_session
-from app.models.channel_hub import ChannelInboxStatusEnum
-from app.modules.channels import inbox, ingress
+from app.models.channel_hub import ChannelInboxStatusEnum, ChannelOutboundStatusEnum
+from app.modules.channels import inbox, ingress, outbound
 
 
 router = APIRouter()
@@ -72,3 +76,37 @@ def resume_channel_event(
     context: TenantContext = Depends(get_tenant_context), session: Session = Depends(get_session),
 ):
     return inbox.resume(session, context, event_id, resolve_actor(context, data.actor_id))
+
+
+class OutboundNoticeDTO(BaseModel):
+    id: uuid.UUID
+    order_id: uuid.UUID
+    external_order_id: Optional[str] = None
+    message_type: str
+    status: ChannelOutboundStatusEnum
+    attempt_count: int
+    last_error_code: Optional[str] = None
+    next_retry_at: Optional[datetime] = None
+    delivered_at: Optional[datetime] = None
+    created_at: datetime
+
+
+class ResendDTO(BaseModel):
+    actor_id: Optional[uuid.UUID] = None
+
+
+@router.get("/outbound", response_model=list[OutboundNoticeDTO])
+def list_channel_notices(
+    limit: int = 100,
+    context: TenantContext = Depends(get_tenant_context), session: Session = Depends(get_session),
+):
+    return outbound.list_messages(session, context, min(max(limit, 1), 500))
+
+
+@router.post("/outbound/{message_id}/resend", response_model=OutboundNoticeDTO)
+def resend_channel_notice(
+    message_id: uuid.UUID, data: ResendDTO,
+    context: TenantContext = Depends(get_tenant_context), session: Session = Depends(get_session),
+):
+    row = outbound.resend(session, context, message_id, resolve_actor(context, data.actor_id))
+    return outbound.list_messages(session, context, 1, message_id=row.id)[0]

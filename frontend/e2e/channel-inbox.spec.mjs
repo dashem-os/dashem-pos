@@ -7,6 +7,8 @@
  * - a falta de processamento contínuo hospedado está dita;
  * - "Retomar" aparece só onde retomar faz sentido, e só com `channel.manage`;
  * - nenhum marcador de dado pessoal do payload chega à tela;
+ * - nos avisos ao canal, cada situação em linguagem de operação, "Reenviar" só
+ *   no não entregue e só com `channel.manage`, e nada do conteúdo enviado;
  * - nenhuma palavra quebra no meio (a lição da auditoria de palavra partida).
  *
  * As permissões vêm interceptadas no navegador da bancada. Não substitui a
@@ -29,6 +31,21 @@ const labels = {
   waiting: 'Aguardando processamento', expired: 'Expirado sem aplicação',
 }
 
+function brokenWords(section) {
+  return section.evaluate(root => {
+    const found = []
+    for (const el of root.querySelectorAll('span, p, td, button')) {
+      const words = (el.textContent || '').trim().split(/\s+/).filter(w => w.length > 3)
+      if (!words.length || el.children.length) continue
+      const range = document.createRange()
+      range.selectNodeContents(el)
+      const lines = new Set([...range.getClientRects()].map(r => Math.round(r.top)))
+      if (lines.size > words.length) found.push(el.textContent.trim().slice(0, 40))
+    }
+    return found
+  })
+}
+
 async function visit(permissions, viewport, name) {
   const browser = await chromium.launch()
   const page = await browser.newPage({ viewport })
@@ -46,21 +63,15 @@ async function visit(permissions, viewport, name) {
   const text = await inbox.innerText()
   const resumeButtons = await inbox.getByRole('button', { name: 'Retomar' }).count()
   await inbox.screenshot({ path: `${outDir}/${name}.png` })
+  await page.getByText('Não entregue').first().waitFor({ timeout: 30000 })
+  const notices = page.locator('section', { has: page.getByRole('heading', { name: 'Avisos ao canal' }) }).last()
+  const noticesText = await notices.innerText()
+  const resendButtons = await notices.getByRole('button', { name: 'Reenviar' }).count()
+  await notices.screenshot({ path: `${outDir}/${name}-avisos.png` })
 
-  const broken = await inbox.evaluate(root => {
-    const found = []
-    for (const el of root.querySelectorAll('span, p, td, button')) {
-      const words = (el.textContent || '').trim().split(/\s+/).filter(w => w.length > 3)
-      if (!words.length || el.children.length) continue
-      const range = document.createRange()
-      range.selectNodeContents(el)
-      const lines = new Set([...range.getClientRects()].map(r => Math.round(r.top)))
-      if (lines.size > words.length) found.push(el.textContent.trim().slice(0, 40))
-    }
-    return found
-  })
+  const broken = [...await brokenWords(inbox), ...await brokenWords(notices)]
   await browser.close()
-  return { text, errors, broken, resumeButtons }
+  return { text, errors, broken, resumeButtons, noticesText, resendButtons }
 }
 
 const manager = await visit(['channel.read', 'channel.manage', 'channel.configure'], { width: 1280, height: 900 }, 'caixa-gestora-1280')
@@ -76,11 +87,21 @@ for (const marker of bench.markers) assert.ok(!manager.text.includes(marker), `d
 assert.deepEqual(manager.errors, [])
 assert.deepEqual(manager.broken, [], `palavra quebrada: ${manager.broken.join(' | ')}`)
 
+for (const label of ['Entregue ao canal', 'Não entregue', 'Nova tentativa agendada', 'Sem confirmação do canal']) {
+  assert.match(manager.noticesText, new RegExp(label), `aviso: "${label}" não apareceu`)
+}
+assert.match(manager.noticesText, /será consultado antes de qualquer reenvio/)
+assert.match(manager.noticesText, /Sem processamento contínuo hospedado/)
+assert.equal(manager.resendButtons, 1, 'Reenviar só no não entregue')
+assert.doesNotMatch(manager.noticesText, /(PENDING|DELIVERED|DEAD_LETTER|UNCONFIRMED)/, 'código cru nos avisos')
+for (const marker of bench.markers) assert.ok(!manager.noticesText.includes(marker), `conteúdo do aviso na tela: ${marker}`)
+
 const reader = await visit(['channel.read'], { width: 390, height: 844 }, 'caixa-leitura-390')
 assert.match(reader.text, new RegExp(labels.waiting))
 assert.equal(reader.resumeButtons, 0, 'sem channel.manage não há Retomar')
+assert.equal(reader.resendButtons, 0, 'sem channel.manage não há Reenviar')
 for (const marker of bench.markers) assert.ok(!reader.text.includes(marker), `dado pessoal na tela: ${marker}`)
 assert.deepEqual(reader.errors, [])
 assert.deepEqual(reader.broken, [], `palavra quebrada no celular: ${reader.broken.join(' | ')}`)
 
-console.log(JSON.stringify({ ok: true, capturas: [`${outDir}/caixa-gestora-1280.png`, `${outDir}/caixa-leitura-390.png`] }))
+console.log(JSON.stringify({ ok: true, capturas: [`${outDir}/caixa-gestora-1280.png`, `${outDir}/caixa-gestora-1280-avisos.png`, `${outDir}/caixa-leitura-390.png`, `${outDir}/caixa-leitura-390-avisos.png`] }))

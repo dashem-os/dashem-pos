@@ -157,6 +157,38 @@ class ValidationOutcome:
     code: Optional[str] = None
 
 
+class DeliveryResult(str, Enum):
+    """What the channel said about one notice.
+
+    `AMBIGUOUS` is neither success nor failure: the call timed out or broke after
+    it may have arrived. What happens next depends on whether the channel
+    deduplicates by the notice identity (E4) or has to be asked (E5).
+    """
+
+    DELIVERED = "DELIVERED"
+    RETRYABLE = "RETRYABLE"
+    PERMANENT = "PERMANENT"
+    AMBIGUOUS = "AMBIGUOUS"
+
+
+@dataclass(frozen=True)
+class OutboundNotice:
+    """One notice to a channel. `notice_id` is stable: resending repeats it."""
+
+    notice_id: str
+    merchant_external_id: str
+    external_order_id: str
+    message_type: str
+    payload: Mapping
+
+
+@dataclass(frozen=True)
+class DeliveryOutcome:
+    result: DeliveryResult
+    provider_reference: Optional[str] = None
+    code: Optional[str] = None
+
+
 class ChannelAdapter(Protocol):
     provider_code: str
     parser_version: str
@@ -178,6 +210,20 @@ class OrderIngress(Protocol):
 
     def normalize(self, envelope: IngressEnvelope) -> ExternalEvent:
         """Interpret one stored event. Raise `PayloadRejected` with a code."""
+        ...
+
+
+class OrderStatusOutbound(Protocol):
+    # E4: the channel deduplicates a resent notice by its identity.
+    idempotent_delivery: bool
+    supported_notice_types: frozenset
+
+    def send_notice(self, notice: OutboundNotice) -> DeliveryOutcome:
+        """Send once. A code in the outcome, never a fragment of what was sent."""
+        ...
+
+    def confirm_notice(self, notice: OutboundNotice) -> Optional[bool]:
+        """E5: did this notice arrive? True, False, or None when the channel cannot say."""
         ...
 
 

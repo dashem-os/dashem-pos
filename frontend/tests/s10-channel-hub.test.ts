@@ -46,3 +46,13 @@ test('asks for no per-connection webhook secret and shows none', () => {
   assert.doesNotMatch(workspace, /webhookSecret|webhook_secret|Segredo de webhook/)
   assert.doesNotMatch(api, /webhook_secret/)
 })
+
+test('shows notices to the channel as delivered only when the channel confirmed, and resends only dead letters', () => {
+  assert.match(api, /\/api\/v1\/channels\/outbound`/)
+  assert.match(api, /\/api\/v1\/channels\/outbound\/\$\{messageId\}\/resend/)
+  assert.match(workspace, /DELIVERED: 'Entregue ao canal'/)
+  assert.match(workspace, /PENDING: 'Na fila'/)
+  assert.match(workspace, /noticeTypeLabels\[notice\.message_type\] \?\? notice\.message_type/)
+  assert.match(workspace, /canManage && notice\.status === 'DEAD_LETTER'/)
+  assert.match(workspace, /nenhum é criado sozinho/)
+})
