@@ -14,6 +14,27 @@ de catálogo, disponibilidade e repasses: isso é o S13.2, que vem depois e se
 apoia no contrato definido aqui. Nada nesta proposta autoriza dizer que iFood,
 99Food ou qualquer canal está conectado.
 
+## 0.2 Implementação — o que existe e onde divergiu
+
+- **Passo 1** (`ffa4384`): `app/modules/channels` com `contracts`, `registry` e o
+  conector de referência. Provedor sem adaptador recebe um adaptador sem
+  capacidades. Provas em `test_channel_contract.py`.
+- **Passo 2**: ingresso `POST /channels/ingress/{provider_code}`, com a conexão
+  resolvida no servidor; migração `098_the_event_has_a_deadline`, que dá prazo da
+  recepção a todo evento (D6), cria os campos de legal hold com a restrição de
+  todos ou nenhum e as quatro permissões da D7 sem concessão. Provas em
+  `test_channel_ingress.py`. Três divergências, com o motivo:
+  - **merchant conectado tem um único dono**: índice parcial em
+    `merchant_connections`. Sem isso, resolver a conexão pelo merchant seria
+    ambíguo entre tenants. Validar um merchant já conectado em outro tenant dá
+    `NOT_CONNECTED` com `MERCHANT_CONNECTED_ELSEWHERE`, e a migração rebaixa
+    duplicatas existentes com esse motivo;
+  - **a rota antiga `/channels/webhooks` fica até o passo 3**: os eventos do
+    ingresso novo esperam em `RECEIVED` pela caixa retomável. Remover a rota
+    antiga antes deixaria o S10 sem processamento;
+  - **`parser_version` vai para a migração do passo 3**, que é quem normaliza.
+- Nada foi removido de dado nenhum; retenção continua **não implementada**.
+
 ## 0.1 O que mudou da revisão 2 para a 3
 
 | # | Revisão 2 dizia | Revisão 3 |
@@ -493,8 +514,8 @@ Entregue quando percorrido na tela, e não quando o teste passar.
 
 | Passo | Migração |
 |---|---|
-| 2 | colunas de retenção, hold e `parser_version` da caixa de entrada; as quatro permissões no catálogo, sem concessão |
-| 3 | estados e lease da caixa de entrada; tabela de contato; tabela de linhas externas |
+| 2 | `098_the_event_has_a_deadline`: retenção e hold da caixa de entrada; merchant conectado único; as quatro permissões no catálogo, sem concessão |
+| 3 | estados, lease e `parser_version` da caixa de entrada; tabela de contato; tabela de linhas externas |
 | 4 | âncora terminal, chave de ordem aplicada e campos de evidência no mapeamento |
 | 6 | colunas do executor de avisos |
 
@@ -615,14 +636,15 @@ assinatura, eventos, respostas aos avisos e indisponibilidade.
 Passos 1 a 4 autorizados pelo dono em 16/09/2026.
 
 0. **Feito em 16/09/2026:** guarda contra log com dado pessoal (P11).
-1. Módulo, contrato por capacidades e conector de referência, sem mudar
-   comportamento.
-2. Ingresso por provedor com conexão resolvida no servidor; sai a rota antiga;
-   migração com retenção, hold e versão do parser na caixa de entrada e as quatro
-   permissões sem concessão (R15–R17, P2, P5–P7, P20).
+1. **Feito (`ffa4384`):** módulo, contrato por capacidades e conector de
+   referência, sem mudar comportamento.
+2. **Feito:** ingresso por provedor com conexão resolvida no servidor e merchant
+   conectado com um único dono; migração com retenção e hold na caixa de entrada
+   e as quatro permissões sem concessão (R15–R17, P2, P5–P7, P20).
 3. Caixa de entrada retomável, abertura de pedido externo como unidade de
-   trabalho, contato na sua camada, fim da cópia para `orders.notes` e motivo de
-   quarentena como código (R1–R5, R10, R19, P3, P8, P9, P17, P18, P21).
+   trabalho, contato na sua camada, fim da cópia para `orders.notes`, motivo de
+   quarentena como código e `parser_version`; **sai a rota antiga**
+   (R1–R5, R10, R19, P3, P8, P9, P17, P18, P21).
 4. Atualização, ordem, conclusão e cancelamento, com as operações novas no Order
    Engine e a âncora terminal (R6–R9, P1, P19). Cancelamento com item em preparo
    usa o comportamento conservador — `NEEDS_REVIEW`, a produção não é cancelada

@@ -139,7 +139,30 @@ def validate_connection(
         aggregate_id=str(connection.id), event_type="channel.connection.validated",
         outbox_payload={"status": connection.status.value, "error_code": error},
     )
-    session.commit(); session.refresh(connection)
+    try:
+        session.commit()
+    except IntegrityError:
+        # A merchant connected in another tenant (migration 098). The ingress
+        # resolves a merchant to one connection; two would make delivery ambiguous.
+        session.rollback()
+        connection = session.exec(scope_tenant_query(select(MerchantConnection).where(
+            MerchantConnection.id == connection_id,
+        ).with_for_update(), MerchantConnection, context)).first()
+        error = "MERCHANT_CONNECTED_ELSEWHERE"
+        connection.status = MerchantConnectionStatusEnum.NOT_CONNECTED
+        connection.last_validated_at = datetime.utcnow()
+        connection.updated_at = datetime.utcnow()
+        connection.last_error_code = error
+        connection.last_error_message = "Este merchant já está conectado em outra conta."
+        reliability_service.write_audit_and_outbox(
+            session=session, tenant_id=context.tenant_id, store_id=connection.store_id, actor_id=actor,
+            action="channel.connection.validated", target=f"MERCHANT-CONNECTION-{connection.id}",
+            audit_payload={"connected": False, "error_code": error}, aggregate_type="merchant_connection",
+            aggregate_id=str(connection.id), event_type="channel.connection.validated",
+            outbox_payload={"status": connection.status.value, "error_code": error},
+        )
+        session.commit()
+    session.refresh(connection)
     reliability_service.save_idempotency_record(
         session, context.tenant_id, actor, "channel.connection.validate",
         idempotency_key, payload, 200, {"connection_id": str(connection.id)},

@@ -81,6 +81,8 @@ MODULE_OF_SURFACE = {
 # ---------------------------------------------------------------------------
 NOT_A_BROWSER_SURFACE = {
     "POST /api/v1/channels/webhooks",
+    # S10.1: one door per provider, the channel signs what it sends.
+    "POST /api/v1/channels/ingress/{provider_code}",
     "POST /api/v1/control/finance/provider/webhooks/{provider}",
     "POST /api/v1/providers/bridge/terminals/{terminal_id}/heartbeat",
     "POST /api/v1/providers/bridge/terminals/{terminal_id}/transactions/{transaction_id}/result",

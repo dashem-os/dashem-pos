@@ -114,6 +114,7 @@ class ReferenceChannelAdapter:
                 merchant_external_id=_text(event.get("merchant_id"), "MERCHANT_MISSING"),
                 event_type=_text(event.get("type"), "EVENT_TYPE_MISSING"),
                 payload=event,
+                external_order_id=_text(event.get("order_id"), "ORDER_ID_INVALID", required=False),
             ))
         return tuple(envelopes)
 

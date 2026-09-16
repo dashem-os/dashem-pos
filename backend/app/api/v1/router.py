@@ -1,4 +1,5 @@
 from fastapi import APIRouter
+from app.modules.channels import api as channels_api
 from app.modules.finance.bridge import api as bridge_api
 from app.api.v1.endpoints import identity, catalog, inventory, sales, cash, payments, fiscal, capabilities, team, management, orders, tables, negotiations, providers, channels, production, transfers, channel_catalog, devices, receivables, reconciliations, operational_access, control, owner_finance, commercial_requests, storage, suppliers, payables, diagnostics
 
@@ -26,6 +27,8 @@ api_router.include_router(providers.router, prefix="/providers", tags=["Payment 
 # Born in its module (ADR-029 §1.2): the bridge's own door, wired here.
 api_router.include_router(bridge_api.router, prefix="/providers/bridge", tags=["Payment Providers & TEF Bridge"])
 api_router.include_router(channels.router, prefix="/channels", tags=["Channel Hub & External Inbox"])
+# Born in its module (ADR-029 §1.2): the channel's own door.
+api_router.include_router(channels_api.router, prefix="/channels", tags=["Channel Hub & External Inbox"])
 api_router.include_router(production.router, prefix="/production", tags=["Production Routing & KDS"])
 api_router.include_router(transfers.router, prefix="/transfers", tags=["Transfers & Tabs"])
 api_router.include_router(channel_catalog.router, prefix="/channel-catalog", tags=["Channel Catalog & Reconciliation"])

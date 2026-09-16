@@ -78,6 +78,23 @@ class IngressEnvelope:
     merchant_external_id: str
     event_type: str
     payload: Mapping
+    # Para agrupar eventos do mesmo pedido já na chegada; ausente não impede persistir.
+    external_order_id: Optional[str] = None
+
+
+class ChannelDataPermission(str, Enum):
+    """D7: one permission per action over channel personal data and its retention.
+
+    They exist in the permission catalog (migration 098) and are **granted to no
+    profile**. No route requires or offers them until the grant is defined and
+    tested; `test_channel_ingress` fails if any profile or person receives one
+    before that.
+    """
+
+    ORDER_CONTACT_READ = "channel.order_contact.read"
+    LEGAL_HOLD_MANAGE = "channel.legal_hold.manage"
+    RETENTION_EXTEND = "channel.retention.extend"
+    RETENTION_PURGE = "channel.retention.purge"
 
 
 @dataclass(frozen=True)

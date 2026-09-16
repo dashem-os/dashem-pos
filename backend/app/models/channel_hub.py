@@ -3,7 +3,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional
 
-from sqlalchemy import Column, JSON, Text
+from sqlalchemy import CheckConstraint, Column, Index, JSON, Text, text
 from sqlmodel import Field, SQLModel, UniqueConstraint
 
 from app.core.db_types import EnumString
@@ -25,6 +25,14 @@ class ChannelInboxStatusEnum(str, Enum):
     DUPLICATE = "DUPLICATE"
 
 
+class ChannelRetentionBasisEnum(str, Enum):
+    """De onde veio o prazo de um dado de canal (S10.1, §3.7.4)."""
+
+    RECEPCAO = "RECEPCAO"
+    ESTADO_TERMINAL = "ESTADO_TERMINAL"
+    CLASSIFICACAO_DEFINITIVA = "CLASSIFICACAO_DEFINITIVA"
+
+
 class ChannelOutboundStatusEnum(str, Enum):
     PENDING = "PENDING"
     DELIVERED = "DELIVERED"
@@ -37,6 +45,13 @@ class MerchantConnection(SQLModel, table=True):
     __table_args__ = (
         UniqueConstraint("tenant_id", "provider_code", "merchant_external_id", name="uq_provider_merchant_connection"),
         UniqueConstraint("tenant_id", "idempotency_key", name="uq_tenant_merchant_connection_key"),
+        # Um merchant conectado pertence a um único tenant. O ingresso resolve a
+        # conexão pelo provedor e pelo merchant, sem tenant no corpo (H9): dois
+        # tenants conectados ao mesmo merchant tornariam a entrega ambígua.
+        Index(
+            "uq_connected_provider_merchant", "provider_code", "merchant_external_id", unique=True,
+            postgresql_where=text("status = 'CONNECTED'"),
+        ),
     )
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     tenant_id: uuid.UUID = Field(foreign_key="tenants.id", index=True)
@@ -64,6 +79,15 @@ class ChannelInboxEvent(SQLModel, table=True):
     __tablename__ = "channel_inbox_events"
     __table_args__ = (
         UniqueConstraint("merchant_connection_id", "provider_event_id", name="uq_connection_provider_event"),
+        # Legal hold vale só completo: motivo, referência, responsável e revisão (H16).
+        CheckConstraint(
+            "(legal_hold_until IS NULL AND legal_hold_reason IS NULL AND legal_hold_reference IS NULL"
+            " AND legal_hold_by IS NULL AND legal_hold_review_at IS NULL)"
+            " OR (legal_hold_until IS NOT NULL AND legal_hold_reason IS NOT NULL"
+            " AND legal_hold_reference IS NOT NULL AND legal_hold_by IS NOT NULL"
+            " AND legal_hold_review_at IS NOT NULL)",
+            name="ck_channel_inbox_legal_hold_complete",
+        ),
     )
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     tenant_id: uuid.UUID = Field(foreign_key="tenants.id", index=True)
@@ -73,7 +97,8 @@ class ChannelInboxEvent(SQLModel, table=True):
     external_order_id: str = Field(max_length=160, index=True)
     event_type: str = Field(max_length=80, index=True)
     payload_hash: str = Field(max_length=64)
-    raw_payload: dict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
+    # Nulo só depois da purga, que ainda não existe (§3.7.5).
+    raw_payload: Optional[dict] = Field(default_factory=dict, sa_column=Column(JSON, nullable=True))
     status: ChannelInboxStatusEnum = Field(default=ChannelInboxStatusEnum.RECEIVED, sa_column=Column(EnumString(ChannelInboxStatusEnum), nullable=False, index=True))
     order_id: Optional[uuid.UUID] = Field(default=None, foreign_key="orders.id", index=True)
     quarantine_code: Optional[str] = Field(default=None, max_length=80)
@@ -81,6 +106,17 @@ class ChannelInboxEvent(SQLModel, table=True):
     received_at: datetime = Field(default_factory=datetime.utcnow, index=True)
     acknowledged_at: Optional[datetime] = Field(default=None, index=True)
     processed_at: Optional[datetime] = Field(default=None, index=True)
+    # D6: todo evento nasce com prazo. Política técnica inicial, não jurídica (§3.7.1).
+    retention_basis: ChannelRetentionBasisEnum = Field(
+        default=ChannelRetentionBasisEnum.RECEPCAO,
+        sa_column=Column(EnumString(ChannelRetentionBasisEnum), nullable=False),
+    )
+    retention_until: Optional[datetime] = Field(default=None, index=True)
+    legal_hold_until: Optional[datetime] = Field(default=None, index=True)
+    legal_hold_reason: Optional[str] = Field(default=None, max_length=300)
+    legal_hold_reference: Optional[str] = Field(default=None, max_length=160)
+    legal_hold_by: Optional[uuid.UUID] = Field(default=None)
+    legal_hold_review_at: Optional[datetime] = Field(default=None)
 
 
 class ExternalOrderMapping(SQLModel, table=True):
