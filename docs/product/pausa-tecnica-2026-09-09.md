@@ -15,6 +15,11 @@ Data: 09/09/2026. Base de código conferida localmente: `e693284`, em `main`; á
 
 O bridge ainda não recebe comandos de cobrança por um caminho implementado. Há pareamento, listagem, heartbeat e relato de resultado; o comando START armazenado não é entregue ao bridge. Também faltam bridge instalado, integração efetiva com o provedor escolhido e credenciais/ambiente de homologação. Não marcar sessão de homologação externa como pronta apenas com base no CI.
 
+Atualização de 16/09/2026: o caminho de entrega existe — a cobrança grava o comando
+e a ocupação do terminal na mesma transação, e o bridge recebe, confirma e responde
+por comando ([proposta 3.1](proposta-transporte-comandos-bridge.md)). Continuam
+faltando bridge instalado, provedor escolhido e ambiente de homologação.
+
 Inventário, 14 cenários e limites: [preparação da homologação com provedor](../quality/preparacao-homologacao-provedor-2026-09-09.md).
 
 ## Decisões do dono — ainda não tomadas

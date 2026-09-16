@@ -84,6 +84,10 @@ NOT_A_BROWSER_SURFACE = {
     "POST /api/v1/control/finance/provider/webhooks/{provider}",
     "POST /api/v1/providers/bridge/terminals/{terminal_id}/heartbeat",
     "POST /api/v1/providers/bridge/terminals/{terminal_id}/transactions/{transaction_id}/result",
+    # ...and, since 16/09/2026, takes its commands, acknowledges and answers them.
+    "GET /api/v1/providers/bridge/terminals/{terminal_id}/commands",
+    "POST /api/v1/providers/bridge/terminals/{terminal_id}/commands/{command_id}/ack",
+    "POST /api/v1/providers/bridge/terminals/{terminal_id}/commands/{command_id}/result",
 }
 
 # ---------------------------------------------------------------------------

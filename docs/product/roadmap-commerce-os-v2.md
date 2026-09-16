@@ -44,8 +44,10 @@ Estado real das três frentes em aberto nesta data:
   Continuam por fazer: homologação com provider real e aceite no ambiente
   publicado — e a primeira depende do
   [transporte de comandos do bridge](bridge-command-transport.md), trabalho
-  interno ainda não iniciado, sem o qual nenhuma cobrança sai daqui mesmo com
-  adquirente contratado.
+  interno em andamento desde 16/09/2026: a cobrança já gera comando e ocupação
+  do terminal, e o bridge já recebe, confirma e responde por comando. Faltam o
+  bridge de referência, a consulta como comando, a identidade de instalação e a
+  rotação de credencial — e nada disso substitui provedor real.
 
 Atualização de contrato de 5 de setembro de 2026: o **S25 — Liquidação
 progressiva da comanda** foi contratado pelo dono do SaaS e escrito na seção 7.

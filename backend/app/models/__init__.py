@@ -71,6 +71,12 @@ from app.models.provider import (
     ProviderTransactionStatusEnum, ProviderTransactionEvent, PaymentExecutionEvent,
     PaymentExecutionStageEnum, OperationalProductivityProjection,
 )
+# Born in its module (ADR-029 §1.2); registered here so Alembic sees the tables.
+from app.modules.finance.bridge.models import (
+    TefBridgeCommand, TefTerminalOccupancy, BridgeCommandTypeEnum,
+    BridgeCommandClassEnum, BridgeCommandDeliveryStatusEnum,
+    FinancialResolutionEnum, ExecutorNeutralizationEnum,
+)
 from app.models.channel_hub import (
     MerchantConnection, MerchantConnectionStatusEnum, ChannelInboxEvent,
     ChannelInboxStatusEnum, ExternalOrderMapping, ChannelOutboundMessage,
@@ -232,6 +238,13 @@ __all__ = [
     "ProviderConfigurationStatusEnum",
     "TefBridgeTerminal",
     "BridgeTerminalStatusEnum",
+    "TefBridgeCommand",
+    "TefTerminalOccupancy",
+    "BridgeCommandTypeEnum",
+    "BridgeCommandClassEnum",
+    "BridgeCommandDeliveryStatusEnum",
+    "FinancialResolutionEnum",
+    "ExecutorNeutralizationEnum",
     "PaymentDeviceBinding",
     "PaymentDeviceBindingStatusEnum",
     "PaymentDeviceExecutionModeEnum",

@@ -5,7 +5,7 @@ from typing import Optional
 
 from decimal import Decimal
 
-from sqlalchemy import Column, JSON, Numeric, Text
+from sqlalchemy import Column, Integer, JSON, Numeric, Text
 from sqlmodel import Field, SQLModel, UniqueConstraint
 
 from app.core.db_types import EnumString
@@ -102,6 +102,16 @@ class TefBridgeTerminal(SQLModel, table=True):
         sa_column=Column(EnumString(BridgeTerminalStatusEnum), nullable=False, index=True),
     )
     last_heartbeat_at: Optional[datetime] = Field(default=None, index=True)
+    # Presença é o bridge ter falado; prontidão é o pinpad poder cobrar. Um
+    # bridge de pé com a maquininha desconectada responde e não cobra nada.
+    last_seen_at: Optional[datetime] = Field(default=None, index=True)
+    device_state: Optional[str] = Field(default=None, max_length=50)
+    # Qual instalação manda hoje, e desde qual troca. O epoch viaja no comando:
+    # resultado com epoch velho é evidência, nunca autorização para seguir.
+    active_installation_id: Optional[uuid.UUID] = Field(default=None, index=True)
+    installation_epoch: int = Field(
+        default=0, sa_column=Column(Integer, nullable=False, server_default="0"),
+    )
     last_operation_at: Optional[datetime] = Field(default=None, index=True)
     last_error_code: Optional[str] = Field(default=None, max_length=80)
     last_error_message: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))

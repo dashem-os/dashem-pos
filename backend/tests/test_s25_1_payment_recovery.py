@@ -983,17 +983,22 @@ async def test_s25_1_a_row_that_cannot_close_delays_the_one_behind_it():
         negotiation = await _open(client, headers, store, table_session, actor)
         itens = _by_name(negotiation)
         tef = await _tef(client, headers, {"id": tenant_id}, store, actor, register_id, "DLY")
+        # Cada cobrança na sua maquininha. Duas cobranças sem resposta no mesmo
+        # pinpad é o estado que a ocupação do terminal (migração 097) recusa, e
+        # esta caracterização é sobre a ordem da varredura, não sobre o terminal.
+        outro_caixa = await _register(client, headers, store, actor)
+        tef_vizinho = await _tef(client, headers, {"id": tenant_id}, store, actor, outro_caixa, "DLY2")
 
         execucoes = []
-        for nome, valor in (("Whisky", 40), ("Pizza", 60)):
+        for (nome, valor), ligacao in zip((("Whisky", 40), ("Pizza", 60)), (tef, tef_vizinho)):
             criada = await _reserve(client, headers, negotiation["id"], actor, valor,
                                     itens[nome]["order_item_id"], "Astra",
-                                    binding=tef["binding"]["id"])
+                                    binding=ligacao["binding"]["id"])
             parcela = (await _pending(criada))["id"]
             enviada = await client.post("/api/v1/providers/transactions", headers={
                 **headers, "Idempotency-Key": f"exec-{uuid.uuid4()}",
             }, json={"payment_intent_id": parcela,
-                     "payment_device_binding_id": tef["binding"]["id"], "actor_id": actor})
+                     "payment_device_binding_id": ligacao["binding"]["id"], "actor_id": actor})
             assert enviada.status_code == 200, enviada.text
             execucoes.append((enviada.json()["transaction"]["id"], parcela))
 

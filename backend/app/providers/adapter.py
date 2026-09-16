@@ -1,10 +1,11 @@
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Protocol
+from typing import Optional, Protocol
 import uuid
 
 from app.core.config import settings
 from app.models.provider import ProviderTransactionStatusEnum
+from app.modules.finance.bridge.models import FinancialResolutionEnum
 
 
 @dataclass(frozen=True)
@@ -36,6 +37,13 @@ class ProviderResult:
 
 class PaymentProviderAdapter(Protocol):
     version: str
+    # A cobrança chega à maquininha por um comando na fila do bridge, e não pela
+    # chamada ao adapter. Quem cria a transação enfileira o comando junto.
+    delivers_through_bridge: bool
+    # O que "cancelada" prova sobre o dinheiro neste provider. Desfazimento antes
+    # da captura não moveu nada; depois dela, moveu e voltou. Sem declaração —
+    # `None` — a operação segue incerta e o pinpad, ocupado.
+    canceled_resolution: Optional[FinancialResolutionEnum]
 
     def start(self, request: ProviderRequest) -> ProviderResult: ...
     def query(self, request: ProviderRequest) -> ProviderResult: ...
@@ -47,6 +55,10 @@ class BridgeQueuedAdapter:
     """Production-safe bridge contract: queues work and never assumes approval."""
 
     version = "1.0.0"
+    delivers_through_bridge = True
+    # Nenhum provider foi escolhido: não há documentação que diga o que o
+    # cancelamento dele significa, então não se presume.
+    canceled_resolution = None
 
     def start(self, request: ProviderRequest) -> ProviderResult:
         return ProviderResult(
@@ -76,6 +88,9 @@ class ContractTestAdapter:
     """Deterministic adapter available exclusively under ENVIRONMENT=test."""
 
     version = "test-1.0"
+    delivers_through_bridge = False
+    # O fixture só cancela o que nunca capturou.
+    canceled_resolution = FinancialResolutionEnum.PROVADA_NAO_EXECUTADA
 
     def _result(self, request: ProviderRequest) -> ProviderResult:
         outcome = (request.test_outcome or "CONFIRMED").upper()

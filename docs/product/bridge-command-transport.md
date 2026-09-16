@@ -1,6 +1,8 @@
 # Transporte de comandos do bridge TEF — trabalho interno
 
-Status: **aberto, não iniciado** · registrado em 06/09/2026
+Status: **em andamento desde 16/09/2026** · registrado em 06/09/2026. O contrato
+vigente é a [proposta, revisão 3.1](proposta-transporte-comandos-bridge.md), cujo
+cabeçalho diz o que já foi implementado e o que falta.
 Origem: revisão das pendências de S23/S25/S25.1 em 06/09/2026
 
 ## A lacuna, dita sem rodeio

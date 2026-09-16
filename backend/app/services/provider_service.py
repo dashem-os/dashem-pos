@@ -2,7 +2,6 @@ import hashlib
 import logging
 import hmac
 import base64
-import secrets
 import uuid
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -27,6 +26,11 @@ from app.models.provider import (
     ProviderConfigurationStatusEnum, ProviderTransaction,
     ProviderTransactionEvent, ProviderTransactionStatusEnum, TefBridgeTerminal,
 )
+from app.modules.finance.bridge import (
+    commands as bridge_commands, delivery as bridge_delivery, occupancy as bridge_occupancy,
+)
+from app.modules.finance.bridge.credentials import TerminalScope, authenticate as authenticate_bridge, hash_credential
+from app.modules.finance.bridge.models import BridgeCommandTypeEnum, FinancialResolutionEnum
 from app.providers.adapter import ProviderRequest, ProviderResult, resolve_adapter
 from app.services import negotiation_service, payment_audit_service, reliability_service
 
@@ -42,10 +46,6 @@ RECONCILABLE = {
 
 def _actor(context: TenantContext, actor_id: Optional[uuid.UUID]) -> uuid.UUID:
     return resolve_actor(context, actor_id)
-
-
-def _hash_secret(value: str) -> str:
-    return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 def _event(session: Session, transaction: ProviderTransaction, actor_id: uuid.UUID, event_type: str, payload: dict) -> None:
@@ -381,13 +381,13 @@ def pair_terminal(
         terminal = TefBridgeTerminal(
             tenant_id=context.tenant_id, store_id=store_id, register_id=register_id,
             provider_configuration_id=configuration.id, terminal_code=terminal_code,
-            pairing_secret_hash=_hash_secret(secret), paired_by=actor,
+            pairing_secret_hash=hash_credential(secret), paired_by=actor,
         )
         session.add(terminal)
     else:
         terminal.provider_configuration_id = configuration.id
         terminal.terminal_code = terminal_code
-        terminal.pairing_secret_hash = _hash_secret(secret)
+        terminal.pairing_secret_hash = hash_credential(secret)
         terminal.status = BridgeTerminalStatusEnum.UNPAIRED
         terminal.paired_by = actor
         terminal.updated_at = datetime.utcnow()
@@ -400,11 +400,36 @@ def pair_terminal(
     return terminal, secret
 
 
-def _terminal_by_secret(session: Session, terminal_id: uuid.UUID, pairing_secret: str) -> TefBridgeTerminal:
-    terminal = session.exec(select(TefBridgeTerminal).where(TefBridgeTerminal.id == terminal_id).with_for_update()).first()
-    if not terminal or not secrets.compare_digest(terminal.pairing_secret_hash, _hash_secret(pairing_secret)):
+def _authenticated_terminal(
+    session: Session, terminal_id: uuid.UUID, *, pairing_secret: str,
+    tenant_id: uuid.UUID, store_id: uuid.UUID,
+) -> tuple[TerminalScope, TefBridgeTerminal]:
+    """Authenticate first, scope second — the body only gets to agree.
+
+    The legacy callbacks still carry tenant and unit in the body. They no longer
+    set the database scope: the credential opens the terminal, the terminal says
+    whose it is, and a body naming anything else is refused.
+    """
+    scope = authenticate_bridge(terminal_id, pairing_secret)
+    if scope.tenant_id != tenant_id or scope.store_id != store_id:
+        raise HTTPException(status_code=401, detail="Contexto do bridge inválido.")
+    set_tenant_db_context(session, scope.tenant_id, scope.store_id, None)
+    terminal = session.get(TefBridgeTerminal, scope.terminal_id)
+    if terminal is None:
         raise HTTPException(status_code=401, detail="Credencial local do bridge inválida.")
-    return terminal
+    return scope, terminal
+
+
+def _bridge_context(scope: TerminalScope) -> TenantContext:
+    # O bridge autenticado pelo segredo de pareamento é o principal sistêmico
+    # desta callback. O usuário que o pareou não deve receber autoria por uma
+    # operação posterior executada pelo dispositivo.
+    return TenantContext(
+        tenant_id=scope.tenant_id,
+        store_id=scope.store_id,
+        user_id=scope.terminal_id,
+        auth_subject=f"service:tef-bridge:{scope.terminal_id}",
+    )
 
 
 def heartbeat_terminal(
@@ -413,10 +438,9 @@ def heartbeat_terminal(
     bridge_version: str, protocol_version: str, last_error_code: Optional[str],
     last_error_message: Optional[str],
 ) -> TefBridgeTerminal:
-    set_tenant_db_context(session, tenant_id, store_id, None)
-    terminal = _terminal_by_secret(session, terminal_id, pairing_secret)
-    if terminal.tenant_id != tenant_id or terminal.store_id != store_id:
-        raise HTTPException(status_code=401, detail="Contexto do bridge inválido.")
+    _scope, terminal = _authenticated_terminal(
+        session, terminal_id, pairing_secret=pairing_secret, tenant_id=tenant_id, store_id=store_id,
+    )
     if protocol_version != terminal.protocol_version:
         terminal.status = BridgeTerminalStatusEnum.DEGRADED
         terminal.last_error_code = "PROTOCOL_VERSION_MISMATCH"
@@ -427,6 +451,7 @@ def heartbeat_terminal(
         terminal.last_error_message = (last_error_message or "")[:300] or None
     terminal.bridge_version = bridge_version[:40]
     terminal.last_heartbeat_at = datetime.utcnow()
+    terminal.last_seen_at = terminal.last_heartbeat_at
     terminal.updated_at = datetime.utcnow()
     session.commit(); session.refresh(terminal)
     return terminal
@@ -448,6 +473,37 @@ def list_terminals(session: Session, context: TenantContext, register_id: Option
     if changed:
         session.commit()
     return terminals
+
+
+def _canceled_resolution(provider_code: str) -> Optional[FinancialResolutionEnum]:
+    try:
+        return resolve_adapter(provider_code).canceled_resolution
+    except LookupError:
+        return None
+
+
+def _release_pinpad(
+    session: Session, transaction: ProviderTransaction, result: ProviderResult, actor_id: uuid.UUID,
+) -> None:
+    """Free the pinpad if — and only if — this answer proves what happened.
+
+    It rides the commit that records the status it reads: a crash cannot leave a
+    proven charge on an occupied terminal, or a freed terminal beside a charge
+    nobody answered. Only the charge occupies today; the refund joins when it
+    travels as a command of its own.
+    """
+    if not transaction.bridge_terminal_id:
+        return
+    resolution = bridge_occupancy.resolution_for(
+        result.status, canceled=_canceled_resolution(transaction.provider_code),
+    )
+    if resolution is None:
+        return
+    bridge_occupancy.release_occupancy(
+        session, terminal_id=transaction.bridge_terminal_id,
+        provider_transaction_id=transaction.id, operation=BridgeCommandTypeEnum.START,
+        resolution=resolution, reason=f"PROVIDER_{result.status.value}", actor_id=actor_id,
+    )
 
 
 def _apply_result(
@@ -540,6 +596,7 @@ def _apply_result(
             "failure_code": result.failure_code,
         },
     )
+    _release_pinpad(session, transaction, result, actor_id)
     session.commit()
     # What the provider said, applied to the parcel — or written down when it
     # can no longer be applied. Before S25.1 only CONFIRMED and FAILED had a
@@ -747,6 +804,13 @@ def execute_transaction(
         idempotency_key=idempotency_key, request_hash=request_hash, created_by=actor,
     )
     session.add(transaction); session.flush()
+    # A pinpad does one charge at a time, and a charge nobody answered still
+    # holds it. Taken in the transaction that creates the charge, so there is
+    # never one without the other (§3.1 of the transport proposal).
+    bridge_occupancy.acquire_occupancy(
+        session, terminal=terminal, provider_transaction_id=transaction.id,
+        operation=BridgeCommandTypeEnum.START,
+    )
     # It is leaving now, so the abandonment clock stops: from here the answer
     # comes from reconciliation, never from a timeout.
     intent.reserve_expires_at = None
@@ -758,6 +822,18 @@ def execute_transaction(
         "payment_intent_id": str(intent.id), "provider_code": configuration.provider_code,
         "amount": str(intent.amount), "terminal_id": str(terminal.id),
     })
+    if adapter.delivers_through_bridge:
+        # Written with the charge, not after it: a crash between the two would
+        # leave a charge the bridge never hears of, holding the pinpad for good.
+        bridge_commands.enqueue_command(
+            session, terminal=terminal, provider_transaction_id=transaction.id,
+            command_type=BridgeCommandTypeEnum.START,
+            payload={
+                "payment_intent_id": str(intent.id), "amount": str(intent.amount),
+                "method": intent.method.value,
+            },
+            correlation_id=transaction.correlation_id,
+        )
     session.commit(); session.refresh(transaction)
     result = adapter.start(ProviderRequest(
         transaction_id=transaction.id, amount=Decimal(intent.amount), method=intent.method.value,
@@ -798,10 +874,9 @@ def report_bridge_result(
     acquirer: Optional[str], card_brand: Optional[str], failure_code: Optional[str], failure_reason: Optional[str],
     refunded_amount: Optional[Decimal] = None,
 ) -> dict:
-    set_tenant_db_context(session, tenant_id, store_id, None)
-    terminal = _terminal_by_secret(session, terminal_id, pairing_secret)
-    if terminal.tenant_id != tenant_id or terminal.store_id != store_id:
-        raise HTTPException(status_code=401, detail="Contexto do bridge inválido.")
+    scope, terminal = _authenticated_terminal(
+        session, terminal_id, pairing_secret=pairing_secret, tenant_id=tenant_id, store_id=store_id,
+    )
     transaction = session.exec(select(ProviderTransaction).where(
         ProviderTransaction.id == transaction_id,
         ProviderTransaction.tenant_id == terminal.tenant_id,
@@ -810,16 +885,22 @@ def report_bridge_result(
     ).with_for_update()).first()
     if not transaction:
         raise HTTPException(status_code=404, detail="Comando não pertence a este bridge.")
-    # O bridge autenticado pelo segredo de pareamento é o principal sistêmico
-    # desta callback. O usuário que o pareou não deve receber autoria por uma
-    # operação posterior executada pelo dispositivo.
-    context = TenantContext(
-        tenant_id=tenant_id,
-        store_id=store_id,
-        user_id=terminal.id,
-        auth_subject=f"service:tef-bridge:{terminal.id}",
-    )
-    return _apply_result(session, context, transaction, ProviderResult(
+    return _apply_result(session, _bridge_context(scope), transaction, _bridge_result(
+        transaction, terminal, status_value=status_value,
+        external_transaction_id=external_transaction_id, nsu=nsu,
+        authorization_code=authorization_code, acquirer=acquirer, card_brand=card_brand,
+        failure_code=failure_code, failure_reason=failure_reason, refunded_amount=refunded_amount,
+    ), terminal.id)
+
+
+def _bridge_result(
+    transaction: ProviderTransaction, terminal: TefBridgeTerminal, *,
+    status_value: ProviderTransactionStatusEnum,
+    external_transaction_id: Optional[str], nsu: Optional[str], authorization_code: Optional[str],
+    acquirer: Optional[str], card_brand: Optional[str], failure_code: Optional[str],
+    failure_reason: Optional[str], refunded_amount: Optional[Decimal],
+) -> ProviderResult:
+    return ProviderResult(
         status=status_value,
         external_transaction_id=external_transaction_id or transaction.external_transaction_id,
         nsu=nsu, authorization_code=authorization_code, acquirer=acquirer,
@@ -827,7 +908,48 @@ def report_bridge_result(
         failure_reason=(failure_reason or "")[:300] or None,
         refunded_amount=refunded_amount,
         sanitized_payload={"reported_by_bridge": True, "protocol_version": terminal.protocol_version},
-    ), terminal.id)
+    )
+
+
+def report_command_result(
+    session: Session, scope: TerminalScope, command_id: uuid.UUID, *,
+    status_value: ProviderTransactionStatusEnum,
+    external_transaction_id: Optional[str], nsu: Optional[str], authorization_code: Optional[str],
+    acquirer: Optional[str], card_brand: Optional[str], failure_code: Optional[str],
+    failure_reason: Optional[str], refunded_amount: Optional[Decimal] = None,
+) -> dict:
+    """The answer to one command, correlated by the command itself (§3.6).
+
+    The command closes with the answer — an answer implies receipt, ACK or not
+    — and the charge learns what happened in the same commit. A repeated or
+    contradictory answer on a closed command still goes to the charge:
+    repetition changes nothing there, and contradiction is recorded there.
+    """
+    command = bridge_delivery.owned_command(session, scope, command_id)
+    if command.command_type != BridgeCommandTypeEnum.START:
+        raise HTTPException(status_code=409, detail={
+            "code": "COMMAND_RESULT_NOT_ACCEPTED",
+            "message": "Esta rota ainda não aplica resultado deste tipo de comando.",
+            "command_type": command.command_type.value,
+        })
+    transaction = session.exec(select(ProviderTransaction).where(
+        ProviderTransaction.id == command.provider_transaction_id,
+        ProviderTransaction.bridge_terminal_id == scope.terminal_id,
+    ).with_for_update()).first()
+    if not transaction:
+        raise HTTPException(status_code=404, detail="Comando não pertence a este bridge.")
+    terminal = session.get(TefBridgeTerminal, scope.terminal_id)
+    bridge_commands.record_result(session, command)
+    applied = _apply_result(session, _bridge_context(scope), transaction, _bridge_result(
+        transaction, terminal, status_value=status_value,
+        external_transaction_id=external_transaction_id, nsu=nsu,
+        authorization_code=authorization_code, acquirer=acquirer, card_brand=card_brand,
+        failure_code=failure_code, failure_reason=failure_reason, refunded_amount=refunded_amount,
+    ), scope.terminal_id)
+    return {
+        "command": bridge_delivery.command_state(command),
+        "transaction_status": applied["transaction"].status,
+    }
 
 
 def request_reversal(

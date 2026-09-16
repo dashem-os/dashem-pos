@@ -1,7 +1,7 @@
 # Proposta — transporte de comandos ao bridge TEF (frente A)
 
-Status: **contrato corrigido; implementação incremental autorizada, condicionada
-a estas correções** · revisão 3.1 em 10/09/2026 (revisões 1, 2 e 3 em 10/09/2026,
+Status: **em implementação — passos 1 a 3 de §6 feitos em 16/09/2026; o 8, que
+prova os demais, ainda não** · revisão 3.1 em 10/09/2026 (revisões 1, 2 e 3 em 10/09/2026,
 todas corrigidas por revisão dirigida do dono).
 Base: `518e79a` em `main`. Cabeça de migração conferida nesta revisão no código
 **e** no banco publicado: `096_the_grant_keeps_its_history`. CI remoto do
@@ -9,8 +9,32 @@ candidato: [run 34420801772](https://github.com/dashem-os/dashem-pos/actions/run
 quatro jobs verdes. Verde no repositório não é homologação.
 
 Esta revisão foi autorizada como revisão documental; **não aprova o desenho
-anterior**. Nada foi implementado. Não escolhe provedor, adquirente, preço,
+anterior**. Não escolhe provedor, adquirente, preço,
 capability produtiva, canal, regra da UX-11 nem canal da UX-12.
+
+## 0.2 Implementação — o que existe e onde divergiu
+
+Em 16/09/2026, em `backend/app/modules/finance/bridge/` (ADR-029 §1.2):
+
+- **§6.1** — migração `097`: comandos, ocupação e colunas de instalação, com RLS.
+  Duas divergências deliberadas: a ocupação ganhou `operation` (START ou REFUND),
+  porque o estorno anda sobre a transação da cobrança (ADR-030) e, sem isso, a
+  confirmação repetida da cobrança soltaria o terminal no meio do estorno — o I14
+  de outra forma; e a **rotação pendente saiu da 097**. Com `main` publicando e
+  migrando produção a cada push, uma tabela sem código que a exercite seria
+  publicada sem prova; ela entra com o passo 7, em migração própria. A 097 também
+  preenche ocupação para cobrança já incerta antes dela, uma por terminal.
+- **§6.2** — ocupação e comando `START` gravados na transação que cria a
+  `ProviderTransaction`. Resposta que prova o desfecho libera no mesmo commit que
+  grava o status; `CANCELED` só libera com significado declarado pelo adapter.
+- **§6.3** — `GET .../commands` (espera longa sem conexão retida), `ack` e
+  `result` por comando, autenticados por `X-Bridge-Credential`. O A5 foi
+  corrigido também nas rotas legadas: autentica antes, e o corpo só concorda.
+
+Ainda não: `QUERY` como comando (§6.4), transições e correlação legada (§6.5),
+instalação e assunção (§6.6), rotação e revogação (§6.7), **bridge de referência
+e matriz T1–T39 (§6.8)** e a seção de pendências na tela (§6.9). As provas atuais
+são de banco e de API; nenhuma envolve um processo de bridge.
 
 ## 0.1 O que mudou da revisão 3 para a 3.1
 
