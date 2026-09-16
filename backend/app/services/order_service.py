@@ -279,6 +279,30 @@ def add_item(
         if not item: raise HTTPException(status_code=409, detail="Resultado idempotente indisponível.")
         return item
     order = get_order(session, context, order_id)
+    actor = _actor(context, actor_id)
+    item = _new_item(
+        session, context, order, product_id=product_id, quantity=quantity,
+        modifier_ids=modifier_ids, notes=notes, actor=actor,
+    )
+    _record_command(session, context, order.id, idempotency_key, "ADD_ITEM", payload, item.id, actor)
+    _item_added(session, context, order, item, actor)
+    return _commit_item_command(session, context, order.id, item, idempotency_key, "ADD_ITEM", payload)
+
+
+def _new_item(
+    session: Session, context: TenantContext, order: Order, *,
+    product_id: uuid.UUID, quantity: Decimal, modifier_ids: list[uuid.UUID],
+    notes: Optional[str], actor: uuid.UUID,
+) -> OrderItem:
+    """Validate and add one item to an open order, without committing.
+
+    Everything `add_item` has always checked — open order, active product,
+    journey capability, assortment, effective price, modifiers — lives here, so
+    the command from the screen and the external order opened in one transaction
+    (S10.1) answer to the same rules.
+    """
+    if quantity <= 0:
+        raise HTTPException(status_code=400, detail="Quantidade deve ser positiva.")
     if order.status != OrderStatusEnum.OPEN:
         raise HTTPException(status_code=409, detail="Pedido não está aberto para novos lançamentos.")
     product = session.exec(scope_tenant_query(select(Product).where(
@@ -310,7 +334,6 @@ def add_item(
     if not price:
         raise HTTPException(status_code=400, detail="Produto sem preço efetivo na unidade.")
     snapshot, modifier_total = _modifiers(session, context, product_id, modifier_ids)
-    actor = _actor(context, actor_id)
     item = OrderItem(
         tenant_id=context.tenant_id, order_id=order.id, product_id=product.id,
         product_name=product.name, sku=product.sku, unit_snapshot=product.unit,
@@ -321,15 +344,17 @@ def add_item(
         added_by=actor,
     )
     session.add(item)
-    _record_command(session, context, order.id, idempotency_key, "ADD_ITEM", payload, item.id, actor)
+    return item
+
+
+def _item_added(session: Session, context: TenantContext, order: Order, item: OrderItem, actor: uuid.UUID) -> None:
     order.updated_at = datetime.utcnow()
     table_service.touch_session_activity(session, context, order, actor, item.id)
     _event(session, context, order, actor, "order.item.added", {
-        "order_item_id": str(item.id), "product_id": str(product.id),
-        "quantity": str(quantity), "unit_price": str(item.unit_price),
+        "order_item_id": str(item.id), "product_id": str(item.product_id),
+        "quantity": str(item.quantity), "unit_price": str(item.unit_price),
         "production_state": item.production_state.value,
     })
-    return _commit_item_command(session, context, order.id, item, idempotency_key, "ADD_ITEM", payload)
 
 
 def _refuse_below_settlement(session: Session, item: OrderItem, new_total: Decimal) -> None:
@@ -366,14 +391,21 @@ def update_item(
     if order.status != OrderStatusEnum.OPEN: raise HTTPException(status_code=409, detail="Pedido não está aberto.")
     item = session.exec(select(OrderItem).where(OrderItem.tenant_id == context.tenant_id, OrderItem.order_id == order_id, OrderItem.id == item_id)).first()
     if not item or item.status != OrderItemStatusEnum.ACTIVE: raise HTTPException(status_code=404, detail="Item ativo não encontrado.")
-    _refuse_below_settlement(session, item, Decimal(str(item.unit_price)) * Decimal(str(quantity)))
     actor = _actor(context, actor_id)
-    item.quantity = quantity; item.notes = notes; item.production_version += 1; item.updated_at = datetime.utcnow()
+    _change_item(session, context, order, item, quantity=quantity, notes=notes, actor=actor)
     _record_command(session, context, order.id, idempotency_key, "UPDATE_ITEM", payload, item.id, actor)
+    return _commit_item_command(session, context, order.id, item, idempotency_key, "UPDATE_ITEM", payload)
+
+
+def _change_item(
+    session: Session, context: TenantContext, order: Order, item: OrderItem, *,
+    quantity: Decimal, notes: Optional[str], actor: uuid.UUID,
+) -> None:
+    _refuse_below_settlement(session, item, Decimal(str(item.unit_price)) * Decimal(str(quantity)))
+    item.quantity = quantity; item.notes = notes; item.production_version += 1; item.updated_at = datetime.utcnow()
     order.updated_at = item.updated_at
     table_service.touch_session_activity(session, context, order, actor, item.id, "table_session.item_changed")
     _event(session, context, order, actor, "order.item.updated", {"order_item_id": str(item.id), "quantity": str(quantity)})
-    return _commit_item_command(session, context, order.id, item, idempotency_key, "UPDATE_ITEM", payload)
 
 
 def cancel_item(
@@ -390,14 +422,146 @@ def cancel_item(
     if order.status != OrderStatusEnum.OPEN: raise HTTPException(status_code=409, detail="Pedido não está aberto.")
     item = session.exec(select(OrderItem).where(OrderItem.tenant_id == context.tenant_id, OrderItem.order_id == order_id, OrderItem.id == item_id)).first()
     if not item: raise HTTPException(status_code=404, detail="Item não encontrado.")
-    _refuse_below_settlement(session, item, Decimal("0"))
     actor = _actor(context, actor_id)
+    _cancel_item(session, context, order, item, reason=reason, actor=actor)
+    _record_command(session, context, order.id, idempotency_key, "CANCEL_ITEM", payload, item.id, actor)
+    return _commit_item_command(session, context, order.id, item, idempotency_key, "CANCEL_ITEM", payload)
+
+
+def _cancel_item(
+    session: Session, context: TenantContext, order: Order, item: OrderItem, *,
+    reason: str, actor: uuid.UUID,
+) -> None:
+    _refuse_below_settlement(session, item, Decimal("0"))
     item.status = OrderItemStatusEnum.CANCELED
     item.production_state = ProductionStateEnum.CANCELED
     item.production_version += 1
     item.canceled_by = actor; item.cancellation_reason = reason.strip(); item.canceled_at = datetime.utcnow(); item.updated_at = item.canceled_at
-    _record_command(session, context, order.id, idempotency_key, "CANCEL_ITEM", payload, item.id, actor)
     order.updated_at = item.updated_at
     table_service.touch_session_activity(session, context, order, actor, item.id, "table_session.item_canceled")
     _event(session, context, order, actor, "order.item.canceled", {"order_item_id": str(item.id), "reason": reason})
-    return _commit_item_command(session, context, order.id, item, idempotency_key, "CANCEL_ITEM", payload)
+
+
+# ---------------------------------------------------------------------------
+# External orders (S10.1). The channels module opens and changes an order that
+# came from a sales channel inside the same transaction as its own records —
+# the mapping, the external lines, the contact and the event status. Nothing
+# here commits: the caller does, once, so there is never an order without its
+# lines or a line without its order (H3). Every rule the screen obeys still
+# applies, because these go through the same builders.
+# ---------------------------------------------------------------------------
+
+#: Once the kitchen has started, a channel event does not change or cancel the
+#: item by itself: a person decides (S10.1, D2 conservative default).
+PREPARATION_STARTED = frozenset({
+    ProductionStateEnum.IN_PREPARATION, ProductionStateEnum.READY, ProductionStateEnum.DELIVERED,
+})
+TERMINAL_ORDER_STATES = frozenset({OrderStatusEnum.CLOSED, OrderStatusEnum.CANCELED})
+
+
+def _external(order: Order) -> None:
+    if order.origin != OrderOriginEnum.SALES_CHANNEL:
+        raise HTTPException(status_code=409, detail="Operação reservada a pedido de canal externo.")
+
+
+def open_external_order(
+    session: Session, context: TenantContext, *, store_id: uuid.UUID, channel_id: uuid.UUID,
+    idempotency_key: str, external_reference: str, fulfillment: OrderFulfillmentEnum,
+    lines: list[tuple[uuid.UUID, Decimal, list[uuid.UUID], Optional[str]]], actor_id: uuid.UUID,
+) -> tuple[Order, list[OrderItem]]:
+    """Open a channel order and all its items, flushed and not committed."""
+    if not lines:
+        raise HTTPException(status_code=400, detail="Pedido externo sem itens.")
+    if context.store_id and context.store_id != store_id:
+        raise HTTPException(status_code=403, detail="Pedido fora da unidade ativa.")
+    channel = session.exec(scope_tenant_query(select(SalesChannel).where(SalesChannel.id == channel_id), SalesChannel, context)).first()
+    if not channel:
+        raise HTTPException(status_code=404, detail="Canal não encontrado.")
+    order_context = _fulfillment_to_context(fulfillment)
+    if order_context:
+        _enforce_journey_capability(session, context, order_context)
+    order = Order(
+        tenant_id=context.tenant_id, store_id=store_id, channel_id=channel_id,
+        origin=OrderOriginEnum.SALES_CHANNEL, fulfillment=fulfillment,
+        status=OrderStatusEnum.OPEN, idempotency_key=idempotency_key.strip(),
+        external_reference=external_reference, opened_by=actor_id,
+    )
+    session.add(order)
+    _event(session, context, order, actor_id, "order.created", {
+        "origin": order.origin.value, "fulfillment": fulfillment.value,
+        "register_id": None, "customer_id": None, "table_id": None,
+        "table_session_id": None, "sale_id": None, "channel_id": str(channel_id),
+    })
+    session.flush()
+    items = [add_external_item(
+        session, context, order, product_id=product_id, quantity=quantity,
+        modifier_ids=modifier_ids, notes=notes, actor_id=actor_id,
+    ) for product_id, quantity, modifier_ids, notes in lines]
+    return order, items
+
+
+def add_external_item(
+    session: Session, context: TenantContext, order: Order, *,
+    product_id: uuid.UUID, quantity: Decimal, modifier_ids: list[uuid.UUID],
+    notes: Optional[str], actor_id: uuid.UUID,
+) -> OrderItem:
+    _external(order)
+    item = _new_item(
+        session, context, order, product_id=product_id, quantity=quantity,
+        modifier_ids=modifier_ids, notes=notes, actor=actor_id,
+    )
+    _item_added(session, context, order, item, actor_id)
+    session.flush()
+    return item
+
+
+def change_external_item(
+    session: Session, context: TenantContext, order: Order, item: OrderItem, *,
+    quantity: Decimal, notes: Optional[str], actor_id: uuid.UUID,
+) -> None:
+    _external(order)
+    if order.status != OrderStatusEnum.OPEN:
+        raise HTTPException(status_code=409, detail="Pedido não está aberto.")
+    _change_item(session, context, order, item, quantity=quantity, notes=notes, actor=actor_id)
+    session.flush()
+
+
+def cancel_external_item(
+    session: Session, context: TenantContext, order: Order, item: OrderItem, *,
+    reason: str, actor_id: uuid.UUID,
+) -> None:
+    _external(order)
+    if order.status != OrderStatusEnum.OPEN:
+        raise HTTPException(status_code=409, detail="Pedido não está aberto.")
+    _cancel_item(session, context, order, item, reason=reason, actor=actor_id)
+    session.flush()
+
+
+def conclude_external_order(session: Session, context: TenantContext, order: Order, *, actor_id: uuid.UUID) -> None:
+    """The channel declared the order done. It becomes terminal, and its data retention starts counting."""
+    _external(order)
+    if order.status in TERMINAL_ORDER_STATES:
+        return
+    order.status = OrderStatusEnum.CLOSED
+    order.updated_at = datetime.utcnow()
+    _event(session, context, order, actor_id, "order.closed", {"origin": order.origin.value})
+    session.flush()
+
+
+def cancel_external_order(
+    session: Session, context: TenantContext, order: Order, *, reason: str, actor_id: uuid.UUID,
+) -> None:
+    """Cancel every active item and the order. The caller checked no item is being prepared."""
+    _external(order)
+    if order.status in TERMINAL_ORDER_STATES:
+        return
+    items = session.exec(select(OrderItem).where(
+        OrderItem.tenant_id == context.tenant_id, OrderItem.order_id == order.id,
+        OrderItem.status == OrderItemStatusEnum.ACTIVE,
+    )).all()
+    for item in items:
+        _cancel_item(session, context, order, item, reason=reason, actor=actor_id)
+    order.status = OrderStatusEnum.CANCELED
+    order.updated_at = datetime.utcnow()
+    _event(session, context, order, actor_id, "order.canceled", {"origin": order.origin.value})
+    session.flush()

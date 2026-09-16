@@ -1,7 +1,18 @@
-import hashlib
-import hmac
+"""S10 through the S10.1 door: a channel order lands in the same Order Engine.
+
+Rewritten on 16/09/2026, when `/channels/webhooks` left (S10.1, step 3). What S10
+proved still holds and is proved again here, through the ingress by provider:
+the external order becomes a canonical `Order` of origin `SALES_CHANNEL`, a
+repeated event creates nothing, an event that cannot be applied is kept in
+quarantine with no order, one tenant never sees another's connections or events,
+and a marketplace-paid order creates no payment and no TEF transaction.
+
+The channel is the reference connector; every answer it gives is simulated.
+"""
+
 import json
 import os
+import time
 import uuid
 
 import httpx
@@ -10,18 +21,16 @@ from sqlmodel import Session, select
 
 from app.core.database import engine
 from app.core.tenancy import set_platform_db_context
-from app.models.channel_hub import ExternalOrderMapping
+from app.models.channel_hub import ChannelInboxEvent, ExternalOrderMapping
 from app.models.negotiation import PaymentIntent
 from app.models.order import Order, OrderItem
 from app.models.provider import ProviderTransaction
+from app.modules.channels.adapters import reference
 
 
 BASE_URL = os.getenv("TEST_BASE_URL", "http://localhost:8002")
-
-
-def _signature(secret: str, payload: dict) -> str:
-    body = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode()
-    return hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+INGRESS = "/api/v1/channels/ingress/CONTRACT_TEST"
+WAITING = {"RECEIVED", "PROCESSING"}
 
 
 async def _base(client: httpx.AsyncClient, prefix: str):
@@ -62,8 +71,10 @@ async def _base(client: httpx.AsyncClient, prefix: str):
     assert created.status_code == 200, created.text
     retry = await client.post("/api/v1/channels/connections", headers={**headers, "Idempotency-Key": key}, json=connection_payload)
     assert retry.status_code == 200
-    assert retry.json()["webhook_secret"] == created.json()["webhook_secret"]
-    connection = created.json()["connection"]; secret = created.json()["webhook_secret"]
+    assert retry.json()["connection"]["id"] == created.json()["connection"]["id"]
+    connection = created.json()["connection"]
+    # Nenhum segredo por conexão: o canal assina com a credencial do aplicativo.
+    assert set(created.json()) == {"connection"}
     assert "credentials_ref" not in connection and "webhook_secret_hash" not in connection
     validation_key = f"validate-{uuid.uuid4()}"
     validated = await client.post(f"/api/v1/channels/connections/{connection['id']}/validate", headers={
@@ -74,79 +85,105 @@ async def _base(client: httpx.AsyncClient, prefix: str):
         **headers, "Idempotency-Key": validation_key,
     }, json={"actor_id": actor})
     assert validation_retry.status_code == 200 and validation_retry.json()["id"] == connection["id"]
-    return tenant, store, headers, actor, product, connection, secret
+    return tenant, store, headers, actor, product, connection
+
+
+async def _map_item(client, headers, actor, connection, product, code: str) -> None:
+    mapped = await client.post("/api/v1/channel-catalog/mappings", headers={
+        **headers, "Idempotency-Key": f"map-{uuid.uuid4()}",
+    }, json={"connection_id": connection["id"], "entity_type": "PRODUCT",
+             "internal_id": product["id"], "external_id": code, "actor_id": actor})
+    assert mapped.status_code == 200, mapped.text
+
+
+async def _send(client, *events) -> httpx.Response:
+    body = json.dumps({"events": list(events)}).encode("utf-8")
+    return await client.post(INGRESS, content=body, headers={
+        "Content-Type": "application/json", reference.SIGNATURE_HEADER: reference.sign(body),
+    })
+
+
+def _settled(provider_event_id: str, timeout: float = 15.0) -> ChannelInboxEvent:
+    """Processing runs right after the response; wait for it to leave the queue."""
+    deadline = time.monotonic() + timeout
+    while True:
+        with Session(engine) as db:
+            set_platform_db_context(db)
+            row = db.exec(select(ChannelInboxEvent).where(
+                ChannelInboxEvent.provider_event_id == provider_event_id,
+            )).first()
+        if row is not None and row.status.value not in WAITING:
+            return row
+        assert time.monotonic() < deadline, f"evento {provider_event_id} não saiu da fila"
+        time.sleep(0.3)
 
 
 @pytest.mark.asyncio
 async def test_s10_durable_inbox_deduplicates_into_canonical_order_and_quarantines_invalid_payload():
-    async with httpx.AsyncClient(base_url=BASE_URL) as client:
-        tenant, store, headers, actor, product, connection, secret = await _base(client, "Channel")
-        payload = {
-            "external_order_id": f"external-{uuid.uuid4()}", "fulfillment": "DELIVERY",
-            "customer_name": "Cliente externo", "notes": "Sem contato",
-            "payment": {"status": "PAID_ONLINE", "provider": "MARKETPLACE"},
-            "items": [{"product_id": product["id"], "quantity": 2, "notes": "Bem passado"}],
+    async with httpx.AsyncClient(base_url=BASE_URL, timeout=30) as client:
+        tenant, store, headers, actor, product, connection = await _base(client, "Channel")
+        await _map_item(client, headers, actor, connection, product, "ITEM-CANAL-1")
+        placed = {
+            "id": f"evt-{uuid.uuid4()}", "merchant_id": connection["merchant_external_id"],
+            "type": "ORDER_PLACED", "order_id": f"external-{uuid.uuid4()}",
+            "order": {
+                "fulfillment": "DELIVERY",
+                "lines": [{"id": "l1", "item_code": "ITEM-CANAL-1", "quantity": 2, "notes": "Bem passado"}],
+                "payment": {"status": "PAID_ONLINE"},
+            },
+            "customer": {"name": "Cliente externo"},
         }
-        event_id = f"evt-{uuid.uuid4()}"
-        webhook = {
-            "tenant_id": tenant["id"], "store_id": store["id"], "connection_id": connection["id"],
-            "provider_event_id": event_id, "event_type": "ORDER_CREATED", "payload": payload,
-            "signature": _signature(secret, payload),
-        }
-        accepted = await client.post("/api/v1/channels/webhooks", json=webhook)
+        accepted = await _send(client, placed)
         assert accepted.status_code == 200, accepted.text
-        event = accepted.json()
-        assert event["status"] == "PROCESSED", f"Event quarantined: {event.get('quarantine_reason')}"
-        assert event["acknowledged_at"] is not None
-        assert event["order_id"] is not None
-        order = (await client.get(f"/api/v1/orders/{event['order_id']}", headers=headers)).json()
+        assert accepted.json()["events"][0]["outcome"] == "RECEIVED"
+        event = _settled(placed["id"])
+        assert event.status.value == "APPLIED", f"evento parou em {event.status.value}: {event.quarantine_code}"
+        assert event.acknowledged_at is not None and event.order_id is not None
+        order = (await client.get(f"/api/v1/orders/{event.order_id}", headers=headers)).json()
         assert order["origin"] == "SALES_CHANNEL"
         assert order["fulfillment"] == "DELIVERY"
         assert order["channel_id"] == connection["channel_id"]
         assert len(order["items"]) == 1 and float(order["items"][0]["quantity"]) == 2
+        assert order["notes"] is None, "o nome do cliente não vai para as observações do pedido"
 
-        replay = await client.post("/api/v1/channels/webhooks", json=webhook)
-        assert replay.status_code == 200
-        assert replay.json()["id"] == event["id"]
-        same_order_new_event = {**webhook, "provider_event_id": f"evt-{uuid.uuid4()}"}
-        duplicate = await client.post("/api/v1/channels/webhooks", json=same_order_new_event)
-        assert duplicate.status_code == 200
-        assert duplicate.json()["status"] == "DUPLICATE"
-        assert duplicate.json()["order_id"] == event["order_id"]
+        replay = await _send(client, placed)
+        assert replay.json()["events"][0]["outcome"] == "DUPLICATE"
+        same_order_new_event = {**placed, "id": f"evt-{uuid.uuid4()}", "type": "ORDER_UPDATED"}
+        assert (await _send(client, same_order_new_event)).json()["events"][0]["outcome"] == "RECEIVED"
+        update = _settled(same_order_new_event["id"])
+        assert update.status.value == "APPLIED" and update.order_id == event.order_id
 
         outbound_key = f"out-{uuid.uuid4()}"
-        outbound = await client.post(f"/api/v1/channels/orders/{event['order_id']}/outbound", headers={
+        outbound = await client.post(f"/api/v1/channels/orders/{event.order_id}/outbound", headers={
             **headers, "Idempotency-Key": outbound_key,
         }, json={"message_type": "ORDER_ACCEPTED", "payload": {"status": "ACCEPTED"}, "actor_id": actor})
         assert outbound.status_code == 200
         assert outbound.json()["status"] == "PENDING"
-        outbound_retry = await client.post(f"/api/v1/channels/orders/{event['order_id']}/outbound", headers={
+        outbound_retry = await client.post(f"/api/v1/channels/orders/{event.order_id}/outbound", headers={
             **headers, "Idempotency-Key": outbound_key,
         }, json={"message_type": "ORDER_ACCEPTED", "payload": {"status": "ACCEPTED"}, "actor_id": actor})
         assert outbound_retry.json()["id"] == outbound.json()["id"]
 
-        invalid_payload = {
-            "external_order_id": f"invalid-{uuid.uuid4()}", "fulfillment": "DELIVERY",
-            "items": [{"product_id": str(uuid.uuid4()), "quantity": 1}],
+        invalid = {
+            "id": f"bad-{uuid.uuid4()}", "merchant_id": connection["merchant_external_id"],
+            "type": "ORDER_PLACED", "order_id": f"invalid-{uuid.uuid4()}",
+            "order": {"fulfillment": "DELIVERY", "lines": [{"id": "l1", "item_code": "SEM-MAPEAMENTO", "quantity": 1}]},
         }
-        quarantined = await client.post("/api/v1/channels/webhooks", json={
-            "tenant_id": tenant["id"], "store_id": store["id"], "connection_id": connection["id"],
-            "provider_event_id": f"bad-{uuid.uuid4()}", "event_type": "ORDER_CREATED",
-            "payload": invalid_payload, "signature": _signature(secret, invalid_payload),
-        })
-        assert quarantined.status_code == 200
-        assert quarantined.json()["status"] == "QUARANTINED"
-        assert quarantined.json()["order_id"] is None
+        assert (await _send(client, invalid)).status_code == 200
+        quarantined = _settled(invalid["id"])
+        assert quarantined.status.value == "QUARANTINED"
+        assert quarantined.quarantine_code == "ITEM_NOT_MAPPED"
+        assert quarantined.order_id is None
 
         _tenant_b, _store_b, headers_b, *_ = await _base(client, "OtherChannel")
         assert all(item["id"] != connection["id"] for item in (await client.get("/api/v1/channels/connections", headers=headers_b)).json())
-        assert all(item["id"] != event["id"] for item in (await client.get("/api/v1/channels/inbox", headers=headers_b)).json())
+        assert all(item["id"] != str(event.id) for item in (await client.get("/api/v1/channels/inbox", headers=headers_b)).json())
 
     with Session(engine) as db:
         set_platform_db_context(db)
-        orders = db.exec(select(Order).where(Order.id == uuid.UUID(event["order_id"]))).all()
-        items = db.exec(select(OrderItem).where(OrderItem.order_id == uuid.UUID(event["order_id"]))).all()
-        mapping = db.exec(select(ExternalOrderMapping).where(ExternalOrderMapping.order_id == uuid.UUID(event["order_id"]))).one()
+        orders = db.exec(select(Order).where(Order.id == event.order_id)).all()
+        items = db.exec(select(OrderItem).where(OrderItem.order_id == event.order_id)).all()
+        mapping = db.exec(select(ExternalOrderMapping).where(ExternalOrderMapping.order_id == event.order_id)).one()
         provider_transactions = db.exec(select(ProviderTransaction).where(ProviderTransaction.tenant_id == uuid.UUID(tenant["id"]))).all()
         payment_intents = db.exec(select(PaymentIntent).where(PaymentIntent.tenant_id == uuid.UUID(tenant["id"]))).all()
         assert len(orders) == 1 and len(items) == 1

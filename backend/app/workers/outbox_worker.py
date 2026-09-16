@@ -68,6 +68,24 @@ def sweep_unapplied_results() -> int:
     return len(recovered)
 
 
+def sweep_channel_inbox() -> int:
+    """Trigger (b) of the channel inbox: expire, anchor and retake what was left behind.
+
+    Only here, where a worker runs. On Render free there is none (ADR-027), and
+    the screen says so (S10.1, D4).
+    """
+    from app.modules.channels import inbox
+    # The worker is a composition root like the API: changing an order item asks
+    # the settlement port, which finance wires when imported (ADR-029 §1.1). An
+    # unwired port raises instead of answering zero, so it is wired here.
+    import app.services.negotiation_service  # noqa: F401
+
+    processed = inbox.sweep()
+    if processed:
+        logger.info("Processed %s channel inbox events left behind", processed)
+    return processed
+
+
 def process_one_event() -> bool:
     """Publish one leased outbox event and persist an immutable receipt."""
 
@@ -114,6 +132,7 @@ def process_outbox_events():
             if time.monotonic() - last_sweep_at >= 60:
                 sweep_expired_reserves()
                 sweep_unapplied_results()
+                sweep_channel_inbox()
                 last_sweep_at = time.monotonic()
             if not process_one_event():
                 time.sleep(1.0)

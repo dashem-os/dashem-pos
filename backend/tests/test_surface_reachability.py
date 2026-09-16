@@ -80,7 +80,6 @@ MODULE_OF_SURFACE = {
 # TEF bridge reports its own heartbeat and its transaction results.
 # ---------------------------------------------------------------------------
 NOT_A_BROWSER_SURFACE = {
-    "POST /api/v1/channels/webhooks",
     # S10.1: one door per provider, the channel signs what it sends.
     "POST /api/v1/channels/ingress/{provider_code}",
     "POST /api/v1/control/finance/provider/webhooks/{provider}",

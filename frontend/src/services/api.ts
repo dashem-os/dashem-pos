@@ -698,13 +698,18 @@ export interface ChannelInboxEvent {
   provider_event_id: string
   external_order_id: string
   event_type: string
-  status: 'RECEIVED' | 'NORMALIZED' | 'PROCESSED' | 'QUARANTINED' | 'DUPLICATE'
+  /** RECEIVED is waiting to be processed — never a processed order. */
+  status: 'RECEIVED' | 'PROCESSING' | 'APPLIED' | 'SUPERSEDED' | 'QUARANTINED' | 'NEEDS_REVIEW' | 'DISCARDED' | 'EXPIRED'
   order_id?: string
   quarantine_code?: string
   quarantine_reason?: string
   received_at: string
   acknowledged_at?: string
   processed_at?: string
+  /** When the event's raw content stops being kept. A deadline, not a purge: nothing is removed yet. */
+  retention_until?: string
+  first_quarantined_at?: string
+  last_error_code?: string
 }
 
 /** The server resolves who the channel is and what the product is called, so a
@@ -3856,7 +3861,7 @@ export async function fetchMerchantConnections(headers: Record<string, string>):
 export async function createMerchantConnection(
   headers: Record<string, string>, idempotencyKey: string,
   data: { store_id: string; provider_code: string; merchant_external_id: string; channel_name: string; credentials_ref?: string; actor_id?: string },
-): Promise<{ connection: MerchantConnection; webhook_secret: string }> {
+): Promise<{ connection: MerchantConnection }> {
   const res = await fetch(`${API_BASE_URL}/api/v1/channels/connections`, {
     method: 'POST', headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(data),
   })
@@ -3869,6 +3874,15 @@ export async function validateMerchantConnection(headers: Record<string, string>
     method: 'POST', headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify({ actor_id: actorId }),
   })
   if (!res.ok) throw await apiError(res, 'Não foi possível validar a conexão externa.')
+  return res.json()
+}
+
+/** A person retakes a quarantined or reviewed event. The server never moves its deadline. */
+export async function resumeChannelInboxEvent(headers: Record<string, string>, eventId: string, actorId?: string): Promise<Pick<ChannelInboxEvent, 'id' | 'status' | 'quarantine_code' | 'quarantine_reason' | 'order_id' | 'retention_until'>> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/channels/inbox/${eventId}/resume`, {
+    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ actor_id: actorId }),
+  })
+  if (!res.ok) throw await apiError(res, 'Não foi possível retomar o evento.')
   return res.json()
 }
 

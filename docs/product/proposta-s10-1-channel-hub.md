@@ -33,6 +33,30 @@ apoia no contrato definido aqui. Nada nesta proposta autoriza dizer que iFood,
     ingresso novo esperam em `RECEIVED` pela caixa retomável. Remover a rota
     antiga antes deixaria o S10 sem processamento;
   - **`parser_version` vai para a migração do passo 3**, que é quem normaliza.
+- **Passos 3 e 4, juntos** — o dono tratou os critérios dos dois como aceite de
+  uma entrega só. Migração `099_the_inbox_resumes`; código em
+  `app/modules/channels/{inbox,orders,retention}.py` e operações de pedido
+  externo em `order_service`, que só dão `flush`. Provas em
+  `test_channel_inbox.py`, `test_s10_channel_hub.py` (reescrito para o ingresso)
+  e na bancada `frontend/e2e/channel-inbox.spec.mjs`, que abre o componente real
+  contra a API local, com um evento em cada estado. A bancada **não é** a
+  travessia autenticada do aplicativo. Divergências e limites:
+  - a rota antiga `/channels/webhooks`, `receive_event`, o adaptador antigo e o
+    segredo por conexão saíram; `webhook_secret_hash` passou a aceitar nulo;
+  - `evidence_purpose`, `retention_until` e legal hold no mapeamento **não foram
+    criados**: nenhuma finalidade documentada os preencheria (G5). Entram com ela;
+  - mudar item de pedido pergunta à porta de liquidação, que finanças liga ao ser
+    importado. O worker e os testes que rodam a caixa no próprio processo compõem
+    a aplicação como a API; a porta continua recusando responder zero;
+  - a varredura do worker só pega evento com mais de 120 s, para não disputar com
+    o gatilho logo depois do ingresso;
+  - pedido encerrado por outro caminho ancora os prazos pela varredura, usando o
+    `updated_at` do pedido, porque `Order` não tem data de fechamento;
+  - D2 segue sem decisão: cancelamento ou mudança com item em preparo vira
+    `NEEDS_REVIEW` e não altera nada;
+  - na tela, o prazo vencido diz que a limpeza ainda não é automática. A coluna
+    do pedido ainda mostra UUID, e o formulário ainda pede referência de cofre:
+    são do passo 7.
 - Nada foi removido de dado nenhum; retenção continua **não implementada**.
 
 ## 0.1 O que mudou da revisão 2 para a 3
@@ -641,11 +665,11 @@ Passos 1 a 4 autorizados pelo dono em 16/09/2026.
 2. **Feito:** ingresso por provedor com conexão resolvida no servidor e merchant
    conectado com um único dono; migração com retenção e hold na caixa de entrada
    e as quatro permissões sem concessão (R15–R17, P2, P5–P7, P20).
-3. Caixa de entrada retomável, abertura de pedido externo como unidade de
-   trabalho, contato na sua camada, fim da cópia para `orders.notes`, motivo de
-   quarentena como código e `parser_version`; **sai a rota antiga**
-   (R1–R5, R10, R19, P3, P8, P9, P17, P18, P21).
-4. Atualização, ordem, conclusão e cancelamento, com as operações novas no Order
+3. **Feito, com o 4:** caixa de entrada retomável, abertura de pedido externo
+   como unidade de trabalho, contato na sua camada, fim da cópia para
+   `orders.notes`, motivo de quarentena como código e `parser_version`; **saiu a
+   rota antiga** (R1–R5, R10, R19, P3, P8, P9, P17, P18, P21).
+4. **Feito, com o 3:** atualização, ordem, conclusão e cancelamento, com as operações novas no Order
    Engine e a âncora terminal (R6–R9, P1, P19). Cancelamento com item em preparo
    usa o comportamento conservador — `NEEDS_REVIEW`, a produção não é cancelada
    sozinha — até D2.

@@ -31,3 +31,18 @@ test('keeps Channel Hub behind capability and permission boundaries', () => {
   assert.match(layout, /case 'channels': return <ChannelHubWorkspace/)
   assert.match(workspace, /permissions\.includes\('channel\.configure'\)/)
 })
+
+test('never shows a waiting event as a processed order, and says when nothing runs by itself', () => {
+  assert.match(workspace, /RECEIVED: 'Aguardando processamento'/)
+  assert.doesNotMatch(workspace, /: <CheckCircle2 className="h-3\.5 w-3\.5 text-state-success" \/>\}\{event\.status\}/)
+  assert.match(workspace, /Sem processamento contínuo hospedado/)
+  assert.match(workspace, /a limpeza ainda não é automática/)
+  assert.doesNotMatch(workspace, /Conteúdo guardado até/)
+  assert.match(workspace, /permissions\.includes\('channel\.manage'\) && resumableInbox\.includes\(event\.status\)/)
+  assert.match(api, /\/api\/v1\/channels\/inbox\/\$\{eventId\}\/resume/)
+})
+
+test('asks for no per-connection webhook secret and shows none', () => {
+  assert.doesNotMatch(workspace, /webhookSecret|webhook_secret|Segredo de webhook/)
+  assert.doesNotMatch(api, /webhook_secret/)
+})

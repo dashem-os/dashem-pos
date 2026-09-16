@@ -12,9 +12,8 @@ connection. A body can carry events of different merchants; one failing does not
 undo the ones already kept, and the channel resending the whole body finds them
 as duplicates.
 
-What this step does not do yet: apply events to orders. They wait in `RECEIVED`
-for the resumable inbox of step 3. The S10 route `/channels/webhooks` keeps
-processing inline until then.
+Applying events to orders is the inbox's job (`inbox.py`): the route schedules
+it for right after the response, so confirming never waits on the Order Engine.
 """
 
 import logging
@@ -53,6 +52,8 @@ class IngressOutcomeEnum:
 class IngressOutcome:
     provider_event_id: str
     outcome: str
+    # Interno: a conexão que recebeu, para processar logo depois da resposta.
+    connection_id: Optional[uuid.UUID] = None
 
 
 @dataclass(frozen=True)
@@ -141,7 +142,7 @@ def _keep(adapter: ChannelAdapter, envelope: IngressEnvelope) -> IngressOutcome:
             if known is not None:
                 return known
             raise
-    return IngressOutcome(envelope.provider_event_id, IngressOutcomeEnum.RECEIVED)
+    return IngressOutcome(envelope.provider_event_id, IngressOutcomeEnum.RECEIVED, scope.connection_id)
 
 
 def _known(
@@ -154,7 +155,7 @@ def _known(
     if existing is None:
         return None
     if existing.payload_hash == payload_hash:
-        return IngressOutcome(provider_event_id, IngressOutcomeEnum.DUPLICATE)
+        return IngressOutcome(provider_event_id, IngressOutcomeEnum.DUPLICATE, scope.connection_id)
     # Same identifier, different content. Confirmed so the channel stops resending,
     # recorded with hashes only, and not applied (§3.3).
     reliability_service.write_audit_and_outbox(
@@ -170,4 +171,4 @@ def _known(
         outbox_payload={"provider_event_id": provider_event_id, "inbox_event_id": str(existing.id)},
     )
     session.commit()
-    return IngressOutcome(provider_event_id, IngressOutcomeEnum.DIVERGENT)
+    return IngressOutcome(provider_event_id, IngressOutcomeEnum.DIVERGENT, scope.connection_id)

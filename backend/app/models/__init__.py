@@ -81,6 +81,8 @@ from app.models.channel_hub import (
     MerchantConnection, MerchantConnectionStatusEnum, ChannelInboxEvent,
     ChannelInboxStatusEnum, ExternalOrderMapping, ChannelOutboundMessage,
     ChannelOutboundStatusEnum,
+    ChannelOrderLine, ChannelOrderContact, ChannelRetentionBasisEnum,
+    ExternalOrderTerminalStateEnum, ChannelOrderLineStatusEnum, ChannelRedactionMethodEnum,
 )
 from app.models.production import (
     ProductionPoint, ProductionPointTypeEnum, ProductionRoutingRule,

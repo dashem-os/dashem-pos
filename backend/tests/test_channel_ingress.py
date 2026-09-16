@@ -7,7 +7,8 @@ server-side resolution of whose event it is, the database, RLS and the retention
 deadline each event is born with.
 
 Covered: R15, R16, R17, P2, P5, P7, P20 and the duplicate and divergent paths of
-R4 and R5. Applying events to orders is step 3; these events stay `RECEIVED`.
+R4 and R5. Since step 3 the server processes events right after the response;
+these events carry no order, so they end in quarantine — on the reception clock.
 """
 
 import json
@@ -29,7 +30,7 @@ from app.models.channel_hub import ChannelInboxEvent, ChannelRetentionBasisEnum
 from app.models.reliability import AuditEvent
 from app.modules.channels.adapters import reference
 from app.modules.channels.contracts import ChannelDataPermission
-from test_s10_channel_hub import _base
+from test_s10_channel_hub import _base, _settled
 
 BASE_URL = os.getenv("TEST_BASE_URL", "http://localhost:8002")
 INGRESS = "/api/v1/channels/ingress/CONTRACT_TEST"
@@ -61,7 +62,7 @@ def _rows(provider_event_id: str) -> list[ChannelInboxEvent]:
 @pytest.mark.asyncio
 async def test_evento_assinado_entra_na_conexao_do_merchant_ja_com_prazo():
     async with httpx.AsyncClient(base_url=BASE_URL, timeout=30) as client:
-        tenant, store, _headers, _actor, _product, connection, _secret = await _base(client, "Ingresso")
+        tenant, store, _headers, _actor, _product, connection = await _base(client, "Ingresso")
         event = _event(
             connection["merchant_external_id"],
             # Nada disto escolhe tenant ou prazo: é conteúdo do canal, e só.
@@ -73,11 +74,13 @@ async def test_evento_assinado_entra_na_conexao_do_merchant_ja_com_prazo():
         assert response.status_code == 200, response.text
         assert response.json() == {"events": [{"provider_event_id": event["id"], "outcome": "RECEIVED"}]}
 
-    (row,) = _rows(event["id"])
+    row = _settled(event["id"])
     assert (str(row.tenant_id), str(row.store_id), str(row.merchant_connection_id)) == (
         tenant["id"], store["id"], connection["id"],
     )
-    assert row.status.value == "RECEIVED"
+    # Sem seção de pedido, o evento não vira pedido: quarentena com código, e o
+    # prazo contado da recepção não se mexe (D6).
+    assert row.status.value == "QUARANTINED" and row.quarantine_code == "PAYLOAD_ORDER_MISSING"
     assert row.raw_payload == event
     assert row.external_order_id == event["order_id"]
     assert row.acknowledged_at == row.received_at
@@ -89,7 +92,7 @@ async def test_evento_assinado_entra_na_conexao_do_merchant_ja_com_prazo():
 @pytest.mark.asyncio
 async def test_o_mesmo_evento_repetido_nao_cria_nada_e_o_divergente_fica_so_registrado():
     async with httpx.AsyncClient(base_url=BASE_URL, timeout=30) as client:
-        *_, connection, _secret = await _base(client, "Repeticao")
+        *_, connection = await _base(client, "Repeticao")
         event = _event(connection["merchant_external_id"])
         body, headers = _signed(event)
         assert (await client.post(INGRESS, content=body, headers=headers)).json()["events"][0]["outcome"] == "RECEIVED"
@@ -102,7 +105,7 @@ async def test_o_mesmo_evento_repetido_nao_cria_nada_e_o_divergente_fica_so_regi
         assert divergent.status_code == 200
         assert divergent.json()["events"][0]["outcome"] == "DIVERGENT"
 
-    (row,) = _rows(event["id"])
+    row = _settled(event["id"])
     assert row.raw_payload == event, "o conteúdo guardado não é trocado pelo divergente"
     with Session(engine) as db:
         set_platform_db_context(db)
@@ -119,7 +122,7 @@ async def test_o_mesmo_evento_repetido_nao_cria_nada_e_o_divergente_fica_so_regi
 @pytest.mark.asyncio
 async def test_a_assinatura_vale_sobre_os_bytes_que_chegaram():
     async with httpx.AsyncClient(base_url=BASE_URL, timeout=30) as client:
-        *_, connection, _secret = await _base(client, "Bytes")
+        *_, connection = await _base(client, "Bytes")
         event = _event(connection["merchant_external_id"])
         body, headers = _signed(event)
         same_json = json.dumps(json.loads(body), indent=2, sort_keys=True).encode("utf-8")
@@ -156,8 +159,8 @@ async def test_merchant_sem_conexao_conectada_e_recusado_sem_gravar_nada():
 @pytest.mark.asyncio
 async def test_cada_evento_vai_para_o_tenant_do_seu_merchant_e_ninguem_ve_o_do_outro():
     async with httpx.AsyncClient(base_url=BASE_URL, timeout=30) as client:
-        tenant_a, _store_a, headers_a, _actor_a, _p, connection_a, _s = await _base(client, "TenantA")
-        tenant_b, store_b, headers_b, actor_b, _p, connection_b, _s = await _base(client, "TenantB")
+        tenant_a, _store_a, headers_a, _actor_a, _p, connection_a = await _base(client, "TenantA")
+        tenant_b, store_b, headers_b, actor_b, _p, connection_b = await _base(client, "TenantB")
         event_a = _event(connection_a["merchant_external_id"])
         event_b = _event(connection_b["merchant_external_id"])
         body, headers = _signed(event_a, event_b)
@@ -209,11 +212,11 @@ async def test_provedor_que_a_plataforma_nao_fala_nao_tem_porta_e_corpo_invalido
 @pytest.mark.asyncio
 async def test_legal_hold_so_existe_completo():
     async with httpx.AsyncClient(base_url=BASE_URL, timeout=30) as client:
-        *_, connection, _secret = await _base(client, "Hold")
+        *_, connection = await _base(client, "Hold")
         event = _event(connection["merchant_external_id"])
         body, headers = _signed(event)
         assert (await client.post(INGRESS, content=body, headers=headers)).status_code == 200
-    (row,) = _rows(event["id"])
+    row = _settled(event["id"])
 
     with Session(engine) as db:
         set_platform_db_context(db)
