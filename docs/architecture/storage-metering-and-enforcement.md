@@ -82,6 +82,34 @@ leitura em `contract_entitlement_service` reconhece os nomes antigos,
 normaliza-os para `*_mib` na fronteira da API e nunca reescreve a versão
 assinada. Nenhuma gravação ou interface nova publica os nomes legados.
 
+## Dívida de desempenho — capacidade de storage da plataforma
+
+Registrada em 16/09/2026. Não bloqueia o Sprint 5.1 nem o piloto; cresce com a
+base de clientes.
+
+**O que o código faz.** `platform_storage_capacity_read_model`, servido em
+`GET /identity/platform/capacity/storage`, carrega **todos** os contratos e
+**todos** os tenants em memória e só então pagina. Para cada tenant da página
+chama `storage_quota_read_model`, que faz várias consultas por tenant — inclusive
+buscar de novo o contrato mais recente, que já estava carregado.
+
+**O que foi observado.** No banco local, que acumula tenants criados pela suíte,
+uma única chamada com página de 50 levou cerca de **189 s** (`test_owner_p0`,
+despejo de pilha em `contract_entitlement_service.latest_contract`). Isso dá
+perto de 4 s por tenant — mais do que o N+1 explica sozinho, porque
+`tenant_contracts` tem índice por `tenant_id`.
+
+**O que não foi medido.** Quantos tenants havia no banco local e qual consulta
+domina o tempo. A suspeita a conferir primeiro é a política de RLS dessas tabelas
+sob contexto de plataforma — o mesmo mecanismo que derrubou o índice de junção
+no [catálogo volumoso](../quality/homologacao-catalogo-volumoso-2026-09-09.md) —,
+antes de qualquer reescrita.
+
+**Direção, depois de medir.** `EXPLAIN (ANALYZE, BUFFERS)` das consultas por
+tenant; paginar no SQL; reaproveitar o contrato já carregado; e trocar as
+consultas por tenant por consultas em lote para os ids da página. Critério de
+aceite a definir com o número medido, não com este.
+
 ## Retomada
 
 O Sprint 5 encerrou a fundação independente de provedor. A implementação local
