@@ -23,6 +23,9 @@ capabilities em planos produtivos por inferência deste planejamento.
 
 ## Lacunas internas a fechar
 
+Proposta técnica do S10.1, com os defeitos encontrados no código, invariantes,
+testes e decisões pendentes: [proposta S10.1](proposta-s10-1-channel-hub.md).
+
 - Separar contratos de autorização, pedidos, catálogo e logística por capacidades.
   Não criar um novo Order Engine nem obrigar todo adapter a suportar tudo.
 - Ingressos oficiais validam assinatura conforme provedor e resolvem merchant para

@@ -963,6 +963,7 @@ dois consumidores, reinício entre etapas, ACK perdido, eventos fora de ordem,
 cancelamento e indisponibilidade externa sem bloquear venda local.
 
 Escopo detalhado e ordem: [fundações do Channel Hub](channel-hub-fundacoes-2026-09-10.md).
+Proposta técnica em revisão desde 16/09/2026: [S10.1](proposta-s10-1-channel-hub.md).
 O aceite interno usa conector de referência, sem declarar iFood/99Food conectados.
 
 ### S11 — Production Routing e KDS
