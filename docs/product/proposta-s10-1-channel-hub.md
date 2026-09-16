@@ -1,9 +1,10 @@
 # Proposta — S10.1: completar a fundação do Channel Hub
 
-Status: **proposta para revisão do dono · D3 decidida como política técnica
-inicial · guarda de logs implementado, o resto não** · revisão 2 em 16/09/2026
-(revisão 1 em 16/09/2026).
-Base: `90d8e98` em `main`. Cabeça de migração conferida no código e no banco local
+Status: **passos 1 a 4 autorizados pelo dono · D3 aprovada como política técnica
+inicial · D6 e D7 decididas · retenção não implementada até a purga e o controle
+de backups serem comprovados** · revisão 3 em 16/09/2026 (revisões 1 e 2 em
+16/09/2026).
+Base: `b90aeba` em `main`. Cabeça de migração conferida no código e no banco local
 nesta revisão: `097_the_pinpad_is_occupied`, sem nenhuma posterior. Escopo e gate
 vêm do [roadmap](roadmap-commerce-os-v2.md) (S10.1) e das
 [fundações do Channel Hub](channel-hub-fundacoes-2026-09-10.md).
@@ -12,6 +13,18 @@ Não escolhe canal, provedor, preço, plano nem capability produtiva. Não trata
 de catálogo, disponibilidade e repasses: isso é o S13.2, que vem depois e se
 apoia no contrato definido aqui. Nada nesta proposta autoriza dizer que iFood,
 99Food ou qualquer canal está conectado.
+
+## 0.1 O que mudou da revisão 2 para a 3
+
+| # | Revisão 2 dizia | Revisão 3 |
+|---|---|---|
+| 1 | D3 "decidida" | **Aprovada** pelo dono como política técnica inicial; continua sem valor jurídico nem comercial |
+| 2 | Evento que nunca vira pedido ficava "sem âncora" até D6 | **D6 decidida:** nenhum evento fica sem âncora. O payload conta da recepção, a quarentena não reinicia o relógio, e evento nunca processado expira (§3.7.4) |
+| 3 | D7 pedia quem recebe as ações, sem permissões | **D7 decidida:** quatro permissões separadas por ação, acesso mínimo e auditoria, uma pessoa pode acumular. Criadas no catálogo **sem concessão**, e as rotas ficam bloqueadas até concessão definida e testada (§3.7.8) |
+| 4 | Uma migração para tudo | **Uma migração por passo**, cada uma com o código que a exercita (§3.9) |
+| 5 | — | O contato só é extraído quando o evento é aplicado a um pedido. Evento que nunca vira pedido não gera linha de contato: o dado pessoal sai com o payload, dentro do teto da D6 |
+| 6 | — | `retention_basis` registra de onde veio cada prazo; um prazo atribuído só encurta — alongar exige hold ou extensão autorizada |
+| 7 | — | Estados `EXPIRED` e `DISCARDED` na caixa de entrada |
 
 ## 0. O que mudou da revisão 1 para a 2
 
@@ -76,11 +89,11 @@ a pelo menos uma.
 | **H11** | Capacidade não declarada pelo adaptador não é chamada; a ausência aparece como estado explícito |
 | **H12** | Credencial de canal não é digitada pelo lojista; autorização do estabelecimento é separada de elegibilidade comercial |
 | **H13** | Payload bruto, dados operacionais pessoais e evidência normalizada são **camadas separadas**, cada uma com seu prazo; nome, telefone, endereço e instruções de entrega moram **num único lugar** |
-| **H14** | O prazo nasce do **estado terminal** do pedido. Antes dele, `retention_until` fica vazio e o registro conta como "aguardando estado terminal"; registro sem âncora possível é contado à parte — nunca retido em silêncio |
+| **H14** | **Nenhum registro fica sem âncora.** O payload de evento aplicado conta do **estado terminal** do pedido; o de evento em quarentena, descartado ou nunca processado conta da **recepção**. Corrigir a causa de uma quarentena não reinicia o relógio. Um prazo atribuído só encurta; alongar exige legal hold ou extensão autorizada |
 | **H15** | Purgar remove conteúdo e preserva hash, identificadores, instantes, resultado, versão do parser e trilha mínima; purgar é idempotente e decidido pelos campos de retenção, então reaplicar depois de um restore remove de novo o que voltou |
 | **H16** | Legal hold suspende a purga **só da camada e do registro marcados**, e só com motivo, referência, responsável e data de revisão; hold vencido não segura nada |
 | **H17** | Payload bruto e dado pessoal **nunca** entram em log nem em trilha imutável (`audit_events`, `outbox_events` → `published_events`, eventos de transação e de execução); motivo de quarentena é código mais texto seguro |
-| **H18** | Ler dado pessoal, registrar legal hold, estender retenção e executar limpeza exigem capability e permissão explícitas; enquanto não existirem, **nenhuma rota oferece essas ações** |
+| **H18** | Ler contato, registrar ou liberar legal hold, estender retenção e executar limpeza exigem **cada uma a sua permissão** (D7) e capability; enquanto a concessão não estiver definida e testada, **nenhuma rota oferece essas ações** |
 | **H19** | CRM, fidelidade, emissão fiscal e conta própria do estabelecimento seguem a finalidade deles; o pedido de canal não os alimenta nem empresta seu prazo |
 | **H20** | Limpeza sem executor contínuo é limitação declarada: registro vencido aguardando limpeza aparece na documentação e na tela |
 
@@ -174,6 +187,8 @@ Estados do evento:
 | `SUPERSEDED` | mais antigo que o já aplicado, ou chegou depois do estado terminal; registrado, não aplicado (H5) |
 | `QUARANTINED` | não aplicável sem intervenção, com **código** de motivo e texto seguro (H17) — item sem mapeamento, pedido inválido; retomável depois de corrigida a causa |
 | `NEEDS_REVIEW` | exige pessoa: cancelamento com item em preparo, divergência de conteúdo no mesmo evento (H6) |
+| `DISCARDED` | classificado como não aplicável por ação autorizada (`channel.manage`); definitivo |
+| `EXPIRED` | o prazo do payload venceu antes de o evento ser aplicado; sem payload não há retomada; definitivo |
 
 `DUPLICATE` deixa de ser estado de linha: o mesmo evento não gera linha nova, e
 evento novo sobre o mesmo pedido é atualização.
@@ -240,7 +255,7 @@ do canal continua origem `MARKETPLACE`, distinto de TEF e de repasse.
 
 #### 3.7.1 Política técnica inicial
 
-Decidida pelo dono em 16/09/2026.
+Aprovada pelo dono em 16/09/2026 como política técnica inicial.
 
 > **Isto não é orientação jurídica.** Os prazos abaixo são uma **política técnica
 > inicial** para construir e testar a fundação. Antes de virar política externa,
@@ -265,7 +280,7 @@ dá esse caminho.
 
 | Camada | Onde mora | Contém | Não contém | Prazo |
 |---|---|---|---|---|
-| **Payload bruto** | `channel_inbox_events` | o corpo recebido do canal, como chegou | — | 30 dias após o terminal |
+| **Payload bruto** | `channel_inbox_events` | o corpo recebido do canal, como chegou | — | 30 dias após o terminal, ou após a recepção quando o evento não foi aplicado sem quarentena (§3.7.4) |
 | **Dados operacionais pessoais** | `channel_order_contacts`, nova, 1:1 com o pedido externo | nome de exibição, telefone, endereço, instruções de entrega e o pseudônimo | valores, itens, identificadores de conciliação | 90 dias após o terminal |
 | **Evidência normalizada** | `external_order_mappings`, `external_order_lines` (nova) e a trilha da caixa de entrada | identificadores externos, instantes, valores declarados, estados, resultado, hash do payload, versão do parser | nome, telefone, endereço, instruções, payload | pela finalidade documentada |
 
@@ -280,7 +295,7 @@ limite declarado, não resolvido aqui.
 
 #### 3.7.3 Estrutura de dados
 
-Definida aqui e criada na migração do passo 2 de §7, com o código que a exercita.
+Definida aqui e criada por partes, cada parte na migração do passo que a exercita (§3.9).
 
 **`channel_inbox_events`** — payload bruto, colunas novas:
 
@@ -288,7 +303,8 @@ Definida aqui e criada na migração do passo 2 de §7, com o código que a exer
 |---|---|---|
 | `raw_payload` | passa a aceitar nulo | nulo só depois da purga |
 | `parser_version` | texto curto | versão do adaptador que normalizou |
-| `retention_until` | instante, nulo | terminal + 30 dias; nulo enquanto não houver terminal |
+| `retention_basis` | `RECEPCAO` · `ESTADO_TERMINAL` | de onde veio o prazo (§3.7.4) |
+| `retention_until` | instante, nulo | recepção + 30 dias ao persistir; terminal + 30 dias quando a base passa a `ESTADO_TERMINAL`; nulo só enquanto um evento aplicado aguarda o terminal |
 | `purged_at` | instante, nulo | quando o conteúdo saiu |
 | campos de legal hold | ver abaixo | |
 
@@ -301,18 +317,19 @@ tenant e unidade como as do S10:
 
 | Coluna | Tipo | Regra |
 |---|---|---|
-| `external_order_mapping_id` | referência única | um contato por pedido externo |
+| `external_order_mapping_id` | referência única | um contato por pedido externo; só existe quando um evento é **aplicado** a um pedido |
 | `display_name`, `phone`, `delivery_address`, `delivery_instructions` | texto e estrutura, nulos | o que o canal enviou e a entrega precisa |
-| `pseudonym` | texto curto | gerado ao receber, aleatório, sem derivar do conteúdo; é o que resta depois |
-| `retention_until` | instante, nulo | terminal + 90 dias |
+| `pseudonym` | texto curto | gerado ao criar a linha, aleatório, sem derivar do conteúdo; é o que resta depois |
+| `retention_basis` | `ESTADO_TERMINAL` · `CLASSIFICACAO_DEFINITIVA` | de onde veio o prazo |
+| `retention_until` | instante, nulo | terminal + 90 dias; nulo enquanto o pedido não fica terminal |
 | `redacted_at` | instante, nulo | quando o conteúdo saiu |
 | `redaction_method` | `ERASED` · `REDACTED` · `PSEUDONYMIZED` | como saiu |
 | campos de legal hold | ver abaixo | |
 
 **`external_order_mappings`** — evidência, colunas novas: `terminal_state`,
 `terminal_at` (a âncora), a chave de ordem aplicada e os valores declarados
-(§3.5), `retention_basis` — código de uma finalidade documentada, nulo enquanto
-não houver — e `retention_until`, só preenchido quando houver base. Sem base, a
+(§3.5), `evidence_purpose` — código de uma finalidade documentada, nulo enquanto
+não houver — e `retention_until`, só preenchido quando houver finalidade. Sem base, a
 evidência não ganha prazo estendido e aparece como "finalidade não documentada";
 ela não tem dado pessoal por construção (H13).
 
@@ -332,14 +349,39 @@ registrou, estendeu ou liberou vai para `audit_events` com identificadores e
 datas, sem motivo em texto livre e sem dado pessoal. Isso não é uma plataforma de
 governança: são colunas e uma regra.
 
-#### 3.7.4 Âncora e prazo
+#### 3.7.4 Âncora e prazo (D3 e D6)
 
-- O pedido fica terminal → na mesma transação, `terminal_at` no mapeamento e
-  `retention_until` nas linhas de payload e de contato daquele pedido.
-- Evento que nunca vira pedido — merchant recusado, conteúdo divergente,
-  quarentena descartada — **não tem âncora definida por esta política**. Ele não
-  fica retido em silêncio: é contado como "sem âncora" (H14) até a decisão D6.
-- Evento que chega depois do terminal herda o `retention_until` do pedido.
+Nenhum registro fica sem âncora (H14). D6, decidida pelo dono em 16/09/2026,
+fecha o caso que a política do pedido terminal não cobria.
+
+| Situação do evento | Prazo do payload bruto | Contato |
+|---|---|---|
+| Persistido, ainda não aplicado | **recepção + 30 dias** (`RECEPCAO`), gravado na mesma transação que persiste | não existe linha de contato |
+| Aplicado a um pedido **sem nunca ter passado por quarentena** | a base passa a `ESTADO_TERMINAL`: nulo até o terminal, depois **terminal + 30 dias** | criado na aplicação; **terminal + 90 dias** |
+| Em quarentena — inclusive por falta de mapeamento | continua **recepção + 30 dias**; o relógio não para | não existe linha de contato |
+| Saiu da quarentena e foi aplicado | continua **recepção + 30 dias**: corrigir o cadastro não cria retenção nova | criado na aplicação; terminal + 90 dias |
+| Descartado (`DISCARDED`) ou expirado sem aplicação (`EXPIRED`) | recepção + 30 dias; é esse vencimento que torna `EXPIRED` definitivo | não existe linha de contato |
+| Chega depois do terminal, ou superado | o do pedido: terminal + 30 dias | o do pedido |
+
+Regras que atravessam a tabela:
+
+- **Um prazo atribuído só encurta.** A única troca para mais tarde é a de
+  `RECEPCAO` para `ESTADO_TERMINAL`, uma vez, para o evento aplicado sem
+  quarentena — é o caso que a D3 cobre. Qualquer outro alongamento exige legal
+  hold ou extensão autorizada (§3.7.8).
+- **O contato só nasce da aplicação.** Evento que nunca vira pedido não gera
+  linha de contato: nome, telefone e endereço ficam só dentro do payload e saem
+  com ele, em no máximo 30 dias da recepção — dentro do teto de 90 dias que a D6
+  dá ao contato a partir da classificação definitiva. Se um dia for preciso
+  extrair o contato antes da aplicação, por exemplo para revisar uma quarentena,
+  vale a regra da D6: a partir da classificação definitiva, com base
+  `CLASSIFICACAO_DEFINITIVA`, em no máximo 90 dias.
+- **Evento sem dado pessoal** segue a mesma regra do payload. Depois da purga
+  ficam só os metadados técnicos mínimos (§3.7.3).
+- **Pedido aplicado que nunca fica terminal** mantém o prazo aguardando o
+  terminal, e aparece na tela com a idade. É um problema de operação, porque o
+  pedido ficou aberto, e não uma âncora ausente. Nenhum prazo é inventado para
+  ele aqui.
 
 #### 3.7.5 O que a purga faz, quando existir
 
@@ -368,8 +410,8 @@ Elegível quando `retention_until <= agora` **e** não há hold vigente
 **Sem worker contínuo, a limpeza não é automática.** No Render free (ADR-027) a
 varredura pode rodar por: (i) worker hospedado, quando houver; (ii) execução
 local; (iii) gatilho oportunista, em lote pequeno, junto de outra operação do
-tenant; (iv) ação autorizada na tela — que depende de uma permissão que não
-existe (C14). A documentação e a tela dizem quantos registros estão vencidos
+tenant; (iv) ação autorizada na tela, com `channel.retention.purge` — que
+existe no catálogo sem concessão até ser definida e testada (§3.7.8). A documentação e a tela dizem quantos registros estão vencidos
 aguardando limpeza e quando foi a última (H20).
 
 Fora desta fase: serviço externo de descarte, certificado de eliminação,
@@ -388,21 +430,34 @@ com BOM, e exige o conjunto exato.
 `logger.exception`, passa pelo guarda. Por isso o motivo de quarentena vira
 código (H17, P9), e o teto de 14 dias existe para o que escapar.
 
-#### 3.7.8 Autoridade — lacunas, sem fluxo inventado
+#### 3.7.8 Autoridade (D7)
 
-Existem `channel.read`, `channel.configure` e `channel.manage`. **Nenhuma** cobre:
+Decidida pelo dono em 16/09/2026: uma permissão por ação, acesso mínimo e
+auditoria. `channel.manage` sozinha não cobre isto, porque são ações diferentes.
 
-- ler contato do cliente de um pedido de canal;
-- registrar, estender ou liberar legal hold;
-- estender retenção;
-- executar limpeza manual.
+| Ação | Permissão | Quem, pela recomendação do dono |
+|---|---|---|
+| Ver nome, telefone e endereço para preparar e entregar | `channel.order_contact.read` | operador do canal, só quando precisa para executar o pedido |
+| Registrar ou liberar `LEGAL_HOLD` | `channel.legal_hold.manage` | responsável pela unidade |
+| Estender retenção além do prazo padrão | `channel.retention.extend` | responsável pela unidade |
+| Executar ou solicitar limpeza | `channel.retention.purge` | administrador do tenant |
+| Ver evidência normalizada, sem dado pessoal | `channel.read` ou `channel.manage` — já existem | quem já consulta o Channel Hub |
 
-Nem existe capability de tenant que as habilite. Até existirem, com decisão sua
-sobre quem as recebe (D7): **nenhuma rota lê contato, grava campos de retenção ou
-de hold, nem dispara limpeza** (H18). Consequência deliberada, e dita: com um
-canal real, a operação não veria o endereço de entrega. Isso não afeta nada hoje,
-porque não há canal real, mas **precisa estar decidido antes de qualquer piloto
-com canal**.
+- **Uma pessoa pode acumular.** Numa operação de uma pessoa só, o mesmo usuário
+  com as permissões executa tudo; nenhuma ação exige segunda pessoa.
+- **Suporte e plataforma** entram por acesso excepcional, auditado e nominal —
+  o acesso assistido que já existe —, e nunca aparecem como operador comum.
+- **Toda leitura de contato e todo ato de hold, extensão ou limpeza** grava
+  `audit_events` com quem, quando e sobre qual registro, sem o conteúdo.
+
+**O que existe agora e o que fica bloqueado.** As quatro permissões novas entram
+no catálogo na migração do passo 2, **sem concessão a nenhum perfil**. As rotas
+de leitura de contato, hold, extensão e limpeza **não existem** até a concessão
+ser definida e testada, e um teste garante que nenhum perfil as recebe antes
+disso (P20). A capability de tenant que as habilite segue a mesma regra.
+Consequência deliberada, e dita: com um canal real, a operação não veria o
+endereço de entrega até a concessão estar pronta. Isso não afeta nada hoje, mas
+**precisa estar pronto antes de qualquer piloto com canal**.
 
 #### 3.7.9 Finalidades separadas
 
@@ -423,24 +478,28 @@ Operação → Canais de venda, reusando o `ChannelHubWorkspace`:
   pedido pelo número, não pelo UUID; detalhe técnico fica no detalhe;
 - nova seção "Avisos ao canal", com falhas e "Reenviar";
 - o campo `secret://` sai do formulário do lojista (H12);
-- **retenção visível:** registros aguardando estado terminal, sem âncora e
-  vencidos aguardando limpeza, com a data da última limpeza e a frase de que sem
+- **retenção visível:** pedidos aguardando estado terminal, com a idade, e
+  registros vencidos aguardando limpeza, com a data da última limpeza e a frase de que sem
   worker hospedado a limpeza não é automática (H20);
-- nenhum nome, telefone ou endereço na tela enquanto a permissão não existir
-  (H18).
+- nenhum nome, telefone ou endereço na tela sem `channel.order_contact.read`
+  concedida e testada (H18).
 
 Entregue quando percorrido na tela, e não quando o teste passar.
 
 ### 3.9 Migração
 
-Uma migração nova para os estados e colunas da caixa de entrada, a tabela de
-linhas externas, a chave de ordem, a âncora terminal e os valores no mapeamento,
-a tabela de contato, os campos de retenção e de legal hold nas três camadas e as
-colunas do executor, com RLS igual à das tabelas do S10.
+**Uma migração por passo**, cada uma com o código que a exercita, nunca antes:
+`main` migra produção a cada push. RLS igual à das tabelas do S10.
 
-Ela **não** é criada nesta revisão. Sobe junto com o código que a exercita,
-nunca antes: `main` migra produção a cada push. Na criação, confere-se de novo a
-cabeça no código e no banco; em 16/09/2026 era `097_the_pinpad_is_occupied`.
+| Passo | Migração |
+|---|---|
+| 2 | colunas de retenção, hold e `parser_version` da caixa de entrada; as quatro permissões no catálogo, sem concessão |
+| 3 | estados e lease da caixa de entrada; tabela de contato; tabela de linhas externas |
+| 4 | âncora terminal, chave de ordem aplicada e campos de evidência no mapeamento |
+| 6 | colunas do executor de avisos |
+
+A cabeça é conferida no código e no banco na criação de cada uma. Em 16/09/2026,
+nesta revisão, era `097_the_pinpad_is_occupied`.
 
 ## 4. Dependências
 
@@ -515,8 +574,8 @@ assinatura, eventos, respostas aos avisos e indisponibilidade.
 
 | # | Teste | Garante | Quando |
 |---|---|---|---|
-| **P1** | Pedido de canal fica terminal (concluído, cancelado, ou declarado pelo canal): `terminal_at` gravado; `retention_until` do payload = terminal + 30 dias e do contato = terminal + 90 dias, na mesma transação. Antes disso, ambos nulos e contados como "aguardando estado terminal" | H14 | passo 4 |
-| **P2** | Evento que nunca vira pedido aparece na contagem "sem âncora", nunca como retido sem registro | H14 | passo 3 |
+| **P1** | Pedido de canal fica terminal (concluído, cancelado, ou declarado pelo canal): `terminal_at` gravado; `retention_until` do payload aplicado sem quarentena = terminal + 30 dias e do contato = terminal + 90 dias, na mesma transação. Antes disso, ambos nulos e contados como "aguardando estado terminal", com a idade | H14 | passo 4 |
+| **P2** | D6: ao persistir, todo evento recebe `retention_until` = recepção + 30 dias com base `RECEPCAO`, na mesma transação; nenhum evento persiste sem prazo | H14 | passo 2 |
 | **P3** | Marcadores de nome, telefone e endereço no payload aparecem **só** em `channel_inbox_events.raw_payload` e em `channel_order_contacts` — varredura em `orders`, `order_items`, `audit_events`, `outbox_events`, `published_events`, eventos de transação, `idempotency_records` e motivo de quarentena | H13, H17 | passo 3 |
 | **P4** | Aviso ao canal para pedido com contato: a outbox e `published_events` levam só identificadores | H17 | passo 6 |
 | **P5** | Nenhum DTO ou rota grava `retention_until`, campos de legal hold ou `redaction_method` — tentativa pelo corpo é ignorada ou recusada | H18 | passo 2 |
@@ -531,10 +590,17 @@ assinatura, eventos, respostas aos avisos e indisponibilidade.
 | **P14** | Hold vigente no contato impede a redação do contato e não impede a purga do payload do mesmo pedido; hold vencido não impede nada | H16 | purga |
 | **P15** | Restore: linhas restauradas de antes da purga, com retenção vencida, são purgadas de novo na varredura seguinte | H15 | purga |
 | **P16** | Controle: varredura com a condição de hold removida de propósito — P14 tem de reprovar | medida | purga |
+| **P17** | D6: evento em quarentena por falta de mapeamento, mapeado e aplicado depois, mantém recepção + 30 dias; o contato criado na aplicação conta do terminal | H14 | passo 3 |
+| **P18** | D6: evento nunca aplicado cujo prazo venceu vira `EXPIRED`, definitivo; "Retomar" não o alcança | H14 | passo 3 |
+| **P19** | Prazo só encurta: nenhuma transição do fluxo alonga `retention_until`, exceto a troca única de `RECEPCAO` para `ESTADO_TERMINAL` de evento aplicado sem quarentena; controle alonga de propósito e o teste reprova | H14 | passos 3 e 4 |
+| **P20** | D7: as quatro permissões existem no catálogo e **nenhum perfil** as recebe; nenhuma rota as exige nem as contorna; controle concede uma a um perfil de propósito e o teste reprova | H18 | passo 2 |
+| **P21** | Evento que nunca vira pedido não cria linha de contato; nome, telefone e endereço dele existem só no payload | H13, H14 | passo 3 |
 
 **Limites destes testes, ditos antes:**
 
 - P11 é estático: não enxerga mensagem de exceção com dado dentro;
+- P2, P17, P18 e P19 provam que o prazo é **atribuído**; que o conteúdo **sai**
+  no prazo só P12–P15 provam, e eles dependem da purga, que não existe;
 - P3 procura marcadores conhecidos; não prova ausência de dado pessoal em texto
   livre de observação de preparo;
 - P15 simula restore dentro do banco de teste; não prova nada sobre o backup real
@@ -544,41 +610,43 @@ assinatura, eventos, respostas aos avisos e indisponibilidade.
 - pseudônimo aleatório não se reverte pelo banco, mas pode ser correlacionado por
   quem guardar a relação fora dele — limite de desenho, não de teste.
 
-## 7. Ordem de implementação, depois do aceite
+## 7. Ordem de implementação
+
+Passos 1 a 4 autorizados pelo dono em 16/09/2026.
 
 0. **Feito em 16/09/2026:** guarda contra log com dado pessoal (P11).
 1. Módulo, contrato por capacidades e conector de referência, sem mudar
    comportamento.
-2. Migração com toda a estrutura de §3.7.3 e ingresso por provedor com conexão
-   resolvida no servidor; sai a rota antiga (R15–R17, P5–P7).
+2. Ingresso por provedor com conexão resolvida no servidor; sai a rota antiga;
+   migração com retenção, hold e versão do parser na caixa de entrada e as quatro
+   permissões sem concessão (R15–R17, P2, P5–P7, P20).
 3. Caixa de entrada retomável, abertura de pedido externo como unidade de
-   trabalho, contato na sua camada e fim da cópia para `orders.notes` (R1–R5,
-   R10, R19, P2, P3, P8, P9).
+   trabalho, contato na sua camada, fim da cópia para `orders.notes` e motivo de
+   quarentena como código (R1–R5, R10, R19, P3, P8, P9, P17, P18, P21).
 4. Atualização, ordem, conclusão e cancelamento, com as operações novas no Order
-   Engine e a âncora terminal (R6–R9, P1).
+   Engine e a âncora terminal (R6–R9, P1, P19). Cancelamento com item em preparo
+   usa o comportamento conservador — `NEEDS_REVIEW`, a produção não é cancelada
+   sozinha — até D2.
 5. Valores do canal, depois de D1 (R11).
 6. Executor de avisos (R12–R14, R18, P4).
 7. Tela e travessia, com retenção visível e sem dado pessoal (R20, P6, P10).
-8. Gate do S10.1: todos os R, P1–P11, com os limites escritos e a purga declarada
-   como **não implementada**.
-9. **Etapa posterior:** varredura de purga (P12–P16), depois de G2 e com gatilho
-   decidido em D7; sem ela, "removido" não é dito.
-
-Os passos 1 a 4 não dependem de D1, D2, D6 nem D7. A estrutura de retenção e de
-hold entra no passo 2 mesmo sem D7: sem rota que a escreva, ela só existe para
-ser preenchida pelo próprio fluxo.
+8. Gate do S10.1: todos os R, P1–P11 e P17–P21, com os limites escritos e a purga
+   declarada como **não implementada**.
+9. **Etapa posterior:** varredura de purga (P12–P16), depois de G2, e rotas de
+   contato, hold, extensão e limpeza depois de a concessão da D7 ser definida e
+   testada. Sem as duas coisas, retenção não é declarada implementada.
 
 ## 8. Decisões
 
 | # | Decisão | Situação |
 |---|---|---|
 | **D1** | Preço do item de pedido externo | Pendente. Recomendação: valor declarado pelo canal, com a diferença para a oferta registrada |
-| **D2** | Cancelamento do canal com item já em preparo | Pendente. Recomendação: pendência para pessoa; a produção não é cancelada sozinha |
-| **D3** | Retenção do payload bruto e dos dados do cliente | **Decidida em 16/09/2026** como política técnica inicial (§3.7.1), sujeita a G1; não é orientação jurídica, não declara conformidade e não é compromisso comercial |
-| **D4** | Recuperação sem worker hospedado no Render free | Pendente. Recomendação: aceitar os gatilhos (a), (c) e (d) de §3.4 e (ii)–(iv) de §3.7.6 até o gate de pré-piloto financiar o worker, com o limite dito na tela |
-| **D5** | Rota antiga `/channels/webhooks` | Pendente. Recomendação: remover; só os testes a usam |
-| **D6** | Âncora para evento que nunca vira pedido | **Nova, pendente.** A política parte do estado terminal do pedido e não cobre este caso; nenhum prazo é escolhido aqui. Até decidir, esses registros são contados como "sem âncora" |
-| **D7** | Quem pode ler contato do cliente, registrar e liberar legal hold, estender retenção e executar limpeza — com qual permissão e capability | **Nova, pendente.** Nenhuma existe (C14). Precisa estar decidida antes de qualquer piloto com canal real |
+| **D2** | Cancelamento do canal com item já em preparo | Pendente. O passo 4 usa o comportamento conservador recomendado — pendência para pessoa, a produção não é cancelada sozinha — até a decisão |
+| **D3** | Retenção do payload bruto e dos dados do cliente | **Aprovada em 16/09/2026** como política técnica inicial (§3.7.1), sujeita a G1; não é orientação jurídica, não declara conformidade e não é compromisso comercial |
+| **D4** | Recuperação sem worker hospedado no Render free | Seguida na autorização dos passos 1 a 4, que manda não esperar worker: gatilhos (a), (c) e (d) de §3.4 e (ii)–(iv) de §3.7.6, com o limite dito na tela |
+| **D5** | Rota antiga `/channels/webhooks` | Seguida na autorização dos passos 1 a 4: sai no passo 2; só os testes a usam |
+| **D6** | Âncora para evento que nunca vira pedido | **Decidida em 16/09/2026** (§3.7.4): payload conta da recepção, até 30 dias; contato, se um dia for extraído antes da aplicação, conta da classificação definitiva, até 90 dias; quarentena não reinicia o relógio; ressalvado `LEGAL_HOLD` |
+| **D7** | Quem pode ler contato, registrar e liberar legal hold, estender retenção e executar limpeza | **Decidida em 16/09/2026** (§3.7.8): quatro permissões por ação, acesso mínimo, auditoria, acúmulo permitido. **Concessão a perfis pendente**: definir e testar antes de abrir as rotas e antes de qualquer piloto com canal |
 
 Fora do alcance desta proposta, e não perguntado aqui: escolha do primeiro canal,
 contratação, preços, planos e o S13.2.
