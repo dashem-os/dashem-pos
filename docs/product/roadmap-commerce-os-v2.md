@@ -3,6 +3,12 @@
 Trilha de experiência e implementação: [Gestão e PDV — UX-00 a UX-12](ui-ux-implementation-sprints.md). Define a navegação de sete áreas solicitada pelo usuário, as entregas visuais/operacionais e os novos módulos a especificar, sem renumerar as sprints deste roadmap ou declarar suas capacidades concluídas.
 
 Status: **diretriz canônica para a próxima fase de construção**  
+Atualização de retomada em 10/09/2026: **S10.1 e S13.2** abaixo completam as
+fundações do Channel Hub antes dos conectores produtivos. A contratação de plano
+pode financiar integração, infraestrutura e homologação, mas não substitui essas
+entregas. Fundação existente, fundação validada e canal operacional são estados
+distintos. Ver [sequência e critérios comerciais](channel-hub-fundacoes-2026-09-10.md).
+
 Data: 23 de agosto de 2026  
 Revisão: **Gate B `PASSED` em 04/09/2026 — Operational Acceptance concluída com
 OA-4 `14/14` contra o deploy publicado. O pré-piloto S21 permanece `NO-GO`,
@@ -903,7 +909,7 @@ Prova, além dos oito critérios do ADR-022:
 
 ### S10 — Dashem Channel Hub e External Order Inbox
 
-Estado: **concluído no gate interno** ([auditoria de confronto de 04/09/2026](../quality/sprint-confrontation-audit-2026-09-04.md)). Modelos, serviço, endpoint, teste e `ChannelHubWorkspace` consumindo. O gate externo de certificação de canal permanece independente.
+Estado: **gate interno histórico concluído no escopo de contrato de teste** ([auditoria de confronto de 04/09/2026](../quality/sprint-confrontation-audit-2026-09-04.md)). Modelos, serviço, endpoint, teste e `ChannelHubWorkspace` consumindo. Revisão de 10/09: adapters reais, executor outbound e ciclo completo de eventos ainda exigem engenharia interna em S10.1; não são apenas certificação externa pendente. A lista abaixo é o contrato-alvo, não inventário de integrações produtivas entregues.
 
 Objetivo: receber origens externas no mesmo Order Engine sem criar uma segunda
 lógica de pedidos ou colocar marketplace no caminho crítico local.
@@ -939,6 +945,23 @@ Gate externo por canal:
 - credenciais, sandbox e autorização do merchant disponíveis;
 - testes oficiais/certificação do provider concluídos;
 - política de polling/webhook, rate limit e recuperação documentada.
+
+### S10.1 — Completar a fundação do Channel Hub
+
+Estado: **planejado em 10/09/2026, não implementado**. Complementa S10 sem
+invalidar suas provas históricas. Independe de TEF e de contratação de adquirente.
+
+Entregas e gate: contrato versionado por capacidades; ingresso específico por
+provedor; inbox durável com processamento recuperável; deduplicação por evento
+sem descartar atualizações do mesmo pedido; criação e retomada sem itens
+duplicados ou pedido parcial; valores externos preservados; executor outbound
+com tentativa, reconciliação e falha visível; isolamento tenant/unidade;
+credenciais e autorização separadas da elegibilidade comercial. Provas incluem
+dois consumidores, reinício entre etapas, ACK perdido, eventos fora de ordem,
+cancelamento e indisponibilidade externa sem bloquear venda local.
+
+Escopo detalhado e ordem: [fundações do Channel Hub](channel-hub-fundacoes-2026-09-10.md).
+O aceite interno usa conector de referência, sem declarar iFood/99Food conectados.
 
 ### S11 — Production Routing e KDS
 
@@ -1047,6 +1070,24 @@ Gate:
 - Order continua aceito segundo política explícita se a sincronização estiver atrasada;
 - venda confirmada e repasse pendente aparecem como fatos distintos;
 - diferenças de comissão/taxa são rastreáveis até documento do provider.
+
+### S13.2 — Completar publicação, disponibilidade e repasses por canal
+
+Estado: **planejado em 10/09/2026, não implementado**. Extensão de S13, após o
+contrato de S10.1. Os modelos e telas entregues não comprovam envio externo.
+
+Entregas: executor de publicação por versão com resultados parciais e recuperação;
+política explícita de ATP/reserva e atraso de sincronização; preservação de preço,
+frete, descontos e subsídios do canal; importação de documentos de repasse com
+rastreabilidade; projeção operacional de pendências. Gate interno com conector de
+referência: resposta antiga não promove versão nova, retry não duplica efeitos,
+falha parcial permanece visível, repasse não gera segunda cobrança e estoque
+local continua protegido durante falha externa.
+
+Depois de S10.1/S13.2, implementar e homologar cada capacidade de cada conector
+conforme acesso e financiamento: iFood como primeiro candidato, 99Food depois da
+obtenção de contratos; Rappi e logística avulsa com escopo próprio. Nenhum canal
+se torna operacional apenas por contratação do plano.
 
 ### S13.1 — Retaguarda Operacional do Tenant
 

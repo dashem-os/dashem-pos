@@ -33,6 +33,12 @@ Emergência e autorização de equipe continuam fora do escopo; não precisam de
 
 ## Sequência de retomada
 
+Adendo autorizado em 10/09/2026: o roadmap incorpora S10.1 e S13.2 para
+[completar as fundações do Channel Hub](channel-hub-fundacoes-2026-09-10.md).
+Essa frente é independente do transporte TEF e pode avançar sem contratação de
+provedor. Ativação comercial, financiamento e homologação têm gates próprios;
+contratar um plano não substitui implementação nem prova externa.
+
 1. Ler este registro e conferir `git status`, HEAD e resultado remoto do CI do candidato. Não repetir suítes já concluídas sem mudança ou motivo concreto.
 2. Com o dono, resolver as decisões acima; o agente pode preparar proposta técnica e levantar requisitos sem escolher provedor ou inventar regras de negócio.
 3. Implementar o caminho de entrega e recuperação dos comandos ao bridge, com contrato explícito e testes de isolamento, reenvio e desconexão. Definir onde a integração específica do provedor reside (bridge, servidor ou ambos) conforme a documentação escolhida.
