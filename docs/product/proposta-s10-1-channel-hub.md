@@ -40,7 +40,21 @@ apoia no contrato definido aqui. Nada nesta proposta autoriza dizer que iFood,
   `test_channel_inbox.py`, `test_s10_channel_hub.py` (reescrito para o ingresso)
   e na bancada `frontend/e2e/channel-inbox.spec.mjs`, que abre o componente real
   contra a API local, com um evento em cada estado. A bancada **não é** a
-  travessia autenticada do aplicativo. Divergências e limites:
+  travessia autenticada do aplicativo, e a tela **não está homologada**.
+
+  O que as provas afirmam, sem ir além:
+  - **pedido parcial**: uma exceção lançada ao gravar o segundo item, dentro da
+    transação da aplicação, não deixa pedido, item, mapeamento nem linha externa
+    visíveis depois, e o evento volta à fila; a execução completa seguinte cria o
+    pedido com as duas linhas, uma vez. O controle — confirmar o pedido antes das
+    linhas, o defeito C1 — mostra que a verificação enxerga um pedido parcial.
+    **Não** foi provado matando o processo ou derrubando a conexão no meio da
+    transação: esse caso depende de o PostgreSQL descartar transação não
+    confirmada, e nenhum teste o exercita;
+  - **retenção**: prazos são atribuídos e não se alongam; **nenhum dado é
+    eliminado**, e nada pode ser comunicado como eliminado até existir a purga.
+
+  Divergências e limites:
   - a rota antiga `/channels/webhooks`, `receive_event`, o adaptador antigo e o
     segredo por conexão saíram; `webhook_secret_hash` passou a aceitar nulo;
   - `evidence_purpose`, `retention_until` e legal hold no mapeamento **não foram

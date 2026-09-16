@@ -10,14 +10,23 @@ processors, the Order Engine and the retention deadlines. Simulated: the channel
 Nothing here removes data — deadlines are assigned, and the purge is a later step.
 
 Acceptance criteria the owner set for this step, and where each is proved:
-- resumed after a crash, no duplicate order or item ............ R2, R1, lease test
-- order and lines written atomically ............................ R2
+- resumed after a failure, no duplicate order or item ........... R2, R1, lease test
+- no partial order visible after a failed application ........... R2
 - contact never copied to orders.notes, logs or immutable trails . P3 (+ log guard)
 - an event with no order expires from reception, no restart ..... P18, P17
 - quarantine resumed without extending retention ................ P17, P19
 - cancellation with an item in preparation becomes visible review  R8
 - an older update never regresses the order ..................... R7, R9
 - no access to the four D7 actions before an explicit grant ...... P6 here, P20 in ingress
+
+What R2 proves, and only that: an exception raised while the second item is
+added, inside the application's transaction, leaves no order, item, mapping or
+external line visible afterwards, and the event goes back to the queue; the next
+complete run produces the order with both lines, once. Its control — committing
+the order before its lines, the S10 defect C1 — shows the assertion does see a
+partial order. What R2 does **not** prove: a process killed or a connection
+dropped mid-transaction. That case rests on PostgreSQL discarding an
+uncommitted transaction, and no test here kills the process.
 """
 
 import json
