@@ -19,8 +19,8 @@ test('uses the durable Channel Hub API and requires idempotency for mutations', 
 })
 
 test('renders persisted connection and inbox state without sample orders', () => {
-  assert.match(workspace, /External Order Inbox/)
-  assert.match(workspace, /Conexão só aparece ativa após validação real/)
+  assert.match(workspace, /Pedidos recebidos dos canais/)
+  assert.match(workspace, /Uma conexão só aparece como conectada depois que o canal a valida/)
   assert.match(workspace, /Nenhum evento externo recebido/)
   assert.doesNotMatch(workspace, /Pedido #123|João da Silva|fixture|mock/i)
 })
@@ -55,4 +55,19 @@ test('shows notices to the channel as delivered only when the channel confirmed,
   assert.match(workspace, /noticeTypeLabels\[notice\.message_type\] \?\? notice\.message_type/)
   assert.match(workspace, /canManage && notice\.status === 'DEAD_LETTER'/)
   assert.match(workspace, /nenhum é criado sozinho/)
+})
+
+test('names the order by its local state, shows what each connector can do, and asks no credential', () => {
+  assert.doesNotMatch(workspace, /\{event\.order_id \|\| '—'\}/)
+  assert.match(workspace, /orderStatusLabels\[event\.order_status\]/)
+  assert.match(workspace, /Sem conector disponível neste ambiente/)
+  assert.doesNotMatch(workspace, /secret:\/\/|credentials_ref|Referência segura das credenciais/)
+  assert.doesNotMatch(api, /credentials_ref\?: string; actor_id\?: string \},\n\): Promise<\{ connection: MerchantConnection \}>/)
+})
+
+test('shows deadlines as counts and never says anything was removed', () => {
+  assert.match(api, /\/api\/v1\/channels\/deadlines`/)
+  assert.match(workspace, /Nenhuma limpeza foi executada: a limpeza ainda não existe/)
+  assert.match(workspace, /Prazo vencido não quer dizer dado removido/)
+  assert.doesNotMatch(workspace, /dados eliminados|dado eliminado|foram removidos|foi removido/i)
 })

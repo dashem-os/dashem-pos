@@ -65,7 +65,7 @@ async def _base(client: httpx.AsyncClient, prefix: str):
     connection_payload = {
         "store_id": store["id"], "provider_code": "CONTRACT_TEST",
         "merchant_external_id": f"merchant-{suffix}", "channel_name": "Canal de contrato",
-        "credentials_ref": "secret://channel-contract", "actor_id": actor,
+        "actor_id": actor,
     }
     created = await client.post("/api/v1/channels/connections", headers={**headers, "Idempotency-Key": key}, json=connection_payload)
     assert created.status_code == 200, created.text

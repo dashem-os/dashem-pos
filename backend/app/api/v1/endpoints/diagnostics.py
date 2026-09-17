@@ -61,6 +61,7 @@ from sqlmodel import Session, select, text
 
 from app.core.context import TenantContext, get_tenant_context, resolve_actor
 from app.core.database import get_session
+from app.models.channel_hub import MerchantConnection
 from app.models.device import OperationalDevice, OperationalDeviceStatusEnum
 from app.models.identity import User
 from app.models.platform import (
@@ -68,6 +69,7 @@ from app.models.platform import (
     SupportGrantStatusEnum,
 )
 from app.models.reliability import OutboxEvent, OutboxStatusEnum
+from app.modules.channels import retention as channel_retention
 from app.services import reliability_service
 
 router = APIRouter()
@@ -406,6 +408,35 @@ def diagnostico(
             chave="sincronizacao", titulo="O que você registrou", situacao="NAO_VERIFICADO",
             resumo="Não foi possível verificar agora.",
             detalhes={"erro": str(falha)[:200]},
+        ))
+
+    # --- prazos dos dados dos canais (S10.1, H20) ---------------------------
+    # Só para quem tem canal. Conta registros com prazo vencido e conteúdo ainda
+    # guardado: a limpeza não existe, então "vencido" nunca é dito "removido".
+    try:
+        if session.exec(select(func.count(MerchantConnection.id)).where(
+            MerchantConnection.tenant_id == context.tenant_id,
+        )).one():
+            prazos = channel_retention.deadline_summary(session, context.tenant_id, context.store_id, now=agora)
+            vencidos = prazos["overdue_events"] + prazos["overdue_contacts"]
+            verificacoes.append(Verificacao(
+                chave="prazos_dos_canais", titulo="Prazos dos dados dos canais",
+                situacao="ATENCAO" if vencidos else "SAUDAVEL",
+                resumo=(
+                    f"{vencidos} {'registro de canal passou' if vencidos == 1 else 'registros de canal passaram'} "
+                    "do prazo e ainda estão guardados. Nenhuma limpeza foi executada: ela ainda não existe."
+                    if vencidos else
+                    "Nenhum registro de canal com prazo vencido. Nenhuma limpeza foi executada: ela ainda não existe."
+                ),
+                detalhes={"vencidos": vencidos,
+                          "pedidos_aguardando_fim": prazos["orders_awaiting_terminal"],
+                          "abrange": "prazos atribuídos e vencidos; a limpeza ainda não existe"},
+            ))
+    except Exception as falha:  # pragma: no cover - caminho de indisponibilidade
+        verificacoes.append(Verificacao(
+            chave="prazos_dos_canais", titulo="Prazos dos dados dos canais", situacao="NAO_VERIFICADO",
+            resumo="Não foi possível verificar agora.",
+            detalhes={"erro": type(falha).__name__},
         ))
 
     # --- os aparelhos -------------------------------------------------------

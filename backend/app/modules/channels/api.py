@@ -13,6 +13,9 @@ reviewed event. It is a `/channels` mutation, so the route map requires
 `GET /channels/outbound` lists notices to the channel — no payload, no person —
 and `POST /channels/outbound/{message_id}/resend` sends a dead letter again under
 `channel.manage`.
+
+`GET /channels/deadlines` counts orders still waiting for their clocks and
+records past their deadline: how many and since when, never what they hold.
 """
 
 import uuid
@@ -27,7 +30,7 @@ from sqlmodel import Session
 from app.core.context import TenantContext, get_tenant_context, resolve_actor
 from app.core.database import get_session
 from app.models.channel_hub import ChannelInboxStatusEnum, ChannelOutboundStatusEnum
-from app.modules.channels import inbox, ingress, outbound
+from app.modules.channels import inbox, ingress, outbound, retention
 
 
 router = APIRouter()
@@ -89,6 +92,24 @@ class OutboundNoticeDTO(BaseModel):
     next_retry_at: Optional[datetime] = None
     delivered_at: Optional[datetime] = None
     created_at: datetime
+
+
+class DeadlineSummaryDTO(BaseModel):
+    measured_at: datetime
+    orders_awaiting_terminal: int
+    oldest_awaiting_terminal_created_at: Optional[datetime] = None
+    overdue_events: int
+    overdue_contacts: int
+    oldest_overdue_until: Optional[datetime] = None
+    cleanup_exists: bool
+    last_cleanup_at: Optional[datetime] = None
+
+
+@router.get("/deadlines", response_model=DeadlineSummaryDTO)
+def channel_data_deadlines(
+    context: TenantContext = Depends(get_tenant_context), session: Session = Depends(get_session),
+):
+    return retention.deadline_summary(session, context.tenant_id, context.store_id)
 
 
 class ResendDTO(BaseModel):

@@ -17,9 +17,11 @@ terminal state (D3). Lengthening anything else takes a legal hold or an
 authorized extension, and neither exists as a route yet (D7).
 """
 
+import uuid
 from datetime import datetime, timedelta
 from typing import Optional
 
+from sqlalchemy import func, or_
 from sqlmodel import Session, select
 
 from app.models.channel_hub import (
@@ -52,6 +54,57 @@ def settle_applied_event(event: ChannelInboxEvent, mapping: ExternalOrderMapping
     if event.retention_basis == ChannelRetentionBasisEnum.RECEPCAO:
         event.retention_basis = ChannelRetentionBasisEnum.ESTADO_TERMINAL
         event.retention_until = _terminal_deadline(mapping, RAW_PAYLOAD_DAYS)
+
+
+def _no_hold_in_force(model, observed: datetime):
+    return or_(model.legal_hold_until.is_(None), model.legal_hold_until <= observed)
+
+
+def deadline_summary(
+    session: Session, tenant_id: uuid.UUID, store_id: Optional[uuid.UUID] = None, *, now: Optional[datetime] = None,
+) -> dict:
+    """What can be said about deadlines today: counts and instants, nothing personal (H20).
+
+    - **awaiting terminal**: orders whose clocks have not started, because the
+      order has not ended yet;
+    - **overdue**: a deadline that passed, content still there, no legal hold in
+      force. There is no purge, so "overdue" is never "removed": it is waiting
+      for a cleanup that does not exist yet.
+    """
+    observed = now or datetime.utcnow()
+
+    def scoped(model, *conditions):
+        conditions = (model.tenant_id == tenant_id, *conditions)
+        return conditions + ((model.store_id == store_id,) if store_id else ())
+
+    awaiting, awaiting_since = session.exec(select(
+        func.count(ExternalOrderMapping.id), func.min(ExternalOrderMapping.created_at),
+    ).where(*scoped(ExternalOrderMapping, ExternalOrderMapping.terminal_at.is_(None)))).one()
+    events, events_since = session.exec(select(
+        func.count(ChannelInboxEvent.id), func.min(ChannelInboxEvent.retention_until),
+    ).where(*scoped(
+        ChannelInboxEvent, ChannelInboxEvent.retention_until <= observed,
+        _no_hold_in_force(ChannelInboxEvent, observed),
+    ))).one()
+    contacts, contacts_since = session.exec(select(
+        func.count(ChannelOrderContact.id), func.min(ChannelOrderContact.retention_until),
+    ).where(*scoped(
+        ChannelOrderContact, ChannelOrderContact.retention_until <= observed,
+        ChannelOrderContact.redacted_at.is_(None), _no_hold_in_force(ChannelOrderContact, observed),
+    ))).one()
+    overdue_since = min((at for at in (events_since, contacts_since) if at is not None), default=None)
+    return {
+        "measured_at": observed,
+        "orders_awaiting_terminal": int(awaiting or 0),
+        "oldest_awaiting_terminal_created_at": awaiting_since if awaiting else None,
+        "overdue_events": int(events or 0),
+        "overdue_contacts": int(contacts or 0),
+        "oldest_overdue_until": overdue_since,
+        # Said in the data, so no screen concludes more than exists: no cleanup
+        # has ever run because there is no cleanup yet.
+        "cleanup_exists": False,
+        "last_cleanup_at": None,
+    }
 
 
 def contact_deadline(mapping: ExternalOrderMapping) -> Optional[datetime]:

@@ -3,9 +3,11 @@
 
 Monta, pelas rotas do produto e pelo código real da caixa de entrada, um tenant
 com uma conexão do conector de referência e eventos que terminam em: aplicado,
-em quarentena, precisando de uma pessoa, aguardando processamento e expirado.
-Os eventos carregam marcadores de dado pessoal, para a bancada conferir que a
-tela não os mostra.
+em quarentena, precisando de uma pessoa, aguardando processamento e expirado;
+um pedido concluído cujo contato já passou do prazo; avisos ao canal em cada
+situação; e uma conexão de provedor sem conector neste ambiente. Os eventos
+carregam marcadores de dado pessoal, para a bancada conferir que a tela não os
+mostra.
 
 Tudo aqui é simulado do lado do canal. Não toca produção: fala com a API local
 indicada por `--api` e com o banco do `DATABASE_URL` do processo.
@@ -26,7 +28,7 @@ from sqlmodel import Session, select
 import app.main  # noqa: F401 — compõe a aplicação como a API: liga a porta de liquidação
 from app.core.database import engine
 from app.core.tenancy import set_platform_db_context
-from app.models.channel_hub import ChannelInboxEvent, ExternalOrderMapping
+from app.models.channel_hub import ChannelInboxEvent, ChannelOrderContact, ExternalOrderMapping
 from app.models.order import OrderItem, ProductionStateEnum
 from app.core.context import TenantContext
 from app.modules.channels import inbox, ingress, outbound
@@ -63,6 +65,11 @@ async def main(api: str) -> dict:
     async with httpx.AsyncClient(base_url=api, timeout=30) as client:
         tenant, store, headers, actor, product, connection = await _base(client, "Bancada Canal")
         await _map_item(client, headers, actor, connection, product, "ITEM-BANCADA")
+        without_connector = await client.post("/api/v1/channels/connections", headers={
+            **headers, "Idempotency-Key": f"bancada-ifood-{uuid.uuid4()}",
+        }, json={"store_id": store["id"], "provider_code": "IFOOD", "merchant_external_id": f"loja-ifood-{uuid.uuid4().hex[:6]}",
+                 "channel_name": "iFood sem conector", "actor_id": actor})
+        assert without_connector.status_code == 200, without_connector.text
     merchant = connection["merchant_external_id"]
 
     applied = _event(merchant, "ORDER_PLACED", f"pedido-aplicado-{uuid.uuid4().hex[:6]}", sequence=1, code="ITEM-BANCADA")
@@ -95,6 +102,22 @@ async def main(api: str) -> dict:
         db.add(row)
         db.commit()
     inbox.expire_overdue()
+
+    # Um pedido concluído, com o contato já depois do prazo: vencido, e ainda guardado.
+    done_ref = f"pedido-concluido-{uuid.uuid4().hex[:6]}"
+    done = _event(merchant, "ORDER_PLACED", done_ref, sequence=1, code="ITEM-BANCADA")
+    _receive(done)
+    inbox.process_event(_row(done).id)
+    concluded = _event(merchant, "ORDER_CONCLUDED", done_ref, sequence=2)
+    _receive(concluded)
+    inbox.process_event(_row(concluded).id)
+    with Session(engine) as db:
+        set_platform_db_context(db)
+        done_mapping = db.exec(select(ExternalOrderMapping).where(ExternalOrderMapping.external_order_id == done_ref)).one()
+        contact = db.exec(select(ChannelOrderContact).where(ChannelOrderContact.external_order_mapping_id == done_mapping.id)).one()
+        contact.retention_until = datetime.utcnow() - timedelta(minutes=1)
+        db.add(contact)
+        db.commit()
 
     # Avisos ao canal, um em cada situação. As respostas do canal são simuladas aqui.
     with Session(engine) as db:
@@ -142,7 +165,7 @@ async def main(api: str) -> dict:
         }.items()},
         "states": {name: _row(event).status.value for name, event in {
             "applied": applied, "quarantined": quarantined, "review": cancel,
-            "waiting": waiting, "expired": stale,
+            "waiting": waiting, "expired": stale, "concluded": concluded,
         }.items()},
     }
 

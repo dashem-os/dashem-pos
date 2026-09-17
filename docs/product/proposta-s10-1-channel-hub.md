@@ -119,6 +119,49 @@ apoia no contrato definido aqui. Nada nesta proposta autoriza dizer que iFood,
   - `last_error`, texto livre do S10, fica sem escrita; o executor grava só código;
   - o tipo de aviso é vocabulário do conector de referência; a tela traduz os
     cinco conhecidos e mostra o código de qualquer outro.
+- **Passo 7, parte estrutural** — sem escolher D1, D2 nem D8. Sem migração.
+  `GET /channels/deadlines` em `app/modules/channels/api.py`; `capabilities` na
+  conexão e `order_status` na caixa de entrada; criação de conexão recusa
+  `credentials_ref`; verificação `prazos_dos_canais` no diagnóstico, só para quem
+  tem conexão de canal. Provas em `test_channel_screen_facts.py` e na bancada.
+
+  O que as provas afirmam, sem ir além:
+  - **conexão por capacidade**: a lista diz o que o conector daquele provedor
+    faz neste ambiente; provedor sem conector aparece sem nenhuma, e a tela diz
+    que a conexão não recebe pedidos nem avisa o canal. "Validar com o canal" só
+    aparece onde o conector declara validação;
+  - **credencial não é digitada** (H12): corpo com `credentials_ref` é recusado
+    com 422 e nada é cadastrado; o campo saiu do contrato e do formulário, que
+    pede só a loja no canal e o nome;
+  - **pedido sem UUID**: a caixa de entrada nomeia o pedido pelo estado local
+    ("Aberto no PDV", "Concluído", "Cancelado") ou por "Nenhum pedido criado";
+    o detalhe técnico fica recolhido. Na bancada, nenhum UUID aparece na página
+    inteira; o controle — o UUID de volta na coluna — parou em "UUID na tela";
+  - **prazos como contagem** (P10): pedidos aguardando o fim, com a chegada do
+    mais antigo; eventos e contatos com prazo vencido, sem hold vigente, com o
+    primeiro vencimento; e a frase de que nenhuma limpeza foi executada porque
+    ela ainda não existe. Nenhuma resposta nem a página usam "removido",
+    "eliminado" ou "apagado" para vencido. O controle — tirar a condição de hold
+    da contagem de contatos — parou na asserção que conta zero com hold vigente;
+  - **nada pessoal**: marcadores de nome, telefone e endereço não aparecem nas
+    respostas de prazos e diagnóstico nem na página da bancada (P6);
+  - bancada em 1280 e 390 px, sem palavra partida, com as permissões
+    interceptadas no navegador.
+
+  Divergências e limites:
+  - **`Order` não tem número.** A tela usa o estado local e o identificador do
+    pedido no canal; número de pedido não foi inventado;
+  - a rota chama `deadlines`, e não `retention`: a guarda de P6 recusa rota de
+    canal com essas palavras, e esta só lê contagens;
+  - "última limpeza" vem sempre vazia, com `cleanup_exists: false`: não existe
+    execução de limpeza para registrar, e nada foi fabricado no lugar;
+  - o seletor de canal do formulário ainda oferece iFood, 99Food e "Outro canal",
+    que não têm conector; o cartão diz isso depois do cadastro. Quais canais
+    aparecem depende da escolha do primeiro canal, fora desta proposta;
+  - valores antigos de `credentials_ref` ficam no banco, sem leitura nem exibição;
+  - o diagnóstico foi provado pela API; a tela de diagnóstico, que lista as
+    verificações de forma genérica, não foi aberta na bancada;
+  - a bancada **não é** a travessia autenticada, e a tela **não está homologada**.
 - Nada foi removido de dado nenhum; retenção continua **não implementada**.
 
 ## 0.1 O que mudou da revisão 2 para a 3
@@ -740,7 +783,11 @@ Passos 1 a 4 autorizados pelo dono em 16/09/2026. Passo 6 e a parte estrutural d
 5. Valores do canal, depois de D1 (R11).
 6. **Feito:** executor de avisos (R12, R13, R18, P4). **R14 não medido.** A
    geração automática de avisos a partir das transições do pedido espera a D8.
-7. Tela e travessia, com retenção visível e sem dado pessoal (R20, P6, P10).
+7. **Feito, parte estrutural:** tela com conexão por capacidade, pedido sem
+   UUID, prazos visíveis, formulário sem credencial e diagnóstico (P6, P10).
+   **Falta a travessia autenticada (R20)**, que é o gate do passo 8.
+   *Pausa técnica pedida pelo dono em 16/09/2026, antes do gate: a travessia
+   autenticada não foi executada, e o S10.1 não está fechado.*
 8. Gate do S10.1: todos os R, P1–P11 e P17–P21, com os limites escritos e a purga
    declarada como **não implementada**.
 9. **Etapa posterior:** varredura de purga (P12–P16), depois de G2, e rotas de

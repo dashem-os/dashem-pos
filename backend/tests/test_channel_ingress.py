@@ -143,7 +143,7 @@ async def test_merchant_sem_conexao_conectada_e_recusado_sem_gravar_nada():
             **headers, "Idempotency-Key": f"conn-{uuid.uuid4()}",
         }, json={"store_id": store["id"], "provider_code": "CONTRACT_TEST",
                  "merchant_external_id": f"pendente-{uuid.uuid4().hex[:8]}", "channel_name": "Não validado",
-                 "credentials_ref": "secret://x", "actor_id": actor})
+                 "actor_id": actor})
         assert pending.status_code == 200 and pending.json()["connection"]["status"] == "NOT_CONNECTED"
         unknown = _event(f"desconhecido-{uuid.uuid4().hex[:8]}")
         not_validated = _event(pending.json()["connection"]["merchant_external_id"])
@@ -175,7 +175,7 @@ async def test_cada_evento_vai_para_o_tenant_do_seu_merchant_e_ninguem_ve_o_do_o
             **headers_b, "Idempotency-Key": f"conn-{uuid.uuid4()}",
         }, json={"store_id": store_b["id"], "provider_code": "CONTRACT_TEST",
                  "merchant_external_id": connection_a["merchant_external_id"], "channel_name": "Tomado",
-                 "credentials_ref": "secret://x", "actor_id": actor_b})
+                 "actor_id": actor_b})
         assert taken.status_code == 200, taken.text
         refused = await client.post(f"/api/v1/channels/connections/{taken.json()['connection']['id']}/validate", headers={
             **headers_b, "Idempotency-Key": f"validate-{uuid.uuid4()}",

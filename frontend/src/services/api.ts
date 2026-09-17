@@ -688,6 +688,8 @@ export interface MerchantConnection {
   last_event_at?: string
   last_error_code?: string
   last_error_message?: string
+  /** What this environment's connector for the provider can do. Empty: no connector here, nothing arrives. */
+  capabilities: string[]
   created_at: string
   updated_at: string
 }
@@ -701,6 +703,8 @@ export interface ChannelInboxEvent {
   /** RECEIVED is waiting to be processed — never a processed order. */
   status: 'RECEIVED' | 'PROCESSING' | 'APPLIED' | 'SUPERSEDED' | 'QUARANTINED' | 'NEEDS_REVIEW' | 'DISCARDED' | 'EXPIRED'
   order_id?: string
+  /** The local order's state: the screen names the order by it, never by its UUID. */
+  order_status?: 'OPEN' | 'SUBMITTED' | 'CLOSED' | 'CANCELED' | null
   quarantine_code?: string
   quarantine_reason?: string
   received_at: string
@@ -3860,7 +3864,7 @@ export async function fetchMerchantConnections(headers: Record<string, string>):
 
 export async function createMerchantConnection(
   headers: Record<string, string>, idempotencyKey: string,
-  data: { store_id: string; provider_code: string; merchant_external_id: string; channel_name: string; credentials_ref?: string; actor_id?: string },
+  data: { store_id: string; provider_code: string; merchant_external_id: string; channel_name: string; actor_id?: string },
 ): Promise<{ connection: MerchantConnection }> {
   const res = await fetch(`${API_BASE_URL}/api/v1/channels/connections`, {
     method: 'POST', headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(data),
@@ -3903,6 +3907,24 @@ export async function resendChannelNotice(headers: Record<string, string>, messa
     method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ actor_id: actorId }),
   })
   if (!res.ok) throw await apiError(res, 'Não foi possível reenviar o aviso.')
+  return res.json()
+}
+
+/** Deadlines of channel data as counts and instants. Overdue is never removed: no cleanup exists yet. */
+export interface ChannelDeadlines {
+  measured_at: string
+  orders_awaiting_terminal: number
+  oldest_awaiting_terminal_created_at?: string | null
+  overdue_events: number
+  overdue_contacts: number
+  oldest_overdue_until?: string | null
+  cleanup_exists: boolean
+  last_cleanup_at?: string | null
+}
+
+export async function fetchChannelDeadlines(headers: Record<string, string>): Promise<ChannelDeadlines> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/channels/deadlines`, { headers })
+  if (!res.ok) throw await apiError(res, 'Não foi possível carregar os prazos dos dados dos canais.')
   return res.json()
 }
 

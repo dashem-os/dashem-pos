@@ -12,6 +12,7 @@ from app.models.channel_hub import (
     ChannelInboxStatusEnum, ChannelOutboundStatusEnum, MerchantConnectionStatusEnum,
 )
 from app.modules.channels import outbound as channel_outbound
+from app.modules.channels import registry as channel_registry
 from app.services import channel_hub_service
 
 
@@ -19,11 +20,14 @@ router = APIRouter()
 
 
 class MerchantConnectionCreateDTO(BaseModel):
+    # A channel credential is never typed by the shopkeeper (H12): the channel
+    # signs with the platform's application credential. A body that still sends
+    # one is refused, not silently dropped.
+    model_config = ConfigDict(extra="forbid")
     store_id: uuid.UUID
     provider_code: str = Field(min_length=2, max_length=80)
     merchant_external_id: str = Field(min_length=2, max_length=160)
     channel_name: str = Field(min_length=2, max_length=160)
-    credentials_ref: Optional[str] = Field(default=None, max_length=255)
     actor_id: Optional[uuid.UUID] = None
 
 
@@ -41,8 +45,19 @@ class MerchantConnectionDTO(BaseModel):
     last_event_at: Optional[datetime]
     last_error_code: Optional[str]
     last_error_message: Optional[str]
+    # What the connector for this provider can do in this environment. Empty
+    # means no connector here: the connection receives nothing (H11).
+    capabilities: list[str] = []
     created_at: datetime
     updated_at: datetime
+
+
+def _connection_view(connection) -> MerchantConnectionDTO:
+    view = MerchantConnectionDTO.model_validate(connection)
+    view.capabilities = sorted(
+        capability.value for capability in channel_registry.adapter_for(connection.provider_code).capabilities
+    )
+    return view
 
 
 class MerchantConnectionCreateResponseDTO(BaseModel):
@@ -64,6 +79,8 @@ class ChannelInboxEventDTO(BaseModel):
     event_type: str
     status: ChannelInboxStatusEnum
     order_id: Optional[uuid.UUID]
+    # The local order's state, so the screen names the order without its UUID.
+    order_status: Optional[str] = None
     quarantine_code: Optional[str]
     quarantine_reason: Optional[str]
     received_at: datetime
@@ -106,15 +123,14 @@ def create_connection_endpoint(
     connection = channel_hub_service.create_connection(
         session, context, store_id=data.store_id, provider_code=data.provider_code,
         merchant_external_id=data.merchant_external_id, channel_name=data.channel_name,
-        credentials_ref=data.credentials_ref, actor_id=data.actor_id,
-        idempotency_key=idempotency_key,
+        actor_id=data.actor_id, idempotency_key=idempotency_key,
     )
-    return {"connection": connection}
+    return {"connection": _connection_view(connection)}
 
 
 @router.get("/connections", response_model=list[MerchantConnectionDTO])
 def list_connections_endpoint(context: TenantContext = Depends(get_tenant_context), session: Session = Depends(get_session)):
-    return channel_hub_service.list_connections(session, context)
+    return [_connection_view(connection) for connection in channel_hub_service.list_connections(session, context)]
 
 
 @router.post("/connections/{connection_id}/validate", response_model=MerchantConnectionDTO)
@@ -125,9 +141,9 @@ def validate_connection_endpoint(
     context: TenantContext = Depends(get_tenant_context),
     session: Session = Depends(get_session),
 ):
-    return channel_hub_service.validate_connection(
+    return _connection_view(channel_hub_service.validate_connection(
         session, context, connection_id, data.actor_id, idempotency_key,
-    )
+    ))
 
 
 @router.get("/inbox", response_model=list[ChannelInboxEventDTO])
