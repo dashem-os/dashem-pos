@@ -9,6 +9,12 @@ nesta revisão: `097_the_pinpad_is_occupied`, sem nenhuma posterior. Escopo e ga
 vêm do [roadmap](roadmap-commerce-os-v2.md) (S10.1) e das
 [fundações do Channel Hub](channel-hub-fundacoes-2026-09-10.md).
 
+Retomada em 29/09/2026: a travessia autenticada R20 passou localmente com
+gestora e leitora, após um ajuste de quebra de texto. O [registro do percurso](../quality/s10-1-authenticated-walkthrough-2026-09-29.md)
+delimita a prova. **O gate completo do S10.1 continua aberto:** R14 não foi
+medido, R11 espera D1, e D2, D8 e a concessão da D7 seguem pendentes. A
+retenção continua sem purga; nenhum canal real foi integrado.
+
 Não escolhe canal, provedor, preço, plano nem capability produtiva. Não trata
 de catálogo, disponibilidade e repasses: isso é o S13.2, que vem depois e se
 apoia no contrato definido aqui. Nada nesta proposta autoriza dizer que iFood,
