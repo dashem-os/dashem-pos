@@ -15,32 +15,50 @@ What these tests prove, and only that:
   cannot say (E5, R13);
 - a lost lease does not write another attempt's answer;
 - a capability the adapter did not declare is never called (R18);
-- nothing personal reaches the outbox, and a notice naming a person is refused (P4).
-
-Not proven here: R14 — that the local sale keeps its latency while the channel
-is down. The executor is not on the sale's path, but no baseline was measured.
+- nothing personal reaches the outbox, and a notice naming a person is refused (P4);
+- an unavailable or slow channel during notice delivery has `checkedout == 0`
+  at connector entry (including on a repeated `Idempotency-Key`) and neither
+  blocks a local POS counter sale nor shows regression above the threshold in
+  this measurement (R14, H10).
 """
 
+import asyncio
+from contextlib import asynccontextmanager
+import json
+import math
 import os
+from pathlib import Path
+import platform
+import socket
+import statistics
+import threading
+import time
 import uuid
 from datetime import datetime, timedelta
 
 import httpx
 import pytest
 from sqlmodel import Session, select
+import uvicorn
 
 import app.main  # noqa: F401 — compõe a aplicação como a API
+from app.core.config import settings
 from app.core.context import TenantContext
 from app.core.database import engine
 from app.core.tenancy import set_platform_db_context
+from app.models.catalog import InventoryBalance
 from app.models.channel_hub import ChannelOutboundMessage, ChannelOutboundStatusEnum
 from app.models.reliability import OutboxEvent
+from app.models.sale import Sale, SaleStatusEnum
 from app.modules.channels import inbox, outbound
 from app.modules.channels.adapters.reference import ReferenceChannelAdapter
 from app.modules.channels.contracts import ChannelCapability, DeliveryOutcome, DeliveryResult
+from app.services import payment_service
 from test_channel_inbox import _connected, _event, _line, _mapping, _receive, _row
 
 BASE_URL = os.getenv("TEST_BASE_URL", "http://localhost:8002")
+R14_WARMUP_SAMPLES = 3
+R14_MEASURED_SAMPLES = 15
 
 
 async def _external_order(client, prefix):
@@ -251,3 +269,377 @@ async def test_aviso_nao_leva_pessoa_para_a_trilha_nem_aceita_carga_pessoal():
     assert queued, "a fila interna ouviu o aviso"
     for event in queued:
         assert "estimated_minutes" not in event.payload and '"payload"' not in event.payload, "conteúdo do aviso foi para a outbox"
+
+
+@asynccontextmanager
+async def _live_api():
+    """Run the real FastAPI app over TCP in this process so both jobs share server, pool and DB."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    server = uvicorn.Server(uvicorn.Config(app.main.app, host="127.0.0.1", port=port, log_level="error"))
+    serve_task = asyncio.create_task(server.serve(sockets=[sock]))
+    while not server.started:
+        await asyncio.sleep(0.01)
+    try:
+        async with httpx.AsyncClient(base_url=f"http://127.0.0.1:{port}", timeout=30) as client:
+            yield client
+    finally:
+        server.should_exit = True
+        await serve_task
+        sock.close()
+
+
+async def _local_pos_setup(client: httpx.AsyncClient, headers: dict, store_id: str, actor_id: str) -> tuple[str, str, str]:
+    suffix = uuid.uuid4().hex[:8]
+    register = (await client.post("/api/v1/cash/registers", headers=headers, json={
+        "store_id": store_id, "name": "Caixa PDV R14", "code": f"R14-{suffix}",
+    })).json()
+    cash_session = (await client.post("/api/v1/cash/sessions/open", headers=headers, json={
+        "store_id": store_id, "register_id": register["id"], "operator_id": actor_id, "opening_balance": 500.0,
+    })).json()
+    product = (await client.post("/api/v1/catalog/products", headers=headers, json={
+        "name": "Produto Balcão R14", "sku": f"PDV-R14-{suffix}", "unit": "UN", "tracks_inventory": True,
+    })).json()
+    await client.post("/api/v1/catalog/prices", headers=headers, json={
+        "product_id": product["id"], "store_id": store_id, "cost_price": 6.0, "sale_price": 15.0,
+    })
+    stocked = await client.post("/api/v1/inventory/adjust", headers=headers, json={
+        "store_id": store_id, "product_id": product["id"], "actor_id": actor_id,
+        "movement_type": "PURCHASE", "quantity": 200.0, "reason": "Estoque inicial R14",
+    })
+    assert stocked.status_code == 200, stocked.text
+    return register["id"], cash_session["id"], product["id"]
+
+
+async def _local_pos_sale(
+    client: httpx.AsyncClient, headers: dict, store_id: str,
+    register_id: str, cash_session_id: str, product_id: str, actor_id: str,
+) -> dict:
+    """Execute one representative 5-step counter sale through the real PDV API routes."""
+    started_at = time.perf_counter()
+    created = await client.post("/api/v1/sales", headers=headers, json={
+        "store_id": store_id, "register_id": register_id, "seller_id": actor_id, "operation_mode": "COUNTER",
+    })
+    sale_id = created.json()["id"]
+    added = await client.post(f"/api/v1/sales/{sale_id}/items", headers=headers, json={
+        "product_id": product_id, "quantity": 1.0,
+    })
+    checked_out = await client.post(f"/api/v1/sales/{sale_id}/checkout", headers=headers, json={
+        "actor_id": actor_id,
+    })
+    pay_created = await client.post("/api/v1/payments", headers={
+        **headers, "Idempotency-Key": f"pay-create-{uuid.uuid4()}",
+    }, json={
+        "sale_id": sale_id, "method": "CASH", "amount": 15.0,
+        "cash_session_id": cash_session_id, "tendered_amount": 15.0,
+    })
+    payment_id = pay_created.json()["id"]
+    confirmed = await client.post(f"/api/v1/payments/{payment_id}/confirm", headers={
+        **headers, "Idempotency-Key": f"pay-confirm-{uuid.uuid4()}",
+    }, json={"actor_id": actor_id})
+    finished_at = time.perf_counter()
+    return {
+        "sale_id": sale_id,
+        "started_at": started_at,
+        "finished_at": finished_at,
+        "latency_ms": round((finished_at - started_at) * 1000.0, 3),
+        "status_codes": [
+            created.status_code, added.status_code, checked_out.status_code,
+            pay_created.status_code, confirmed.status_code,
+        ],
+        "sale_status": confirmed.json().get("sale_status"),
+    }
+
+
+def _percentile(sorted_values: list[float], fraction: float) -> float:
+    if not sorted_values:
+        return 0.0
+    index = max(0, math.ceil(len(sorted_values) * fraction) - 1)
+    return round(sorted_values[index], 3)
+
+
+def _latency_summary(samples: list[dict]) -> dict:
+    latencies = sorted(sample["latency_ms"] for sample in samples)
+    return {
+        "samples": len(latencies),
+        "min_ms": round(latencies[0], 3),
+        "p50_ms": round(statistics.median(latencies), 3),
+        "p95_ms": _percentile(latencies, 0.95),
+        "max_ms": round(latencies[-1], 3),
+        "mean_ms": round(statistics.mean(latencies), 3),
+        "all_http_200": all(sample["status_codes"] == [200, 200, 200, 200, 200] for sample in samples),
+        "all_paid": all(sample["sale_status"] == "PAID" for sample in samples),
+        "latencies_ms": latencies,
+    }
+
+
+def _r14_regression_limits(baseline_summary: dict) -> dict:
+    """Criterion defined before comparing baseline vs channel unavailability.
+
+    A local 5-step counter sale takes ~25-60 ms on local PostgreSQL. Using
+    `max(factor * baseline, baseline + fixed_margin_ms)` prevents false failures
+    from normal OS/container scheduling jitter while catching any real wait on
+    an unavailable channel or connection pool stall.
+    """
+    return {
+        "p50_max_ms": round(max(baseline_summary["p50_ms"] * 2.0, baseline_summary["p50_ms"] + 60.0), 3),
+        "p95_max_ms": round(max(baseline_summary["p95_ms"] * 2.5, baseline_summary["p95_ms"] + 120.0), 3),
+    }
+
+
+def _r14_violations(
+    baseline_summary: dict, unavailable_samples: list[dict],
+    channel_entered_at: float, channel_exited_at: float,
+) -> list[str]:
+    summary = _latency_summary(unavailable_samples)
+    limits = _r14_regression_limits(baseline_summary)
+    reasons = []
+    if not summary["all_http_200"] or not summary["all_paid"]:
+        reasons.append("http_or_sale_status_failed")
+    if any(
+        not (channel_entered_at <= sample["started_at"] < sample["finished_at"] <= channel_exited_at)
+        for sample in unavailable_samples
+    ):
+        reasons.append("sale_not_completed_while_channel_blocked")
+    if summary["p50_ms"] > limits["p50_max_ms"]:
+        reasons.append(f"p50_regression:{summary['p50_ms']}>{limits['p50_max_ms']}")
+    if summary["p95_ms"] > limits["p95_max_ms"]:
+        reasons.append(f"p95_regression:{summary['p95_ms']}>{limits['p95_max_ms']}")
+    return reasons
+
+
+@pytest.mark.asyncio
+async def test_venda_local_no_pdv_segue_enquanto_o_envio_de_aviso_ao_canal_esta_bloqueado(monkeypatch):
+    async with _live_api() as client:
+        context, headers, actor, order_id = await _external_order(client, "AvisoR14")
+        store_id = str(context.store_id)
+        register_id, cash_session_id, pos_product_id = await _local_pos_setup(client, headers, store_id, actor)
+
+        # 1. Aquecimento: prepara pool, mappers e rotas antes de medir.
+        warmup_samples = [
+            await _local_pos_sale(client, headers, store_id, register_id, cash_session_id, pos_product_id, actor)
+            for _ in range(R14_WARMUP_SAMPLES)
+        ]
+        assert _latency_summary(warmup_samples)["all_http_200"]
+        assert _latency_summary(warmup_samples)["all_paid"]
+
+        # 2. Linha de base: canal ocioso, 15 vendas locais completas pelas rotas reais.
+        baseline_samples = [
+            await _local_pos_sale(client, headers, store_id, register_id, cash_session_id, pos_product_id, actor)
+            for _ in range(R14_MEASURED_SAMPLES)
+        ]
+        baseline_summary = _latency_summary(baseline_samples)
+        limits = _r14_regression_limits(baseline_summary)
+        assert baseline_summary["all_http_200"] and baseline_summary["all_paid"]
+        assert len({sample["sale_id"] for sample in baseline_samples}) == R14_MEASURED_SAMPLES
+
+        # 3. Sob indisponibilidade do canal: o conector trava dentro de `send_notice`
+        # e só é liberado depois que todas as 15 vendas locais terminaram.
+        send_blocked = threading.Event()
+        release_send = threading.Event()
+        channel_window: dict = {}
+
+        def blocked_channel_send(self, notice):
+            channel_window["notice_id"] = uuid.UUID(notice.notice_id)
+            channel_window["entered_at"] = time.perf_counter()
+            channel_window["checkedout_at_send_entry"] = engine.pool.checkedout()
+            send_blocked.set()
+            assert release_send.wait(timeout=30.0), "o teste não liberou a chamada bloqueada do canal"
+            channel_window["exited_at"] = time.perf_counter()
+            raise TimeoutError("canal indisponível durante o envio do aviso")
+
+        monkeypatch.setattr(ReferenceChannelAdapter, "send_notice", blocked_channel_send)
+
+        outbound_idem_key = f"aviso-r14-{uuid.uuid4()}"
+        outbound_body = {"message_type": "ORDER_ACCEPTED", "payload": {"status": "ACCEPTED"}, "actor_id": actor}
+        outbound_task = asyncio.create_task(client.post(
+            f"/api/v1/channels/orders/{order_id}/outbound",
+            headers={**headers, "Idempotency-Key": outbound_idem_key},
+            json=outbound_body,
+        ))
+        assert await asyncio.to_thread(send_blocked.wait, 10.0), "o envio do aviso não entrou no conector"
+
+        # Sincronização observável no banco antes da primeira venda: o aviso está em SENDING com lease ativo.
+        in_flight_before = _message(channel_window["notice_id"])
+        assert in_flight_before.status == ChannelOutboundStatusEnum.SENDING
+        assert in_flight_before.lease_expires_at is not None
+        assert channel_window["checkedout_at_send_entry"] == 0, (
+            "nenhuma conexão ou transação do pool pode ficar retida na entrada da chamada ao conector"
+        )
+
+        unavailable_samples = []
+        for _ in range(R14_MEASURED_SAMPLES):
+            assert send_blocked.is_set() and "exited_at" not in channel_window
+            sample = await _local_pos_sale(
+                client, headers, store_id, register_id, cash_session_id, pos_product_id, actor,
+            )
+            assert "exited_at" not in channel_window, "o envio do canal terminou antes da venda local"
+            unavailable_samples.append(sample)
+
+        # Sincronização observável no banco após a última venda e antes de soltar o conector: segue em SENDING.
+        in_flight_after = _message(channel_window["notice_id"])
+        assert in_flight_after.status == ChannelOutboundStatusEnum.SENDING
+
+        release_send.set()
+        outbound_response = await outbound_task
+        assert outbound_response.status_code == 200, outbound_response.text
+
+        deadline = time.monotonic() + 5.0
+        settled_notice = _message(channel_window["notice_id"])
+        while settled_notice.status == ChannelOutboundStatusEnum.SENDING and time.monotonic() < deadline:
+            await asyncio.sleep(0.02)
+            settled_notice = _message(channel_window["notice_id"])
+        assert settled_notice.status == ChannelOutboundStatusEnum.RETRY
+        assert settled_notice.last_error_code == "CALL_FAILED"
+        assert settled_notice.attempt_count == 1 and settled_notice.next_retry_at is not None
+
+        unavailable_summary = _latency_summary(unavailable_samples)
+        assert len({sample["sale_id"] for sample in unavailable_samples}) == R14_MEASURED_SAMPLES
+        violations = _r14_violations(
+            baseline_summary, unavailable_samples,
+            channel_window["entered_at"], channel_window["exited_at"],
+        )
+        assert violations == [], f"R14 violado: {violations} (baseline={baseline_summary}, indisponivel={unavailable_summary})"
+
+        # 3b. Caminho de Idempotency-Key repetida na rota (e verificação de que o serviço
+        # `outbound.enqueue` não fecha a Session do chamador): ao repetir a mesma chave
+        # na rota, a resposta é materializada e a sessão da rota é fechada antes do
+        # `BackgroundTasks`, mantendo `checkedout == 0` na entrada do conector.
+        with Session(engine) as db:
+            set_platform_db_context(db)
+            same_row = outbound.enqueue(
+                db, context, order_id, message_type="ORDER_ACCEPTED",
+                payload={"status": "ACCEPTED"}, actor_id=uuid.UUID(actor),
+                idempotency_key=outbound_idem_key,
+            )
+            assert same_row.id == channel_window["notice_id"]
+            # A sessão pertence ao chamador de `outbound.enqueue` e permanece utilizável.
+            same_row.next_retry_at = datetime.utcnow() - timedelta(seconds=1)
+            db.add(same_row)
+            db.commit()
+
+        repeat_entered = threading.Event()
+        repeat_checkedout: dict = {}
+
+        def repeat_idempotent_send(self, notice):
+            repeat_checkedout["checkedout_at_send_entry"] = engine.pool.checkedout()
+            repeat_entered.set()
+            return DeliveryOutcome(DeliveryResult.DELIVERED, provider_reference="ack-r14-repeat")
+
+        monkeypatch.setattr(ReferenceChannelAdapter, "send_notice", repeat_idempotent_send)
+        repeat_response = await client.post(
+            f"/api/v1/channels/orders/{order_id}/outbound",
+            headers={**headers, "Idempotency-Key": outbound_idem_key},
+            json=outbound_body,
+        )
+        assert repeat_response.status_code == 200, repeat_response.text
+        assert repeat_response.json()["id"] == outbound_response.json()["id"]
+        assert await asyncio.to_thread(repeat_entered.wait, 5.0), "BackgroundTasks não chamou send_notice na chave repetida"
+        assert repeat_checkedout.get("checkedout_at_send_entry") == 0, (
+            "caminho de Idempotency-Key repetida na rota reteve conexão do pool durante deliver_now"
+        )
+        deadline = time.monotonic() + 5.0
+        delivered_notice = _message(channel_window["notice_id"])
+        while delivered_notice.status != ChannelOutboundStatusEnum.DELIVERED and time.monotonic() < deadline:
+            await asyncio.sleep(0.02)
+            delivered_notice = _message(channel_window["notice_id"])
+        assert delivered_notice.status == ChannelOutboundStatusEnum.DELIVERED
+
+        # 4. Controle: se a confirmação da venda local passasse a esperar o canal,
+        # a mesma verificação reprovaria tanto pela janela de bloqueio quanto pela latência.
+        control_blocked = threading.Event()
+        control_release = threading.Event()
+        control_window: dict = {}
+        hold_seconds = max(0.35, (limits["p50_max_ms"] + 80.0) / 1000.0)
+
+        def timed_channel_block(self, notice):
+            control_window["notice_id"] = uuid.UUID(notice.notice_id)
+            control_window["entered_at"] = time.perf_counter()
+            control_blocked.set()
+            time.sleep(hold_seconds)
+            control_window["exited_at"] = time.perf_counter()
+            control_release.set()
+            raise TimeoutError("canal indisponível no controle R14")
+
+        real_confirm_payment = payment_service.confirm_payment
+
+        def coupled_confirm_payment(*args, **kwargs):
+            # Acoplamento plantado para o controle: a venda espera o canal terminar.
+            control_release.wait(timeout=5.0)
+            return real_confirm_payment(*args, **kwargs)
+
+        monkeypatch.setattr(ReferenceChannelAdapter, "send_notice", timed_channel_block)
+        monkeypatch.setattr(payment_service, "confirm_payment", coupled_confirm_payment)
+
+        control_outbound_task = asyncio.create_task(client.post(
+            f"/api/v1/channels/orders/{order_id}/outbound",
+            headers={**headers, "Idempotency-Key": f"aviso-r14-ctrl-{uuid.uuid4()}"},
+            json={"message_type": "ORDER_READY", "payload": {"status": "READY"}, "actor_id": actor},
+        ))
+        assert await asyncio.to_thread(control_blocked.wait, 10.0)
+        control_sample = await _local_pos_sale(
+            client, headers, store_id, register_id, cash_session_id, pos_product_id, actor,
+        )
+        control_outbound_response = await control_outbound_task
+        assert control_outbound_response.status_code == 200
+        monkeypatch.setattr(payment_service, "confirm_payment", real_confirm_payment)
+
+        control_violations = _r14_violations(
+            baseline_summary, [control_sample],
+            control_window["entered_at"], control_window["exited_at"],
+        )
+        assert "sale_not_completed_while_channel_blocked" in control_violations, control_violations
+        assert any(item.startswith("p50_regression:") for item in control_violations), control_violations
+
+    with Session(engine) as db:
+        set_platform_db_context(db)
+        total_expected_sales = R14_WARMUP_SAMPLES + (2 * R14_MEASURED_SAMPLES) + 1
+        paid_sales = db.exec(select(Sale).where(
+            Sale.tenant_id == context.tenant_id, Sale.status == SaleStatusEnum.PAID,
+        )).all()
+        assert len(paid_sales) == total_expected_sales
+        balance = db.exec(select(InventoryBalance).where(
+            InventoryBalance.tenant_id == context.tenant_id,
+            InventoryBalance.product_id == uuid.UUID(pos_product_id),
+        )).one()
+        assert float(balance.quantity) == 200.0 - total_expected_sales
+
+    report_path = os.getenv("R14_EVIDENCE_PATH") or os.getenv("R14_REPORT_PATH")
+    if report_path:
+        report = {
+            "gate": "S10.1-R14-H10",
+            "measured_at": datetime.utcnow().isoformat() + "Z",
+            "environment": {
+                "os": platform.platform(),
+                "python": platform.python_version(),
+                "database": "PostgreSQL 15 (isolated container 127.0.0.1:5439)",
+                "auth_mode": settings.AUTH_MODE,
+                "environment_mode": settings.ENVIRONMENT,
+                "db_pool_size": settings.DB_POOL_SIZE,
+                "db_max_overflow": settings.DB_MAX_OVERFLOW,
+                "warmup_samples": R14_WARMUP_SAMPLES,
+                "measured_samples_per_phase": R14_MEASURED_SAMPLES,
+            },
+            "criterion": limits,
+            "baseline": baseline_summary,
+            "under_channel_unavailability": {
+                **unavailable_summary,
+                "channel_blocked_window_ms": round(
+                    (channel_window["exited_at"] - channel_window["entered_at"]) * 1000.0, 3,
+                ),
+                "checkedout_db_connections_at_send_entry": channel_window["checkedout_at_send_entry"],
+                "repeated_idempotency_checkedout_at_send_entry": repeat_checkedout["checkedout_at_send_entry"],
+                "outbound_http_status": outbound_response.status_code,
+                "outbound_final_status": settled_notice.status.value,
+                "outbound_error_code": settled_notice.last_error_code,
+            },
+            "control_coupled_sale": {
+                "hold_ms": round(hold_seconds * 1000.0, 3),
+                "latency_ms": control_sample["latency_ms"],
+                "detected_violations": control_violations,
+            },
+        }
+        target = Path(report_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")

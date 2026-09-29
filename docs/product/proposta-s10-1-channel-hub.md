@@ -10,9 +10,13 @@ vêm do [roadmap](roadmap-commerce-os-v2.md) (S10.1) e das
 [fundações do Channel Hub](channel-hub-fundacoes-2026-09-10.md).
 
 Retomada em 29/09/2026: a travessia autenticada R20 passou localmente com
-gestora e leitora, após um ajuste de quebra de texto. O [registro do percurso](../quality/s10-1-authenticated-walkthrough-2026-09-29.md)
-delimita a prova. **O gate completo do S10.1 continua aberto:** R14 não foi
-medido, R11 espera D1, e D2, D8 e a concessão da D7 seguem pendentes. A
+gestora e leitora, após um ajuste de quebra de texto ([registro do percurso](../quality/s10-1-authenticated-walkthrough-2026-09-29.md)),
+e o R14 foi medido com PostgreSQL real contra uma linha de base ([evidência medida](../quality/evidence/s10-1-2026-09-29/r14-local-sale-latency.json)),
+após fechar na rota a sessão da requisição depois de materializar a resposta e
+antes do `BackgroundTasks` (inclusive em repetição de `Idempotency-Key`), com
+`checkedout == 0` observado na entrada da chamada ao conector e sem regressão
+acima do limite nas 15 amostras locais. **O gate completo do S10.1 continua
+aberto:** R11 espera D1, e D2, D8 e a concessão da D7 seguem pendentes. A
 retenção continua sem purga; nenhum canal real foi integrado.
 
 Não escolhe canal, provedor, preço, plano nem capability produtiva. Não trata
@@ -95,10 +99,38 @@ apoia no contrato definido aqui. Nada nesta proposta autoriza dizer que iFood,
     Um não entregue cujo último resultado foi ambíguo também consulta antes ao ser
     reenviado. O controle — enviar sem consultar — produz duas chamadas, e o
     teste as vê (R13);
-  - **nenhuma transação aberta durante a chamada**: reivindica com lease e
-    confirma, chama, e só grava o resultado se o lease ainda for daquela
-    tentativa. O controle — gravar sem conferir o lease — deixa uma resposta
-    atrasada sobrescrever a tentativa seguinte, e o teste a vê;
+  - **nenhuma transação aberta durante a chamada, e `checkedout == 0` na entrada
+    do conector**: reivindica com lease e confirma; na rota
+    `POST /channels/orders/{order_id}/outbound`, a sessão de `Depends(get_session)`
+    é fechada depois de materializar `OutboundDTO` e antes do `BackgroundTasks`
+    (inclusive em repetição de `Idempotency-Key`), sem que o serviço
+    `outbound.enqueue` feche a sessão do chamador; na entrada da chamada ao
+    conector foi observado `checkedout == 0` no pool de banco, e o executor só
+    grava o resultado se o lease ainda for daquela tentativa. O controle —
+    gravar sem conferir o lease — deixa uma resposta atrasada sobrescrever a
+    tentativa seguinte, e o teste a vê;
+  - **venda local no PDV não espera o canal e não apresentou regressão acima do
+    limite nesta medição** (R14,
+    [evidência medida](../quality/evidence/s10-1-2026-09-29/r14-local-sale-latency.json)):
+    contra PostgreSQL 15 real e rotas HTTP reais (`POST /api/v1/sales` →
+    `/items` → `/checkout` → `POST /api/v1/payments` → `/confirm`, 5 requisições
+    por venda de balcão com baixa de estoque e sessão de caixa aberta), 3 vendas
+    de aquecimento seguidas de 15 amostras locais de linha de base
+    (`min = 272,434 ms`, `p50 = 310,553 ms`, `p95 = 460,060 ms`,
+    `max = 460,060 ms`) e 15 amostras locais executadas sob sincronização
+    observável (`threading.Event` + verificação no PostgreSQL de
+    `ChannelOutboundMessage.status == SENDING` antes da 1ª e após a 15ª venda)
+    enquanto `POST /api/v1/channels/orders/{order_id}/outbound` permanecia
+    bloqueado por `4866,091 ms` em `ReferenceChannelAdapter.send_notice` (com
+    `checkedout == 0` observado na entrada da chamada ao conector, tanto no
+    primeiro envio quanto na repetição de `Idempotency-Key`) e terminava em
+    `RETRY` (`CALL_FAILED`). Sob indisponibilidade: `min = 284,733 ms`,
+    `p50 = 308,559 ms`, `p95 = 450,590 ms`, `max = 450,590 ms` (abaixo do
+    critério fixado antes da comparação: `p50 <= 621,106 ms` e
+    `p95 <= 1150,150 ms`, todas HTTP `200` e `PAID`). O controle com acoplamento
+    plantado na confirmação do pagamento (`701,106 ms` de bloqueio do canal)
+    elevou a venda para `810,196 ms` e reprovou por terminar só depois do
+    desbloqueio e por regressão de `p50`;
   - **capacidade não declarada não é chamada** (R18);
   - **nada pessoal na fila** (P4): aviso com chave que nomeia pessoa é recusado
     com `NOTICE_PAYLOAD_PERSONAL`; auditoria e outbox levam identificadores e
@@ -116,10 +148,15 @@ apoia no contrato definido aqui. Nada nesta proposta autoriza dizer que iFood,
     avisam o canal é regra de comportamento do pedido, e virou a **D8**. Hoje um
     aviso só existe quando alguém o enfileira pela rota existente
     `POST /channels/orders/{order_id}/outbound`, que passou a usar o executor;
-  - **R14 não foi medido**: nenhum teste compara a latência da venda local com
-    canal indisponível contra uma linha de base. O que existe é estrutural — a
-    chamada ao canal não segura transação nem roda na requisição da venda —, e
-    isso não é a medida;
+  - **limites da prova do R14**: são 15 amostras locais contra servidor
+    Uvicorn/ASGI e PostgreSQL 15 isolado (`AUTH_MODE=disabled`, pagamento `CASH`
+    sem hardware fiscal/TEF), com bloqueio em memória em
+    `ReferenceChannelAdapter.send_notice` disparado pela rota explícita
+    `POST /api/v1/channels/orders/{order_id}/outbound`, e `checkedout == 0`
+    observado na entrada da chamada ao conector; sustenta R14 como regressão
+    interna, não como SLA produtivo, geração automática de avisos por transição
+    do pedido (D8), worker separado em múltiplos processos nem homologação de
+    rede/TLS contra iFood, 99Food ou outro canal comercial;
   - matar o processo no meio de uma chamada não foi exercitado; o que foi provado
     é o lease vencido levar à consulta antes do reenvio;
   - `last_error`, texto livre do S10, fica sem escrita; o executor grava só código;
@@ -719,7 +756,7 @@ assinatura, eventos, respostas aos avisos e indisponibilidade.
 | R11 | Valores do canal preservados; diferença com a oferta registrada | H7 |
 | R12 | Aviso entregue só com confirmação; transitório → `RETRY`; esgotado → `DEAD_LETTER`; "Reenviar" autorizado | H8 |
 | R13 | Tempo esgotado no aviso: repetição com a mesma chave, ou consulta antes | H8 |
-| R14 | Canal indisponível durante avisos: venda local no PDV segue, medida contra baseline | H10 |
+| R14 | **Medido em 29/09/2026 ([evidência](../quality/evidence/s10-1-2026-09-29/r14-local-sale-latency.json)):** canal indisponível durante envio de aviso (`SENDING` bloqueado por `4866,091 ms`, `checkedout == 0` observado na entrada do conector inclusive em `Idempotency-Key` repetida) não bloqueia a venda local no PDV e não apresentou regressão acima do limite nesta medição de 15 amostras locais (baseline `p50 = 310,553 ms`, `p95 = 460,060 ms`; sob indisponibilidade `p50 = 308,559 ms`, `p95 = 450,590 ms`; controle com espera plantada reprova em `810,196 ms`) | H10 |
 | R15 | Ingresso de merchant do tenant A não alcança o tenant B; corpo com tenant alheio é ignorado | H9 |
 | R16 | Assinatura sobre bytes: mesmo conteúdo reserializado não passa | H9 |
 | R17 | Merchant sem conexão autorizada: recusado sem dado pessoal nem payload gravado | H9, H12, H17 |
@@ -787,13 +824,19 @@ Passos 1 a 4 autorizados pelo dono em 16/09/2026. Passo 6 e a parte estrutural d
    usa o comportamento conservador — `NEEDS_REVIEW`, a produção não é cancelada
    sozinha — até D2.
 5. Valores do canal, depois de D1 (R11).
-6. **Feito:** executor de avisos (R12, R13, R18, P4). **R14 não medido.** A
-   geração automática de avisos a partir das transições do pedido espera a D8.
-7. **Feito, parte estrutural:** tela com conexão por capacidade, pedido sem
-   UUID, prazos visíveis, formulário sem credencial e diagnóstico (P6, P10).
-   **Falta a travessia autenticada (R20)**, que é o gate do passo 8.
-   *Pausa técnica pedida pelo dono em 16/09/2026, antes do gate: a travessia
-   autenticada não foi executada, e o S10.1 não está fechado.*
+6. **Feito:** executor de avisos (R12, R13, R14, R18, P4), incluindo a prova
+   medida do R14 contra linha de base em PostgreSQL real (15 amostras locais sem
+   regressão acima do limite e `checkedout == 0` observado na entrada do
+   conector, após fechar a sessão na rota antes do `BackgroundTasks`, inclusive
+   em `Idempotency-Key` repetida). A geração automática de avisos a partir das
+   transições do pedido espera a D8.
+7. **Feito, parte estrutural e travessia autenticada local (R20):** tela com
+   conexão por capacidade, pedido sem UUID, prazos visíveis, formulário sem
+   credencial e diagnóstico (P6, P10). A travessia autenticada R20 passou
+   localmente em 29/09/2026 com gestora e leitora
+   ([registro do percurso](../quality/s10-1-authenticated-walkthrough-2026-09-29.md)),
+   após a pausa técnica de 16/09/2026. *O S10.1 continua aberto: R11 espera D1,
+   D2, D8 e a concessão da D7 seguem pendentes, e a retenção continua sem purga.*
 8. Gate do S10.1: todos os R, P1–P11 e P17–P21, com os limites escritos e a purga
    declarada como **não implementada**.
 9. **Etapa posterior:** varredura de purga (P12–P16), depois de G2, e rotas de

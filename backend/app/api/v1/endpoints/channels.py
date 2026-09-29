@@ -161,5 +161,11 @@ def queue_channel_outbound_endpoint(
         session, context, order_id, message_type=data.message_type,
         payload=data.payload, actor_id=data.actor_id, idempotency_key=idempotency_key,
     )
-    background.add_task(channel_outbound.deliver_now, [message.id])
-    return message
+    response = OutboundDTO.model_validate(message)
+    # `Depends(get_session)` only exits after `BackgroundTasks` (`deliver_now`)
+    # finishes. Closing the route's session after materializing the response
+    # releases the pooled connection before the channel is called (including on
+    # a repeated Idempotency-Key).
+    session.close()
+    background.add_task(channel_outbound.deliver_now, [response.id])
+    return response

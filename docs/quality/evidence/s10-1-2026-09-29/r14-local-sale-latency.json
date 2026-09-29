@@ -1,0 +1,87 @@
+{
+  "gate": "S10.1-R14-H10",
+  "measured_at": "2026-09-29T20:40:37.884216Z",
+  "environment": {
+    "os": "Windows-10-10.0.26200-SP0",
+    "python": "3.11.15",
+    "database": "PostgreSQL 15 (isolated container 127.0.0.1:5439)",
+    "auth_mode": "disabled",
+    "environment_mode": "test",
+    "db_pool_size": 5,
+    "db_max_overflow": 5,
+    "warmup_samples": 3,
+    "measured_samples_per_phase": 15
+  },
+  "criterion": {
+    "p50_max_ms": 621.106,
+    "p95_max_ms": 1150.15
+  },
+  "baseline": {
+    "samples": 15,
+    "min_ms": 272.434,
+    "p50_ms": 310.553,
+    "p95_ms": 460.06,
+    "max_ms": 460.06,
+    "mean_ms": 321.086,
+    "all_http_200": true,
+    "all_paid": true,
+    "latencies_ms": [
+      272.434,
+      280.516,
+      287.697,
+      291.378,
+      293.03,
+      296.396,
+      298.498,
+      310.553,
+      310.968,
+      325.735,
+      326.943,
+      328.005,
+      364.881,
+      369.202,
+      460.06
+    ]
+  },
+  "under_channel_unavailability": {
+    "samples": 15,
+    "min_ms": 284.733,
+    "p50_ms": 308.559,
+    "p95_ms": 450.59,
+    "max_ms": 450.59,
+    "mean_ms": 322.984,
+    "all_http_200": true,
+    "all_paid": true,
+    "latencies_ms": [
+      284.733,
+      294.037,
+      295.218,
+      298.498,
+      300.857,
+      304.822,
+      306.18,
+      308.559,
+      314.157,
+      325.981,
+      330.482,
+      334.065,
+      342.323,
+      354.256,
+      450.59
+    ],
+    "channel_blocked_window_ms": 4866.091,
+    "checkedout_db_connections_at_send_entry": 0,
+    "repeated_idempotency_checkedout_at_send_entry": 0,
+    "outbound_http_status": 200,
+    "outbound_final_status": "RETRY",
+    "outbound_error_code": "CALL_FAILED"
+  },
+  "control_coupled_sale": {
+    "hold_ms": 701.106,
+    "latency_ms": 810.196,
+    "detected_violations": [
+      "sale_not_completed_while_channel_blocked",
+      "p50_regression:810.196>621.106"
+    ]
+  }
+}
