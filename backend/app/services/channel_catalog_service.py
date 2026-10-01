@@ -34,17 +34,11 @@ def upsert_offer(session,context,*,connection_id,product_id,price,available,stoc
  if row:row.price=price;row.available=available;row.stock_quantity=stock_quantity;row.desired_version+=1;row.last_publication_status=PublicationItemStatusEnum.PENDING;row.updated_at=datetime.utcnow()
  else:row=ChannelCatalogOffer(tenant_id=context.tenant_id,store_id=conn.store_id,merchant_connection_id=conn.id,product_id=product_id,price=price,available=available,stock_quantity=stock_quantity);session.add(row)
  session.commit();session.refresh(row);reliability_service.save_idempotency_record(session,context.tenant_id,a,"channel.catalog.offer",idempotency_key,payload,200,{"offer_id":str(row.id)});session.commit();session.refresh(row);return row
+from app.modules.channels import catalog_publisher
+
 def create_batch(session,context,*,connection_id,offer_ids,actor_id,idempotency_key):
- a=actor(context,actor_id);conn=connection(session,context,connection_id);payload={"connection_id":str(connection_id),"offer_ids":sorted(map(str,offer_ids))};digest=reliability_service.compute_request_hash(payload);existing=session.exec(select(ChannelPublicationBatch).where(ChannelPublicationBatch.tenant_id==context.tenant_id,ChannelPublicationBatch.idempotency_key==idempotency_key)).first()
- if existing:
-  if existing.request_hash!=digest:raise HTTPException(409,"Idempotency-Key reutilizada.")
-  return batch_projection(session,existing)
- offers=list(session.exec(select(ChannelCatalogOffer).where(ChannelCatalogOffer.id.in_(offer_ids),ChannelCatalogOffer.merchant_connection_id==conn.id)).all())
- if len(offers)!=len(set(offer_ids)):raise HTTPException(404,"Oferta de canal não encontrada.")
- batch=ChannelPublicationBatch(tenant_id=context.tenant_id,store_id=conn.store_id,merchant_connection_id=conn.id,idempotency_key=idempotency_key,request_hash=digest,created_by=a);session.add(batch);session.flush()
- for offer in offers:session.add(ChannelPublicationItem(tenant_id=context.tenant_id,batch_id=batch.id,offer_id=offer.id,desired_version=offer.desired_version,provider_operation_key=f"catalog:{conn.id}:{offer.id}:v{offer.desired_version}"))
- session.commit();session.refresh(batch);return batch_projection(session,batch)
-def batch_projection(session,batch):return {"batch":batch,"items":list(session.exec(select(ChannelPublicationItem).where(ChannelPublicationItem.batch_id==batch.id).order_by(ChannelPublicationItem.created_at)).all())}
+ return catalog_publisher.prepare_batch(session,context,connection_id=connection_id,offer_ids=offer_ids,actor_id=actor_id,idempotency_key=idempotency_key)
+def batch_projection(session,batch):return catalog_publisher.batch_projection(session,batch)
 def apply_results(session,context,batch_id,results,actor_id):
  a=actor(context,actor_id);batch=session.exec(scope_tenant_query(select(ChannelPublicationBatch).where(ChannelPublicationBatch.id==batch_id).with_for_update(),ChannelPublicationBatch,context)).first()
  if not batch:raise HTTPException(404,"Lote não encontrado.")
@@ -53,8 +47,15 @@ def apply_results(session,context,batch_id,results,actor_id):
   item=items.get(result["offer_id"])
   if not item:raise HTTPException(404,"Item não pertence ao lote.")
   item.attempt_count+=1;item.updated_at=datetime.utcnow();offer=session.get(ChannelCatalogOffer,item.offer_id)
-  if result["success"]:item.status=PublicationItemStatusEnum.SUCCEEDED;item.provider_result_ref=result.get("provider_result_ref");item.error_code=None;item.error_message=None;offer.published_version=max(offer.published_version,item.desired_version);offer.last_publication_status=PublicationItemStatusEnum.SUCCEEDED
-  else:item.status=PublicationItemStatusEnum.FAILED;item.error_code=result.get("error_code") or "PROVIDER_REJECTED";item.error_message=result.get("error_message");offer.last_publication_status=PublicationItemStatusEnum.FAILED
+  if result["success"]:
+   item.status=PublicationItemStatusEnum.SUCCEEDED;item.provider_result_ref=result.get("provider_result_ref");item.error_code=None;item.error_message=None
+   if offer:
+    if item.desired_version>offer.published_version:offer.published_version=item.desired_version;offer.last_publication_status=PublicationItemStatusEnum.SUCCEEDED
+    elif item.desired_version==offer.published_version:offer.last_publication_status=PublicationItemStatusEnum.SUCCEEDED
+  else:
+   item.status=PublicationItemStatusEnum.FAILED;item.error_code=result.get("error_code") or "PROVIDER_REJECTED";item.error_message=result.get("error_message")
+   if offer and item.desired_version>=offer.published_version:
+    offer.last_publication_status=PublicationItemStatusEnum.FAILED
  statuses=[i.status for i in items.values()];batch.status=PublicationStatusEnum.SUCCEEDED if all(s==PublicationItemStatusEnum.SUCCEEDED for s in statuses) else PublicationStatusEnum.FAILED if all(s==PublicationItemStatusEnum.FAILED for s in statuses) else PublicationStatusEnum.PARTIAL;batch.updated_at=datetime.utcnow()
  reliability_service.write_audit_and_outbox(session,context.tenant_id,batch.store_id,a,"channel.catalog.results",f"PUBLICATION-{batch.id}",{"status":batch.status.value},"channel_publication",str(batch.id),"channel.catalog.results",{"status":batch.status.value});session.commit();return batch_projection(session,batch)
 def channel_labels(session,context,connection_ids):

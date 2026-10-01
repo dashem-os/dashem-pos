@@ -43,9 +43,9 @@ um canal registra o valor efetivamente declarado pelo canal sem substituí-lo pe
 preço local do DASHEM POS, preserva o preço da oferta local identificável para
 registrar a diferença por linha e por pedido sem alterar o catálogo do
 restaurante, e manda valores ausentes ou contraditórios para `NEEDS_REVIEW` sem
-usar silenciosamente o preço local. **O gate completo do S10.1 continua aberto:**
-D2, D8 e a concessão da D7 seguem pendentes. A retenção continua sem purga;
-nenhum canal real foi integrado.
+usar silenciosamente o preço local. **Gate interno fundacional do S10.1 concluído em 01/10/2026** (commits `4b5e312`, `9a6543c` e `620169c`, CI [36916654695](https://github.com/dashem-os/dashem-pos/actions/runs/36916654695) verde nos 4 jobs; consulte [gate consolidado](../quality/s10-1-gate-consolidado-2026-10-01.md)).
+D2, D8 e a concessão da D7 permanecem propostas não aprovadas para implementação. A retenção continua sem purga física (P12–P16);
+nenhum canal comercial real foi integrado.
 
 Não escolhe canal, provedor, preço, plano nem capability produtiva. Não trata
 de catálogo, disponibilidade e repasses: isso é o S13.2, que vem depois e se

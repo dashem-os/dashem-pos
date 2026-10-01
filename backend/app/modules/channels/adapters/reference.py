@@ -28,6 +28,7 @@ from app.modules.channels.contracts import (
     ChannelCapability, DeliveryOutcome, DeliveryResult, ExternalContact, ExternalEvent,
     ExternalEventKind, ExternalOrder, ExternalOrderLine, ExternalPaymentOrigin,
     IngressEnvelope, OutboundNotice, PayloadRejected, SignatureRejected, ValidationOutcome,
+    CatalogPublicationPayload, CatalogPublicationBatchResult, CatalogPublicationItemResult,
 )
 
 
@@ -88,6 +89,7 @@ class ReferenceChannelAdapter:
         ChannelCapability.ORDER_INGRESS,
         ChannelCapability.ORDER_EVENTS,
         ChannelCapability.ORDER_STATUS_OUTBOUND,
+        ChannelCapability.CATALOG_PUBLICATION,
     })
 
     # O canal simulado deduplica pelo identificador do aviso (E4). Vocabulário de
@@ -104,6 +106,44 @@ class ReferenceChannelAdapter:
 
     def confirm_notice(self, notice: OutboundNotice):
         return True
+
+    def publish_catalog(self, payload: CatalogPublicationPayload) -> CatalogPublicationBatchResult:
+        results = []
+        for item in payload.items:
+            # Simula rejeição controlada para testes se SKU ou título contiver "FAIL"
+            if (item.sku and "FAIL" in item.sku) or (item.title and "FAIL" in item.title):
+                results.append(CatalogPublicationItemResult(
+                    operation_key=item.operation_key,
+                    status="FAILED",
+                    error_code="ITEM_REJECTED",
+                    error_message=f"Simulated rejection for {item.sku or item.operation_key}",
+                ))
+            else:
+                results.append(CatalogPublicationItemResult(
+                    operation_key=item.operation_key,
+                    status="SUCCEEDED",
+                    provider_result_ref=f"ref-{item.operation_key}",
+                ))
+        return CatalogPublicationBatchResult(batch_id=payload.batch_id, results=tuple(results))
+
+    def check_catalog_status(
+        self, merchant_external_id: str, operation_keys: tuple[str, ...],
+    ) -> tuple[CatalogPublicationItemResult, ...]:
+        results = []
+        for key in operation_keys:
+            if "FAIL" in key:
+                results.append(CatalogPublicationItemResult(
+                    operation_key=key,
+                    status="FAILED",
+                    error_code="ITEM_REJECTED",
+                ))
+            else:
+                results.append(CatalogPublicationItemResult(
+                    operation_key=key,
+                    status="SUCCEEDED",
+                    provider_result_ref=f"ref-{key}",
+                ))
+        return tuple(results)
 
     def validate_connection(self, merchant_external_id: str) -> ValidationOutcome:
         if merchant_external_id and merchant_external_id.strip():

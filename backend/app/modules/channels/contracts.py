@@ -240,6 +240,56 @@ class OrderStatusOutbound(Protocol):
         ...
 
 
+@dataclass(frozen=True)
+class CatalogPublicationItemPayload:
+    operation_key: str
+    offer_id: str
+    product_id: str
+    desired_version: int
+    price: Decimal
+    available: bool
+    stock_quantity: Optional[Decimal] = None
+    sku: Optional[str] = None
+    title: Optional[str] = None
+    niche_attributes: Optional[Mapping] = None
+
+
+@dataclass(frozen=True)
+class CatalogPublicationPayload:
+    batch_id: str
+    snapshot_version: int
+    merchant_external_id: str
+    items: tuple[CatalogPublicationItemPayload, ...]
+
+
+@dataclass(frozen=True)
+class CatalogPublicationItemResult:
+    operation_key: str
+    status: str  # "SUCCEEDED" or "FAILED"
+    provider_result_ref: Optional[str] = None
+    error_code: Optional[str] = None
+    error_message: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class CatalogPublicationBatchResult:
+    batch_id: str
+    results: tuple[CatalogPublicationItemResult, ...]
+    code: Optional[str] = None
+
+
+class CatalogPublisher(Protocol):
+    def publish_catalog(self, payload: CatalogPublicationPayload) -> CatalogPublicationBatchResult:
+        """Publish a batch snapshot of catalog items to the channel."""
+        ...
+
+    def check_catalog_status(
+        self, merchant_external_id: str, operation_keys: tuple[str, ...],
+    ) -> tuple[CatalogPublicationItemResult, ...]:
+        """Query execution status of previously submitted operations (lost confirmation / resume)."""
+        ...
+
+
 def require(adapter: ChannelAdapter, capability: ChannelCapability) -> None:
     """Refuse to call what the adapter never declared (H11)."""
     if capability not in adapter.capabilities:

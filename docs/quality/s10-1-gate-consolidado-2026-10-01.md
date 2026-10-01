@@ -1,14 +1,14 @@
 # S10.1 — Gate Interno Consolidado do Channel Hub
 
-Data de consolidação: 01 de outubro de 2026  
-Status de Publicação: **D1/R11 PUBLICADA E CONFIRMADA EM PRODUÇÃO** (commit `4b5e312` e `9a6543c`, CI 36901102911 verde)  
-Decisão do Gate: **FECHAMENTO FORMAL PENDENTE DE AVALIAÇÃO DO DONO (GO PENDENTE)**  
-Fundamentação: A publicação funcional da migração 101 e a preservação de preços do canal (D1/R11) estão aprovadas e ativas. O fechamento formal do S10.1 aguarda validação das provas rigorosamente alinhadas nesta fatia delimitada:
-1. **R19:** Controle verdadeiro de idempotência por linha adicionado (implementação normal passa; quebra deliberada de identificação estável provoca duplicação que faz a mesma verificação reprovar), conservando o teste de commit prematuro como controle de atomicidade;
-2. **P8:** Comprovação estrita por comparação de snapshot de estado antes e depois da ingestão/atualização, incluindo registros prévios de CRM (`customers`), fidelidade (`customer_credit_policies`) e fiscal (`fiscal_documents`, `fiscal_events`), demonstrando isolamento em `channel_order_contacts`;
-3. **R20:** Evidência (`hom09-canais.json`) contendo `order_id` verificado na API, com separação explícita entre o exemplo da travessia (Chopp 500ml R$ 18,50) e os cenários de teste backend (diferenças de −R$ 2,00 e −R$ 3,50 com complementos e subsídios);
-4. **D2, D8 e concessões de D7:** Mantidas como **propostas NÃO APROVADAS para implementação**, expurgando contradições conceituais (eliminação de `OPEN` para tickets de produção, distinção entre notificações definitivas e solicitações negociáveis, separação de efeitos financeiros segundo iFood Financial API v2 e exigência de acesso assistido temporário e auditado para suporte);
-5. **Diagnóstico S13.2:** Ancorado nas entidades já existentes em `app/models/channel_catalog.py` (`ChannelCatalogOffer`, `ChannelPublicationBatch`, `ChannelPublicationItem`) e definição da relação com snapshot imutável, sem escrita prematura de código.
+Data de consolidação: 01 de outubro de 2026<br>
+Status de Publicação: **D1/R11 PUBLICADA E CONFIRMADA EM PRODUÇÃO** (commits `4b5e312`, `9a6543c` e `620169c`, CI 36916654695 verde nos 4 jobs)<br>
+Decisão do Gate: **S10.1 CONCLUÍDO NO GATE INTERNO FUNDACIONAL**<br>
+Fundamentação: A publicação funcional da migração 101 e a preservação de preços do canal (D1/R11) estão aprovadas, publicadas e ativas. O alinhamento das provas foi rigorosamente concluído e validado em CI verde (run 36916654695, 4 jobs):
+1. **R19:** Controle verdadeiro de idempotência por linha comprovado (implementação normal passa; mutante via monkeypatch no caminho de atualização cria item ativo duplicado mantendo original e reprova com AssertionError no detector comum `assert_active_lines_and_items`; substituição legítima com 2 ativos e 1 cancelado passa; duas linhas distintas do mesmo produto passam; controle de commit prematuro conservado separadamente como controle de atomicidade);
+2. **P8:** Comprovação estrita por comparação de snapshot de estado antes e depois da ingestão/atualização, incluindo registros prévios de CRM (`customers`), fidelidade/crédito (`customer_credit_policies`) e fiscal (`fiscal_documents`, `fiscal_events`), demonstrando ausência de mutação ou criação fora de `channel_order_contacts`;
+3. **R20:** Evidência regenerada com roteiro final (`hom09-canais.json` com timestamp `2026-10-01T19:41:34.529Z`), contendo `order_id` verificado na API (`d7210e9a-5d54-4552-952b-be771d928fdc`), 10 telas capturadas, 0 falhas, e separação explícita entre a travessia no navegador (Chopp R$ 18,50) e os cenários backend (−R$ 2,00 e −R$ 3,50 com complementos e subsídios);
+4. **D2, D8 e concessões de D7:** Mantidas como **propostas NÃO APROVADAS para implementação**, com contradições conceituais expurgadas (eliminação de `OPEN` para tickets de produção, distinção entre notificações definitivas e solicitações negociáveis, separação de efeitos financeiros segundo iFood Financial API v2 e exigência de acesso assistido temporário e auditado para suporte);
+5. **Diagnóstico S13.2:** Ancorado nas entidades existentes em `app/models/channel_catalog.py` (`ChannelCatalogOffer`, `ChannelPublicationBatch`, `ChannelPublicationItem`), separando snapshot de desired_version, frozen_payload e request_hash de content_hash.
 
 Conforme previsto na proposta original (§7, itens 7 a 9), permanecem expressas as seguintes pendências operacionais e etapas posteriores:
 1. **Retenção sem purga física:** P12–P16 pertencem à etapa posterior de purga (§7, item 9), a ser desenvolvida após a formalização do ciclo de backups (G2).
@@ -23,7 +23,8 @@ Conforme previsto na proposta original (§7, itens 7 a 9), permanecem expressas 
 
 1. **Repositório Git e Integração Contínua (CI):**
    - Commit de publicação inicial: [`4b5e312`](https://github.com/dashem-os/dashem-pos/commit/4b5e312e72b7fbbd189e6cbc64f569d035c21b1d) em `main` (CI 36861234960).
-   - Commit de consolidação probatória: [`9a6543c`](https://github.com/dashem-os/dashem-pos/commit/9a6543c80e1bbbe9635b71db3f05a1e285a8d462) em `main` (CI [36901102911](https://github.com/dashem-os/dashem-pos/actions/runs/36901102911) verde nos 4 jobs: Alembic 52s, Backend 3m40s, Frontend 23s, E2E 1m24s).
+   - Commit de consolidação probatória: [`9a6543c`](https://github.com/dashem-os/dashem-pos/commit/9a6543c80e1bbbe9635b71db3f05a1e285a8d462) em `main` (CI 36901102911).
+   - Commit de fechamento formal do gate: [`620169c`](https://github.com/dashem-os/dashem-pos/commit/620169c) em `main` (CI [36916654695](https://github.com/dashem-os/dashem-pos/actions/runs/36916654695) verde nos 4 jobs: Backend 4m4s, E2E 1m20s, Frontend 30s, Alembic 54s).
 2. **Deploy Frontend (Vercel):**
    - Deployments associados com estado `success` no target de produção.
    - URL de produção: `https://dashem-pos.vercel.app` (HTTP 200).

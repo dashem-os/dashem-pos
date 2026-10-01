@@ -80,8 +80,9 @@ def test_a_capability_that_was_never_declared_is_refused_not_called():
     assert error.value.capability == ChannelCapability.ORDER_INGRESS
     connector = reference.ReferenceChannelAdapter()
     require(connector, ChannelCapability.ORDER_INGRESS)
+    require(connector, ChannelCapability.CATALOG_PUBLICATION)
     with pytest.raises(CapabilityNotDeclared):
-        require(connector, ChannelCapability.CATALOG_PUBLICATION)
+        require(connector, ChannelCapability.SETTLEMENT_IMPORT)
 
 
 def test_the_signature_is_over_the_bytes_that_arrived():
