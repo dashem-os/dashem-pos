@@ -35,6 +35,7 @@ Valida os requisitos e as correções específicas do portão S13.2:
 """
 
 import concurrent.futures
+from datetime import datetime, timedelta
 import threading
 import uuid
 from decimal import Decimal
@@ -912,6 +913,10 @@ def test_queda_apos_envio_antes_da_confirmacao_retomada_consulta_sem_reenviar():
         assert batch_in_flight.status == PublicationStatusEnum.PROCESSING
         item_in_flight = session.exec(select(ChannelPublicationItem).where(ChannelPublicationItem.batch_id == batch_id)).first()
         assert item_in_flight.attempt_count == 1
+        # Simula expiração da concessão do executor que sofreu a queda
+        batch_in_flight.lease_expires_at = datetime.utcnow() - timedelta(seconds=1)
+        session.add(batch_in_flight)
+        session.commit()
 
     # 2. Retomada: consulta o conector via check_catalog_status, obtém o SUCCEEDED gravado pelo adaptador, e conclui!
     resumed = catalog_publisher.resume_publication(_session_factory, context.tenant_id, batch_id)
@@ -1097,3 +1102,446 @@ def test_tres_nichos_e_combinado_sem_imposicao_de_cozinha_ou_mesas():
             offer_final = session.get(ChannelCatalogOffer, offer_id)
             assert offer_final.published_version == 1
             assert offer_final.price == price
+
+
+# =========================================================================
+# GRUPO 1: Proteção da Concessão de Execução (Lease) e Retomada
+# =========================================================================
+
+def test_lease_a_perde_b_assume_a_atrasado_nao_apaga_b_nem_habilita_c():
+    """A perde a concessão; B assume; A retorna atrasado e não apaga a concessão de B nem habilita C.
+
+    Verifica contagem de despachos no conector e garante que executor atrasado recebe 409
+    sem alterar o lease_token nem permitir que um terceiro executor assuma indevidamente.
+    """
+    ReferenceChannelAdapter.reset_registry()
+    suffix = uuid.uuid4().hex[:8]
+    context, conn_id, user_id = _setup_fixture(suffix, RETAIL)
+
+    with _session_factory() as session:
+        offer, _ = _create_offer(session, context, conn_id, "Teclado Mecânico", f"KB-{suffix}", Decimal("220.00"))
+        res = catalog_publisher.prepare_batch(
+            session, context, connection_id=conn_id, offer_ids=[offer.id],
+            actor_id=user_id, idempotency_key=f"lease-abc-{suffix}",
+        )
+        batch_id = res["batch"].id
+
+    initial_dispatch_count = ReferenceChannelAdapter.get_dispatch_count()
+    assert initial_dispatch_count == 0
+
+    barrier_b_ready = threading.Event()
+    barrier_a_can_phase3 = threading.Event()
+    error_a = []
+    result_b = []
+    token_b_holder = []
+
+    def run_executor_a():
+        def on_before_phase3_a():
+            # A completou o envio ao conector (Fase 2)
+            # Simula expiração do lease de A no banco
+            with _session_factory() as s:
+                b = s.get(ChannelPublicationBatch, batch_id)
+                b.lease_expires_at = datetime.utcnow() - timedelta(seconds=1)
+                s.add(b)
+                s.commit()
+
+            # Sinaliza para B que o lease expirou e B pode assumir
+            barrier_b_ready.set()
+            # Aguarda B assumir antes de A tentar executar a Fase 3
+            barrier_a_can_phase3.wait(timeout=10)
+
+        try:
+            catalog_publisher.execute_publication(
+                _session_factory, context.tenant_id, batch_id,
+                on_before_phase3=on_before_phase3_a,
+            )
+        except Exception as e:
+            error_a.append(e)
+
+    def run_executor_b():
+        barrier_b_ready.wait(timeout=10)
+        def on_before_phase3_b():
+            with _session_factory() as s:
+                b = s.get(ChannelPublicationBatch, batch_id)
+                token_b_holder.append(b.lease_token)
+                assert b.lease_expires_at > datetime.utcnow()
+            barrier_a_can_phase3.set()
+            import time
+            time.sleep(0.5)
+
+        try:
+            r = catalog_publisher.execute_publication(
+                _session_factory, context.tenant_id, batch_id,
+                on_before_phase3=on_before_phase3_b,
+            )
+            result_b.append(r)
+        except Exception:
+            pass
+
+    t_a = threading.Thread(target=run_executor_a)
+    t_b = threading.Thread(target=run_executor_b)
+    t_a.start()
+    t_b.start()
+    t_a.join(timeout=15)
+    t_b.join(timeout=15)
+
+    # 1. A falhou com HTTP 409 pois perdeu a concessão para B
+    assert len(error_a) == 1
+    assert isinstance(error_a[0], HTTPException) and error_a[0].status_code == 409
+    assert "concessão" in error_a[0].detail.lower()
+
+    # 2. B completou com sucesso
+    assert len(result_b) == 1
+    assert result_b[0]["batch"].status == PublicationStatusEnum.SUCCEEDED
+
+    # 3. Teste do Executor C: enquanto B estiver ativo (ou com lease ativo), C não pode assumir
+    with _session_factory() as session:
+        offer2, _ = _create_offer(session, context, conn_id, "Mousepad Gamer", f"PAD-{suffix}", Decimal("45.00"))
+        res2 = catalog_publisher.prepare_batch(
+            session, context, connection_id=conn_id, offer_ids=[offer2.id],
+            actor_id=user_id, idempotency_key=f"lease-c-{suffix}",
+        )
+        batch2_id = res2["batch"].id
+        b2 = session.get(ChannelPublicationBatch, batch2_id)
+        b2.status = PublicationStatusEnum.PROCESSING
+        b2.lease_token = "token-b-active"
+        b2.lease_expires_at = datetime.utcnow() + timedelta(seconds=60)
+        session.add(b2)
+        session.commit()
+
+    with pytest.raises(HTTPException) as exc_c:
+        catalog_publisher.execute_publication(_session_factory, context.tenant_id, batch2_id)
+    assert exc_c.value.status_code == 409
+    assert "Lote já está sendo executado" in exc_c.value.detail
+
+
+def test_retomada_durante_execucao_ativa_nao_provoca_segundo_envio():
+    """Retomada durante execução ativa não provoca segundo envio e é rejeitada com 409."""
+    ReferenceChannelAdapter.reset_registry()
+    suffix = uuid.uuid4().hex[:8]
+    context, conn_id, user_id = _setup_fixture(suffix, FOOD_SERVICE)
+
+    with _session_factory() as session:
+        offer, _ = _create_offer(session, context, conn_id, "Hambúrguer Artesanal", f"BURGER-{suffix}", Decimal("38.00"))
+        res = catalog_publisher.prepare_batch(
+            session, context, connection_id=conn_id, offer_ids=[offer.id],
+            actor_id=user_id, idempotency_key=f"active-resume-{suffix}",
+        )
+        batch_id = res["batch"].id
+
+    initial_dispatches = ReferenceChannelAdapter.get_dispatch_count()
+    barrier_a_active = threading.Event()
+    barrier_resume_done = threading.Event()
+    resume_errors = []
+
+    def run_executor_a():
+        def on_before_phase3():
+            barrier_a_active.set()
+            barrier_resume_done.wait(timeout=10)
+
+        catalog_publisher.execute_publication(
+            _session_factory, context.tenant_id, batch_id,
+            on_before_phase3=on_before_phase3,
+        )
+
+    t_a = threading.Thread(target=run_executor_a)
+    t_a.start()
+
+    barrier_a_active.wait(timeout=10)
+
+    try:
+        catalog_publisher.resume_publication(_session_factory, context.tenant_id, batch_id)
+    except HTTPException as e:
+        resume_errors.append(e)
+    finally:
+        barrier_resume_done.set()
+        t_a.join(timeout=10)
+
+    assert len(resume_errors) == 1
+    assert resume_errors[0].status_code == 409
+    assert "concessão ativa" in resume_errors[0].detail.lower()
+
+    # Contagem exata de operações registradas: exatamente 1 (nenhum segundo despacho gerado)
+    final_dispatches = ReferenceChannelAdapter.get_dispatch_count()
+    assert final_dispatches == initial_dispatches + 1
+
+
+def test_retomada_apos_expiracao_consulta_antes_de_decidir_reenvio():
+    """Retomada após expiração consulta a operação junto ao conector antes de decidir pelo reenvio."""
+    ReferenceChannelAdapter.reset_registry()
+    suffix = uuid.uuid4().hex[:8]
+    context, conn_id, user_id = _setup_fixture(suffix, BEAUTY_RESELLER)
+
+    with _session_factory() as session:
+        offer, _ = _create_offer(session, context, conn_id, "Batom Hidratante Mate", f"BATOM-{suffix}", Decimal("29.90"))
+        res = catalog_publisher.prepare_batch(
+            session, context, connection_id=conn_id, offer_ids=[offer.id],
+            actor_id=user_id, idempotency_key=f"expired-resume-{suffix}",
+        )
+        batch_id = res["batch"].id
+
+    # 1. Executor A envia ao conector (conector persiste em SQLite), mas sofre crash antes de gravar no banco
+    with pytest.raises(RuntimeError):
+        catalog_publisher.execute_publication(
+            _session_factory, context.tenant_id, batch_id,
+            simulate_crash_before_confirmation=True,
+        )
+
+    # Conector recebeu 1 despacho
+    assert ReferenceChannelAdapter.get_dispatch_count() == 1
+
+    # 2. Simula expiração do lease
+    with _session_factory() as session:
+        b = session.get(ChannelPublicationBatch, batch_id)
+        b.lease_expires_at = datetime.utcnow() - timedelta(seconds=1)
+        session.add(b)
+        session.commit()
+
+    # 3. Retomada após expiração: consulta conector via check_catalog_status,
+    # recupera o SUCCEEDED gravado, e conclui o lote SEM efetuar segundo envio!
+    resumed = catalog_publisher.resume_publication(_session_factory, context.tenant_id, batch_id)
+    assert resumed["batch"].status == PublicationStatusEnum.SUCCEEDED
+
+    # O contador de despachos no conector permanece ESTRITAMENTE 1 (nenhum reenvio ocorreu)
+    assert ReferenceChannelAdapter.get_dispatch_count() == 1
+
+
+# =========================================================================
+# GRUPO 2: Monotonicidade com Identity Map Stale e Proteção contra Falhas Tardias
+# =========================================================================
+
+def test_session_stale_identity_map_populate_existing_mantem_versao_mais_nova():
+    """Session A mantém oferta em cache na versão 0; Session B confirma versão 2; A aplica confirmação antiga de versão 1.
+
+    Graças ao populate_existing=True nos bloqueios ordenados, a sessão A recarrega a versão 2 do banco
+    e não regride para a versão 1.
+    """
+    suffix = uuid.uuid4().hex[:8]
+    context, conn_id, user_id = _setup_fixture(suffix, RETAIL)
+
+    with _session_factory() as session:
+        offer, _ = _create_offer(session, context, conn_id, "Monitor LED 24", f"MON-{suffix}", Decimal("650.00"))
+        offer_id = offer.id
+
+    session_a = _session_factory()
+    try:
+        offer_in_a = session_a.get(ChannelCatalogOffer, offer_id)
+        assert offer_in_a.published_version == 0
+
+        # Session B altera no banco para published_version = 2 e commita
+        with _session_factory() as session_b:
+            offer_in_b = session_b.get(ChannelCatalogOffer, offer_id)
+            offer_in_b.published_version = 2
+            offer_in_b.last_publication_status = PublicationItemStatusEnum.SUCCEEDED
+            session_b.add(offer_in_b)
+            session_b.commit()
+
+        # Session A prepara lote com item de versão 1
+        prep = catalog_publisher.prepare_batch(
+            session_a, context, connection_id=conn_id, offer_ids=[offer_id],
+            actor_id=user_id, idempotency_key=f"stale-{suffix}",
+        )
+        batch = prep["batch"]
+        item = prep["items"][0]
+        item.desired_version = 1
+        session_a.add(item)
+        session_a.commit()
+
+        items_map = {item.provider_operation_key: item}
+        old_result = [
+            CatalogPublicationItemResult(
+                operation_key=item.provider_operation_key,
+                status="SUCCEEDED",
+                provider_result_ref=f"ref-v1-{suffix}",
+            )
+        ]
+
+        # Aplica na Session A: populate_existing=True garante que offer_in_a veja version=2 e não regrida para 1
+        catalog_publisher.apply_item_results_to_offers(session_a, batch, items_map, old_result)
+        session_a.commit()
+    finally:
+        session_a.close()
+
+    with _session_factory() as session_check:
+        offer_final = session_check.get(ChannelCatalogOffer, offer_id)
+        assert offer_final.published_version == 2
+        assert offer_final.last_publication_status == PublicationItemStatusEnum.SUCCEEDED
+
+
+def test_falha_tardia_via_apply_results_mantem_item_lote_e_oferta_coerentes():
+    """Após sucesso confirmado, falha tardia pelo caminho legado apply_results mantém item, lote e oferta coerentes."""
+    suffix = uuid.uuid4().hex[:8]
+    context, conn_id, user_id = _setup_fixture(suffix, BEAUTY_RESELLER)
+
+    with _session_factory() as session:
+        offer, _ = _create_offer(session, context, conn_id, "Perfume Floral 100ml", f"PERF-{suffix}", Decimal("180.00"))
+        offer_id = offer.id
+        prep = catalog_publisher.prepare_batch(
+            session, context, connection_id=conn_id, offer_ids=[offer.id],
+            actor_id=user_id, idempotency_key=f"late-fail-{suffix}",
+        )
+        batch_id = prep["batch"].id
+
+    # 1. Publica com sucesso
+    exec_res = catalog_publisher.execute_publication(_session_factory, context.tenant_id, batch_id)
+    assert exec_res["batch"].status == PublicationStatusEnum.SUCCEEDED
+    assert exec_res["items"][0].status == PublicationItemStatusEnum.SUCCEEDED
+
+    with _session_factory() as session:
+        off = session.get(ChannelCatalogOffer, offer_id)
+        assert off.published_version == 1
+        assert off.last_publication_status == PublicationItemStatusEnum.SUCCEEDED
+
+    # 2. Chegada de falha tardia via apply_results legado
+    with _session_factory() as session:
+        legacy_res = channel_catalog_service.apply_results(
+            session, context, batch_id,
+            [{"offer_id": str(offer_id), "success": False, "error_code": "LATE_TIMEOUT", "error_message": "Timeout atrasado"}],
+            user_id,
+        )
+        assert legacy_res["batch"].status == PublicationStatusEnum.SUCCEEDED
+        assert legacy_res["items"][0].status == PublicationItemStatusEnum.SUCCEEDED
+
+    # 3. No banco, oferta, lote e item continuam rigorosamente em SUCCEEDED
+    with _session_factory() as session:
+        off_check = session.get(ChannelCatalogOffer, offer_id)
+        assert off_check.published_version == 1
+        assert off_check.last_publication_status == PublicationItemStatusEnum.SUCCEEDED
+
+        batch_check = session.get(ChannelPublicationBatch, batch_id)
+        assert batch_check.status == PublicationStatusEnum.SUCCEEDED
+
+        item_check = session.exec(select(ChannelPublicationItem).where(ChannelPublicationItem.batch_id == batch_id)).first()
+        assert item_check.status == PublicationItemStatusEnum.SUCCEEDED
+
+
+# =========================================================================
+# GRUPO 3: Conector de Referência SQLite Durável entre Processos Distintos
+# =========================================================================
+
+def test_conector_referencia_registro_sqlite_duravel_entre_processos(tmp_path):
+    """Prova envio e consulta em processos separados reutilizando armazenamento SQLite compartilhado."""
+    import subprocess, sys
+    sqlite_db_path = str(tmp_path / "reference_shared.db").replace("\\", "/")
+    merchant_id = f"merch-{uuid.uuid4().hex[:6]}"
+    op_key = f"op-{uuid.uuid4().hex[:6]}"
+
+    script_p1 = f"""
+import os, sys
+os.environ["REFERENCE_CONNECTOR_DB_PATH"] = "{sqlite_db_path}"
+sys.path.insert(0, ".")
+from app.modules.channels.adapters.reference import ReferenceChannelAdapter
+from app.modules.channels.contracts import CatalogPublicationPayload, CatalogPublicationItemPayload
+
+adapter = ReferenceChannelAdapter()
+payload = CatalogPublicationPayload(
+    batch_id="batch-p1",
+    snapshot_version=1,
+    merchant_external_id="{merchant_id}",
+    items=(
+        CatalogPublicationItemPayload(
+            operation_key="{op_key}",
+            offer_id="off-1",
+            product_id="prod-1",
+            desired_version=1,
+            price="49.90",
+            available=True,
+            stock_quantity="10",
+            sku="SKU-P1",
+            title="Produto Processo 1",
+        ),
+    ),
+)
+res = adapter.publish_catalog(payload)
+assert res.results[0].status == "SUCCEEDED"
+assert res.results[0].provider_result_ref == "ref-{op_key}"
+print("P1_SUCCESS")
+"""
+    p1 = subprocess.run(
+        [sys.executable, "-c", script_p1],
+        capture_output=True, text=True, cwd=".",
+    )
+    assert p1.returncode == 0, f"Processo 1 falhou: {p1.stderr}"
+    assert "P1_SUCCESS" in p1.stdout
+
+    script_p2 = f"""
+import os, sys
+os.environ["REFERENCE_CONNECTOR_DB_PATH"] = "{sqlite_db_path}"
+sys.path.insert(0, ".")
+from app.modules.channels.adapters.reference import ReferenceChannelAdapter
+
+adapter = ReferenceChannelAdapter()
+recovered = adapter.check_catalog_status("{merchant_id}", ("{op_key}",))
+assert len(recovered) == 1
+assert recovered[0].status == "SUCCEEDED"
+assert recovered[0].provider_result_ref == "ref-{op_key}"
+print("P2_RECOVERED")
+"""
+    p2 = subprocess.run(
+        [sys.executable, "-c", script_p2],
+        capture_output=True, text=True, cwd=".",
+    )
+    assert p2.returncode == 0, f"Processo 2 falhou: {p2.stderr}"
+    assert "P2_RECOVERED" in p2.stdout
+
+
+def test_conector_referencia_reenvio_mesmo_conteudo_recupera_e_recusa_divergente(tmp_path):
+    """Reenvio de operação já confirmada com mesmo conteúdo recupera sucesso (sem sobrescrever por falha posterior);
+    conteúdo divergente com mesma chave é recusado com DIVERGENT_CONTENT.
+    """
+    import os
+    sqlite_db_path = str(tmp_path / "reference_idempotency.db").replace("\\", "/")
+    old_env = os.environ.get("REFERENCE_CONNECTOR_DB_PATH")
+    os.environ["REFERENCE_CONNECTOR_DB_PATH"] = sqlite_db_path
+    try:
+        ReferenceChannelAdapter.reset_registry()
+        adapter = ReferenceChannelAdapter()
+        merchant_id = "merch-idem"
+        op_key = f"op-idem-{uuid.uuid4().hex[:6]}"
+
+        def make_payload(title, price):
+            from app.modules.channels.contracts import CatalogPublicationPayload, CatalogPublicationItemPayload
+            return CatalogPublicationPayload(
+                batch_id="batch-idem",
+                snapshot_version=1,
+                merchant_external_id=merchant_id,
+                items=(
+                    CatalogPublicationItemPayload(
+                        operation_key=op_key,
+                        offer_id="off-idem",
+                        product_id="prod-idem",
+                        desired_version=1,
+                        price=price,
+                        available=True,
+                        stock_quantity="5",
+                        sku="SKU-IDEM",
+                        title=title,
+                    ),
+                ),
+            )
+
+        # 1. Primeiro envio -> SUCCEEDED
+        p1 = make_payload("Perfume Âmbar", "150.00")
+        res1 = adapter.publish_catalog(p1)
+        assert res1.results[0].status == "SUCCEEDED"
+        assert res1.results[0].provider_result_ref == f"ref-{op_key}"
+
+        # 2. Configura falha posterior para esta chave
+        ReferenceChannelAdapter.simulate_failure(op_key, error_code="BLOCKED_POSTERIOR", merchant_external_id=merchant_id)
+
+        # 3. Reenvio com o MESMO conteúdo: não pode ser sobrescrito pela falha configurada depois!
+        # Deve recuperar o SUCCEEDED original
+        res2 = adapter.publish_catalog(p1)
+        assert res2.results[0].status == "SUCCEEDED"
+        assert res2.results[0].provider_result_ref == f"ref-{op_key}"
+
+        # 4. Envio com CONTEÚDO DIVERGENTE para a mesma chave: deve ser recusado
+        p_divergent = make_payload("Perfume Cítrico Alterado", "99.00")
+        res_div = adapter.publish_catalog(p_divergent)
+        assert res_div.results[0].status == "FAILED"
+        assert res_div.results[0].error_code == "DIVERGENT_CONTENT"
+    finally:
+        if old_env is not None:
+            os.environ["REFERENCE_CONNECTOR_DB_PATH"] = old_env
+        else:
+            os.environ.pop("REFERENCE_CONNECTOR_DB_PATH", None)

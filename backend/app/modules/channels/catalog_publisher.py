@@ -27,6 +27,7 @@ Implementa a primeira fatia fundacional do publicador de catálogo:
 
 import hashlib
 import json
+import logging
 import uuid
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -51,6 +52,8 @@ from app.modules.channels.contracts import (
 )
 from app.modules.channels.registry import adapter_for
 from app.services import reliability_service
+
+logger = logging.getLogger("dashem.channel_catalog")
 
 
 def _serialize_for_hash(data: Any) -> str:
@@ -359,12 +362,14 @@ def apply_item_results_to_offers(
 
     Regras canônicas unificadas (execute_publication, resume_publication, apply_results):
     1. Valida correspondência de cada resultado a um item existente do lote.
-    2. Adquire locks ordenados sobre as ofertas envolvidas (ORDER BY id FOR UPDATE).
+    2. Adquire locks ordenados sobre as ofertas envolvidas (ORDER BY id FOR UPDATE),
+       atualizando o identity map da sessão (populate_existing=True).
     3. Atualização estritamente monotônica:
        - Confirmação de versão antiga não sobrescreve versão nova já confirmada.
        - Falha antiga não sobrescreve status de sucesso já confirmado para versão igual ou posterior.
+       - Falha tardia não rebaixa item ou lote já confirmado com SUCCEEDED.
        - Apenas versão estritamente mais recente ou versão igual atualizam published_version e status.
-    4. Recalcula o status do lote (SUCCEEDED, FAILED, PARTIAL).
+    4. Recalcula o status do lote (preservando SUCCEEDED caso já confirmado).
     """
     now = datetime.utcnow()
 
@@ -378,7 +383,7 @@ def apply_item_results_to_offers(
         matched_entries.append((item, res))
 
     if matched_entries:
-        # 2. Bloqueio ordenado das ofertas envolvidas (evita deadlocks)
+        # 2. Bloqueio ordenado das ofertas envolvidas com recarga do identity map
         distinct_offer_ids = sorted(list({item.offer_id for item, _ in matched_entries}))
         offers = list(
             session.exec(
@@ -386,6 +391,7 @@ def apply_item_results_to_offers(
                 .where(ChannelCatalogOffer.id.in_(distinct_offer_ids))
                 .order_by(ChannelCatalogOffer.id)
                 .with_for_update()
+                .execution_options(populate_existing=True)
             ).all()
         )
         offers_by_id = {o.id: o for o in offers}
@@ -406,13 +412,23 @@ def apply_item_results_to_offers(
                         offer.published_version = item.desired_version
                         offer.last_publication_status = PublicationItemStatusEnum.SUCCEEDED
                         offer.updated_at = now
+                        session.add(offer)
                     elif item.desired_version == offer.published_version:
                         offer.last_publication_status = PublicationItemStatusEnum.SUCCEEDED
                         offer.updated_at = now
+                        session.add(offer)
                     else:
                         # Confirmação atrasada de versão antiga: não regride versão nem sucesso atual!
                         pass
             elif res.status == "FAILED":
+                # Proteção estrita: sucesso confirmado não é revertido por falha tardia!
+                if item.status == PublicationItemStatusEnum.SUCCEEDED:
+                    logger.warning(
+                        "Falha tardia ignorada para item %s (chave: %s) já confirmado com sucesso na versão %s.",
+                        item.id, item.provider_operation_key, item.desired_version,
+                    )
+                    continue
+
                 item.status = PublicationItemStatusEnum.FAILED
                 item.error_code = res.error_code or "PROVIDER_REJECTED"
                 item.error_message = res.error_message
@@ -421,23 +437,29 @@ def apply_item_results_to_offers(
                     if item.desired_version > offer.published_version:
                         offer.last_publication_status = PublicationItemStatusEnum.FAILED
                         offer.updated_at = now
+                        session.add(offer)
                     elif item.desired_version == offer.published_version:
                         # Se a oferta já alcançou SUCCEEDED para esta versão, falha atrasada não desfaz o sucesso!
                         if offer.last_publication_status != PublicationItemStatusEnum.SUCCEEDED:
                             offer.last_publication_status = PublicationItemStatusEnum.FAILED
                             offer.updated_at = now
+                            session.add(offer)
                     else:
                         # Falha de versão anterior ignorada na oferta pois versão posterior já está vigente
                         pass
 
-    # 4. Recalcular status do lote
-    all_items = list(items_map.values())
-    if all(i.status == PublicationItemStatusEnum.SUCCEEDED for i in all_items):
-        batch.status = PublicationStatusEnum.SUCCEEDED
-    elif all(i.status == PublicationItemStatusEnum.FAILED for i in all_items):
-        batch.status = PublicationStatusEnum.FAILED
+    # 4. Recalcular status do lote (preservando SUCCEEDED se já confirmado)
+    if batch.status == PublicationStatusEnum.SUCCEEDED:
+        # Lote já confirmado com sucesso: falha tardia não desfaz o status do lote!
+        pass
     else:
-        batch.status = PublicationStatusEnum.PARTIAL
+        all_items = list(items_map.values())
+        if all(i.status == PublicationItemStatusEnum.SUCCEEDED for i in all_items):
+            batch.status = PublicationStatusEnum.SUCCEEDED
+        elif all(i.status == PublicationItemStatusEnum.FAILED for i in all_items):
+            batch.status = PublicationStatusEnum.FAILED
+        else:
+            batch.status = PublicationStatusEnum.PARTIAL
 
     batch.updated_at = now
 
@@ -447,18 +469,21 @@ def execute_publication(
     tenant_id: uuid.UUID,
     batch_id: uuid.UUID,
     *,
+    lease_token: Optional[str] = None,
     simulate_network_failure: bool = False,
     omit_operation_keys: Sequence[str] = (),
     simulate_crash_before_confirmation: bool = False,
+    on_before_phase3: Optional[Callable[[], None]] = None,
 ) -> dict:
     """Executa o envio do lote ao canal respeitando estritamente:
 
-    1. Aquisição durável de execução (lease com expiração) impedindo múltiplos executores simultâneos.
-    2. Registro de tentativa gravado no banco ANTES de qualquer chamada de rede.
-    3. Validação estrita do snapshot congelado (lotes legados sem snapshot rejeitados com 422).
-    4. Chamadas de rede executadas FORA de transações abertas do banco (zero conexões retidas no pool).
-    5. Preservação de operation_keys já armazenadas no banco (inclusive prefixos legados).
-    6. Atualização monotônica com bloqueios ordenados via apply_item_results_to_offers.
+    1. Aquisição durável de execução (lease com expiração e token) impedindo múltiplos executores simultâneos.
+    2. Verificação do lease_token sob bloqueio antes de qualquer alteração de estado ou liberação.
+    3. Registro de tentativa gravado no banco ANTES de qualquer chamada de rede.
+    4. Validação estrita do snapshot congelado (lotes legados sem snapshot rejeitados com 422).
+    5. Chamadas de rede executadas FORA de transações abertas do banco (zero conexões retidas no pool).
+    6. Preservação de operation_keys já armazenadas no banco (inclusive prefixos legados).
+    7. Atualização monotônica com bloqueios ordenados e populate_existing=True via apply_item_results_to_offers.
 
     NOTA DE ARQUITETURA:
     O lease durável protege contra corridas concorrentes locais no Dashem POS. Contudo,
@@ -476,6 +501,7 @@ def execute_publication(
                 ChannelPublicationBatch.tenant_id == tenant_id,
             )
             .with_for_update()
+            .execution_options(populate_existing=True)
         ).first()
         if not batch:
             raise HTTPException(404, "Lote não encontrado.")
@@ -486,11 +512,15 @@ def execute_publication(
         now = datetime.utcnow()
 
         # Proteção de lease durável contra executores concorrentes
-        if batch.status == PublicationStatusEnum.PROCESSING and batch.lease_expires_at and batch.lease_expires_at > now:
-            raise HTTPException(409, "Lote já está sendo executado por outro processo.")
+        if batch.lease_expires_at and batch.lease_expires_at > now:
+            if lease_token and batch.lease_token == lease_token:
+                # Mesmo executor autorizado (ex.: continuação pela retomada)
+                pass
+            else:
+                raise HTTPException(409, "Lote já está sendo executado por outro processo.")
 
-        lease_token = uuid.uuid4().hex
-        batch.lease_token = lease_token
+        active_token = lease_token or uuid.uuid4().hex
+        batch.lease_token = active_token
         batch.lease_expires_at = now + timedelta(seconds=60)
         batch.status = PublicationStatusEnum.PROCESSING
         batch.updated_at = now
@@ -504,6 +534,8 @@ def execute_publication(
                 select(ChannelPublicationItem)
                 .where(ChannelPublicationItem.batch_id == batch.id)
                 .order_by(ChannelPublicationItem.created_at)
+                .with_for_update()
+                .execution_options(populate_existing=True)
             ).all()
         )
 
@@ -567,12 +599,15 @@ def execute_publication(
         except Exception:
             batch_result = None
 
+    if on_before_phase3:
+        on_before_phase3()
+
     if simulate_crash_before_confirmation:
         # Simula crash do executor após o envio ao canal e antes de gravar a confirmação no banco
         raise RuntimeError("Crash simulado do executor antes da gravação da confirmação.")
 
     # =========================================================================
-    # FASE 3: Transação Local 2 (Aplicação monotônica e liberação do lease)
+    # FASE 3: Transação Local 2 (Aplicação monotônica e liberação do lease sob conferência)
     # =========================================================================
     with session_factory() as session:
         batch = session.exec(
@@ -582,9 +617,24 @@ def execute_publication(
                 ChannelPublicationBatch.tenant_id == tenant_id,
             )
             .with_for_update()
+            .execution_options(populate_existing=True)
         ).first()
+        if not batch:
+            raise HTTPException(404, "Lote não encontrado.")
 
-        # Libera o lease durável após conclusão da tentativa
+        # VERIFICAÇÃO ESTRITA DO LEASE:
+        # Se o lease_token atual difere do active_token deste executor,
+        # a concessão expirou e outro executor assumiu.
+        # Este executor atrasado NÃO pode apagar a concessão de outro nem sobrescrever o lote!
+        if batch.lease_token != active_token:
+            logger.warning(
+                "Executor atrasado perdeu concessão do lote %s (esperado: %s, atual: %s).",
+                batch.id, active_token, batch.lease_token,
+            )
+            session.rollback()
+            raise HTTPException(409, "A concessão de execução deste lote expirou e foi assumida por outro executor.")
+
+        # Libera o lease durável após conclusão da tentativa sob titularidade comprovada
         batch.lease_token = None
         batch.lease_expires_at = None
 
@@ -599,7 +649,10 @@ def execute_publication(
         items_map = {
             i.provider_operation_key: i
             for i in session.exec(
-                select(ChannelPublicationItem).where(ChannelPublicationItem.batch_id == batch.id)
+                select(ChannelPublicationItem)
+                .where(ChannelPublicationItem.batch_id == batch.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
             ).all()
         }
 
@@ -615,22 +668,36 @@ def resume_publication(
 ) -> dict:
     """Retoma um lote de publicação interrompido ou com falhas parciais.
 
-    1. Identifica itens pendentes ou não sucedidos.
-    2. Consulta itens pendentes junto ao conector via `check_catalog_status`
+    1. Bloqueia o lote e verifica se outro executor mantém concessão ativa (409 se ativo).
+    2. Adquire concessão durável para a retomada (impede múltiplos executores concorrentes).
+    3. Consulta itens pendentes junto ao conector via `check_catalog_status`
        usando a `provider_operation_key` estável (cenário de confirmação perdida).
-    3. Aplica confirmações registradas via `apply_item_results_to_offers` com bloqueios ordenados.
-    4. Se restarem itens não resolvidos/pendentes, executa reenvio com `execute_publication`.
+    4. Aplica confirmações registradas via `apply_item_results_to_offers` com bloqueios ordenados
+       e populate_existing=True.
+    5. Se todos os itens foram solucionados, conclui como SUCCEEDED sem reenvio ao conector.
+    6. Se restarem itens não resolvidos/pendentes, executa reenvio com `execute_publication`
+       preservando a concessão adquirida.
     """
-    # Etapa 1: Identificar itens não sucedidos
+    # Etapa 1: Identificar itens não sucedidos e adquirir concessão da retomada sob lock
     with session_factory() as session:
         batch = session.exec(
             select(ChannelPublicationBatch).where(
                 ChannelPublicationBatch.id == batch_id,
                 ChannelPublicationBatch.tenant_id == tenant_id,
             )
+            .with_for_update()
+            .execution_options(populate_existing=True)
         ).first()
-        if not batch or batch.status == PublicationStatusEnum.SUCCEEDED:
-            return batch_projection(session, batch) if batch else {}
+        if not batch:
+            raise HTTPException(404, "Lote não encontrado.")
+
+        if batch.status == PublicationStatusEnum.SUCCEEDED:
+            return batch_projection(session, batch)
+
+        now = datetime.utcnow()
+        # A retomada não pode habilitar reenvio enquanto outro executor mantém concessão válida ativa
+        if batch.lease_expires_at and batch.lease_expires_at > now:
+            raise HTTPException(409, "Lote já está sendo executado por outro processo (concessão ativa).")
 
         conn = session.get(MerchantConnection, batch.merchant_connection_id)
         items = list(
@@ -639,6 +706,8 @@ def resume_publication(
                     ChannelPublicationItem.batch_id == batch.id,
                     ChannelPublicationItem.status != PublicationItemStatusEnum.SUCCEEDED,
                 )
+                .with_for_update()
+                .execution_options(populate_existing=True)
             ).all()
         )
         if not items:
@@ -648,9 +717,17 @@ def resume_publication(
             session.commit()
             return batch_projection(session, batch)
 
+        # Adquire concessão para a retomada protegendo contra novos despachos concorrentes
+        resume_token = uuid.uuid4().hex
+        batch.lease_token = resume_token
+        batch.lease_expires_at = now + timedelta(seconds=60)
+        batch.status = PublicationStatusEnum.PROCESSING
+        batch.updated_at = now
+
         unresolved_keys = [i.provider_operation_key for i in items]
         provider_code = conn.provider_code
         merchant_ext_id = conn.merchant_external_id
+        session.commit()
 
     # Etapa 2: Consultar conector FORA de transação aberta
     adapter = adapter_for(provider_code)
@@ -665,27 +742,49 @@ def resume_publication(
 
     # Etapa 3: Aplicar confirmações efetivamente registradas (ignora UNKNOWN / não encontradas)
     conclusive_results = [r for r in recovered_results if r.status in ("SUCCEEDED", "FAILED")]
-    if conclusive_results:
-        with session_factory() as session:
-            batch = session.exec(
-                select(ChannelPublicationBatch).where(
-                    ChannelPublicationBatch.id == batch_id,
-                    ChannelPublicationBatch.tenant_id == tenant_id,
-                ).with_for_update()
-            ).first()
+    with session_factory() as session:
+        batch = session.exec(
+            select(ChannelPublicationBatch).where(
+                ChannelPublicationBatch.id == batch_id,
+                ChannelPublicationBatch.tenant_id == tenant_id,
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        ).first()
+        if not batch:
+            raise HTTPException(404, "Lote não encontrado.")
 
+        # Confere se a concessão da retomada ainda pertence a esta execução
+        if batch.lease_token != resume_token:
+            session.rollback()
+            raise HTTPException(409, "A concessão da retomada expirou e foi assumida por outro executor.")
+
+        if conclusive_results:
             items_map = {
                 i.provider_operation_key: i
                 for i in session.exec(
                     select(ChannelPublicationItem).where(ChannelPublicationItem.batch_id == batch_id)
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
                 ).all()
             }
-
             apply_item_results_to_offers(session, batch, items_map, conclusive_results)
+
+        # Checa se todos os itens foram concluídos com sucesso após a aplicação da consulta
+        all_items = list(
+            session.exec(
+                select(ChannelPublicationItem).where(ChannelPublicationItem.batch_id == batch_id)
+                .execution_options(populate_existing=True)
+            ).all()
+        )
+        if all(it.status == PublicationItemStatusEnum.SUCCEEDED for it in all_items):
+            batch.status = PublicationStatusEnum.SUCCEEDED
+            batch.lease_token = None
+            batch.lease_expires_at = None
             session.commit()
+            return batch_projection(session, batch)
 
-            if batch.status == PublicationStatusEnum.SUCCEEDED:
-                return batch_projection(session, batch)
+        session.commit()
 
-    # Etapa 4: Executar reenvio para qualquer item que ainda reste não sucedido
-    return execute_publication(session_factory, tenant_id, batch_id)
+    # Etapa 4: Se restarem itens pendentes, executa reenvio preservando o token da concessão
+    return execute_publication(session_factory, tenant_id, batch_id, lease_token=resume_token)

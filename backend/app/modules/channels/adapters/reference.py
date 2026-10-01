@@ -19,6 +19,9 @@ exceções leve o valor a um log (H17).
 import hashlib
 import hmac
 import json
+import os
+import sqlite3
+import tempfile
 import threading
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
@@ -82,6 +85,43 @@ def _mapping(value, code: str) -> Mapping:
     return value
 
 
+DEFAULT_REFERENCE_DB_PATH = os.path.join(tempfile.gettempdir(), "dashem_reference_connector.db")
+
+
+def _get_reference_db_path() -> str:
+    return os.getenv("REFERENCE_CONNECTOR_DB_PATH", DEFAULT_REFERENCE_DB_PATH)
+
+
+def _init_sqlite_db(path: str) -> None:
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    with sqlite3.connect(path, timeout=30.0) as conn:
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS reference_catalog_dispatches (
+                merchant_external_id TEXT NOT NULL,
+                operation_key TEXT NOT NULL,
+                content_hash TEXT NOT NULL,
+                status TEXT NOT NULL,
+                provider_result_ref TEXT,
+                error_code TEXT,
+                error_message TEXT,
+                payload_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (merchant_external_id, operation_key)
+            );
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS reference_simulated_failures (
+                merchant_external_id TEXT NOT NULL,
+                operation_key TEXT NOT NULL,
+                error_code TEXT NOT NULL,
+                error_message TEXT NOT NULL,
+                PRIMARY KEY (merchant_external_id, operation_key)
+            );
+        """)
+        conn.commit()
+
+
 class ReferenceChannelAdapter:
     provider_code = PROVIDER_CODE
     parser_version = PARSER_VERSION
@@ -100,18 +140,17 @@ class ReferenceChannelAdapter:
         "ORDER_ACCEPTED", "ORDER_READY", "ORDER_DISPATCHED", "ORDER_CONCLUDED", "ORDER_CANCELLED",
     })
 
-    # Registro de envios efetivamente recebidos compartilhado entre instâncias (persiste em memória durante execução):
-    # Chave: (merchant_external_id, operation_key) -> dict com dados do item e resultado registrado
-    _registry: dict[tuple[str, str], dict[str, Any]] = {}
-    _simulated_failures: dict[tuple[str, str], tuple[str, str]] = {}
     _registry_lock = threading.Lock()
 
     @classmethod
-    def reset_registry(cls) -> None:
-        """Limpa o registro de envios e as falhas simuladas (isolamento de testes)."""
-        with cls._registry_lock:
-            cls._registry.clear()
-            cls._simulated_failures.clear()
+    def reset_registry(cls, db_path: Optional[str] = None) -> None:
+        """Limpa o registro durável de envios e as falhas simuladas (isolamento de testes)."""
+        path = db_path or _get_reference_db_path()
+        _init_sqlite_db(path)
+        with cls._registry_lock, sqlite3.connect(path, timeout=30.0) as conn:
+            conn.execute("DELETE FROM reference_catalog_dispatches")
+            conn.execute("DELETE FROM reference_simulated_failures")
+            conn.commit()
 
     @classmethod
     def simulate_failure(
@@ -121,10 +160,33 @@ class ReferenceChannelAdapter:
         error_message: str = "Simulated rejection",
         merchant_external_id: Optional[str] = None,
     ) -> None:
-        """Configura falha deliberada para uma chave de operação sem depender de padrão textual."""
-        with cls._registry_lock:
+        """Configura falha deliberada para uma chave de operação gravada de forma durável."""
+        db_path = _get_reference_db_path()
+        _init_sqlite_db(db_path)
+        with cls._registry_lock, sqlite3.connect(db_path, timeout=30.0) as conn:
             target_merchant = merchant_external_id or "*"
-            cls._simulated_failures[(target_merchant, operation_key)] = (error_code, error_message)
+            conn.execute(
+                "INSERT OR REPLACE INTO reference_simulated_failures "
+                "(merchant_external_id, operation_key, error_code, error_message) VALUES (?, ?, ?, ?)",
+                (target_merchant, operation_key, error_code, error_message),
+            )
+            conn.commit()
+
+    @classmethod
+    def get_dispatch_count(cls, merchant_external_id: Optional[str] = None) -> int:
+        """Retorna contagem de operações registradas no armazenamento durável."""
+        db_path = _get_reference_db_path()
+        _init_sqlite_db(db_path)
+        with cls._registry_lock, sqlite3.connect(db_path, timeout=30.0) as conn:
+            cur = conn.cursor()
+            if merchant_external_id:
+                cur.execute(
+                    "SELECT count(*) FROM reference_catalog_dispatches WHERE merchant_external_id = ?",
+                    (merchant_external_id,),
+                )
+            else:
+                cur.execute("SELECT count(*) FROM reference_catalog_dispatches")
+            return cur.fetchone()[0]
 
     def send_notice(self, notice: OutboundNotice) -> DeliveryOutcome:
         if notice.message_type not in self.supported_notice_types:
@@ -135,50 +197,123 @@ class ReferenceChannelAdapter:
         return True
 
     def publish_catalog(self, payload: CatalogPublicationPayload) -> CatalogPublicationBatchResult:
+        db_path = _get_reference_db_path()
+        _init_sqlite_db(db_path)
         results = []
-        with self._registry_lock:
+
+        with self._registry_lock, sqlite3.connect(db_path, timeout=30.0) as conn:
+            cur = conn.cursor()
             for item in payload.items:
-                # Verifica regra de falha explícita para esta operação/merchant
-                fail_spec = self._simulated_failures.get((payload.merchant_external_id, item.operation_key)) or \
-                            self._simulated_failures.get(("*", item.operation_key))
-
-                if fail_spec:
-                    err_code, err_msg = fail_spec
-                    res = CatalogPublicationItemResult(
-                        operation_key=item.operation_key,
-                        status="FAILED",
-                        error_code=err_code,
-                        error_message=err_msg,
-                    )
-                else:
-                    res = CatalogPublicationItemResult(
-                        operation_key=item.operation_key,
-                        status="SUCCEEDED",
-                        provider_result_ref=f"ref-{item.operation_key}",
-                    )
-
-                # Registra o envio efetivamente recebido
-                self._registry[(payload.merchant_external_id, item.operation_key)] = {
-                    "merchant": payload.merchant_external_id,
-                    "operation_key": item.operation_key,
-                    "item": item,
-                    "result": res,
+                item_dict = {
+                    "offer_id": str(item.offer_id),
+                    "product_id": str(item.product_id),
+                    "desired_version": int(item.desired_version),
+                    "price": str(item.price),
+                    "available": bool(item.available),
+                    "stock_quantity": str(item.stock_quantity) if item.stock_quantity is not None else None,
+                    "sku": str(item.sku) if item.sku else "",
+                    "title": str(item.title) if item.title else "",
                 }
+                item_content_hash = hashlib.sha256(json.dumps(item_dict, sort_keys=True).encode("utf-8")).hexdigest()
+
+                # Verifica se a operação já foi registrada
+                cur.execute(
+                    "SELECT content_hash, status, provider_result_ref, error_code, error_message "
+                    "FROM reference_catalog_dispatches WHERE merchant_external_id = ? AND operation_key = ?",
+                    (payload.merchant_external_id, item.operation_key),
+                )
+                row = cur.fetchone()
+                if row:
+                    prev_hash, prev_status, prev_ref, prev_code, prev_msg = row
+                    if prev_hash != item_content_hash:
+                        # Conteúdo divergente com a mesma chave: deve ser recusado
+                        res = CatalogPublicationItemResult(
+                            operation_key=item.operation_key,
+                            status="FAILED",
+                            error_code="DIVERGENT_CONTENT",
+                            error_message=f"Conteúdo divergente para a chave de operação '{item.operation_key}'.",
+                        )
+                    else:
+                        # Reenvio com o mesmo conteúdo: recupera o resultado original
+                        # (Não sobrescreve sucesso confirmado por falha configurada posteriormente!)
+                        res = CatalogPublicationItemResult(
+                            operation_key=item.operation_key,
+                            status=prev_status,
+                            provider_result_ref=prev_ref,
+                            error_code=prev_code,
+                            error_message=prev_msg,
+                        )
+                else:
+                    # Nova operação: verificar se há falha deliberada configurada
+                    cur.execute(
+                        "SELECT error_code, error_message FROM reference_simulated_failures "
+                        "WHERE (merchant_external_id = ? OR merchant_external_id = '*') AND operation_key = ?",
+                        (payload.merchant_external_id, item.operation_key),
+                    )
+                    fail_row = cur.fetchone()
+                    if fail_row:
+                        err_code, err_msg = fail_row
+                        res = CatalogPublicationItemResult(
+                            operation_key=item.operation_key,
+                            status="FAILED",
+                            error_code=err_code,
+                            error_message=err_msg,
+                        )
+                    else:
+                        res = CatalogPublicationItemResult(
+                            operation_key=item.operation_key,
+                            status="SUCCEEDED",
+                            provider_result_ref=f"ref-{item.operation_key}",
+                        )
+
+                    cur.execute(
+                        "INSERT INTO reference_catalog_dispatches "
+                        "(merchant_external_id, operation_key, content_hash, status, provider_result_ref, error_code, error_message, payload_json, created_at) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (
+                            payload.merchant_external_id,
+                            item.operation_key,
+                            item_content_hash,
+                            res.status,
+                            res.provider_result_ref,
+                            res.error_code,
+                            res.error_message,
+                            json.dumps(item_dict),
+                            datetime.utcnow().isoformat(),
+                        ),
+                    )
+
                 results.append(res)
+            conn.commit()
 
         return CatalogPublicationBatchResult(batch_id=payload.batch_id, results=tuple(results))
 
     def check_catalog_status(
         self, merchant_external_id: str, operation_keys: tuple[str, ...],
     ) -> tuple[CatalogPublicationItemResult, ...]:
+        db_path = _get_reference_db_path()
+        _init_sqlite_db(db_path)
         results = []
-        with self._registry_lock:
+
+        with self._registry_lock, sqlite3.connect(db_path, timeout=30.0) as conn:
+            cur = conn.cursor()
             for key in operation_keys:
-                entry = self._registry.get((merchant_external_id, key))
-                if entry:
-                    results.append(entry["result"])
+                cur.execute(
+                    "SELECT status, provider_result_ref, error_code, error_message "
+                    "FROM reference_catalog_dispatches WHERE merchant_external_id = ? AND operation_key = ?",
+                    (merchant_external_id, key),
+                )
+                row = cur.fetchone()
+                if row:
+                    status, ref, code, msg = row
+                    results.append(CatalogPublicationItemResult(
+                        operation_key=key,
+                        status=status,
+                        provider_result_ref=ref,
+                        error_code=code,
+                        error_message=msg,
+                    ))
                 else:
-                    # Chave nunca recebida pelo conector: status indeterminado/não encontrada, NUNCA SUCCEEDED
                     results.append(CatalogPublicationItemResult(
                         operation_key=key,
                         status="UNKNOWN",
