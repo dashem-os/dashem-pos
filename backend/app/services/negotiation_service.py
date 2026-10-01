@@ -18,7 +18,7 @@ from app.models.negotiation import (
     PaymentIntentRefundStatusEnum, PaymentSettlementDivergence, SettlementDivergenceKindEnum,
 )
 from app.models.provider import ProviderTransaction, ProviderTransactionStatusEnum
-from app.models.order import Order, OrderItem, OrderItemStatusEnum, OrderStatusEnum
+from app.models.order import Order, OrderItem, OrderItemStatusEnum, OrderOriginEnum, OrderStatusEnum
 from app.models.payment import (
     CashMovement, CashMovementTypeEnum, CashSession, CashSessionStatusEnum,
     Payment, PaymentMethodEnum, PaymentStatusEnum,
@@ -80,7 +80,12 @@ def _event(
 
 
 def _locked_negotiation(session: Session, context: TenantContext, negotiation_id: uuid.UUID) -> CheckoutNegotiation:
-    query = select(CheckoutNegotiation).where(CheckoutNegotiation.id == negotiation_id).with_for_update()
+    query = (
+        select(CheckoutNegotiation)
+        .where(CheckoutNegotiation.id == negotiation_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
     negotiation = session.exec(scope_tenant_query(query, CheckoutNegotiation, context)).first()
     if not negotiation:
         raise HTTPException(status_code=404, detail="Negociação não encontrada neste contexto.")
@@ -100,26 +105,68 @@ def _orders_for_negotiation(session: Session, negotiation: CheckoutNegotiation, 
         Order.tenant_id == negotiation.tenant_id,
         Order.store_id == negotiation.store_id,
         Order.id.in_(order_ids),
-    )
+    ).order_by(Order.id)
     if lock:
-        query = query.with_for_update()
+        query = query.with_for_update().execution_options(populate_existing=True)
     return list(session.exec(query).all())
 
 
 def _source_version(table_session: Optional[TableSession], orders: Iterable[Order]) -> int:
     if table_session:
         return table_session.version
-    timestamps = [order.updated_at for order in orders]
-    return max(1, int(max(timestamps).timestamp() * 1_000_000)) if timestamps else 1
+    timestamps = [order.updated_at for order in orders if order.updated_at is not None]
+    return max(1, sum(int(ts.timestamp() * 1_000_000) for ts in timestamps)) if timestamps else 1
+
+
+def _refuse_if_paid_in_marketplace(session: Session, orders: Iterable[Order]) -> None:
+    channel_orders = [order for order in orders if order.origin == OrderOriginEnum.SALES_CHANNEL]
+    if not channel_orders:
+        return
+    terms_by_order = settlement_contracts.channel_order_terms(
+        session, [order.id for order in channel_orders]
+    )
+    for order in channel_orders:
+        terms = terms_by_order.get(order.id)
+        origin = (terms.payment_origin or "").strip().upper() if terms is not None else ""
+        if origin == "MARKETPLACE":
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "ORDER_PAID_IN_MARKETPLACE",
+                    "message": "Pedido já pago no canal (MARKETPLACE) não pode ser cobrado localmente no PDV.",
+                    "order_id": str(order.id),
+                },
+            )
+        if origin != "LOCAL":
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "ORDER_PAYMENT_ORIGIN_UNKNOWN",
+                    "message": "Pedido de canal sem declaração explícita de pagamento local (LOCAL) não pode ser cobrado no PDV.",
+                    "order_id": str(order.id),
+                },
+            )
 
 
 def _order_amount(session: Session, order: Order) -> Decimal:
+    if order.status == OrderStatusEnum.CANCELED:
+        return Decimal("0.0000")
     items = session.exec(select(OrderItem).where(
         OrderItem.tenant_id == order.tenant_id,
         OrderItem.order_id == order.id,
         OrderItem.status == OrderItemStatusEnum.ACTIVE,
-    )).all()
-    return _money(sum((_money(item.unit_price) * _money(item.quantity) for item in items), Decimal("0")))
+    ).execution_options(populate_existing=True)).all()
+    if not items:
+        return Decimal("0.0000")
+    items_total = _money(sum((_money(item.unit_price) * _money(item.quantity) for item in items), Decimal("0")))
+    if order.origin == OrderOriginEnum.SALES_CHANNEL:
+        terms = settlement_contracts.channel_order_terms(session, [order.id]).get(order.id)
+        if terms is not None:
+            discount = _money(terms.channel_discount or Decimal("0"))
+            delivery = _money(terms.delivery_fee or Decimal("0"))
+            merchandise = max(Decimal("0.0000"), _money(items_total - discount))
+            return max(Decimal("0.0000"), _money(merchandise + delivery))
+    return max(Decimal("0.0000"), items_total)
 
 
 # An allocation held by an intent in one of these states is money already taken
@@ -198,8 +245,13 @@ def item_settlement(
             return {}
         query = query.where(OrderItem.id.in_(wanted))
     if lock:
-        query = query.with_for_update()
-    items = list(session.exec(query.order_by(OrderItem.created_at)).all())
+        query = query.order_by(OrderItem.id).with_for_update().execution_options(populate_existing=True)
+        items = sorted(
+            session.exec(query).all(),
+            key=lambda row: (row.created_at, str(row.id)),
+        )
+    else:
+        items = list(session.exec(query.order_by(OrderItem.created_at)).all())
     if not items:
         return {}
     taken: dict[uuid.UUID, dict] = {}
@@ -293,7 +345,12 @@ def coverage_breaches(session: Session, negotiation: CheckoutNegotiation) -> lis
     return breaches
 
 
-def reconcile_source(session: Session, negotiation: CheckoutNegotiation) -> list[Order]:
+def reconcile_source(
+    session: Session,
+    negotiation: CheckoutNegotiation,
+    *,
+    lock_service_table: bool = False,
+) -> list[Order]:
     """The bill follows the table instead of freezing away from it.
 
     A negotiation used to be the snapshot of an account that was closing: any
@@ -316,49 +373,103 @@ def reconcile_source(session: Session, negotiation: CheckoutNegotiation) -> list
     Nothing here commits. The caller owns the transaction, because a commit in
     the middle of ``confirm_intent`` would drop the row locks it depends on.
     """
-    orders = _orders_for_negotiation(session, negotiation, lock=True)
+    session.exec(
+        select(CheckoutNegotiation)
+        .where(CheckoutNegotiation.id == negotiation.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).first()
     table_session = None
     if negotiation.table_session_id:
-        table_session = session.exec(select(TableSession).where(
-            TableSession.id == negotiation.table_session_id,
-            TableSession.tenant_id == negotiation.tenant_id,
-            TableSession.store_id == negotiation.store_id,
-        ).with_for_update()).first()
+        table_session = session.exec(
+            select(TableSession)
+            .where(
+                TableSession.id == negotiation.table_session_id,
+                TableSession.tenant_id == negotiation.tenant_id,
+                TableSession.store_id == negotiation.store_id,
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        ).first()
         if not table_session or table_session.status not in ACTIVE_SESSIONS:
             raise HTTPException(status_code=409, detail="A sessão vinculada não está mais disponível.")
-        # A bill scoped to the table takes in the comandas the table gained. A
-        # bill scoped to named Orders does not: whoever chose those Orders chose
-        # them, and a group that sat down later is not part of that choice.
-        if negotiation.scope_key.startswith("table-session:"):
-            known = {order.id for order in orders}
-            query = select(Order).where(
-                Order.tenant_id == negotiation.tenant_id,
-                Order.store_id == negotiation.store_id,
-                Order.table_session_id == table_session.id,
-                Order.status.in_([OrderStatusEnum.OPEN, OrderStatusEnum.SUBMITTED]),
+        if lock_service_table and table_session.service_table_id:
+            session.exec(
+                select(ServiceTable)
+                .where(
+                    ServiceTable.id == table_session.service_table_id,
+                    ServiceTable.tenant_id == negotiation.tenant_id,
+                )
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            ).first()
+
+    known_ids = set(
+        session.exec(
+            select(NegotiationOrder.order_id).where(
+                NegotiationOrder.tenant_id == negotiation.tenant_id,
+                NegotiationOrder.negotiation_id == negotiation.id,
             )
-            if known:
-                query = query.where(Order.id.notin_(list(known)))
+        ).all()
+    )
+    absorbable_ids: set[uuid.UUID] = set()
+    # A bill scoped to the table takes in the comandas the table gained. A
+    # bill scoped to named Orders does not: whoever chose those Orders chose
+    # them, and a group that sat down later is not part of that choice.
+    if table_session and negotiation.scope_key.startswith("table-session:"):
+        candidate_query = select(Order.id).where(
+            Order.tenant_id == negotiation.tenant_id,
+            Order.store_id == negotiation.store_id,
+            Order.table_session_id == table_session.id,
+            Order.status.in_([OrderStatusEnum.OPEN, OrderStatusEnum.SUBMITTED]),
+        )
+        if known_ids:
+            candidate_query = candidate_query.where(Order.id.notin_(list(known_ids)))
+        candidates = set(session.exec(candidate_query).all())
+        if candidates:
             # A comanda already being paid in its own bill is not absorbed: it
             # belongs to whoever opened that bill, and taking it here would let
             # the same item be spent twice.
-            taken = {row for row in session.exec(
-                select(NegotiationOrder.order_id)
-                .join(CheckoutNegotiation, CheckoutNegotiation.id == NegotiationOrder.negotiation_id)
+            taken = set(
+                session.exec(
+                    select(NegotiationOrder.order_id)
+                    .join(CheckoutNegotiation, CheckoutNegotiation.id == NegotiationOrder.negotiation_id)
+                    .where(
+                        CheckoutNegotiation.tenant_id == negotiation.tenant_id,
+                        CheckoutNegotiation.id != negotiation.id,
+                        CheckoutNegotiation.status.in_(list(ACTIVE_NEGOTIATIONS)),
+                    )
+                ).all()
+            )
+            absorbable_ids = candidates - taken
+
+    all_order_ids = sorted(known_ids | absorbable_ids, key=str)
+    orders: list[Order] = []
+    if all_order_ids:
+        orders = list(
+            session.exec(
+                select(Order)
                 .where(
-                    CheckoutNegotiation.tenant_id == negotiation.tenant_id,
-                    CheckoutNegotiation.id != negotiation.id,
-                    CheckoutNegotiation.status.in_(list(ACTIVE_NEGOTIATIONS)),
+                    Order.tenant_id == negotiation.tenant_id,
+                    Order.store_id == negotiation.store_id,
+                    Order.id.in_(all_order_ids),
                 )
-            ).all()}
-            for order in session.exec(query.with_for_update()).all():
-                if order.id in taken:
-                    continue
-                session.add(NegotiationOrder(
-                    tenant_id=negotiation.tenant_id, negotiation_id=negotiation.id,
-                    order_id=order.id, amount_snapshot=_order_amount(session, order),
-                ))
-                orders.append(order)
+                .order_by(Order.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            ).all()
+        )
+    _refuse_if_paid_in_marketplace(session, orders)
+    for order in orders:
+        if order.id in absorbable_ids and order.id not in known_ids:
+            session.add(
+                NegotiationOrder(
+                    tenant_id=negotiation.tenant_id,
+                    negotiation_id=negotiation.id,
+                    order_id=order.id,
+                    amount_snapshot=_order_amount(session, order),
+                )
+            )
     current = _source_version(table_session, orders)
     if current == negotiation.source_version:
         return orders
@@ -370,12 +481,25 @@ def reconcile_source(session: Session, negotiation: CheckoutNegotiation) -> list
             "items": breaches,
         })
     snapshots = {order.id: _order_amount(session, order) for order in orders}
+    held_by_order = _hold_on_orders(session, [order.id for order in orders])
+    for order in orders:
+        order_held = held_by_order.get(order.id, Decimal("0"))
+        if order_held > 0 and snapshots[order.id] < order_held:
+            raise HTTPException(status_code=409, detail={
+                "code": "ITEM_BELOW_SETTLEMENT",
+                "message": "Um pedido ficou abaixo do valor já liquidado ou reservado nele.",
+                "order_id": str(order.id),
+                "order_total": str(snapshots[order.id]),
+                "covered": str(order_held),
+            })
     subtotal = _money(sum(snapshots.values(), Decimal("0")))
     total_due = _money(
         subtotal - negotiation.discount_total + negotiation.surcharge_total + negotiation.tax_total
     )
     previous = _totals(session, negotiation)
-    covered = _money(previous["confirmed_amount"] + previous["receivable_amount"])
+    covered = _money(
+        previous["confirmed_amount"] + previous["processing_amount"] + previous["receivable_amount"]
+    )
     if total_due < covered:
         raise HTTPException(status_code=409, detail={
             "code": "SETTLEMENT_ABOVE_CONSUMPTION",
@@ -537,6 +661,9 @@ def projection(session: Session, context: TenantContext, negotiation_id: uuid.UU
     }
 
 
+MAX_SCOPE_RETRIES = 5
+
+
 def open_negotiation(
     session: Session, context: TenantContext, *, store_id: uuid.UUID,
     table_session_id: Optional[uuid.UUID], order_ids: list[uuid.UUID],
@@ -558,34 +685,169 @@ def open_negotiation(
             raise HTTPException(status_code=409, detail="Idempotency-Key reutilizada com payload diferente.")
         return projection(session, context, existing.id, validate=False)
 
-    table_session = None
+    unique_ids: list[uuid.UUID] = []
     if table_session_id:
-        table_session = session.exec(scope_tenant_query(select(TableSession).where(
-            TableSession.id == table_session_id,
-            TableSession.store_id == store_id,
-        ).with_for_update(), TableSession, context)).first()
-        if not table_session or table_session.status not in ACTIVE_SESSIONS:
-            raise HTTPException(status_code=404, detail="Sessão ativa não encontrada.")
-        orders = list(session.exec(select(Order).where(
-            Order.tenant_id == context.tenant_id,
-            Order.store_id == store_id,
-            Order.table_session_id == table_session_id,
-            Order.status.in_([OrderStatusEnum.OPEN, OrderStatusEnum.SUBMITTED]),
-        ).with_for_update()).all())
         scope_key = f"table-session:{table_session_id}"
     else:
         unique_ids = sorted(set(order_ids), key=str)
         if not unique_ids:
             raise HTTPException(status_code=422, detail="Informe uma sessão de mesa ou ao menos um Order.")
-        orders = list(session.exec(scope_tenant_query(select(Order).where(
-            Order.id.in_(unique_ids), Order.store_id == store_id,
-            Order.status.in_([OrderStatusEnum.OPEN, OrderStatusEnum.SUBMITTED]),
-        ).with_for_update(), Order, context)).all())
-        if len(orders) != len(unique_ids):
-            raise HTTPException(status_code=404, detail="Um ou mais Orders não pertencem ao contexto ativo.")
         scope_key = "orders:" + ":".join(str(item) for item in unique_ids)
-    if not orders:
-        raise HTTPException(status_code=409, detail="Não há Orders ativos para fechar.")
+
+    table_session: Optional[TableSession] = None
+    orders: list[Order] = []
+    for _attempt in range(MAX_SCOPE_RETRIES):
+        sp = session.begin_nested()
+        try:
+            if table_session_id:
+                candidate_order_ids = list(
+                    session.exec(
+                        select(Order.id).where(
+                            Order.tenant_id == context.tenant_id,
+                            Order.store_id == store_id,
+                            Order.table_session_id == table_session_id,
+                            Order.status.in_([OrderStatusEnum.OPEN, OrderStatusEnum.SUBMITTED]),
+                        )
+                    ).all()
+                )
+            else:
+                candidate_order_ids = list(unique_ids)
+
+            neg_ids_set = set(
+                session.exec(
+                    select(CheckoutNegotiation.id).where(
+                        CheckoutNegotiation.tenant_id == context.tenant_id,
+                        CheckoutNegotiation.store_id == store_id,
+                        CheckoutNegotiation.scope_key == scope_key,
+                        CheckoutNegotiation.status.in_(list(ACTIVE_NEGOTIATIONS)),
+                    )
+                ).all()
+            )
+            if table_session_id:
+                for nid in session.exec(
+                    select(CheckoutNegotiation.id).where(
+                        CheckoutNegotiation.tenant_id == context.tenant_id,
+                        CheckoutNegotiation.store_id == store_id,
+                        CheckoutNegotiation.table_session_id == table_session_id,
+                        CheckoutNegotiation.status.in_(list(ACTIVE_NEGOTIATIONS)),
+                    )
+                ).all():
+                    neg_ids_set.add(nid)
+            if candidate_order_ids:
+                for nid in session.exec(
+                    select(NegotiationOrder.negotiation_id)
+                    .join(CheckoutNegotiation, CheckoutNegotiation.id == NegotiationOrder.negotiation_id)
+                    .where(
+                        CheckoutNegotiation.tenant_id == context.tenant_id,
+                        CheckoutNegotiation.store_id == store_id,
+                        CheckoutNegotiation.status.in_(list(ACTIVE_NEGOTIATIONS)),
+                        NegotiationOrder.order_id.in_(candidate_order_ids),
+                    )
+                ).all():
+                    neg_ids_set.add(nid)
+
+            locked_negs: dict[uuid.UUID, CheckoutNegotiation] = {}
+            if neg_ids_set:
+                for neg_row in session.exec(
+                    select(CheckoutNegotiation)
+                    .where(CheckoutNegotiation.id.in_(sorted(neg_ids_set, key=str)))
+                    .order_by(CheckoutNegotiation.id)
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
+                ).all():
+                    locked_negs[neg_row.id] = neg_row
+
+            if table_session_id:
+                table_session = session.exec(
+                    scope_tenant_query(
+                        select(TableSession)
+                        .where(
+                            TableSession.id == table_session_id,
+                            TableSession.store_id == store_id,
+                        )
+                        .with_for_update()
+                        .execution_options(populate_existing=True),
+                        TableSession,
+                        context,
+                    )
+                ).first()
+                if not table_session or table_session.status not in ACTIVE_SESSIONS:
+                    raise HTTPException(status_code=404, detail="Sessão ativa não encontrada.")
+                orders = list(
+                    session.exec(
+                        select(Order)
+                        .where(
+                            Order.tenant_id == context.tenant_id,
+                            Order.store_id == store_id,
+                            Order.table_session_id == table_session_id,
+                            Order.status.in_([OrderStatusEnum.OPEN, OrderStatusEnum.SUBMITTED]),
+                        )
+                        .order_by(Order.id)
+                        .with_for_update()
+                        .execution_options(populate_existing=True)
+                    ).all()
+                )
+            else:
+                orders = list(
+                    session.exec(
+                        scope_tenant_query(
+                            select(Order)
+                            .where(
+                                Order.id.in_(unique_ids),
+                                Order.store_id == store_id,
+                                Order.status.in_([OrderStatusEnum.OPEN, OrderStatusEnum.SUBMITTED]),
+                            )
+                            .order_by(Order.id)
+                            .with_for_update()
+                            .execution_options(populate_existing=True),
+                            Order,
+                            context,
+                        )
+                    ).all()
+                )
+                if len(orders) != len(unique_ids):
+                    raise HTTPException(status_code=404, detail="Um ou mais Orders não pertencem ao contexto ativo.")
+
+            if not orders:
+                raise HTTPException(status_code=409, detail="Não há Orders ativos para fechar.")
+
+            # Post-lock check: ensure no new active CheckoutNegotiation appeared
+            # after Level 2 locks were acquired.
+            post_neg_ids = set(
+                session.exec(
+                    select(CheckoutNegotiation.id).where(
+                        CheckoutNegotiation.tenant_id == context.tenant_id,
+                        CheckoutNegotiation.store_id == store_id,
+                        CheckoutNegotiation.scope_key == scope_key,
+                        CheckoutNegotiation.status.in_(list(ACTIVE_NEGOTIATIONS)),
+                    )
+                ).all()
+            )
+            for nid in session.exec(
+                select(NegotiationOrder.negotiation_id)
+                .join(CheckoutNegotiation, CheckoutNegotiation.id == NegotiationOrder.negotiation_id)
+                .where(
+                    CheckoutNegotiation.tenant_id == context.tenant_id,
+                    CheckoutNegotiation.store_id == store_id,
+                    CheckoutNegotiation.status.in_(list(ACTIVE_NEGOTIATIONS)),
+                    NegotiationOrder.order_id.in_([o.id for o in orders]),
+                )
+            ).all():
+                post_neg_ids.add(nid)
+
+            if any(nid not in locked_negs for nid in post_neg_ids):
+                sp.rollback()
+                continue
+
+            sp.commit()
+            break
+        except Exception:
+            sp.rollback()
+            raise
+    else:
+        raise HTTPException(status_code=409, detail="A conta já está sendo negociada por outra operação.")
+
+    _refuse_if_paid_in_marketplace(session, orders)
     active = session.exec(select(CheckoutNegotiation).where(
         CheckoutNegotiation.tenant_id == context.tenant_id,
         CheckoutNegotiation.store_id == store_id,
@@ -685,13 +947,6 @@ def create_intent(
     if method == PaymentMethodEnum.CASH:
         if not cash_session_id:
             raise HTTPException(status_code=422, detail="Pagamento em dinheiro exige sessão de caixa.")
-        cash = session.exec(select(CashSession).where(
-            CashSession.id == cash_session_id,
-            CashSession.tenant_id == context.tenant_id,
-            CashSession.store_id == negotiation.store_id,
-        ).with_for_update()).first()
-        if not cash or cash.status != CashSessionStatusEnum.OPEN:
-            raise HTTPException(status_code=409, detail="Sessão de caixa aberta não encontrada.")
         tendered = _money(tendered_amount or normalized_amount)
         if tendered < normalized_amount:
             raise HTTPException(status_code=422, detail="Valor recebido é menor que a parcela.")
@@ -742,6 +997,14 @@ def create_intent(
                 "settled": str(state["settled_amount"]),
                 "reserved": str(state["reserved_amount"]),
             })
+    if method == PaymentMethodEnum.CASH:
+        cash = session.exec(select(CashSession).where(
+            CashSession.id == cash_session_id,
+            CashSession.tenant_id == context.tenant_id,
+            CashSession.store_id == negotiation.store_id,
+        ).with_for_update().execution_options(populate_existing=True)).first()
+        if not cash or cash.status != CashSessionStatusEnum.OPEN:
+            raise HTTPException(status_code=409, detail="Sessão de caixa aberta não encontrada.")
     intent = PaymentIntent(
         tenant_id=context.tenant_id, store_id=negotiation.store_id,
         negotiation_id=negotiation.id, cash_session_id=cash_session_id,
@@ -774,6 +1037,8 @@ def create_intent(
             # Already resolved, locked and checked above; the item carries its
             # own Order so an allocation cannot be filed under the wrong one.
             order_id = item_state[item_id]["order_id"]
+        elif order_id is None and len(linked_orders) == 1:
+            order_id = next(iter(linked_orders))
         session.add(PaymentAllocation(
             tenant_id=context.tenant_id, negotiation_id=negotiation.id,
             payment_intent_id=intent.id, order_id=order_id, order_item_id=item_id,
@@ -803,7 +1068,7 @@ def confirm_intent(
     request_hash = reliability_service.compute_request_hash({"intent_id": str(intent_id), "actor_id": str(actor)})
     intent = session.exec(scope_tenant_query(select(PaymentIntent).where(
         PaymentIntent.id == intent_id,
-    ).with_for_update(), PaymentIntent, context)).first()
+    ).with_for_update().execution_options(populate_existing=True), PaymentIntent, context)).first()
     if not intent:
         raise HTTPException(status_code=404, detail="Parcela não encontrada.")
     if intent.confirm_idempotency_key:
@@ -823,7 +1088,7 @@ def confirm_intent(
             CashSession.id == intent.cash_session_id,
             CashSession.tenant_id == context.tenant_id,
             CashSession.store_id == negotiation.store_id,
-        ).with_for_update()).first()
+        ).with_for_update().execution_options(populate_existing=True)).first()
         if not cash or cash.status != CashSessionStatusEnum.OPEN:
             raise HTTPException(status_code=409, detail="A sessão de caixa foi encerrada.")
         movement = CashMovement(
@@ -854,11 +1119,8 @@ def confirm_intent(
     negotiation.version += 1
     negotiation.updated_at = datetime.utcnow()
     if negotiation.table_session_id:
-        table_session = session.exec(select(TableSession).where(
-            TableSession.id == negotiation.table_session_id,
-            TableSession.tenant_id == context.tenant_id,
-        ).with_for_update()).first()
-        if table_session and table_session.status in ACTIVE_SESSIONS:
+        table_session = session.get(TableSession, negotiation.table_session_id)
+        if table_session and table_session.tenant_id == context.tenant_id and table_session.status in ACTIVE_SESSIONS:
             table_session.status = TableSessionStatusEnum.PARTIALLY_PAID
             table_session.version += 1
             table_session.updated_at = datetime.utcnow()
@@ -1550,7 +1812,7 @@ def finalize_negotiation(
         raise HTTPException(status_code=409, detail="Versão da negociação desatualizada.")
     if negotiation.status != CheckoutNegotiationStatusEnum.COVERED:
         raise HTTPException(status_code=409, detail="A conta ainda não possui cobertura financeira integral.")
-    orders = reconcile_source(session, negotiation)
+    orders = reconcile_source(session, negotiation, lock_service_table=True)
     totals = _totals(session, negotiation)
     if totals["remaining_amount"] != 0:
         raise HTTPException(status_code=409, detail="Saldo restante impede a finalização.")
@@ -1563,7 +1825,7 @@ def finalize_negotiation(
         receivable = session.exec(select(Receivable).where(
             Receivable.id == receivable_allocation.receivable_id,
             Receivable.tenant_id == context.tenant_id,
-        ).with_for_update()).first()
+        ).with_for_update().execution_options(populate_existing=True)).first()
     sale = Sale(
         tenant_id=context.tenant_id, store_id=negotiation.store_id,
         source_type="ORDER_CHECKOUT", idempotency_key=f"negotiation:{negotiation.id}",
@@ -1648,11 +1910,8 @@ def finalize_negotiation(
             transaction_ref=str(intent.id), confirmed_at=intent.confirmed_at,
         ))
     if negotiation.table_session_id:
-        table_session = session.exec(select(TableSession).where(
-            TableSession.id == negotiation.table_session_id,
-            TableSession.tenant_id == context.tenant_id,
-        ).with_for_update()).first()
-        if not table_session or table_session.status not in ACTIVE_SESSIONS:
+        table_session = session.get(TableSession, negotiation.table_session_id)
+        if not table_session or table_session.tenant_id != context.tenant_id or table_session.status not in ACTIVE_SESSIONS:
             raise HTTPException(status_code=409, detail="A sessão não pode ser liberada neste estado.")
         table_session.status = TableSessionStatusEnum.CLOSED
         table_session.closed_by = actor
@@ -1661,11 +1920,8 @@ def finalize_negotiation(
         table_session.updated_at = datetime.utcnow()
         table_session.version += 1
         if table_session.service_table_id:
-            service_table = session.exec(select(ServiceTable).where(
-                ServiceTable.id == table_session.service_table_id,
-                ServiceTable.tenant_id == context.tenant_id,
-            ).with_for_update()).first()
-            if service_table:
+            service_table = session.get(ServiceTable, table_session.service_table_id)
+            if service_table and service_table.tenant_id == context.tenant_id:
                 service_table.status = (ServiceTableStatusEnum.BLOCKED if service_table.blocking_reason
                                         else ServiceTableStatusEnum.AVAILABLE)
                 service_table.version += 1
@@ -1715,10 +1971,11 @@ def _hold_on_items(session: Session, order_item_ids) -> dict[uuid.UUID, Decimal]
 
 
 def _hold_on_orders(session: Session, order_ids) -> dict[uuid.UUID, Decimal]:
-    """The same answer one step up, for a comanda about to change hands."""
+    """Money explicitly attributed to each order (including its own items)."""
     wanted = list(order_ids)
     if not wanted:
         return {}
+    totals: dict[uuid.UUID, Decimal] = {}
     rows = session.exec(
         select(PaymentAllocation.order_id, func.sum(PaymentAllocation.amount))
         .join(PaymentIntent, PaymentIntent.id == PaymentAllocation.payment_intent_id)
@@ -1728,10 +1985,332 @@ def _hold_on_orders(session: Session, order_ids) -> dict[uuid.UUID, Decimal]:
         )
         .group_by(PaymentAllocation.order_id)
     ).all()
-    return {order_id: _money(total or 0) for order_id, total in rows}
+    for order_id, total in rows:
+        amount = _money(total or 0)
+        if amount > Decimal("0"):
+            totals[order_id] = amount
+    return totals
 
 
-settlement_contracts.register(_hold_on_items, _hold_on_orders)
+def _lock_coverage_scope(
+    session: Session, order_ids: Iterable[uuid.UUID],
+) -> tuple[list[uuid.UUID], dict[uuid.UUID, CheckoutNegotiation], dict[uuid.UUID, list[uuid.UUID]]]:
+    """Acquire canonical row locks for the obligation scope:
+    1. CheckoutNegotiation (ORDER BY id FOR UPDATE)
+    2. TableSession (ORDER BY id FOR UPDATE) when sessions participate
+    3. ServiceTable (ORDER BY id FOR UPDATE) when tables participate
+    4. Order (ORDER BY id FOR UPDATE) for all orders in those negotiations, sessions, and `order_ids`
+
+    Never acquires a higher-level lock (such as CheckoutNegotiation) after locking
+    lower-level rows (such as Order). If a new link appears concurrently before the
+    lower-level locks are acquired, the savepoint is rolled back (releasing all row
+    locks acquired in the attempt) and the lock acquisition restarts from Level 1.
+    """
+    base_wanted = sorted({oid for oid in order_ids if oid}, key=str)
+    transfer_scope = (getattr(session, "info", None) or {}).get("_transfer_scope") or {}
+    extra_session_ids = {sid for sid in transfer_scope.get("session_ids", ()) if sid}
+    coverage_session_ids = {sid for sid in transfer_scope.get("coverage_session_ids", ()) if sid}
+    extra_table_ids = {tid for tid in transfer_scope.get("table_ids", ()) if tid}
+
+    if not base_wanted and not extra_session_ids and not coverage_session_ids and not extra_table_ids:
+        return [], {}, {}
+
+    for _attempt in range(MAX_SCOPE_RETRIES):
+        sp = session.begin_nested()
+        try:
+            wanted_set = set(base_wanted)
+            if coverage_session_ids:
+                for oid in session.exec(
+                    select(Order.id).where(Order.table_session_id.in_(list(coverage_session_ids)))
+                ).all():
+                    wanted_set.add(oid)
+            wanted = sorted(wanted_set, key=str)
+
+            neg_links = (
+                list(
+                    session.exec(
+                        select(NegotiationOrder.order_id, NegotiationOrder.negotiation_id)
+                        .where(NegotiationOrder.order_id.in_(wanted))
+                    ).all()
+                )
+                if wanted
+                else []
+            )
+            negotiation_ids_set = {neg_id for _, neg_id in neg_links}
+            if extra_session_ids:
+                for neg_id in session.exec(
+                    select(CheckoutNegotiation.id).where(
+                        CheckoutNegotiation.table_session_id.in_(list(extra_session_ids)),
+                        CheckoutNegotiation.status.in_(list(ACTIVE_NEGOTIATIONS)),
+                    )
+                ).all():
+                    negotiation_ids_set.add(neg_id)
+                for neg_id in session.exec(
+                    select(NegotiationOrder.negotiation_id)
+                    .join(Order, Order.id == NegotiationOrder.order_id)
+                    .join(CheckoutNegotiation, CheckoutNegotiation.id == NegotiationOrder.negotiation_id)
+                    .where(
+                        Order.table_session_id.in_(list(extra_session_ids)),
+                        CheckoutNegotiation.status.in_(list(ACTIVE_NEGOTIATIONS)),
+                    )
+                ).all():
+                    negotiation_ids_set.add(neg_id)
+
+            negotiation_ids = sorted(negotiation_ids_set, key=str)
+            negotiations: dict[uuid.UUID, CheckoutNegotiation] = {}
+            if negotiation_ids:
+                for neg in session.exec(
+                    select(CheckoutNegotiation)
+                    .where(CheckoutNegotiation.id.in_(negotiation_ids))
+                    .order_by(CheckoutNegotiation.id)
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
+                ).all():
+                    negotiations[neg.id] = neg
+
+            linked_by_neg: dict[uuid.UUID, list[uuid.UUID]] = {}
+            all_order_ids_set = set(wanted)
+            if negotiation_ids:
+                for neg_id, oid in session.exec(
+                    select(NegotiationOrder.negotiation_id, NegotiationOrder.order_id)
+                    .where(NegotiationOrder.negotiation_id.in_(negotiation_ids))
+                    .order_by(NegotiationOrder.order_id)
+                ).all():
+                    linked_by_neg.setdefault(neg_id, []).append(oid)
+                    all_order_ids_set.add(oid)
+
+            session_ids_set = set(extra_session_ids)
+            for neg in negotiations.values():
+                if neg.table_session_id is not None:
+                    session_ids_set.add(neg.table_session_id)
+            session_ids = sorted(session_ids_set, key=str)
+            locked_sessions: list[TableSession] = []
+            if session_ids:
+                locked_sessions = list(
+                    session.exec(
+                        select(TableSession)
+                        .where(TableSession.id.in_(session_ids))
+                        .order_by(TableSession.id)
+                        .with_for_update()
+                        .execution_options(populate_existing=True)
+                    ).all()
+                )
+                if coverage_session_ids:
+                    for oid in session.exec(
+                        select(Order.id).where(Order.table_session_id.in_(list(coverage_session_ids)))
+                    ).all():
+                        wanted_set.add(oid)
+                        all_order_ids_set.add(oid)
+                    wanted = sorted(wanted_set, key=str)
+                if extra_session_ids:
+                    for oid in session.exec(
+                        select(Order.id).where(Order.table_session_id.in_(list(extra_session_ids)))
+                    ).all():
+                        all_order_ids_set.add(oid)
+                for neg in negotiations.values():
+                    if neg.table_session_id and neg.scope_key.startswith("table-session:"):
+                        for oid in session.exec(
+                            select(Order.id).where(
+                                Order.table_session_id == neg.table_session_id,
+                                Order.status.in_([OrderStatusEnum.OPEN, OrderStatusEnum.SUBMITTED]),
+                            )
+                        ).all():
+                            all_order_ids_set.add(oid)
+                            if oid not in linked_by_neg.setdefault(neg.id, []):
+                                linked_by_neg[neg.id].append(oid)
+
+            table_ids_set = set(extra_table_ids)
+            for ts_row in locked_sessions:
+                if ts_row.id in extra_session_ids and ts_row.service_table_id:
+                    table_ids_set.add(ts_row.service_table_id)
+            table_ids = sorted(table_ids_set, key=str)
+            if table_ids:
+                session.exec(
+                    select(ServiceTable)
+                    .where(ServiceTable.id.in_(table_ids))
+                    .order_by(ServiceTable.id)
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
+                ).all()
+
+            all_order_ids = sorted(all_order_ids_set, key=str)
+            locked_orders: list[Order] = []
+            if all_order_ids:
+                locked_orders = list(
+                    session.exec(
+                        select(Order)
+                        .where(Order.id.in_(all_order_ids))
+                        .order_by(Order.id)
+                        .with_for_update()
+                        .execution_options(populate_existing=True)
+                    ).all()
+                )
+
+            scope_changed = False
+            if all_order_ids:
+                post_links = list(
+                    session.exec(
+                        select(NegotiationOrder.order_id, NegotiationOrder.negotiation_id)
+                        .where(NegotiationOrder.order_id.in_(all_order_ids))
+                    ).all()
+                )
+                if any(neg_id not in negotiations for _, neg_id in post_links):
+                    scope_changed = True
+
+            if not scope_changed and negotiation_ids:
+                post_neg_orders = list(
+                    session.exec(
+                        select(NegotiationOrder.negotiation_id, NegotiationOrder.order_id)
+                        .where(NegotiationOrder.negotiation_id.in_(negotiation_ids))
+                    ).all()
+                )
+                if any(oid not in all_order_ids_set for _, oid in post_neg_orders):
+                    scope_changed = True
+
+            if not scope_changed and locked_orders:
+                order_session_ids = {
+                    ord_row.table_session_id
+                    for ord_row in locked_orders
+                    if ord_row.table_session_id is not None
+                } | set(session_ids)
+                if order_session_ids:
+                    active_session_negs = list(
+                        session.exec(
+                            select(CheckoutNegotiation.id).where(
+                                CheckoutNegotiation.table_session_id.in_(list(order_session_ids)),
+                                CheckoutNegotiation.status.in_(list(ACTIVE_NEGOTIATIONS)),
+                            )
+                        ).all()
+                    )
+                    if any(neg_id not in negotiations for neg_id in active_session_negs):
+                        extra_session_ids |= order_session_ids
+                        scope_changed = True
+
+            if scope_changed:
+                sp.rollback()
+                continue
+
+            sp.commit()
+            return wanted, negotiations, linked_by_neg
+        except Exception:
+            sp.rollback()
+            raise
+
+    raise HTTPException(
+        status_code=409,
+        detail="Conflito de concorrência ao bloquear escopo financeiro do pedido.",
+    )
+
+
+def _coverage_on_orders(
+    session: Session, order_ids,
+) -> dict[uuid.UUID, settlement_contracts.OrderCoverage]:
+    """Separate coverage attributed to each order from joint negotiation coverage."""
+    wanted, negotiations, linked_by_neg = _lock_coverage_scope(session, order_ids)
+    if not wanted:
+        return {}
+    attributed = _hold_on_orders(session, wanted)
+    result: dict[uuid.UUID, settlement_contracts.OrderCoverage] = {
+        order_id: settlement_contracts.OrderCoverage(
+            order_id=order_id,
+            order_covered=attributed.get(order_id, Decimal("0.0000")),
+            joint_covered=attributed.get(order_id, Decimal("0.0000")),
+        )
+        for order_id in wanted
+    }
+    if not negotiations:
+        return result
+
+    for neg_id, negotiation in negotiations.items():
+        if negotiation is not None and negotiation.status in {
+            CheckoutNegotiationStatusEnum.CANCELED,
+            CheckoutNegotiationStatusEnum.INVALIDATED,
+        }:
+            continue
+        linked_order_ids = linked_by_neg.get(neg_id, [])
+        assigned_total = _money(
+            session.exec(
+                select(func.coalesce(func.sum(PaymentAllocation.amount), 0))
+                .join(PaymentIntent, PaymentIntent.id == PaymentAllocation.payment_intent_id)
+                .where(
+                    PaymentAllocation.negotiation_id == neg_id,
+                    PaymentAllocation.order_id.is_not(None),
+                    PaymentIntent.status.in_(list(SETTLED_INTENTS | RESERVED_INTENTS)),
+                )
+            ).one()
+        )
+        unassigned_alloc = _money(
+            session.exec(
+                select(func.coalesce(func.sum(PaymentAllocation.amount), 0))
+                .join(PaymentIntent, PaymentIntent.id == PaymentAllocation.payment_intent_id)
+                .where(
+                    PaymentAllocation.negotiation_id == neg_id,
+                    PaymentAllocation.order_id.is_(None),
+                    PaymentIntent.status.in_(list(SETTLED_INTENTS | RESERVED_INTENTS)),
+                )
+            ).one()
+        )
+        receivable_alloc = _money(
+            session.exec(
+                select(func.coalesce(func.sum(ReceivableAllocation.amount), 0)).where(
+                    ReceivableAllocation.negotiation_id == neg_id
+                )
+            ).one()
+        )
+        reverted_total = _money(
+            session.exec(
+                select(func.coalesce(func.sum(PaymentIntentRefund.reverted_amount), 0)).where(
+                    PaymentIntentRefund.negotiation_id == neg_id,
+                    PaymentIntentRefund.status.in_(list(PROVEN_REFUNDS)),
+                )
+            ).one()
+        )
+        unassigned_covered = _money(unassigned_alloc + receivable_alloc)
+        joint_covered = max(
+            Decimal("0.0000"),
+            _money(assigned_total + unassigned_covered - reverted_total),
+        )
+        adjustments = (
+            _money(
+                negotiation.surcharge_total
+                + negotiation.tax_total
+                - negotiation.discount_total
+            )
+            if negotiation is not None
+            else Decimal("0.0000")
+        )
+        order_amounts: dict[uuid.UUID, Decimal] = {}
+        for oid in linked_order_ids:
+            ord_row = session.get(Order, oid)
+            order_amounts[oid] = (
+                _order_amount(session, ord_row) if ord_row is not None else Decimal("0.0000")
+            )
+        for oid in linked_order_ids:
+            if oid not in result:
+                continue
+            own_cov = attributed.get(oid, Decimal("0.0000"))
+            if len(linked_order_ids) == 1:
+                own_cov = max(own_cov, joint_covered)
+            others = _money(
+                sum(
+                    (amt for other_id, amt in order_amounts.items() if other_id != oid),
+                    Decimal("0.0000"),
+                )
+            )
+            prev = result[oid]
+            if joint_covered >= prev.joint_covered:
+                result[oid] = settlement_contracts.OrderCoverage(
+                    order_id=oid,
+                    order_covered=max(prev.order_covered, own_cov),
+                    unassigned_covered=unassigned_covered,
+                    joint_covered=max(prev.joint_covered, joint_covered, own_cov),
+                    other_orders_amount=others,
+                    negotiation_adjustments=adjustments,
+                )
+    return result
+
+
+settlement_contracts.register(_hold_on_items, _hold_on_orders, _coverage_on_orders)
 
 
 def locked_intent_for_query(

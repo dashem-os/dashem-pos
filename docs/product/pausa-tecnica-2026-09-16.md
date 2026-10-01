@@ -1,5 +1,8 @@
 # Pausa técnica — DASHEM POS — 16/09/2026
 
+Registro histórico. O ponto de retomada mais recente está em
+[29/09/2026](pausa-tecnica-2026-09-29.md).
+
 O S10.1 avançou até o passo 7 estrutural, mas ainda não está fechado. Os commits
 `02b5e4a` (avisos ao canal, migração 100) e `ced91a5` (tela estrutural) estão na
 `main`, com quatro jobs verdes em cada commit. O portão local informado passou

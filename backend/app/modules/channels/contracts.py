@@ -110,6 +110,19 @@ class ExternalOrderLine:
     preparation_notes: Optional[str] = None
 
 
+class ExternalPaymentOrigin(str, Enum):
+    """Where the channel declared the order is paid (§3.5, D1/R11).
+
+    `LOCAL` requires an explicit channel declaration that collection happens at
+    the store/delivery; absent or unrecognized status normalizes to `UNKNOWN`,
+    never to an implicit local permission.
+    """
+
+    MARKETPLACE = "MARKETPLACE"
+    LOCAL = "LOCAL"
+    UNKNOWN = "UNKNOWN"
+
+
 @dataclass(frozen=True)
 class ExternalOrder:
     """The order as the channel declared it. No field here names a person."""
@@ -121,7 +134,7 @@ class ExternalOrder:
     channel_discount: Optional[Decimal] = None
     channel_subsidy: Optional[Decimal] = None
     declared_total: Optional[Decimal] = None
-    payment_origin: Optional[str] = None
+    payment_origin: Optional[str] = ExternalPaymentOrigin.UNKNOWN
 
 
 @dataclass(frozen=True)

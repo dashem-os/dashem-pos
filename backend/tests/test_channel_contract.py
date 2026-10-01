@@ -26,8 +26,8 @@ from app.modules.channels import registry
 from app.modules.channels.adapters import reference
 from app.modules.channels.contracts import (
     CapabilityNotDeclared, ChannelCapability, ChannelRejection, ExternalContact,
-    ExternalEventKind, ExternalOrder, ExternalOrderLine, PayloadRejected, SignatureRejected,
-    require,
+    ExternalEventKind, ExternalOrder, ExternalOrderLine, ExternalPaymentOrigin,
+    PayloadRejected, SignatureRejected, require,
 )
 
 MARKER = "MARCADOR-PESSOAL-5511999990000"
@@ -170,3 +170,35 @@ def test_an_event_without_a_customer_has_an_empty_contact_and_a_cancellation_nee
     assert event.kind == ExternalEventKind.ORDER_CANCELLED
     assert event.order is None and event.contact.is_empty()
     assert event.order_key == "2026-09-16T12:00:00"
+
+
+@pytest.mark.parametrize(("payment_payload", "expected_origin"), [
+    ({"status": "PAID_ONLINE"}, ExternalPaymentOrigin.MARKETPLACE),
+    ({"status": "paid_online"}, ExternalPaymentOrigin.MARKETPLACE),
+    ({"status": "PAY_ON_DELIVERY"}, ExternalPaymentOrigin.LOCAL),
+    ({"status": "PAY_AT_COUNTER"}, ExternalPaymentOrigin.LOCAL),
+    ({"status": "LOCAL"}, ExternalPaymentOrigin.LOCAL),
+    ({"status": "PENDING_ONLINE"}, ExternalPaymentOrigin.UNKNOWN),
+    ({"status": "UNKNOWN_GATEWAY_STATE"}, ExternalPaymentOrigin.UNKNOWN),
+    ({"status": ""}, ExternalPaymentOrigin.UNKNOWN),
+    ({}, ExternalPaymentOrigin.UNKNOWN),
+    (None, ExternalPaymentOrigin.UNKNOWN),
+])
+def test_payment_origin_distinguishes_marketplace_explicit_local_and_unknown(payment_payload, expected_origin):
+    connector = reference.ReferenceChannelAdapter()
+    raw = _event()
+    if payment_payload is None:
+        raw["order"].pop("payment", None)
+    else:
+        raw["order"]["payment"] = payment_payload
+    normalized = connector.normalize(connector.envelopes(_body(raw))[0])
+    assert normalized.order.payment_origin == expected_origin
+    default_order = ExternalOrder(
+        external_order_id="pedido-default",
+        fulfillment="DELIVERY",
+        lines=(ExternalOrderLine(
+            external_line_id="l1", external_item_code="SKU-1",
+            quantity=Decimal("1"), unit_amount=Decimal("10.00"), discount_amount=None,
+        ),),
+    )
+    assert default_order.payment_origin == ExternalPaymentOrigin.UNKNOWN

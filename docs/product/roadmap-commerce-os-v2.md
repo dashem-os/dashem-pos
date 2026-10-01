@@ -950,8 +950,17 @@ Gate externo por canal:
 
 ### S10.1 — Completar a fundação do Channel Hub
 
-Estado: **planejado em 10/09/2026, não implementado**. Complementa S10 sem
-invalidar suas provas históricas. Independe de TEF e de contratação de adquirente.
+Estado em 29/09–01/10/2026: **em execução, gate final aberto**. Os passos 1 a 4 e 6,
+a parte estrutural do 7, R14 e a travessia autenticada local R20 estão
+registrados na [proposta](proposta-s10-1-channel-hub.md). D1 foi decidida e a
+fatia R11 (com a migração 101) teve todas as correções financeiras e a hierarquia
+canônica de bloqueios completa (`PaymentIntent` $\rightarrow$ `CheckoutNegotiation`
+$\rightarrow$ `TableSession` $\rightarrow$ `ServiceTable` $\rightarrow$ `Order`
+$\rightarrow$ `ExternalOrderMapping` $\rightarrow$ `OrderItem`) provadas contra
+PostgreSQL isolado com `sqlmodel 0.0.42` (`720 passed, 1 skipped, 1 xfailed` na suíte
+completa do backend e 7 testes na matriz de concorrência com detecção de `40P01` no
+controle negativo). Complementa S10 sem invalidar suas provas históricas.
+Independe de TEF e de contratação de adquirente.
 
 Entregas e gate: contrato versionado por capacidades; ingresso específico por
 provedor; inbox durável com processamento recuperável; deduplicação por evento

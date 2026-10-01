@@ -181,6 +181,8 @@ class ExternalOrderMapping(SQLModel, table=True):
     channel_discount: Optional[Decimal] = Field(default=None, sa_column=Column(Numeric(14, 4), nullable=True))
     channel_subsidy: Optional[Decimal] = Field(default=None, sa_column=Column(Numeric(14, 4), nullable=True))
     declared_total: Optional[Decimal] = Field(default=None, sa_column=Column(Numeric(14, 4), nullable=True))
+    local_items_amount: Optional[Decimal] = Field(default=None, sa_column=Column(Numeric(14, 4), nullable=True))
+    difference_amount: Optional[Decimal] = Field(default=None, sa_column=Column(Numeric(14, 4), nullable=True))
     # A âncora dos prazos (D3): quando o pedido ficou terminal.
     terminal_state: Optional[ExternalOrderTerminalStateEnum] = Field(
         default=None, sa_column=Column(EnumString(ExternalOrderTerminalStateEnum), nullable=True),
@@ -210,6 +212,8 @@ class ChannelOrderLine(SQLModel, table=True):
     quantity: Decimal = Field(sa_column=Column(Numeric(14, 4), nullable=False))
     unit_amount: Optional[Decimal] = Field(default=None, sa_column=Column(Numeric(14, 4), nullable=True))
     discount_amount: Optional[Decimal] = Field(default=None, sa_column=Column(Numeric(14, 4), nullable=True))
+    local_unit_amount: Optional[Decimal] = Field(default=None, sa_column=Column(Numeric(14, 4), nullable=True))
+    difference_amount: Optional[Decimal] = Field(default=None, sa_column=Column(Numeric(14, 4), nullable=True))
     modifier_codes: list = Field(default_factory=list, sa_column=Column(JSON, nullable=False))
     status: ChannelOrderLineStatusEnum = Field(
         default=ChannelOrderLineStatusEnum.ACTIVE,

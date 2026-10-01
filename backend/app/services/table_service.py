@@ -930,6 +930,8 @@ def touch_session_activity(
     actor_id: uuid.UUID,
     order_item_id: uuid.UUID,
     event_type: str = "table_session.item_added",
+    *,
+    table_session: Optional[TableSession] = None,
 ) -> None:
     """Consumption moved, so the session moved.
 
@@ -939,9 +941,10 @@ def touch_session_activity(
     """
     if not order.table_session_id:
         return
-    table_session = session.exec(scope_tenant_query(select(TableSession).where(
-        TableSession.id == order.table_session_id,
-    ), TableSession, context).with_for_update()).first()
+    if table_session is None:
+        table_session = session.exec(scope_tenant_query(select(TableSession).where(
+            TableSession.id == order.table_session_id,
+        ), TableSession, context).with_for_update().execution_options(populate_existing=True)).first()
     if not table_session or table_session.status not in ACTIVE_SESSION_STATUSES[:3]:
         raise HTTPException(status_code=409, detail="Sessão de atendimento não aceita lançamentos.")
     previous = table_session.status

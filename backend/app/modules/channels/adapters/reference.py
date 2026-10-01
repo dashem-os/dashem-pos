@@ -26,8 +26,8 @@ from typing import Mapping, Optional
 from app.core.config import settings
 from app.modules.channels.contracts import (
     ChannelCapability, DeliveryOutcome, DeliveryResult, ExternalContact, ExternalEvent,
-    ExternalEventKind, ExternalOrder, ExternalOrderLine, IngressEnvelope, OutboundNotice,
-    PayloadRejected, SignatureRejected, ValidationOutcome,
+    ExternalEventKind, ExternalOrder, ExternalOrderLine, ExternalPaymentOrigin,
+    IngressEnvelope, OutboundNotice, PayloadRejected, SignatureRejected, ValidationOutcome,
 )
 
 
@@ -35,6 +35,12 @@ PROVIDER_CODE = "CONTRACT_TEST"
 PARSER_VERSION = "reference-1"
 SIGNATURE_HEADER = "X-Dashem-Reference-Signature"
 FULFILLMENTS = {"DELIVERY", "TAKEAWAY", "COUNTER"}
+PAYMENT_ORIGINS = {
+    "PAID_ONLINE": ExternalPaymentOrigin.MARKETPLACE,
+    "PAY_ON_DELIVERY": ExternalPaymentOrigin.LOCAL,
+    "PAY_AT_COUNTER": ExternalPaymentOrigin.LOCAL,
+    "LOCAL": ExternalPaymentOrigin.LOCAL,
+}
 
 
 def _secret() -> bytes:
@@ -189,13 +195,15 @@ class ReferenceChannelAdapter:
                 preparation_notes=_text(line.get("notes"), "LINE_NOTES_INVALID", required=False),
             ))
         payment = order.get("payment") if isinstance(order.get("payment"), dict) else {}
+        raw_payment_status = payment.get("status")
+        payment_status = raw_payment_status.strip().upper() if isinstance(raw_payment_status, str) else None
         return ExternalOrder(
             external_order_id=external_order_id, fulfillment=fulfillment, lines=tuple(lines),
             delivery_fee=_amount(order.get("delivery_fee"), "ORDER_AMOUNT_INVALID"),
             channel_discount=_amount(order.get("discount"), "ORDER_AMOUNT_INVALID"),
             channel_subsidy=_amount(order.get("subsidy"), "ORDER_AMOUNT_INVALID"),
             declared_total=_amount(order.get("total"), "ORDER_AMOUNT_INVALID"),
-            payment_origin="MARKETPLACE" if payment.get("status") == "PAID_ONLINE" else None,
+            payment_origin=PAYMENT_ORIGINS.get(payment_status, ExternalPaymentOrigin.UNKNOWN),
         )
 
     @staticmethod

@@ -104,7 +104,7 @@ async function canalEnvia(...eventos) {
 
 const evento = (tipo, pedido, sequencia, codigo) => {
   const e = { id: `hom09-${crypto.randomUUID()}`, merchant_id: fixture.channel.merchant_external_id, type: tipo, order_id: pedido, sequence: sequencia, customer: PESSOA }
-  if (codigo) e.order = { fulfillment: 'DELIVERY', payment: { status: 'PAID_ONLINE' }, lines: [{ id: 'l1', item_code: codigo, quantity: '2' }] }
+  if (codigo) e.order = { fulfillment: 'DELIVERY', payment: { status: 'PAID_ONLINE' }, lines: [{ id: 'l1', item_code: codigo, quantity: '2', unit_price: '18.50' }] }
   return e
 }
 

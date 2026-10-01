@@ -57,7 +57,7 @@ def _event(merchant, kind, order_id, *, sequence=None, code=None):
         event["sequence"] = sequence
     if code is not None:
         event["order"] = {"fulfillment": "DELIVERY", "payment": {"status": "PAID_ONLINE"},
-                          "lines": [{"id": "l1", "item_code": code, "quantity": "1"}]}
+                          "lines": [{"id": "l1", "item_code": code, "quantity": "1", "unit_price": "18.50"}]}
     return event
 
 

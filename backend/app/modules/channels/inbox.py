@@ -63,8 +63,17 @@ QUARANTINE_TEXT = {
     "PAYLOAD_PURGED": "O conteúdo do evento já foi removido.",
 }
 PAYLOAD_TEXT = "O canal enviou um evento que não pôde ser lido."
+DEFAULT_REVIEW_TEXT = "O evento do canal não pôde ser aplicado automaticamente; uma pessoa decide."
 REVIEW_TEXT = {
     "PREPARATION_STARTED": "O canal pediu mudança ou cancelamento de um pedido que já está em preparo; uma pessoa decide.",
+    "ITEM_BELOW_SETTLEMENT": "O canal pediu redução ou cancelamento abaixo do valor já liquidado ou reservado no pedido; uma pessoa decide.",
+    "CHANNEL_PRICE_MISSING": "O canal não informou o preço unitário de um item do pedido; uma pessoa decide sem aplicar o preço local.",
+    "CHANNEL_DISCOUNT_EXCEEDS_AMOUNT": "O desconto declarado pelo canal supera o valor bruto dos itens; uma pessoa decide.",
+    "CHANNEL_LINE_TOTAL_INEXACT": "O valor líquido da linha declarada pelo canal não divide exatamente pela quantidade; uma pessoa decide.",
+    "CHANNEL_SUBSIDY_INCONSISTENT": "O subsídio declarado pelo canal supera o desconto informado no pedido; uma pessoa decide.",
+    "CHANNEL_TOTAL_MISMATCH": "O total declarado pelo canal diverge da soma dos itens, descontos e taxa de entrega; uma pessoa decide.",
+    "CHANNEL_AMOUNT_INVALID": "O canal informou valor monetário negativo ou fora da precisão e faixa suportadas; uma pessoa decide.",
+    "CHANNEL_PAYMENT_ORIGIN_CONFLICT": "O canal declarou pagamento no marketplace ou origem incompatível para um pedido que já possui reserva ou liquidação local; uma pessoa decide.",
 }
 RESUMABLE = {ChannelInboxStatusEnum.QUARANTINED, ChannelInboxStatusEnum.NEEDS_REVIEW}
 OVERDUE_ELIGIBLE = {
@@ -191,7 +200,7 @@ def _settle_refusal(
         row.status = status
         row.quarantine_code = code
         row.quarantine_reason = (
-            REVIEW_TEXT.get(code) if status == ChannelInboxStatusEnum.NEEDS_REVIEW
+            REVIEW_TEXT.get(code, DEFAULT_REVIEW_TEXT) if status == ChannelInboxStatusEnum.NEEDS_REVIEW
             else QUARANTINE_TEXT.get(code, PAYLOAD_TEXT)
         )
         if row.first_quarantined_at is None:

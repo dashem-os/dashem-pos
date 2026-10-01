@@ -128,7 +128,7 @@ async def test_s10_durable_inbox_deduplicates_into_canonical_order_and_quarantin
             "type": "ORDER_PLACED", "order_id": f"external-{uuid.uuid4()}",
             "order": {
                 "fulfillment": "DELIVERY",
-                "lines": [{"id": "l1", "item_code": "ITEM-CANAL-1", "quantity": 2, "notes": "Bem passado"}],
+                "lines": [{"id": "l1", "item_code": "ITEM-CANAL-1", "quantity": 2, "unit_price": "18.50", "notes": "Bem passado"}],
                 "payment": {"status": "PAID_ONLINE"},
             },
             "customer": {"name": "Cliente externo"},

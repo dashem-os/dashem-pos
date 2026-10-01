@@ -1,23 +1,47 @@
 # Proposta — S10.1: completar a fundação do Channel Hub
 
-Status: **passos 1 a 4 autorizados pelo dono · D3 aprovada como política técnica
-inicial · D6 e D7 decididas · retenção não implementada até a purga e o controle
-de backups serem comprovados** · revisão 3 em 16/09/2026 (revisões 1 e 2 em
-16/09/2026).
+Status: **passos 1 a 6 e parte estrutural do 7 autorizados pelo dono · D1, D6 e D7
+decididas · D3 aprovada como política técnica inicial · retenção não implementada
+até a purga e o controle de backups serem comprovados** · revisão 3 em 16/09/2026
+(revisões 1 e 2 em 16/09/2026; atualização de estado em 29/09/2026).
 Base: `b90aeba` em `main`. Cabeça de migração conferida no código e no banco local
-nesta revisão: `097_the_pinpad_is_occupied`, sem nenhuma posterior. Escopo e gate
-vêm do [roadmap](roadmap-commerce-os-v2.md) (S10.1) e das
+na revisão 3: `097_the_pinpad_is_occupied`; cabeça atual após o passo 5:
+`101_the_channel_price_stands`. Escopo e gate vêm do
+[roadmap](roadmap-commerce-os-v2.md) (S10.1) e das
 [fundações do Channel Hub](channel-hub-fundacoes-2026-09-10.md).
+
+**Revisão em 29/09/2026 e correções em 30/09 e 01/10/2026:** a migração 101 e o código
+D1/R11 foram consolidados e aprovados localmente após a resolução dos casos do ponto
+de 29/09, das duas inversões de locks da revisão de 30/09 e da inversão pontual entre
+comandos locais de itens (`add_item`, `update_item`, `cancel_item`) e pagamentos
+(`create_intent`, `confirm_intent`) reproduzida em 01/10/2026. O protocolo canônico
+de bloqueios foi estendido formalmente para incluir `TableSession` e `ServiceTable`
+antes de `Order` e `OrderItem`, com aquisição antecipada em `_prepare_item_mutation`
+antes de qualquer mutação ou autoflush, retentativas limitadas em savepoint se o
+vínculo mudar, e reutilização da sessão pré-bloqueada em `touch_session_activity`.
+A validação local contra PostgreSQL 15 isolado (`sqlmodel 0.0.42`) comprovou:
+- Todos os 6 casos do reprodutor `review_r11_table_activity.py` passando sem deadlocks;
+- Matriz completa de concorrência (`test_r11_concurrency_matrix.py`): `7 passed` (incluindo
+  Matrix 6 com 12 combinações e controle negativo detectando `40P01`);
+- Suíte completa do backend: `720 passed, 1 skipped, 1 xfailed` em `475.03s`;
+- `alembic downgrade 100` / `upgrade head` / `check` sem drift de esquema;
+- Frontend: `204 pass` no `npm test` e build `tsc && vite build` concluído com sucesso.
 
 Retomada em 29/09/2026: a travessia autenticada R20 passou localmente com
 gestora e leitora, após um ajuste de quebra de texto ([registro do percurso](../quality/s10-1-authenticated-walkthrough-2026-09-29.md)),
-e o R14 foi medido com PostgreSQL real contra uma linha de base ([evidência medida](../quality/evidence/s10-1-2026-09-29/r14-local-sale-latency.json)),
+o R14 foi medido com PostgreSQL real contra uma linha de base ([evidência medida](../quality/evidence/s10-1-2026-09-29/r14-local-sale-latency.json)),
 após fechar na rota a sessão da requisição depois de materializar a resposta e
 antes do `BackgroundTasks` (inclusive em repetição de `Idempotency-Key`), com
 `checkedout == 0` observado na entrada da chamada ao conector e sem regressão
-acima do limite nas 15 amostras locais. **O gate completo do S10.1 continua
-aberto:** R11 espera D1, e D2, D8 e a concessão da D7 seguem pendentes. A
-retenção continua sem purga; nenhum canal real foi integrado.
+acima do limite nas 15 amostras locais, e a **D1/R11 (passo 5)** foi decidida e
+implementada com a migração `101_the_channel_price_stands`: o pedido recebido de
+um canal registra o valor efetivamente declarado pelo canal sem substituí-lo pelo
+preço local do DASHEM POS, preserva o preço da oferta local identificável para
+registrar a diferença por linha e por pedido sem alterar o catálogo do
+restaurante, e manda valores ausentes ou contraditórios para `NEEDS_REVIEW` sem
+usar silenciosamente o preço local. **O gate completo do S10.1 continua aberto:**
+D2, D8 e a concessão da D7 seguem pendentes. A retenção continua sem purga;
+nenhum canal real foi integrado.
 
 Não escolhe canal, provedor, preço, plano nem capability produtiva. Não trata
 de catálogo, disponibilidade e repasses: isso é o S13.2, que vem depois e se
@@ -81,6 +105,109 @@ apoia no contrato definido aqui. Nada nesta proposta autoriza dizer que iFood,
   - na tela, o prazo vencido diz que a limpeza ainda não é automática. A coluna
     do pedido ainda mostra UUID, e o formulário ainda pede referência de cofre:
     são do passo 7.
+- **Passo 5 (D1 / R11)** — decidido pelo dono em 29/09/2026 e revisado em 30/09/2026: o pedido recebido de
+  um canal registra o valor efetivamente declarado pelo canal, sem substituí-lo
+  pelo preço local do DASHEM POS; o preço da oferta local permanece identificável
+  para registrar a diferença, e o catálogo do restaurante (`ProductPrice`) não é
+  alterado. Migração `101_the_channel_price_stands` (sobre `100_the_notice_leaves`);
+  código em `app/models/channel_hub.py`, `app/modules/channels/contracts.py`,
+  `app/modules/channels/adapters/reference.py`, `app/modules/settlement/contracts.py`,
+  `app/services/order_service.py`, `app/services/negotiation_service.py`,
+  `app/services/transfer_service.py`, `app/modules/channels/orders.py` e
+  `app/modules/channels/inbox.py`. Provas em `test_channel_contract.py` e
+  `test_channel_inbox.py` (`test_r11_pedido_registra_valor_do_canal_preserva_oferta_local_com_complemento_e_atualiza_so_preco`,
+  `test_r11_valores_inseguros_ou_inconsistentes_vao_para_revisao_sem_usar_preco_local`,
+  `test_r11_protege_pedido_marketplace_contra_cobranca_local_e_bloqueia_desconto_de_cabecalho_sob_reserva`,
+  `test_r11_bloqueia_mudanca_de_origem_com_dinheiro_local_em_curso_ou_liquidado_e_permite_sem_cobertura`,
+  `test_r11_itens_ativos_gratuitos_conservam_entrega_e_pedido_cancelado_ou_sem_itens_ativos_retorna_zero`,
+  `test_r11_cobertura_em_negociacao_com_varios_pedidos_separa_cobertura_do_pedido_da_cobertura_conjunta`,
+  `test_r11_cancelamento_respeita_cobertura_atribuida_e_conjunta_sem_bloquear_cancelamento_sem_cobertura` e
+  `test_r11_protecao_conjunta_sob_concorrencia_deterministica_serializa_reducoes_e_preserva_cobertura`).
+
+  O que as provas afirmam, sem ir além:
+  - **semântica dos valores verificada antes de qualquer diferença**:
+    - por linha externa (`ChannelOrderLine`): `unit_amount` é o unitário bruto
+      declarado pelo canal (já refletindo os complementos da linha no canal) e
+      `discount_amount` é o desconto exclusivo da linha; o valor líquido da linha
+      é `unit_amount * quantity - discount_amount`, e o unitário líquido aplicado
+      a `OrderItem.unit_price` é `(unit_amount * quantity - discount_amount) / quantity`,
+      exigindo divisão exata em 4 casas decimais;
+    - a oferta local por unidade (`ChannelOrderLine.local_unit_amount`) é
+      calculada por `order_service.local_offer_unit_price` como
+      `ProductPrice.sale_price + soma(ModifierOption.price_delta)` dos
+      complementos mapeados, e a diferença da linha
+      (`ChannelOrderLine.difference_amount`) é
+      `(unit_amount * quantity - discount_amount) - (local_unit_amount * quantity)`;
+    - por pedido (`ExternalOrderMapping`): `delivery_fee`, `channel_discount`
+      (desconto de cabeçalho do pedido, adicional aos descontos por linha e sem
+      dupla contagem), `channel_subsidy` (parcela informativa dos descontos
+      absorvida pelo canal, que não pode superar a soma dos descontos declarados)
+      e `declared_total` ficam preservados; `local_items_amount` soma a oferta
+      local das linhas ativas e `difference_amount` registra
+      `(soma líquida das linhas - channel_discount) - local_items_amount`;
+    - `Order.total_amount` permanece a soma de `OrderItem.total_price` das linhas
+      ativas do Order Engine (líquidas de desconto por linha); desconto de
+      cabeçalho (`channel_discount`), taxa de entrega (`delivery_fee`), subsídio
+      (`channel_subsidy`) e `declared_total` moram em `ExternalOrderMapping`;
+  - **abertura, atualização apenas de preço e reenvio idempotente**: `ORDER_PLACED`
+    abre o pedido com o preço do canal e grava a oferta local e a diferença;
+    `ORDER_UPDATED` que altera apenas `unit_amount`/`discount_amount` (mesma
+    quantidade e observações) atualiza `OrderItem.unit_price`, `Order.total_amount`,
+    `ChannelOrderLine` e `ExternalOrderMapping` na mesma unidade de trabalho,
+    sem tocar em `ProductPrice.sale_price`; reenvio do mesmo evento é idempotente;
+  - **origem de pagamento explícita (`ExternalPaymentOrigin`) e proteção de transição**:
+    `ExternalPaymentOrigin` distingue `MARKETPLACE`, `LOCAL` (declarado
+    explicitamente pelo conector, ex.: `PAY_ON_DELIVERY`, `PAY_AT_COUNTER`, `LOCAL`)
+    e `UNKNOWN` (status ausente ou não reconhecido); `open_negotiation` e
+    `reconcile_source` só autorizam cobrança local quando `payment_origin == "LOCAL"`,
+    recusando `MARKETPLACE` com `ORDER_PAID_IN_MARKETPLACE` (HTTP `409`) e `UNKNOWN`,
+    `None` legado ou mapeamento ausente com `ORDER_PAYMENT_ORIGIN_UNKNOWN` (HTTP `409`);
+    mudar `payment_origin` de `LOCAL` para `MARKETPLACE` ou `UNKNOWN` quando já há
+    reserva (`PENDING`/`PROCESSING`) ou liquidação (`CONFIRMED`/recebível) resulta em
+    `NEEDS_REVIEW` (`CHANNEL_PAYMENT_ORIGIN_CONFLICT`), sem alteração parcial e sem
+    cancelar nem confirmar pagamentos em voo automaticamente;
+  - **itens gratuitos com entrega vs. pedido cancelado ou sem itens ativos**:
+    `negotiation_service._order_amount()` preserva `delivery_fee` quando o pedido possui
+    itens ativos cujo líquido soma `R$ 0,00` (ex.: cortesia ou `100%` de desconto), mas
+    retorna `R$ 0,0000` para pedido `CANCELED` ou sem itens ativos;
+  - **cobertura em negociações com múltiplos pedidos, cancelamento protegido e garantia concorrente (`OrderCoverage`)**:
+    `hold_on_orders` soma apenas alocações atribuídas ao pedido (`PaymentAllocation.order_id`),
+    enquanto `coverage_on_orders` adquire bloqueio transacional canônico (`FOR UPDATE`
+    com `populate_existing=True` sobre `CheckoutNegotiation` em ordem de `id` e sobre
+    todos os `Order` vinculados em ordem de `id`) e expõe `order_covered`,
+    `unassigned_covered`, `joint_covered` e `other_orders_amount` sem inventar rateio;
+    atualizações e cancelamentos (`ORDER_CANCELLED` / `cancel_external_order`) que
+    reduziriam a obrigação abaixo da cobertura atribuída ao pedido ou abaixo da
+    cobertura conjunta da negociação vão para `NEEDS_REVIEW` (`ITEM_BELOW_SETTLEMENT`),
+    inclusive sob eventos concorrentes determinísticos em pedidos distintos da mesma
+    negociação, enquanto alterações e cancelamentos sem cobertura permanecem `APPLIED`;
+  - **divergência explícita para revisão sem fallback silencioso para o preço local**:
+    quando falta `unit_amount` (`CHANNEL_PRICE_MISSING`), o valor é negativo, não
+    finito ou fora de `Numeric(14, 4)` (`CHANNEL_AMOUNT_INVALID`), o desconto excede o
+    bruto da linha ou o líquido dos itens (`CHANNEL_DISCOUNT_EXCEEDS_AMOUNT`), a
+    divisão do líquido da linha por `quantity` não é exata em 4 casas
+    (`CHANNEL_LINE_TOTAL_INEXACT`), o subsídio supera os descontos declarados
+    (`CHANNEL_SUBSIDY_INCONSISTENT`), `declared_total` contradiz
+    `itens_líquidos - channel_discount + delivery_fee` (`CHANNEL_TOTAL_MISMATCH`),
+    a atualização ou o cancelamento reduz o pedido ou a negociação conjunta abaixo do
+    valor coberto (`ITEM_BELOW_SETTLEMENT`) ou muda a origem de pagamento com dinheiro
+    local em curso/liquidado (`CHANNEL_PAYMENT_ORIGIN_CONFLICT`), o evento vai para
+    `NEEDS_REVIEW` com código e mensagem fixa segura, sem criar pedido na abertura e
+    sem alterar o pedido existente na atualização ou cancelamento;
+  - **ausência de dados pessoais nas trilhas imutáveis**: `orders`, `order_items`,
+    `order_commands`, `audit_events`, `outbox_events`, `published_events` e
+    `idempotency_records` não contêm marcadores de nome, telefone ou endereço
+    após abertura e atualização de preço.
+
+  Divergências e limites:
+  - `Order` não possui colunas próprias de frete, desconto de cabeçalho ou
+    subsídio de marketplace: `Order.total_amount` representa a soma líquida dos
+    `OrderItem` no Order Engine, enquanto `delivery_fee`, `channel_discount`,
+    `channel_subsidy`, `declared_total`, `local_items_amount` e
+    `difference_amount` ficam registrados em `ExternalOrderMapping`;
+  - toda a prova usa o conector de referência (`CONTRACT_TEST`); não homologa o
+    modelo financeiro nem os payloads reais de iFood, 99Food ou qualquer canal
+    comercial, e não trata de repasses ou conciliação financeira (S13.2).
 - **Passo 6** — o dono autorizou concluir o executor sem escolher regras de
   comportamento do pedido. Migração `100_the_notice_leaves`; código em
   `app/modules/channels/outbound.py`; rotas `GET /channels/outbound` e
@@ -416,14 +543,94 @@ hospedado (ADR-027), então (b) só roda localmente: um evento que parar sem
 tráfego seguinte espera (c). Isso fica dito na tela e no gate, não escondido
 (D4).
 
-### 3.5 Valores do canal
+### 3.5 Valores do canal (D1 decidida em 29/09/2026)
 
-Por linha, guarda o valor unitário e o desconto declarados. Por pedido, guarda
-taxa de entrega, desconto, subsídio e total declarados, numa tabela de linhas
-externas e em colunas do mapeamento. O preço que o `OrderItem` carrega é decisão
-sua (D1). A recomendação é o valor declarado pelo canal, que é o que o cliente
-pagou, com a diferença para a oferta publicada registrada (H7). Pagamento online
-do canal continua origem `MARKETPLACE`, distinto de TEF e de repasse.
+Decisão do dono em 29/09/2026: o pedido recebido de um canal registra o valor
+**efetivamente declarado pelo canal**, sem substituí-lo pelo preço local do
+DASHEM POS, e mantém o preço da oferta local identificável para registrar a
+diferença — sem alterar o catálogo do restaurante (`ProductPrice`) (H7).
+
+- **O que o modelo persiste e o que é calculado:** `Order` não possui coluna
+  `total_amount` e `OrderItem` não possui coluna `total_price`. O sistema
+  persiste:
+  - em `OrderItem`: `unit_price` e `quantity` (`Numeric(14, 4)`), onde
+    `unit_price` recebe o unitário líquido efetivamente cobrado na linha pelo
+    canal (`(unit_amount * quantity - discount_amount) / quantity`);
+  - em `ChannelOrderLine`: `quantity`, `unit_amount` (unitário bruto declarado
+    pelo canal, já incluindo os complementos da linha no canal),
+    `discount_amount` (desconto exclusivo da linha, nulo quando ausente),
+    `local_unit_amount` (`ProductPrice.sale_price + soma(Modifier.price_delta)`
+    dos complementos mapeados) e `difference_amount`
+    (`(unit_amount * quantity - discount_amount) - (local_unit_amount * quantity)`);
+  - em `ExternalOrderMapping`: `payment_origin` (`MARKETPLACE`, `LOCAL` ou
+    `UNKNOWN`, conforme `ExternalPaymentOrigin`), `delivery_fee`, `channel_discount`
+    (desconto de cabeçalho, adicional aos descontos por linha e sem dupla
+    contagem), `channel_subsidy` (parcela informativa dos descontos absorvida pelo
+    canal, que **não** é descontada de novo), `declared_total`, `local_items_amount`
+    (soma da oferta local das linhas ativas) e `difference_amount`
+    (`(soma líquida das linhas - channel_discount) - local_items_amount`).
+- **Obrigação financeira e proteção contra cobrança local indevida:**
+  - em `negotiation_service._order_amount()`, para pedidos com
+    `Order.origin == SALES_CHANNEL`, o valor do pedido é calculado como
+    `soma(OrderItem.unit_price * OrderItem.quantity) - channel_discount + delivery_fee`
+    (lido via porta `settlement.channel_order_terms`, sem transformar
+    `channel_subsidy` em desconto). Quando existem itens ativos cujo líquido soma
+    `R$ 0,00` (ex.: cortesia ou `100%` de desconto), `delivery_fee` continua
+    preservada na obrigação; apenas pedido `CANCELED` ou sem itens ativos retorna
+    `R$ 0,0000` sem somar entrega;
+  - em `negotiation_service.open_negotiation()` e `reconcile_source()`, a cobrança
+    local exige declaração explícita `payment_origin == "LOCAL"`: pedidos externos
+    com `payment_origin == "MARKETPLACE"` são recusados com HTTP `409`
+    (`ORDER_PAID_IN_MARKETPLACE`) e pedidos com `payment_origin == "UNKNOWN"`,
+    origem nula legada ou sem `ExternalOrderMapping` são recusados com HTTP `409`
+    (`ORDER_PAYMENT_ORIGIN_UNKNOWN`);
+  - em `channels/orders._update()`, quando já existe liquidação (`CONFIRMED` /
+    `ReceivableAllocation`) ou reserva (`PENDING` / `PROCESSING`) sobre o pedido
+    ou na negociação vinculada (`OrderCoverage`), uma tentativa de mudar
+    `payment_origin` de `LOCAL` para `MARKETPLACE` ou `UNKNOWN` (mesmo com valores
+    idênticos) vai para `NEEDS_REVIEW` (`CHANNEL_PAYMENT_ORIGIN_CONFLICT`), sem
+    alteração parcial e sem cancelar nem confirmar intenções de pagamento em voo;
+  - em `channels/orders._update()`, em `ORDER_CANCELLED` e em
+    `order_service.cancel_external_order()`, `settlement.hold_on_orders()` soma
+    apenas alocações atribuídas ao pedido (`PaymentAllocation.order_id`), e
+    `settlement.coverage_on_orders()` adquire bloqueio transacional comum em ordem
+    canônica estendida:
+    - Nível 1: `PaymentIntent`
+    - Nível 2: `CheckoutNegotiation ORDER BY id`
+    - Nível 3: `TableSession ORDER BY id`
+    - Nível 4: `ServiceTable ORDER BY id`
+    - Nível 5: `Order ORDER BY id`
+    - Nível 6: `ExternalOrderMapping ORDER BY order_id`
+    - Nível 7: `OrderItem ORDER BY id`
+    (sempre com `execution_options(populate_existing=True)`).
+    Nos comandos locais de itens (`order_service.add_item`, `order_service.update_item`,
+    `order_service.cancel_item`), a função de preparação `_prepare_item_mutation`
+    adquire os bloqueios antecipadamente na ordem `TableSession` $\rightarrow$ `Order`
+    $\rightarrow$ `OrderItem` antes de qualquer mutação de entidades ou chamadas que
+    provoquem autoflush, utilizando savepoints (`session.begin_nested()`) com até 5
+    retentativas caso o vínculo `order.table_session_id` mude durante a descoberta.
+    A função `table_service.touch_session_activity` aceita a instância já bloqueada
+    de `TableSession`, eliminando a inversão de locks contra fluxos financeiros
+    (`create_intent` e `confirm_intent`). O escopo expõe
+    `order_covered`, `unassigned_covered`, `joint_covered` e `other_orders_amount`
+    sem inventar rateio entre pedidos da mesma negociação. Uma atualização ou
+    cancelamento que reduza a obrigação abaixo da cobertura atribuída ao pedido ou
+    que reduza o total conjunto da negociação abaixo de `joint_covered` vai para
+    `NEEDS_REVIEW` (`ITEM_BELOW_SETTLEMENT`), inclusive sob reduções concorrentes
+    em pedidos distintos da mesma negociação, enquanto alterações e cancelamentos
+    seguros que preservem ambas as coberturas não são bloqueados indevidamente.
+- **Divergência explícita e validação monetária no núcleo sem fallback
+  silencioso:** o núcleo de `channels` (`orders.py`) valida, independentemente do
+  conector de referência, valores negativos, não finitos, fora da precisão de 4
+  casas decimais ou acima de `Numeric(14, 4)` (`CHANNEL_AMOUNT_INVALID`), além de
+  ausência de `unit_amount` (`CHANNEL_PRICE_MISSING`), desconto acima do bruto da
+  linha ou do líquido dos itens (`CHANNEL_DISCOUNT_EXCEEDS_AMOUNT`), divisão
+  inexata por quantidade (`CHANNEL_LINE_TOTAL_INEXACT`), `channel_subsidy` acima
+  dos descontos declarados (`CHANNEL_SUBSIDY_INCONSISTENT`), `declared_total`
+  divergente de `itens_líquidos - channel_discount + delivery_fee`
+  (`CHANNEL_TOTAL_MISMATCH`) e conflito de origem de pagamento com cobertura
+  local (`CHANNEL_PAYMENT_ORIGIN_CONFLICT`). Todos vão para `NEEDS_REVIEW` com
+  motivo seguro e sem usar silenciosamente o preço local.
 
 ### 3.6 Executor de avisos ao canal
 
@@ -688,12 +895,13 @@ Entregue quando percorrido na tela, e não quando o teste passar.
 | Passo | Migração |
 |---|---|
 | 2 | `098_the_event_has_a_deadline`: retenção e hold da caixa de entrada; merchant conectado único; as quatro permissões no catálogo, sem concessão |
-| 3 | estados, lease e `parser_version` da caixa de entrada; tabela de contato; tabela de linhas externas |
-| 4 | âncora terminal, chave de ordem aplicada e campos de evidência no mapeamento |
-| 6 | colunas do executor de avisos |
+| 3 e 4 | `099_the_inbox_resumes`: estados, lease e `parser_version` da caixa de entrada; tabela de contato; tabela de linhas externas; âncora terminal, chave de ordem aplicada e campos de evidência no mapeamento |
+| 6 | `100_the_notice_leaves`: colunas do executor de avisos |
+| 5 | `101_the_channel_price_stands` (sobre `100_the_notice_leaves`): `local_items_amount` e `difference_amount` em `external_order_mappings`; `local_unit_amount` e `difference_amount` em `external_order_lines` |
 
 A cabeça é conferida no código e no banco na criação de cada uma. Em 16/09/2026,
-nesta revisão, era `097_the_pinpad_is_occupied`.
+na revisão 3, era `097_the_pinpad_is_occupied`; após o passo 5 em 29/09/2026, é
+`101_the_channel_price_stands`.
 
 ## 4. Dependências
 
@@ -753,7 +961,7 @@ assinatura, eventos, respostas aos avisos e indisponibilidade.
 | R8 | Cancelamento de pedido sem preparo cancela; com item em preparo, `NEEDS_REVIEW` visível | H6 |
 | R9 | Atualização depois do estado terminal: registrada, não aplicada | H5, H6 |
 | R10 | Item sem mapeamento: quarentena nomeada; depois do mapeamento, "Retomar" aplica | H2, H11 |
-| R11 | Valores do canal preservados; diferença com a oferta registrada | H7 |
+| R11 | **Implementado e provado localmente em 29/09–01/10/2026; candidato completo verificado contra PostgreSQL isolado** ([ponto de retomada](pausa-tecnica-2026-09-29.md)). Provas em `test_channel_contract.py`, `test_channel_inbox.py` e `test_r11_concurrency_matrix.py` (7 testes de concorrência) cobrem: preço do canal vs. oferta local com complemento e diferença; distinção entre `MARKETPLACE`, `LOCAL` explícito e `UNKNOWN` (`ORDER_PAID_IN_MARKETPLACE` vs. `ORDER_PAYMENT_ORIGIN_UNKNOWN`, incluindo legado `None` e mapeamento ausente); bloqueio `CHANNEL_PAYMENT_ORIGIN_CONFLICT` ao mudar origem sob reserva `PENDING` ou liquidação `CONFIRMED` e aplicação sem cobertura; itens ativos gratuitos (`R$ 0,00`) conservando entrega de `R$ 7,00` vs. pedido cancelado ou sem itens ativos retornando `R$ 0,0000`; separação entre cobertura própria do pedido (`hold_on_orders`) e cobertura conjunta (`coverage_on_orders`) em negociação com vários pedidos; proteção de `ORDER_CANCELLED` sob cobertura atribuída ao pedido e cobertura conjunta sem bloquear cancelamento sem cobertura; garantia transacional comum e serialização determinística de reduções concorrentes em negociação multi-pedido; resolução de inversões de locks entre `transfer_order`/`_lock_coverage_scope` e `create_intent`, e entre comandos locais de itens (`add_item`, `update_item`, `cancel_item`) e pagamentos (`create_intent`, `confirm_intent`), com aquisição em ordem canônica `TableSession` $\rightarrow$ `Order` $\rightarrow$ `OrderItem` antes do autoflush via `_prepare_item_mutation`; validação monetária no núcleo (`CHANNEL_AMOUNT_INVALID`), idempotência, isolamento e privacidade. Suíte completa do backend verde (`720 passed, 1 skipped, 1 xfailed` em `sqlmodel 0.0.42`). | H7, H17 |
 | R12 | Aviso entregue só com confirmação; transitório → `RETRY`; esgotado → `DEAD_LETTER`; "Reenviar" autorizado | H8 |
 | R13 | Tempo esgotado no aviso: repetição com a mesma chave, ou consulta antes | H8 |
 | R14 | **Medido em 29/09/2026 ([evidência](../quality/evidence/s10-1-2026-09-29/r14-local-sale-latency.json)):** canal indisponível durante envio de aviso (`SENDING` bloqueado por `4866,091 ms`, `checkedout == 0` observado na entrada do conector inclusive em `Idempotency-Key` repetida) não bloqueia a venda local no PDV e não apresentou regressão acima do limite nesta medição de 15 amostras locais (baseline `p50 = 310,553 ms`, `p95 = 460,060 ms`; sob indisponibilidade `p50 = 308,559 ms`, `p95 = 450,590 ms`; controle com espera plantada reprova em `810,196 ms`) | H10 |
@@ -807,7 +1015,7 @@ assinatura, eventos, respostas aos avisos e indisponibilidade.
 ## 7. Ordem de implementação
 
 Passos 1 a 4 autorizados pelo dono em 16/09/2026. Passo 6 e a parte estrutural do 7 autorizados em
-16/09/2026, sem escolher D1, D2 nem regra de comportamento do pedido.
+16/09/2026, sem escolher D1, D2 nem regra de comportamento do pedido. Passo 5 (D1/R11) decidido e autorizado em 29/09/2026.
 
 0. **Feito em 16/09/2026:** guarda contra log com dado pessoal (P11).
 1. **Feito (`ffa4384`):** módulo, contrato por capacidades e conector de
@@ -823,7 +1031,27 @@ Passos 1 a 4 autorizados pelo dono em 16/09/2026. Passo 6 e a parte estrutural d
    Engine e a âncora terminal (R6–R9, P1, P19). Cancelamento com item em preparo
    usa o comportamento conservador — `NEEDS_REVIEW`, a produção não é cancelada
    sozinha — até D2.
-5. Valores do canal, depois de D1 (R11).
+5. **Implementado localmente em 29–30/09/2026, sob revisão:** valores do canal
+   depois da decisão de D1, com a
+   migração `101_the_channel_price_stands` (R11): o pedido registra o valor
+   efetivamente declarado pelo canal em `OrderItem.unit_price`, preserva a
+   oferta local identificável (incluindo complementos mapeados) e a diferença
+   por linha e por pedido sem alterar `ProductPrice`, atualiza pedidos quando
+   apenas o preço ou o cabeçalho muda, compõe `_order_amount()` com
+   `- channel_discount + delivery_fee` sem descontar `channel_subsidy` (e
+   preservando `delivery_fee` quando há itens ativos gratuitos, mas zerando em
+   pedido `CANCELED` ou sem itens ativos), distingue `ExternalPaymentOrigin`
+   (`MARKETPLACE`, `LOCAL`, `UNKNOWN`) exigindo `LOCAL` para cobrança local
+   (`ORDER_PAID_IN_MARKETPLACE` vs. `ORDER_PAYMENT_ORIGIN_UNKNOWN`), protege
+   mudança de `payment_origin` com dinheiro local em curso ou liquidado
+   (`CHANNEL_PAYMENT_ORIGIN_CONFLICT`), protege cobertura individual do pedido
+   e cobertura conjunta em negociações com múltiplos pedidos — tanto em
+   atualizações quanto em cancelamentos (`ORDER_CANCELLED` /
+   `cancel_external_order`) e sob reduções concorrentes serializadas pela ordem
+   canônica de bloqueios (`OrderCoverage` / `ITEM_BELOW_SETTLEMENT`) —, valida
+   valores negativos, precisão e faixa no núcleo (`CHANNEL_AMOUNT_INVALID`) e
+   leva valores ausentes ou inconsistentes para `NEEDS_REVIEW` sem usar
+   silenciosamente o preço local.
 6. **Feito:** executor de avisos (R12, R13, R14, R18, P4), incluindo a prova
    medida do R14 contra linha de base em PostgreSQL real (15 amostras locais sem
    regressão acima do limite e `checkedout == 0` observado na entrada do
@@ -835,8 +1063,8 @@ Passos 1 a 4 autorizados pelo dono em 16/09/2026. Passo 6 e a parte estrutural d
    credencial e diagnóstico (P6, P10). A travessia autenticada R20 passou
    localmente em 29/09/2026 com gestora e leitora
    ([registro do percurso](../quality/s10-1-authenticated-walkthrough-2026-09-29.md)),
-   após a pausa técnica de 16/09/2026. *O S10.1 continua aberto: R11 espera D1,
-   D2, D8 e a concessão da D7 seguem pendentes, e a retenção continua sem purga.*
+   após a pausa técnica de 16/09/2026. *O S10.1 continua aberto: D2, D8 e a
+   concessão da D7 seguem pendentes, e a retenção continua sem purga.*
 8. Gate do S10.1: todos os R, P1–P11 e P17–P21, com os limites escritos e a purga
    declarada como **não implementada**.
 9. **Etapa posterior:** varredura de purga (P12–P16), depois de G2, e rotas de
@@ -847,7 +1075,7 @@ Passos 1 a 4 autorizados pelo dono em 16/09/2026. Passo 6 e a parte estrutural d
 
 | # | Decisão | Situação |
 |---|---|---|
-| **D1** | Preço do item de pedido externo | Pendente. Recomendação: valor declarado pelo canal, com a diferença para a oferta registrada |
+| **D1** | Preço do item de pedido externo | **Decidida em 29/09/2026** (§3.5): o pedido recebido de um canal registra o valor efetivamente declarado pelo canal, sem substituí-lo pelo preço local do DASHEM POS; a oferta local permanece identificável para registrar a diferença por linha e por pedido, sem alterar o catálogo do restaurante (`ProductPrice`); `_order_amount()` inclui `- channel_discount + delivery_fee` sem descontar `channel_subsidy`; pedidos `MARKETPLACE` não abrem negociação local; valores ausentes, fora de faixa/precisão ou inconsistentes vão para `NEEDS_REVIEW` sem usar silenciosamente o preço local |
 | **D2** | Cancelamento do canal com item já em preparo | Pendente. O passo 4 usa o comportamento conservador recomendado — pendência para pessoa, a produção não é cancelada sozinha — até a decisão |
 | **D3** | Retenção do payload bruto e dos dados do cliente | **Aprovada em 16/09/2026** como política técnica inicial (§3.7.1), sujeita a G1; não é orientação jurídica, não declara conformidade e não é compromisso comercial |
 | **D4** | Recuperação sem worker hospedado no Render free | Seguida na autorização dos passos 1 a 4, que manda não esperar worker: gatilhos (a), (c) e (d) de §3.4 e (ii)–(iv) de §3.7.6, com o limite dito na tela |
