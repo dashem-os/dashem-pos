@@ -20,10 +20,9 @@
  *
  * Fora desta travessia, e por quê: registro com prazo **vencido** (exigiria
  * mexer no relógio pelo banco; a bancada e `test_channel_screen_facts.py` o
- * cobrem); valor do item do canal (D1 sem decisão); o que fazer com
- * cancelamento em preparo além de mandar para uma pessoa (D2); quais
- * transições geram aviso (D8); leitura de contato, hold, extensão e limpeza
- * (D7 sem concessão, e sem rota).
+ * cobrem); o que fazer com cancelamento em preparo além de mandar para uma pessoa
+ * (D2); quais transições geram aviso (D8); leitura de contato, hold, extensão e
+ * limpeza (D7 sem concessão, e sem rota).
  */
 const crypto = require('node:crypto')
 const fs = require('node:fs')
@@ -48,14 +47,20 @@ const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
 const relatorio = {
   app: appUrl, api: apiUrl, gerado_em: new Date().toISOString(), etapas: [], telas: [],
   camadas: {
-    tela_percorrida_pela_gestora: 'percorrida, com sessão autenticada e permissões da concessão',
+    tela_percorrida_pela_gestora: 'percorrida, com sessão autenticada (JWT de teste em banco isolado) e permissões da concessão',
     canal: 'SIMULADO — eventos assinados e pedidos de aviso enviados por este roteiro',
     cozinha: 'SIMULADA — despacho e aceite pelas rotas de produção, por este roteiro',
     integracao_real_com_canal: 'NÃO percorrida',
+    d1_r11_valores_externos: 'DELIMITADA — o roteiro envia valores externos (preço 18,50, entrega 7,00, total 44,00) e a API verifica preço unitário e quantidade no pedido; as garantias contratuais de catálogo, snapshots, total e origem financeira são demonstradas pelos testes backend de R11',
+  },
+  limites_declarados: {
+    autenticacao: 'JWT assinado localmente com AUTH_TEST_SECRET contra API em AUTH_MODE=test e concessões no PostgreSQL isolado; não comprova login interativo nem disponibilidade do Supabase Auth de produção',
+    responsividade_e_layout: 'as 4 larguras (1366, 1024, 768, 390 px) aferem ausência de quebras de palavras ao meio (palavrasPartidas); não atestam ausência universal de defeitos de layout sem outras verificações',
+    navegador: 'o navegador percorre a interface gerencial de visualização, vínculo, retomada, reenvio e diagnóstico; não percorre diretamente cobrança no PDV nem mutações financeiras',
   },
   fora_desta_travessia: [
     'prazo vencido aguardando limpeza (coberto na bancada e em test_channel_screen_facts.py)',
-    'valor do item do canal (D1)', 'regra de cancelamento em preparo além da revisão por pessoa (D2)',
+    'regra de cancelamento em preparo além da revisão por pessoa (D2)',
     'quais transições geram aviso (D8)', 'contato, hold, extensão e limpeza (D7, sem rota)',
   ],
 }
@@ -102,9 +107,23 @@ async function canalEnvia(...eventos) {
   return json.events.map((item) => item.outcome)
 }
 
-const evento = (tipo, pedido, sequencia, codigo) => {
+const evento = (tipo, pedido, sequencia, codigo, unitPrice = '18.50') => {
   const e = { id: `hom09-${crypto.randomUUID()}`, merchant_id: fixture.channel.merchant_external_id, type: tipo, order_id: pedido, sequence: sequencia, customer: PESSOA }
-  if (codigo) e.order = { fulfillment: 'DELIVERY', payment: { status: 'PAID_ONLINE' }, lines: [{ id: 'l1', item_code: codigo, quantity: '2', unit_price: '18.50' }] }
+  if (codigo) {
+    const qty = 2
+    const linesTotal = (Number(unitPrice) * qty).toFixed(2)
+    const delivery = '7.00'
+    const total = (Number(linesTotal) + Number(delivery)).toFixed(2)
+    e.order = {
+      fulfillment: 'DELIVERY',
+      payment: { status: 'PAID_ONLINE' },
+      delivery_fee: delivery,
+      discount: '0.00',
+      subsidy: '0.00',
+      total: total,
+      lines: [{ id: 'l1', item_code: codigo, quantity: String(qty), unit_price: unitPrice }],
+    }
+  }
   return e
 }
 
@@ -166,9 +185,9 @@ async function abrirCanais(page) {
 
 async function main() {
   // ================== 0. o canal e a cozinha, simulados por este roteiro
-  const chope = evento('ORDER_PLACED', PEDIDO.chope, 1, fixture.channel.mapped_code)
-  const bolinho = evento('ORDER_PLACED', PEDIDO.bolinho, 1, fixture.channel.unmapped_code)
-  const cozinha = evento('ORDER_PLACED', PEDIDO.cozinha, 1, fixture.channel.mapped_code)
+  const chope = evento('ORDER_PLACED', PEDIDO.chope, 1, fixture.channel.mapped_code, '18.50')
+  const bolinho = evento('ORDER_PLACED', PEDIDO.bolinho, 1, fixture.channel.unmapped_code, '65.00')
+  const cozinha = evento('ORDER_PLACED', PEDIDO.cozinha, 1, fixture.channel.mapped_code, '18.50')
   const recebidos = await canalEnvia(chope, bolinho, cozinha)
   exigir(recebidos.every((r) => r === 'RECEIVED'), `o ingresso deveria receber os três: ${recebidos.join(', ')}`)
   const linhaChope = await assentado(chope.id)
@@ -178,6 +197,38 @@ async function main() {
   exigir(linhaChope.status === 'APPLIED', `pedido com código vinculado deveria aplicar, ficou ${linhaChope.status}`)
   exigir(linhaBolinho.status === 'QUARANTINED' && linhaBolinho.quarantine_code === 'ITEM_NOT_MAPPED',
     `pedido sem código deveria ir para quarentena por item não vinculado, ficou ${linhaBolinho.status} ${linhaBolinho.quarantine_code}`)
+
+  // D1/R11: verificação delimitada pela API
+  const pedidoChopeApi = await api(fixture.manager_token, 'GET', `/api/v1/orders/${linhaChope.order_id}`)
+  exigir(pedidoChopeApi.status === 200, `o pedido criado deveria ser consultável: ${pedidoChopeApi.status}`)
+  const itemChope = pedidoChopeApi.json?.items?.[0]
+  exigir(itemChope && Number(itemChope.unit_price) === 18.5,
+    `D1/R11: o item do pedido deveria guardar o preço declarado pelo canal (18.50), guardou ${itemChope?.unit_price}`)
+  exigir(itemChope && Number(itemChope.quantity) === 2,
+    `D1/R11: o item do pedido deveria ter quantidade 2, guardou ${itemChope?.quantity}`)
+  relatorio.etapas.push({
+    etapa: 'D1/R11: verificação do pedido na API (valores enviados vs verificados vs testes backend)',
+    valores_enviados_pelo_roteiro: {
+      item_code: fixture.channel.mapped_code,
+      unit_price: '18.50',
+      quantity: 2,
+      delivery_fee: '7.00',
+      declared_total: '44.00',
+      payment_status: 'PAID_ONLINE',
+    },
+    valores_verificados_pela_api: {
+      order_id: linhaChope.order_id,
+      item_unit_price: itemChope?.unit_price,
+      item_quantity: itemChope?.quantity,
+    },
+    garantias_demonstradas_pelos_testes_backend_r11: {
+      catalogo_preservado: 'test_channel_inbox.py:533 (ProductPrice inalterado)',
+      diferencas_registradas: 'test_channel_inbox.py:533 (difference_amount em ExternalOrderMapping e linhas)',
+      total_com_entrega_e_subsidio: 'test_channel_inbox.py:767 e :1163 (_order_amount com delivery_fee e sem duplicar subsídio)',
+      bloqueio_cobranca_local: 'test_channel_inbox.py:767 (409 ORDER_PAID_IN_MARKETPLACE e ORDER_PAYMENT_ORIGIN_UNKNOWN)',
+      concorrencia_sem_deadlocks: 'test_r11_concurrency_matrix.py (7 testes com ordem canônica de locks)',
+    },
+  })
 
   const despacho = await api(fixture.manager_token, 'POST', `/api/v1/production/orders/${linhaCozinha.order_id}/dispatch`, {}, { chave: true })
   exigir(despacho.status === 200 && despacho.json.length > 0, `a cozinha deveria receber o pedido, e o despacho voltou ${despacho.status}`)

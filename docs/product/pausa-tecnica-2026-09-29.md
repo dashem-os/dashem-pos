@@ -241,10 +241,27 @@ A correção delimitada foi aplicada e comprovada:
      em `21.79s`.
    - **Higiene de diff:** `git diff --check` → `0` avisos de espaço em branco.
 
-### Limites que permanecem abertos
+### Publicação em 01/10/2026 (commit `4b5e312`) e Separação de Evidências
 
-- **Publicação autorizada para D1/R11:** o código e a migração 101 estão aptos para publicação,
-  com monitoramento dos quatro jobs do CI e conferência das instâncias de deploy.
-- **S10.1 e canais comerciais:** D2, D8, concessões da D7, purga e controle de backups/logs e
-  o gate final do S10.1 permanecem abertos; R11 usa o conector de referência (`CONTRACT_TEST`)
-  e **não constitui homologação de canal comercial** (iFood, 99Food ou outro provedor externo).
+- **Publicação:** fatia D1/R11 e migração 101 publicadas em `main` no commit `4b5e312`.
+- **CI 36861234960 (GitHub Actions):** 4 jobs verdes (Alembic 54s, Backend 3m44s, Frontend 25s,
+  Operational access E2E 1m21s).
+- **Vercel:** deploy de produção confirmado para o commit `4b5e312` (Deployment `6784097052`,
+  target `https://dashem-4veg3d7zz-dashem-09.vercel.app`, domínio `https://dashem-pos.vercel.app`
+  HTTP 200).
+- **Render:** API de produção saudável em `https://dashem-pos-api.onrender.com/health` (HTTP 200,
+  `environment: production`).
+- **Ressalva de produção:** o SHA exato do container em execução no Render e a execução da
+  migração 101 no banco de produção permanecem **sem prova direta**, dada a ausência de acesso
+  ou credenciais de introspecção direta ao banco e container de produção.
+
+### Conclusão do Gate Interno Fundacional (01/10/2026)
+
+- **Gate interno fundacional do S10.1 concluído:** todos os requisitos funcionais R1–R20 e os requisitos de retenção P1–P11 e P17–P21 foram plenamente comprovados com testes automatizados e evidências auditadas ([gate consolidado](../quality/s10-1-gate-consolidado-2026-10-01.md)).
+- **Pendências mantidas claramente:**
+  1. Purga física (P12–P16): reservada para etapa posterior (§7, item 9), a ser executada após formalização de G2;
+  2. D2 operacional: cancelamento em preparo segue retido no comportamento conservador comprovado (`NEEDS_REVIEW` com `PREPARATION_STARTED`), preservando produção e cobertura; esteira de resolução humana entregue como proposta revisada;
+  3. D8 avisos automáticos: matriz de transições outbound formalizada com prevenção de eco; nenhuma emissão automática gerada antes de decisão;
+  4. D7 concessões de perfis: as 4 permissões constam no catálogo sem concessão a perfis padrão; acesso a contatos segue bloqueado até concessão explícita;
+  5. Canais comerciais: nenhum canal real (iFood, 99Food) conectado; a fundação opera sobre o conector de referência.
+- **D1/R11:** encerrada e publicada no commit `4b5e312`; não reabrir sem regressão demonstrada.

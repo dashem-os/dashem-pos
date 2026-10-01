@@ -950,16 +950,15 @@ Gate externo por canal:
 
 ### S10.1 — Completar a fundação do Channel Hub
 
-Estado em 29/09–01/10/2026: **em execução, gate final aberto**. Os passos 1 a 4 e 6,
-a parte estrutural do 7, R14 e a travessia autenticada local R20 estão
-registrados na [proposta](proposta-s10-1-channel-hub.md). D1 foi decidida e a
-fatia R11 (com a migração 101) teve todas as correções financeiras e a hierarquia
-canônica de bloqueios completa (`PaymentIntent` $\rightarrow$ `CheckoutNegotiation`
-$\rightarrow$ `TableSession` $\rightarrow$ `ServiceTable` $\rightarrow$ `Order`
-$\rightarrow$ `ExternalOrderMapping` $\rightarrow$ `OrderItem`) provadas contra
-PostgreSQL isolado com `sqlmodel 0.0.42` (`720 passed, 1 skipped, 1 xfailed` na suíte
-completa do backend e 7 testes na matriz de concorrência com detecção de `40P01` no
-controle negativo). Complementa S10 sem invalidar suas provas históricas.
+Estado em 01/10/2026: **concluído no gate interno fundacional** ([gate consolidado](../quality/s10-1-gate-consolidado-2026-10-01.md)).
+D1/R11 e a migração 101 foram publicadas em `main` no commit `4b5e312`, com os 4 jobs verdes no
+CI 36861234960. Deploy no Vercel confirmado para o commit (`6784097052`); API no Render saudável
+(HTTP 200); SHA exato do backend e aplicação da migração 101 em produção permanecem sem prova direta.
+Todos os requisitos funcionais R1–R20 e de retenção P1–P11 e P17–P21 foram comprovados contra PostgreSQL
+isolado. Mantém expressas as pendências: retenção sem purga física (P12–P16 reservadas para etapa
+posterior), D2 operacional (cancelamento em preparo retido em `NEEDS_REVIEW` e proposta revisada entregue),
+avisos automáticos D8 (matriz com anti-echo definida, sem geração automática), concessões D7 (acesso a
+contatos condicionado à concessão explícita) e canais comerciais não homologados (conector de referência).
 Independe de TEF e de contratação de adquirente.
 
 Entregas e gate: contrato versionado por capacidades; ingresso específico por

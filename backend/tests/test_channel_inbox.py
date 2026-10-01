@@ -12,6 +12,8 @@ Nothing here removes data — deadlines are assigned, and the purge is a later s
 Acceptance criteria the owner set for this step, and where each is proved:
 - resumed after a failure, no duplicate order or item ........... R2, R1, lease test
 - no partial order visible after a failed application ........... R2
+- crash after lines and before order key resumes without duplicates  R3
+- negative control: broken line idempotency leaks partial order . R19
 - contact never copied to orders.notes, logs or immutable trails . P3 (+ log guard)
 - an event with no order expires from reception, no restart ..... P18, P17
 - quarantine resumed without extending retention ................ P17, P19
@@ -50,7 +52,7 @@ from app.core.database import engine
 from app.core.tenancy import set_platform_db_context
 from app.models.channel_hub import (
     ChannelInboxEvent, ChannelInboxStatusEnum, ChannelOrderContact, ChannelOrderLine,
-    ChannelRetentionBasisEnum, ExternalOrderMapping,
+    ChannelOrderLineStatusEnum, ChannelRetentionBasisEnum, ExternalOrderMapping,
 )
 from app.models.order import Order, OrderItem, ProductionStateEnum
 from app.modules.channels import inbox, ingress
@@ -191,6 +193,121 @@ async def test_pedido_e_linhas_nascem_juntos_e_uma_queda_no_meio_nao_deixa_metad
         lines = db.exec(select(ChannelOrderLine).where(ChannelOrderLine.external_order_mapping_id == mapping.id)).all()
         assert {line.external_line_id for line in lines} == {"l1", "l2"}
         assert {line.order_item_id for line in lines} == {item.id for item in items}
+
+
+@pytest.mark.asyncio
+async def test_r3_parada_depois_das_linhas_e_antes_de_gravar_chave_de_ordem_retomada_sem_duplicar(monkeypatch):
+    """R3: Parada depois das linhas e antes de gravar a chave de ordem: retomada sem duplicar (H2, H3)."""
+    async with httpx.AsyncClient(base_url=BASE_URL, timeout=30) as client:
+        _tenant, _h, _a, _p, connection = await _connected(client, "R3Crash", "ITEM-A", "ITEM-B")
+    merchant = connection["merchant_external_id"]
+    order_ref = f"pedido-r3-{uuid.uuid4()}"
+
+    # 1. Pedido inicial com 1 linha aplicado normalmente:
+    placed = _event(
+        merchant, "ORDER_PLACED", order_ref, sequence=1,
+        lines=[_line("l1", "ITEM-A", 1)],
+    )
+    _receive(placed)
+    assert inbox.process_event(_row(placed["id"]).id) == ChannelInboxStatusEnum.APPLIED
+    mapping = _mapping(connection["id"], order_ref)
+    assert mapping.last_order_key == "00000000000000000001"
+
+    # 2. Atualização que adiciona uma segunda linha (l2):
+    updated = _event(
+        merchant, "ORDER_UPDATED", order_ref, sequence=2,
+        lines=[_line("l1", "ITEM-A", 1), _line("l2", "ITEM-B", 2)],
+    )
+    _receive(updated)
+    update_row = _row(updated["id"])
+
+    # Falha simulada especificamente após o processamento das linhas e antes de avançar last_order_key:
+    from app.modules.channels import orders as channel_orders
+    real_advance = channel_orders._advance
+    advance_calls = {"n": 0}
+
+    def dies_before_order_key(target_mapping, target_event):
+        advance_calls["n"] += 1
+        if advance_calls["n"] == 1:
+            raise RuntimeError("processo caiu após processar linhas e antes de gravar chave de ordem")
+        return real_advance(target_mapping, target_event)
+
+    monkeypatch.setattr(channel_orders, "_advance", dies_before_order_key)
+    assert inbox.process_event(update_row.id) == ChannelInboxStatusEnum.RECEIVED
+    after_crash = _row(updated["id"])
+    assert after_crash.attempts == 1 and after_crash.last_error_code == "PROCESSING_FAILED_RETRYING"
+
+    # Verifica que a transação sofreu rollback: last_order_key permanece na sequence 1
+    # e a linha l2 NÃO vazou para o banco de dados:
+    with Session(engine) as db:
+        set_platform_db_context(db)
+        reloaded_mapping = db.get(ExternalOrderMapping, mapping.id)
+        assert reloaded_mapping.last_order_key == "00000000000000000001"
+        stored_lines = db.exec(select(ChannelOrderLine).where(
+            ChannelOrderLine.external_order_mapping_id == mapping.id,
+            ChannelOrderLine.status == ChannelOrderLineStatusEnum.ACTIVE,
+        )).all()
+        assert {line.external_line_id for line in stored_lines} == {"l1"}
+
+    # 3. Retomada sem falha: process_event é chamado novamente, aplica o evento e avança a chave:
+    monkeypatch.setattr(channel_orders, "_advance", real_advance)
+    assert inbox.process_event(update_row.id) == ChannelInboxStatusEnum.APPLIED
+    assert inbox.process_event(update_row.id) is None, "evento aplicado não é reivindicado de novo"
+
+    # Confere que o pedido agora tem ambas as linhas sem duplicação:
+    with Session(engine) as db:
+        set_platform_db_context(db)
+        final_mapping = db.get(ExternalOrderMapping, mapping.id)
+        assert final_mapping.last_order_key == "00000000000000000002"
+        final_lines = db.exec(select(ChannelOrderLine).where(
+            ChannelOrderLine.external_order_mapping_id == mapping.id,
+            ChannelOrderLine.status == ChannelOrderLineStatusEnum.ACTIVE,
+        )).all()
+        assert {line.external_line_id for line in final_lines} == {"l1", "l2"}
+    items = _items(mapping.order_id)
+    assert len(items) == 2
+    assert sorted(item.quantity for item in items) == [Decimal("1"), Decimal("2")]
+
+
+@pytest.mark.asyncio
+async def test_r19_controle_idempotencia_por_linha_quebrada_de_proposito_enxerga_duplicata(monkeypatch):
+    """R19: Controle negativo: idempotência por linha quebrada de propósito — R2 tem de ver a duplicata."""
+    async with httpx.AsyncClient(base_url=BASE_URL, timeout=30) as client:
+        _tenant, _h, _a, _p, connection = await _connected(client, "R19Ctrl", "ITEM-A", "ITEM-B")
+    merchant = connection["merchant_external_id"]
+    order_ref = f"pedido-r19-{uuid.uuid4()}"
+    placed = _event(
+        merchant, "ORDER_PLACED", order_ref,
+        lines=[_line("l1", "ITEM-A", 1), _line("l2", "ITEM-B", 2)],
+    )
+    _receive(placed)
+    row = _row(placed["id"])
+
+    real_add = order_service.add_external_item
+    calls = {"n": 0}
+
+    def leaks_first_line_and_dies(session, context, order, **kwargs):
+        calls["n"] += 1
+        item = real_add(session, context, order, **kwargs)
+        if calls["n"] == 1:
+            # Quebra deliberada de isolamento transacional: commita a primeira linha precocemente
+            session.commit()
+        elif calls["n"] == 2:
+            raise RuntimeError("queda simulada na adição da segunda linha")
+        return item
+
+    monkeypatch.setattr(order_service, "add_external_item", leaks_first_line_and_dies)
+    # O processamento falha na segunda linha e tenta fazer rollback:
+    assert inbox.process_event(row.id) == ChannelInboxStatusEnum.RECEIVED
+
+    # O controle negativo: em R2 o teste exige que nenhum pedido ou item parcial exista no banco.
+    # Aqui, devido ao commit prematuro plantado, o teste COMPROVA que a asserção detecta o vazamento:
+    with Session(engine) as db:
+        set_platform_db_context(db)
+        leaked_orders = db.exec(select(Order).where(Order.external_reference == order_ref)).all()
+        assert len(leaked_orders) == 1, "R19 controle: pedido prematuro deve ser detectado pela asserção"
+        leaked_items = db.exec(select(OrderItem).where(OrderItem.order_id == leaked_orders[0].id)).all()
+        assert len(leaked_items) == 1, "R19 controle: linha 1 prematuramente commitada deve ser detectada"
 
 
 @pytest.mark.asyncio

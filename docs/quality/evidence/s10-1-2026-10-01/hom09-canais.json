@@ -1,0 +1,142 @@
+{
+  "app": "http://127.0.0.1:5173",
+  "api": "http://127.0.0.1:8004",
+  "gerado_em": "2026-10-01T15:53:01.513Z",
+  "etapas": [
+    {
+      "etapa": "simulação: o canal enviou três pedidos",
+      "estados": [
+        "APPLIED",
+        "QUARANTINED",
+        "APPLIED"
+      ]
+    },
+    {
+      "etapa": "D1/R11: verificação do pedido na API (valores enviados vs verificados vs testes backend)",
+      "valores_enviados_pelo_roteiro": {
+        "item_code": "CHOPE-500",
+        "unit_price": "18.50",
+        "quantity": 2,
+        "delivery_fee": "7.00",
+        "declared_total": "44.00",
+        "payment_status": "PAID_ONLINE"
+      },
+      "valores_verificados_pela_api": {
+        "item_unit_price": "18.5000",
+        "item_quantity": "2.0000"
+      },
+      "garantias_demonstradas_pelos_testes_backend_r11": {
+        "catalogo_preservado": "test_channel_inbox.py:533 (ProductPrice inalterado)",
+        "diferencas_registradas": "test_channel_inbox.py:533 (difference_amount em ExternalOrderMapping e linhas)",
+        "total_com_entrega_e_subsidio": "test_channel_inbox.py:767 e :1163 (_order_amount com delivery_fee e sem duplicar subsídio)",
+        "bloqueio_cobranca_local": "test_channel_inbox.py:767 (409 ORDER_PAID_IN_MARKETPLACE e ORDER_PAYMENT_ORIGIN_UNKNOWN)",
+        "concorrencia_sem_deadlocks": "test_r11_concurrency_matrix.py (7 testes com ordem canônica de locks)"
+      }
+    },
+    {
+      "etapa": "simulação: a cozinha aceitou e o canal cancelou",
+      "estado": "NEEDS_REVIEW",
+      "codigo": "PREPARATION_STARTED"
+    },
+    {
+      "etapa": "simulação: dois avisos pedidos pela rota explícita",
+      "estados": [
+        "DELIVERED",
+        "DEAD_LETTER"
+      ]
+    },
+    {
+      "etapa": "a gestora vê os pedidos do canal, as conexões, os avisos e os prazos"
+    },
+    {
+      "etapa": "a gestora vinculou o código do bolinho na tela"
+    },
+    {
+      "etapa": "a gestora retomou a quarentena e o pedido nasceu",
+      "estado": "APPLIED",
+      "pedido": "OPEN"
+    },
+    {
+      "etapa": "retomar a revisão não cancela a produção sozinho",
+      "pedido": "OPEN"
+    },
+    {
+      "etapa": "a gestora reenviou o aviso; o canal recusou de novo, e a tela diz",
+      "estado": "DEAD_LETTER",
+      "codigo": "NOTICE_TYPE_NOT_SUPPORTED"
+    },
+    {
+      "etapa": "os prazos aparecem como contagem",
+      "texto": "Prazos dos dados dos canais Quanto espera o fim do pedido e quanto já passou do prazo PEDIDOS AGUARDANDO O FIM 3 O mais antigo chegou hoje. O prazo do conteúdo só começa quando o pedido é concluído ou cancelado. PRAZO VENCIDO, AGUARDANDO LIMPEZA 0 Nenhum registro com prazo vencido. Nenhuma limpeza foi executada: a limpeza ainda não existe. Sem processamento contínuo hospedado, ela também não seria"
+    },
+    {
+      "etapa": "o formulário pede só a loja no canal e o nome",
+      "campos": 2
+    },
+    {
+      "etapa": "palavra partida em 1366px",
+      "partidas": []
+    },
+    {
+      "etapa": "palavra partida em 1024px",
+      "partidas": []
+    },
+    {
+      "etapa": "palavra partida em 768px",
+      "partidas": []
+    },
+    {
+      "etapa": "palavra partida em 390px",
+      "partidas": []
+    },
+    {
+      "etapa": "o diagnóstico mostra os prazos dos canais"
+    },
+    {
+      "etapa": "a leitora não vê as ações e a API recusa a ela as mesmas ações",
+      "botoes": {
+        "Retomar": 0,
+        "Reenviar": 0,
+        "Nova conexão": 0,
+        "Vincular código": 0,
+        "Validar com o canal": 0
+      },
+      "tentativas": {
+        "retomar": 403,
+        "reenviar": 403,
+        "conectar": 403
+      }
+    }
+  ],
+  "telas": [
+    "1-canais-de-venda",
+    "2-vincular-codigo",
+    "3-quarentena-retomada",
+    "4-revisao-continua-com-uma-pessoa",
+    "5-aviso-reenviado",
+    "6-prazos",
+    "7-nova-conexao",
+    "8-canais-390",
+    "9-diagnostico",
+    "10-leitora-390"
+  ],
+  "camadas": {
+    "tela_percorrida_pela_gestora": "percorrida, com sessão autenticada (JWT de teste em banco isolado) e permissões da concessão",
+    "canal": "SIMULADO — eventos assinados e pedidos de aviso enviados por este roteiro",
+    "cozinha": "SIMULADA — despacho e aceite pelas rotas de produção, por este roteiro",
+    "integracao_real_com_canal": "NÃO percorrida",
+    "d1_r11_valores_externos": "DELIMITADA — o roteiro envia valores externos (preço 18,50, entrega 7,00, total 44,00) e a API verifica preço unitário e quantidade no pedido; as garantias contratuais de catálogo, snapshots, total e origem financeira são demonstradas pelos testes backend de R11"
+  },
+  "fora_desta_travessia": [
+    "prazo vencido aguardando limpeza (coberto na bancada e em test_channel_screen_facts.py)",
+    "regra de cancelamento em preparo além da revisão por pessoa (D2)",
+    "quais transições geram aviso (D8)",
+    "contato, hold, extensão e limpeza (D7, sem rota)"
+  ],
+  "falhas": [],
+  "limites_declarados": {
+    "autenticacao": "JWT assinado localmente com AUTH_TEST_SECRET contra API em AUTH_MODE=test e concessões no PostgreSQL isolado; não comprova login interativo nem disponibilidade do Supabase Auth de produção",
+    "responsividade_e_layout": "as 4 larguras (1366, 1024, 768, 390 px) aferem ausência de quebras de palavras ao meio (palavrasPartidas); não atestam ausência universal de defeitos de layout sem outras verificações",
+    "navegador": "o navegador percorre a interface gerencial de visualização, vínculo, retomada, reenvio e diagnóstico; não percorre diretamente cobrança no PDV nem mutações financeiras"
+  }
+}

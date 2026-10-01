@@ -10,22 +10,26 @@ na revisão 3: `097_the_pinpad_is_occupied`; cabeça atual após o passo 5:
 [roadmap](roadmap-commerce-os-v2.md) (S10.1) e das
 [fundações do Channel Hub](channel-hub-fundacoes-2026-09-10.md).
 
-**Revisão em 29/09/2026 e correções em 30/09 e 01/10/2026:** a migração 101 e o código
-D1/R11 foram consolidados e aprovados localmente após a resolução dos casos do ponto
-de 29/09, das duas inversões de locks da revisão de 30/09 e da inversão pontual entre
-comandos locais de itens (`add_item`, `update_item`, `cancel_item`) e pagamentos
-(`create_intent`, `confirm_intent`) reproduzida em 01/10/2026. O protocolo canônico
-de bloqueios foi estendido formalmente para incluir `TableSession` e `ServiceTable`
-antes de `Order` e `OrderItem`, com aquisição antecipada em `_prepare_item_mutation`
-antes de qualquer mutação ou autoflush, retentativas limitadas em savepoint se o
-vínculo mudar, e reutilização da sessão pré-bloqueada em `touch_session_activity`.
-A validação local contra PostgreSQL 15 isolado (`sqlmodel 0.0.42`) comprovou:
-- Todos os 6 casos do reprodutor `review_r11_table_activity.py` passando sem deadlocks;
-- Matriz completa de concorrência (`test_r11_concurrency_matrix.py`): `7 passed` (incluindo
-  Matrix 6 com 12 combinações e controle negativo detectando `40P01`);
-- Suíte completa do backend: `720 passed, 1 skipped, 1 xfailed` em `475.03s`;
-- `alembic downgrade 100` / `upgrade head` / `check` sem drift de esquema;
-- Frontend: `204 pass` no `npm test` e build `tsc && vite build` concluído com sucesso.
+**Publicação em 01/10/2026 (commit `4b5e312`):** a migração 101 e a fatia D1/R11
+foram publicadas em `main` com aprovação completa em CI e separação de evidências:
+- **Git e CI:** commit `4b5e312` enviado para `origin/main` (`1692796..4b5e312`), com os 4 jobs
+  do GitHub Actions aprovados no [CI 36861234960](https://github.com/dashem-os/dashem-pos/actions/runs/36861234960)
+  (Alembic 54s, Backend 3m44s, Frontend 25s, Operational E2E 1m21s).
+- **Vercel:** deploy de produção confirmado para o commit `4b5e312` (Deployment `6784097052`,
+  target `https://dashem-4veg3d7zz-dashem-09.vercel.app`, domínio de produção
+  `https://dashem-pos.vercel.app` respondendo HTTP 200).
+- **Render:** API de produção saudável em `https://dashem-pos-api.onrender.com/health` (HTTP 200,
+  `environment: production`).
+- **Ressalva de produção:** o SHA exato do container em execução no Render e a aplicação da
+  migração 101 no banco de produção permanecem **sem prova direta**, pois o executor não possui
+  acesso ou credencial de introspecção ao ambiente de banco e infraestrutura do Render/Supabase.
+- **Validação local contra PostgreSQL 15 isolado (`sqlmodel 0.0.42`):**
+  - Reprodutor `review_r11_table_activity.py`: 6 combinações de comandos locais vs. pagamentos sem deadlocks;
+  - Matriz de concorrência (`test_r11_concurrency_matrix.py`): `7 passed` (incluindo Matrix 6
+    com 12 combinações e controle negativo detectando `40P01`);
+  - Suíte completa do backend: `720 passed, 1 skipped, 1 xfailed` em `475.03s`;
+  - `alembic downgrade 100` / `upgrade head` / `check` sem drift;
+  - Frontend: `204 pass` no `npm test` e build `tsc && vite build` limpo em `21.79s`.
 
 Retomada em 29/09/2026: a travessia autenticada R20 passou localmente com
 gestora e leitora, após um ajuste de quebra de texto ([registro do percurso](../quality/s10-1-authenticated-walkthrough-2026-09-29.md)),
@@ -1031,8 +1035,8 @@ Passos 1 a 4 autorizados pelo dono em 16/09/2026. Passo 6 e a parte estrutural d
    Engine e a âncora terminal (R6–R9, P1, P19). Cancelamento com item em preparo
    usa o comportamento conservador — `NEEDS_REVIEW`, a produção não é cancelada
    sozinha — até D2.
-5. **Implementado localmente em 29–30/09/2026, sob revisão:** valores do canal
-   depois da decisão de D1, com a
+5. **Concluído e publicado em 01/10/2026 (`4b5e312`, CI 36861234960):** valores do canal
+   após a decisão de D1, com a
    migração `101_the_channel_price_stands` (R11): o pedido registra o valor
    efetivamente declarado pelo canal em `OrderItem.unit_price`, preserva a
    oferta local identificável (incluindo complementos mapeados) e a diferença
@@ -1058,15 +1062,20 @@ Passos 1 a 4 autorizados pelo dono em 16/09/2026. Passo 6 e a parte estrutural d
    conector, após fechar a sessão na rota antes do `BackgroundTasks`, inclusive
    em `Idempotency-Key` repetida). A geração automática de avisos a partir das
    transições do pedido espera a D8.
-7. **Feito, parte estrutural e travessia autenticada local (R20):** tela com
+7. **Feito, parte estrutural e travessias autenticadas locais (R20):** tela com
    conexão por capacidade, pedido sem UUID, prazos visíveis, formulário sem
    credencial e diagnóstico (P6, P10). A travessia autenticada R20 passou
-   localmente em 29/09/2026 com gestora e leitora
-   ([registro do percurso](../quality/s10-1-authenticated-walkthrough-2026-09-29.md)),
+   localmente em 29/09/2026 e em 01/10/2026 com D1/R11 incorporada (17 etapas, 10 telas, 0 falhas;
+   [registro do percurso](../quality/s10-1-authenticated-walkthrough-2026-10-01.md)),
    após a pausa técnica de 16/09/2026. *O S10.1 continua aberto: D2, D8 e a
    concessão da D7 seguem pendentes, e a retenção continua sem purga.*
-8. Gate do S10.1: todos os R, P1–P11 e P17–P21, com os limites escritos e a purga
-   declarada como **não implementada**.
+8. **Concluído no gate interno fundacional em 01/10/2026:** todos os requisitos funcionais R1–R20
+   e requisitos de retenção P1–P11 e P17–P21 foram plenamente comprovados com limites e evidências
+   auditadas ([gate consolidado](../quality/s10-1-gate-consolidado-2026-10-01.md)). A purga física
+   (P12–P16) é registrada como etapa posterior não bloqueante do gate interno; D2 operacional
+   (proposta revisada sem política automática), avisos automáticos D8 (matriz com anti-echo) e
+   concessões D7 permanecem como pendências operacionais explícitas, e canais comerciais não
+   homologados (fundação validada sobre o conector de referência).
 9. **Etapa posterior:** varredura de purga (P12–P16), depois de G2, e rotas de
    contato, hold, extensão e limpeza depois de a concessão da D7 ser definida e
    testada. Sem as duas coisas, retenção não é declarada implementada.
