@@ -31,7 +31,7 @@ from test_s10_channel_hub import _base
 
 BASE_URL = os.getenv("TEST_BASE_URL", "http://localhost:8002")
 MARKERS = ("Pessoa Marcadora Prazo", "11977776666", "Rua Marcadora Prazo")
-ALL_CAPABILITIES = ["CONNECTION_VALIDATION", "ORDER_EVENTS", "ORDER_INGRESS", "ORDER_STATUS_OUTBOUND"]
+ALL_CAPABILITIES = ["CATALOG_PUBLICATION", "CONNECTION_VALIDATION", "ORDER_EVENTS", "ORDER_INGRESS", "ORDER_STATUS_OUTBOUND"]
 
 
 def _push_into_past(model, row_id) -> None:
