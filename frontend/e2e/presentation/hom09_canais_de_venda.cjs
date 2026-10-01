@@ -222,11 +222,12 @@ async function main() {
       item_quantity: itemChope?.quantity,
     },
     garantias_demonstradas_pelos_testes_backend_r11: {
-      catalogo_preservado: 'test_channel_inbox.py:533 (ProductPrice inalterado)',
-      diferencas_registradas: 'test_channel_inbox.py:533 (difference_amount em ExternalOrderMapping e linhas)',
-      total_com_entrega_e_subsidio: 'test_channel_inbox.py:767 e :1163 (_order_amount com delivery_fee e sem duplicar subsídio)',
-      bloqueio_cobranca_local: 'test_channel_inbox.py:767 (409 ORDER_PAID_IN_MARKETPLACE e ORDER_PAYMENT_ORIGIN_UNKNOWN)',
-      concorrencia_sem_deadlocks: 'test_r11_concurrency_matrix.py (7 testes com ordem canônica de locks)',
+      cenario_separado_backend: 'O exemplo da travessia (Chopp 500ml R$ 18,50) e independente dos cenarios backend com complementos e subsidios',
+      catalogo_preservado: 'test_r11_pedido_registra_valor_do_canal_preserva_oferta_local_com_complemento_e_atualiza_so_preco (ProductPrice inalterado em R$ 18,50 e R$ 9,90)',
+      diferencas_registradas: 'test_r11_pedido_registra_valor_do_canal_preserva_oferta_local_com_complemento_e_atualiza_so_preco (difference_amount inicial de -R$ 2,00 e -R$ 3,50 na atualizacao)',
+      validacoes_e_subsidios: 'test_r11_valores_inseguros_ou_inconsistentes_vao_para_revisao_sem_usar_preco_local (consistencia de descontos e totais)',
+      bloqueio_cobranca_local: 'test_r11_protege_pedido_marketplace_contra_cobranca_local_e_bloqueia_desconto_de_cabecalho_sob_reserva (409 ORDER_PAID_IN_MARKETPLACE)',
+      concorrencia_sem_deadlocks: 'test_r11_concurrency_matrix.py (7 testes comprovando ordem canonica sem 40P01)',
     },
   })
 

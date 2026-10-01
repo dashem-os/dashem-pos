@@ -45,16 +45,17 @@ Para não atribuir à interface do navegador asserções que ele não percorreu,
 
 ### B. Valores Efetivamente Verificados pela API neste Roteiro
 - Requisição `GET /api/v1/orders/{order_id}` executada contra o pedido criado:
+  - `order_id == "f5bbd9b8-1f14-41d9-813f-b8833d735041"` (registrado em `hom09-canais.json`);
   - `Order.items[0].unit_price == "18.5000"`;
   - `Order.items[0].quantity == "2.0000"`;
 - Confirma que o Order Engine absorveu o preço unitário e a quantidade declarados pelo canal no item de pedido.
 
 ### C. Garantias Contratuais e Financeiras Demonstradas pelos Testes Backend de R11
-As garantias abaixo **não pertencem à travessia visual do navegador** e foram comprovadas nos testes backend automatizados contra PostgreSQL:
-1. **Catálogo local preservado:** O preço de venda da loja (`ProductPrice.sale_price == Decimal("18.0000")`) não sofreu mutação com a entrada do preço de R$ 18,50 (comprovado em `test_channel_inbox.py:533`).
-2. **Registro de divergências no mapeamento:** `ExternalOrderMapping.difference_amount == Decimal("1.0000")` e `ChannelOrderLine.difference_amount == Decimal("0.5000")` gravados como evidência (comprovado em `test_channel_inbox.py:533`).
-3. **Cálculo da obrigação e total:** `_order_amount()` calcula `R$ 44,00` considerando entrega de R$ 7,00 e sem duplicar subsídios informativos do canal (comprovado em `test_channel_inbox.py:767` e `:1163`).
-4. **Bloqueio de cobrança local indevida:** Tentativa de abrir negociação de checkout local para o pedido resulta em HTTP `409 ORDER_PAID_IN_MARKETPLACE`; pedidos com origem desconhecida resultam em HTTP `409 ORDER_PAYMENT_ORIGIN_UNKNOWN` (comprovado em `test_channel_inbox.py:767`).
+As garantias abaixo **são independentes da travessia visual do navegador** e foram comprovadas nos testes backend automatizados contra PostgreSQL isolado com cenários próprios:
+1. **Catálogo local preservado:** O preço de venda da loja (`ProductPrice.sale_price == Decimal("18.5000")` e `Decimal("9.9000")`) não sofre mutação com valores do canal (comprovado em `test_channel_inbox.py` no teste `test_r11_pedido_registra_valor_do_canal_preserva_oferta_local_com_complemento_e_atualiza_so_preco`).
+2. **Registro de divergências no mapeamento:** A diferença entre a mercadoria do canal (R$ 51,90) e a oferta local com complementos (R$ 53,90) registra rigorosamente `ExternalOrderMapping.difference_amount == Decimal("-2.0000")` inicialmente, e `Decimal("-3.5000")` após atualização de preço (comprovado em `test_r11_pedido_registra_valor_do_canal_preserva_oferta_local_com_complemento_e_atualiza_so_preco`). *(Ajuste formal: o relatório anterior atribuía equivocadamente R$ 1,00 aos testes backend; os valores do cenário testado são −R$ 2,00 inicial e −R$ 3,50 na atualização)*.
+3. **Cálculo da obrigação e total:** `_order_amount()` calcula totais considerando entrega declarada e sem duplicar subsídios informativos do canal (comprovado em `test_channel_inbox.py` nos testes `test_r11_valores_inseguros_ou_inconsistentes_vao_para_revisao_sem_usar_preco_local` e `test_r11_itens_ativos_gratuitos_conservam_entrega_e_pedido_cancelado_ou_sem_itens_ativos_retorna_zero`).
+4. **Bloqueio de cobrança local indevida:** Tentativa de abrir negociação de checkout local para pedido pago no canal resulta em HTTP `409 ORDER_PAID_IN_MARKETPLACE`; pedidos com origem desconhecida resultam em HTTP `409 ORDER_PAYMENT_ORIGIN_UNKNOWN` (comprovado em `test_channel_inbox.py` no teste `test_r11_protege_pedido_marketplace_contra_cobranca_local_e_bloqueia_desconto_de_cabecalho_sob_reserva`).
 5. **Garantia transacional sem deadlocks:** Serialização de reduções e proteção sob concorrência comprovadas sem deadlocks `40P01` através da ordem canônica de bloqueios (comprovado em `test_r11_concurrency_matrix.py`, 7 testes).
 
 ---

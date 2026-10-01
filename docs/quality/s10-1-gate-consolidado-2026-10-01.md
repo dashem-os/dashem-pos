@@ -1,26 +1,31 @@
 # S10.1 — Gate Interno Consolidado do Channel Hub
 
 Data de consolidação: 01 de outubro de 2026  
-Commit de referência: `4b5e312` (publicado em `main`, CI 36861234960)  
-Decisão do Gate: **S10.1 CONCLUÍDO NO GATE INTERNO FUNDACIONAL**  
-Fundamentação: Todos os requisitos fundacionais (R1–R20) e critérios de retenção/privacidade da etapa fundacional (P1–P11 e P17–P21) estão plenamente comprovados com testes automatizados e evidências auditadas. As proteções financeiras e contratuais de D1/R11 estão aprovadas e publicadas. A travessia autenticada R20 foi validada com limites e responsabilidades estritamente delimitados.
+Status de Publicação: **D1/R11 PUBLICADA E CONFIRMADA EM PRODUÇÃO** (commit `4b5e312` e `9a6543c`, CI 36901102911 verde)  
+Decisão do Gate: **FECHAMENTO FORMAL PENDENTE DE AVALIAÇÃO DO DONO (GO PENDENTE)**  
+Fundamentação: A publicação funcional da migração 101 e a preservação de preços do canal (D1/R11) estão aprovadas e ativas. O fechamento formal do S10.1 aguarda validação das provas rigorosamente alinhadas nesta fatia delimitada:
+1. **R19:** Controle verdadeiro de idempotência por linha adicionado (implementação normal passa; quebra deliberada de identificação estável provoca duplicação que faz a mesma verificação reprovar), conservando o teste de commit prematuro como controle de atomicidade;
+2. **P8:** Comprovação estrita por comparação de snapshot de estado antes e depois da ingestão/atualização, incluindo registros prévios de CRM (`customers`), fidelidade (`customer_credit_policies`) e fiscal (`fiscal_documents`, `fiscal_events`), demonstrando isolamento em `channel_order_contacts`;
+3. **R20:** Evidência (`hom09-canais.json`) contendo `order_id` verificado na API, com separação explícita entre o exemplo da travessia (Chopp 500ml R$ 18,50) e os cenários de teste backend (diferenças de −R$ 2,00 e −R$ 3,50 com complementos e subsídios);
+4. **D2, D8 e concessões de D7:** Mantidas como **propostas NÃO APROVADAS para implementação**, expurgando contradições conceituais (eliminação de `OPEN` para tickets de produção, distinção entre notificações definitivas e solicitações negociáveis, separação de efeitos financeiros segundo iFood Financial API v2 e exigência de acesso assistido temporário e auditado para suporte);
+5. **Diagnóstico S13.2:** Ancorado nas entidades já existentes em `app/models/channel_catalog.py` (`ChannelCatalogOffer`, `ChannelPublicationBatch`, `ChannelPublicationItem`) e definição da relação com snapshot imutável, sem escrita prematura de código.
 
-Conforme previsto na proposta original (§7, itens 7 a 9), a conclusão deste gate interno mantém expressas as seguintes pendências operacionais e etapas posteriores:
+Conforme previsto na proposta original (§7, itens 7 a 9), permanecem expressas as seguintes pendências operacionais e etapas posteriores:
 1. **Retenção sem purga física:** P12–P16 pertencem à etapa posterior de purga (§7, item 9), a ser desenvolvida após a formalização do ciclo de backups (G2).
-2. **D2 operacional pendente:** Cancelamento com item em preparo permanece retido no comportamento conservador comprovado (`NEEDS_REVIEW` com código `PREPARATION_STARTED`), preservando produção e cobertura financeira; a esteira de resolução humana é apresentada como proposta operacional para decisão do lojista.
-3. **Avisos automáticos D8 pendentes:** Nenhuma emissão automática de aviso ao canal está habilitada; avisos continuam restritos ao acionamento explícito enquanto a matriz de transições D8 aguarda definição de vocabulário e canal piloto.
-4. **Acesso a dados de contato condicionado à D7:** As 4 permissões especiais existem no catálogo sem concessão a perfis padrão; a leitura de dados de contato segue bloqueada até definição explícita de perfis.
-5. **Canais comerciais não homologados:** A fundação foi provada contra o adaptador de referência (`CONTRACT_TEST`); homologação com marketplaces reais (iFood, 99Food, Rappi) depende de etapas comerciais e credenciamento técnico externos.
+2. **D2 operacional NÃO aprovada:** Cancelamento com item em preparo permanece retido no comportamento conservador comprovado (`NEEDS_REVIEW` com código `PREPARATION_STARTED`), preservando produção e cobertura financeira;
+3. **Avisos automáticos D8 NÃO aprovados:** Nenhuma emissão automática de aviso ao canal está habilitada; avisos continuam restritos ao acionamento explícito;
+4. **Concessão de D7 NÃO aprovada:** As 4 permissões especiais existem no catálogo sem concessão a perfis padrão; a leitura de dados de contato segue bloqueada;
+5. **Canais comerciais não homologados:** A fundação foi provada contra o adaptador de referência (`CONTRACT_TEST`).
 
 ---
 
 ## 1. Separação de Evidências de Publicação
 
 1. **Repositório Git e Integração Contínua (CI):**
-   - Commit: [`4b5e312`](https://github.com/dashem-os/dashem-pos/commit/4b5e312e72b7fbbd189e6cbc64f569d035c21b1d) em `main`.
-   - CI GitHub Actions: [Run 36861234960](https://github.com/dashem-os/dashem-pos/actions/runs/36861234960) verde nos 4 jobs (Alembic 54s, Backend tests 3m44s, Frontend typecheck/build 25s, Operational access E2E 1m21s).
+   - Commit de publicação inicial: [`4b5e312`](https://github.com/dashem-os/dashem-pos/commit/4b5e312e72b7fbbd189e6cbc64f569d035c21b1d) em `main` (CI 36861234960).
+   - Commit de consolidação probatória: [`9a6543c`](https://github.com/dashem-os/dashem-pos/commit/9a6543c80e1bbbe9635b71db3f05a1e285a8d462) em `main` (CI [36901102911](https://github.com/dashem-os/dashem-pos/actions/runs/36901102911) verde nos 4 jobs: Alembic 52s, Backend 3m40s, Frontend 23s, E2E 1m24s).
 2. **Deploy Frontend (Vercel):**
-   - Deployment `6784097052` associado ao commit `4b5e312` com estado `success`.
+   - Deployments associados com estado `success` no target de produção.
    - URL de produção: `https://dashem-pos.vercel.app` (HTTP 200).
 3. **Deploy Backend API (Render):**
    - Endpoint de produção: `https://dashem-pos-api.onrender.com/health` respondendo HTTP 200 com ambiente `production`.
@@ -55,8 +60,8 @@ A matriz abaixo relaciona todos os critérios R1–R20 e P1–P21 previstos na p
 | **R16** | Assinatura sobre bytes: mesmo conteúdo reserializado não passa (H9). | `test_channel_ingress.py:123` | `PASSED` | Assinatura HMAC-SHA256 validada sobre os bytes exatos (`raw bytes`); reserialização com chaves reordenadas devolve `401 SIGNATURE_INVALID`. |
 | **R17** | Merchant sem conexão autorizada: recusado sem dado pessoal nem payload gravado (H9, H12, H17). | `test_channel_ingress.py:139` | `PASSED` | Conexão ausente ou não validada rejeita eventos com `MERCHANT_NOT_CONNECTED`; nada é salvo no banco de dados. |
 | **R18** | Capacidade não declarada não é chamada e aparece como ausente (H11). | `test_channel_screen_facts.py:80` e `test_channel_ingress.py:197` | `PASSED` | Adaptador sem capacidade declarada não expõe rota correspondente e relata ausência na consulta gerencial. |
-| **R19** | Controle negativo: idempotência por linha quebrada de propósito — R2 tem de ver a duplicata / vazamento (medida). | `test_channel_inbox.py:273` (`test_r19_controle_idempotencia_por_linha_quebrada_de_proposito_enxerga_duplicata`) | `PASSED` | Commit prematuro plantado na primeira linha deixa pedido e item órfãos no banco de dados; a asserção detecta o vazamento, provando a eficácia do controle de R2. |
-| **R20** | Travessia autenticada completa na interface com gestora e leitora (H8, H11). | [`hom09_canais_de_venda.cjs`](file:///D:/Workplace/Dashem%20POS/frontend/e2e/presentation/hom09_canais_de_venda.cjs), [`hom09-canais.json`](evidence/s10-1-2026-10-01/hom09-canais.json) | `PASSED` | 17 etapas, 10 telas capturadas, 0 falhas; gestora opera e leitora recebe HTTP 403 estrito. Aferição visual e ações operacionais no navegador; garantias de catálogo e finanças demonstradas no backend. |
+| **R19** | Controle negativo: idempotência por linha quebrada de propósito — R2 tem de ver a duplicata (medida). | `test_channel_inbox.py` (`test_r19_controle_idempotencia_por_linha_quebrada_de_proposito_reprova_duplicata`) | `PASSED` | Implementação normal com identificação estável de linhas não duplica itens; identificação deliberadamente quebrada/instável provoca inserção de itens duplicados e faz a mesma verificação de unicidade reprovar (`AssertionError`). O controle de atomicidade de commit prematuro é preservado em `test_controle_atomicidade_commit_prematuro_encontra_pedido_parcial`. |
+| **R20** | Travessia autenticada completa na interface com gestora e leitora (H8, H11). | [`hom09_canais_de_venda.cjs`](file:///D:/Workplace/Dashem%20POS/frontend/e2e/presentation/hom09_canais_de_venda.cjs), [`hom09-canais.json`](evidence/s10-1-2026-10-01/hom09-canais.json) | `PASSED` | 17 etapas, 10 telas capturadas, 0 falhas; gestora opera e leitora recebe HTTP 403 estrito. Evidência auditada com `order_id` verificado na API (`f5bbd9b8-1f14-41d9-813f-b8833d735041`). Aferição visual e ações operacionais no navegador; garantias de catálogo e finanças demonstradas no backend. |
 
 ---
 
@@ -71,7 +76,7 @@ A matriz abaixo relaciona todos os critérios R1–R20 e P1–P21 previstos na p
 | **P5** | Nenhum DTO ou rota grava `retention_until`, campos de legal hold ou `redaction_method` — tentativa pelo corpo é ignorada ou recusada (H18). | `test_channel_ingress.py:63` e `:271` | `PASSED` | Injeção de prazo e base no payload é ignorada pelo servidor; varredura estática de rotas confirma ausência de parâmetros para gravação desses campos. |
 | **P6** | Nenhuma rota devolve nome, telefone ou endereço; nenhuma rota registra hold, estende retenção ou dispara limpeza (H18). | `test_channel_screen_facts.py:150` e `hom09_canais_de_venda.cjs` | `PASSED` | Respostas de API omitem dados de contato; rotas de mutação de hold e expurgo não existem na API ativa. |
 | **P7** | Restrição de banco: hold com algum dos cinco campos faltando é recusado (H16). | `test_channel_ingress.py:213` (`test_legal_hold_so_existe_completo`) | `PASSED` | CheckConstraint `ck_legal_hold_completeness` gera `IntegrityError` se qualquer um dos 5 campos de hold for nulo; gravação completa é aceita. |
-| **P8** | Ingestão de pedido de canal não cria nem altera cliente de CRM, fidelidade ou dado fiscal (H19). | `test_channel_inbox.py:500` (`test_a_pessoa_mora_so_no_contato_e_evento_sem_pedido_nao_cria_contato`) | `PASSED` | Ingestão externa não insere registros na tabela `customers` nem muta cadastros fiscais. Não impede associação manual posterior no PDV. |
+| **P8** | Ingestão de pedido de canal não cria nem altera cliente de CRM, fidelidade ou dado fiscal (H19). | `test_channel_inbox.py` (`test_p8_ingestao_de_pedido_de_canal_nao_cria_nem_altera_crm_fidelidade_e_fiscal`) | `PASSED` | Comparação estrita de snapshots antes e depois da ingestão/atualização (com clientes de CRM, fidelidade/crédito e documentos/eventos fiscais pré-existentes): contagens inalteradas, registros existentes não mutados e dados do canal restritos exclusivamente a `ChannelOrderContact`. |
 | **P9** | Payload com marcador que provoca erro de normalização: o motivo de quarentena tem código e texto seguro, sem o marcador (H17). | `test_channel_inbox.py:500` (`test_a_pessoa_mora_so_no_contato_e_evento_sem_pedido_nao_cria_contato`) | `PASSED` | Marcador plantado no campo inválido não aparece em `quarantine_reason` nem na interface; código seguro atribuído. |
 | **P10** | Tela e diagnóstico mostram vencidos aguardando limpeza e a última limpeza; com zero execuções, dizem isso (H20). | `test_channel_screen_facts.py:100` e telas 6 e 9 da travessia R20 | `PASSED` | Exibição de contagens agregadas de pedidos aguardando terminal e aviso explícito de que a rotina de limpeza ainda não existe. |
 | **P11** | Nenhuma chamada de log ou `print` do backend passa dados pessoais; controle com seis vazamentos plantados e três chamadas seguras (H17). | `test_no_personal_data_in_logs.py` | `PASSED` | Análise sintática AST em todo o código backend reprova chamadas com dados sensíveis; controle calibrado com vazamentos plantados. |
@@ -95,73 +100,69 @@ A proposta original estabeleceu três dependências externas de governança e in
 
 ## 3. Limites e Delimitação da Travessia R20
 
-A travessia autenticada R20 (`hom09_canais_de_venda.cjs`) foi executada com sucesso contra o ambiente integrado local:
-- **Valores enviados pelo roteiro:** Produto `CHOPE-500` com preço unitário de `R$ 18,50`, quantidade `2`, taxa de entrega de `R$ 7,00`, total de `R$ 44,00` e pagamento `PAID_ONLINE`.
-- **Valores verificados pela API:** A consulta `GET /api/v1/orders/{order_id}` atesta que o pedido foi criado com `items[0].unit_price == "18.5000"` e `items[0].quantity == "2.0000"`.
-- **Garantias demonstradas pelos testes backend:** A preservação do acervo em `ProductPrice` (R$ 18,00), a divergência no mapeamento (`difference_amount == Decimal("1.0000")`), a composição de `_order_amount()` e o bloqueio de cobrança local (`409 ORDER_PAID_IN_MARKETPLACE`) foram comprovados pelos testes backend automatizados de R11 (`test_channel_inbox.py` e `test_r11_concurrency_matrix.py`) e **não são atribuídos ao navegador**.
+A travessia autenticada R20 (`hom09_canais_de_venda.cjs`) foi executada com sucesso contra o ambiente integrado local, com limites e separações rigorosamente declarados:
+- **Valores enviados pelo roteiro da travessia:** Produto `CHOPE-500` com preço unitário declarado pelo canal de `R$ 18,50`, quantidade `2`, taxa de entrega de `R$ 7,00`, total declarado de `R$ 44,00` e pagamento `PAID_ONLINE` (normalizado para `MARKETPLACE`).
+- **Valores verificados pela API no percurso:** A consulta `GET /api/v1/orders/{order_id}` atesta que o pedido foi criado com `order_id` registrado no artefato final (`f5bbd9b8-1f14-41d9-813f-b8833d735041`), `items[0].unit_price == "18.5000"` e `items[0].quantity == "2.0000"`.
+- **Separação estrita entre o exemplo da travessia e os cenários backend:** O percurso no navegador afere exclusivamente a visualização e operação do pedido simples de Chopp (R$ 18,50). As regras complexas de cálculo, divergências, complementos e bloqueios foram comprovadas exclusivamente pela suíte automatizada do backend e **não são atribuídas ao navegador**:
+  - `test_r11_pedido_registra_valor_do_canal_preserva_oferta_local_com_complemento_e_atualiza_so_preco`: comprova a oferta local de `ITEM-A` (`ProductPrice` R$ 18,50 com complemento `COMP-QUEIJO` a R$ 3,50 = R$ 22,00 unitário $\times$ 2 = R$ 44,00) combinada com `ITEM-B` (R$ 9,90 $\times$ 1 = R$ 9,90), totalizando itens locais de R$ 53,90. Frente aos valores declarados pelo canal (`ITEM-A` bruto R$ 25,00 com desconto de linha R$ 4,00 $\rightarrow$ líquido R$ 46,00; `ITEM-B` R$ 8,90; entrega R$ 7,00, desconto de pedido R$ 3,00 e subsídio R$ 5,00 $\rightarrow$ mercadoria efetiva do canal R$ 51,90 e total R$ 58,90), a diferença verificada é inicialmente de **−R$ 2,00** (`difference_amount == Decimal("-2.0000")`), e de **−R$ 3,50** após atualização de preços (`difference_amount == Decimal("-3.5000")`), com preservação estrita do catálogo local (`ProductPrice` inalterado em R$ 18,50 e R$ 9,90). *(Ajuste formal: o relatório anterior citava equivocadamente uma diferença de R$ 1,00; os valores reais do cenário verificado são −R$ 2,00 inicial e −R$ 3,50 na atualização)*;
+  - `test_r11_valores_inseguros_ou_inconsistentes_vao_para_revisao_sem_usar_preco_local`: valida consistência de descontos, subsídios e totais declarados, direcionando divergências a `NEEDS_REVIEW`;
+  - `test_r11_protege_pedido_marketplace_contra_cobranca_local_e_bloqueia_desconto_de_cabecalho_sob_reserva`: comprova bloqueio de cobrança local indevida com HTTP `409 ORDER_PAID_IN_MARKETPLACE`;
+  - `test_r11_concurrency_matrix.py` (7 testes): comprova a ordem canônica de locks sem deadlocks 40P01 sob concorrência intensa.
 - **Autenticação:** Sessão iniciada com JWT de teste assinado localmente com `AUTH_TEST_SECRET`, contra API em `AUTH_MODE=test` e concessões no PostgreSQL isolado. Não comprova login interativo com formulário de usuário/senha nem a infraestrutura do Supabase Auth em produção.
 - **Responsividade:** A varredura nas larguras 1366 px, 1024 px, 768 px e 390 px afere estritamente a ausência de palavras partidas ao meio (`palavrasPartidas`), sem afirmar ausência universal de defeitos de layout.
 
 ---
 
-## 4. Desenho Preliminar de D2 (Proposta Operacional Revisada)
+## 4. Análise Técnica e Desenho Preliminar de D2 (Proposta NÃO Aprovada para Implementação)
 
-Esta seção formaliza a proposta de avanço para a decisão operacional **D2** (Cancelamento pelo canal com item já em preparo na cozinha), sem introduzir comportamentos automáticos perigosos nem violar as garantias de R11.
+> [!WARNING]
+> **Status de D2: PROPOSTA NÃO APROVADA PARA IMPLEMENTAÇÃO.**
+> O comportamento conservador da fundação permanece ativo: cancelamento com preparo iniciado move o evento para `NEEDS_REVIEW` com código `PREPARATION_STARTED`, mantendo o pedido do PDV e os tickets de produção intocados até intervenção humana autorizada.
 
 ### A. Diagnóstico da Realidade Operacional e do Canal
 1. **Notificação Definitiva vs. Solicitação Negociável:**
-   - Em certos adaptadores/marketplaces (ex.: iFood em determinadas etapas), o evento `ORDER_CANCELLED` constitui uma **notificação unilateral e definitiva**: o cancelamento já foi consumado na plataforma externa, o cliente não receberá a refeição e não haverá repasse financeiro do canal. Nesses casos, uma "recusa de cancelamento" local no PDV **não desfaz o cancelamento externo**. O lojista deve decidir internamente se interrompe a produção para estancar o consumo de insumos ou se descarta o item, tratando a perda através dos canais de disputa/reembolso com o marketplace.
-   - Em outros fluxos, o canal envia uma **solicitação de cancelamento** (`CANCELLATION_REQUESTED`), na qual o restaurante tem uma janela de tempo para aceitar ou recusar formalmente a solicitação antes que ela se torne definitiva.
-2. **Assincronia do Estorno Financeiro:**
-   - Uma transação relacional no PostgreSQL atualiza atômica e localmente as entidades do sistema (`Order`, `ProductionTicket`, `PaymentAllocation`), mas **não executa nem torna atômico um estorno externo** junto a adquirentes de cartão, gateways de pagamento ou plataformas de marketplace.
-   - Qualquer operação financeira deve separar três fases assíncronas:
-     - *Fase 1 (Resolução Local):* Registro da decisão humana e bloqueio de novas cobranças;
-     - *Fase 2 (Solicitação Externa):* Emissão do comando de estorno/cancelamento para a adquirente ou canal;
-     - *Fase 3 (Confirmação Financeira):* Recepção da confirmação externa (via webhook ou polling) antes de marcar a liquidação como estornada.
-3. **Preservação Estrita das Proteções Financeiras de R11:**
-   - A resolução humana jamais pode liberar reservas ou registrar estornos sem a devida confirmação. Em negociações vinculadas a múltiplos pedidos com cobertura conjunta (`coverage_on_orders`), o cancelamento de um pedido não pode reduzir a cobertura global abaixo da obrigação restante dos demais pedidos.
-   - Todo caminho resolutivo que alcance entidades financeiras deve obedecer à **ordem canônica de bloqueios completa de R11**:
+   - Em plataformas como o iFood, o evento de cancelamento unilateral após determinado ponto operacional constitui uma **notificação unilateral e definitiva**: o cancelamento já foi consumado no canal e o cliente não receberá a refeição. O sistema local **não pode simplesmente descartar (`DISCARDED`) uma notificação definitiva** fingindo que ela não existiu; a notificação reflete um fato externo irrevogável.
+   - Em contrapartida, quando o canal envia uma **solicitação de cancelamento** (`CANCELLATION_REQUESTED`), abre-se janela de negociação em que o lojista pode aceitar ou recusar formalmente antes da consolidação.
+2. **Efeitos Financeiros e Separação de Domínios (iFood Financial V2):**
+   - **Não se deve deduzir ausência de repasse apenas do cancelamento do pedido.** A [documentação financeira do iFood (Financial API v2)](https://developer.ifood.com.br/en-US/docs/guides/financial/v2) trata os impactos financeiros separadamente do ciclo de vida operacional: pedidos cancelados com preparo já iniciado podem ensejar contestação, ressarcimento/indenização parcial ao restaurante, cobrança de taxas de cancelamento ou estorno posterior via conciliação de repasses (`MarketplaceSettlement`).
+   - Portanto, a resolução operacional local de interromper o preparo na cozinha não pode disparar de forma automática o desfazimento precipitado de reservas ou assumir ausência de compensação.
+3. **Estados Reais do Modelo de Dados (Correção de Enums):**
+   - O modelo `ProductionTicket` transiciona estritamente entre os estados do enum `ProductionTicketStatusEnum`: `NEW`, `ACCEPTED`, `PREPARING`, `READY`, `DELIVERED` e `CANCELED`. **Não existe estado `OPEN` para tickets de produção** (o estado `OPEN` pertence a `Order.status`).
+   - Enquanto o cancelamento permanece em `NEEDS_REVIEW`, o `Order` segue `OPEN` e os tickets de produção seguem no seu estado corrente na cozinha (`ACCEPTED` ou `PREPARING`).
+   - Se o cancelamento for aceito pelo lojista, o ticket transiciona para `CANCELED` e o pedido para `CANCELED`; se o lojista recusar uma solicitação negociável ou registrar ciência da perda interna, a produção é tratada operacionalmente (ex.: interrompida para evitar desperdício de insumos).
+4. **Preservação Estrita da Hierarquia Canônica de Locks de R11:**
+   - Todo fluxo de cancelamento que alcance entidades financeiras deve obedecer à **ordem canônica de bloqueios completa de R11**:
      $$\text{PaymentIntent (N1)} \rightarrow \text{CheckoutNegotiation (N2)} \rightarrow \text{TableSession (N3)} \rightarrow \text{ServiceTable (N4)} \rightarrow \text{Order (N5)} \rightarrow \text{ExternalOrderMapping (N6)} \rightarrow \text{OrderItem (N7)}$$
-4. **Estados Reais do Modelo de Dados:**
-   - O estado terminal de cancelamento em `ProductionTicket` é **`CANCELED`** (`DISCARDED` não existe no enum `ProductionTicketStatusEnum`).
-   - Os estados válidos de `ChannelInboxEvent` são `RECEIVED`, `PROCESSING`, `APPLIED`, `SUPERSEDED`, `QUARANTINED`, `NEEDS_REVIEW`, `DISCARDED` e `EXPIRED`.
-   - Se o lojista aceitar o cancelamento do pedido, o evento de cancelamento da caixa de entrada transiciona para **`APPLIED`** (aplicando o cancelamento ao `Order` e ao `ProductionTicket`); se o lojista mantiver o pedido aberto (rejeitando a solicitação ou tratando o evento como perda interna sem cancelar o pedido no PDV), o evento transiciona para **`DISCARDED`** com motivo justificado. Estados novos como `RESOLVED_CANCELED` ou `RESOLVED_REJECTED` exigiriam migração de schema e só devem ser introduzidos se houver benefício comprovado em auditoria.
-5. **Autoria e Não Obrigatoriedade de PIN / Segunda Pessoa:**
-   - Em operações enxutas de pequenos estabelecimentos, o mesmo operador acumula funções de salão, caixa e gerência. Portanto, a resolução de cancelamentos **não deve impor obrigatoriamente PIN de supervisor ou segunda pessoa**. A exigência central é a autorização formal (permissão `channel.manage` ou permissão específica delegada) e o registro auditado de autoria (`actor_id`, `resolved_at` e justificativa) em `audit_events`.
-6. **Comunicação Outbound e Incerteza de Rede:**
-   - O envio de confirmações ou recusas para o canal depende da declaração da capacidade `ChannelCapability.ORDER_STATUS_OUTBOUND`.
-   - O enfileiramento na tabela `channel_outbound_messages` garante persistência local, mas **não garante entrega imediata**. Falhas de rede ou indisponibilidade do canal movem a mensagem para `RETRY` ou `DEAD_LETTER`, mantendo o status de comunicação em estado explícito de incerteza até confirmação definitiva.
 
-### B. Proposta das Duas Alternativas Operacionais de Resolução
+### B. Fluxo Operacional Preliminar em Estudo (Não Implementado)
 
 ```
-                         [ ORDER_CANCELLED recebido pelo conector ]
+                         [ ORDER_CANCELLED / Solicitação recebida ]
                                              │
-                                (Item já aceito na cozinha?)
+                                (Preparo já iniciado na cozinha?)
                                              │ SIM
                                              ▼
-                                 [ NEEDS_REVIEW gravado ]
-                            (Código: PREPARATION_STARTED)
-                         (Order e ProductionTicket seguem OPEN)
+                                  [ NEEDS_REVIEW gravado ]
+                             (Código: PREPARATION_STARTED)
+                      (Order segue OPEN; Ticket segue ACCEPTED/PREPARING)
                                              │
                    ┌─────────────────────────┴─────────────────────────┐
                    ▼                                                   ▼
-     [ Alternativa A: Aceitar Cancelamento ]             [ Alternativa B: Rejeitar Cancelamento ]
-     • Indicada para solicitação negociável ou           • Indicada para pedido já finalizado/embalado
-       quando a cozinha consegue parar a tempo.            ou quando o lojista decide entregar/disputar.
-     • Ação autorizada com justificativa auditada.       • Ação autorizada com justificativa auditada.
-     • ProductionTicket -> CANCELED                      • ProductionTicket -> segue OPEN (ou READY)
-     • Order no PDV -> CANCELED                          • Order no PDV -> segue OPEN
-     • Desfaz reserva não liquidada / solicita estorno   • Cobertura financeira local mantida
-     • Evento na inbox -> APPLIED                        • Evento na inbox -> DISCARDED
-     • Se canal suportar outbound -> envia aviso         • Se canal suportar outbound -> envia aviso
+     [ Alternativa A: Aceitar / Confirmar ]              [ Alternativa B: Recusar / Registrar Perda ]
+     • Ação autorizada com justificativa auditada.       • Aplicável a solicitações negociáveis ou
+     • ProductionTicket -> CANCELED                      • Registro de perda com despacho/disputa.
+     • Order no PDV -> CANCELED                          • ProductionTicket -> CANCELED ou segue PREPARING
+     • Liquidação/estorno tratado via conciliação fiscal • Order no PDV segue conforme decisão
+     • Evento na inbox -> APPLIED                        • Notificação ao canal se suportado
 ```
-
-**Recomendação Técnica:** Manter o comportamento conservador atual na fundação. A implementação da esteira interativa (diálogo com as Alternativas A e B) deve ocorrer na fatia de experiência operacional de atendimento/delivery, mantendo a regra de que o sistema **nunca cancela produção nem desfaz financeiro de forma automática e desatendida**.
 
 ---
 
-## 5. Matriz de Avisos Outbound ao Canal (D8)
+## 5. Matriz de Avisos Outbound ao Canal (D8 — Proposta NÃO Aprovada para Implementação)
+
+> [!WARNING]
+> **Status de D8: PROPOSTA NÃO APROVADA PARA IMPLEMENTAÇÃO.**
+> Nenhuma emissão automática outbound está ativada em produção. Avisos continuam manuais e restritos ao endpoint explícito.
 
 Para estruturar a futura decisão **D8** (quais transições do pedido geram avisos automáticos ao canal) sem ativar emissões precipitadas, define-se a seguinte matriz de comportamento:
 
@@ -172,36 +173,40 @@ Para estruturar a futura decisão **D8** (quais transições do pedido geram avi
 | Despacho com entregador (`DISPATCHED`) | `ORDER_DISPATCHED` | Canal declara `ORDER_STATUS_OUTBOUND` | Não aplicável (evento local). |
 | Pedido cancelado no PDV (`CANCELED`) | `ORDER_CANCELLED` | Canal declara `ORDER_STATUS_OUTBOUND` | **ESTRITA:** Se a transição para `CANCELED` tiver sido provocada por um webhook de entrada originado do próprio canal (`ORDER_CANCELLED`), o emissor outbound **nunca** gera aviso de cancelamento para o canal, prevenindo loops de eco. |
 
-- **Idempotência Outbound:** Chave determinística gerada a partir de `connection_id:order_id:message_type:version`, garantindo que reenvios ou retentativas não dupliquem notificações no marketplace.
-- **Situação Atual:** Nenhuma emissão automática está ativada no código de produção. Os avisos continuam a ser despachados exclusivamente via endpoint explícito (`POST /api/v1/channels/orders/{id}/outbound`).
-
 ---
 
-## 6. Proposta de Concessões por Perfil (D7)
+## 6. Proposta de Concessões por Perfil (D7 — Proposta NÃO Aprovada para Implementação)
 
-As quatro permissões criadas na migração 098 encontram-se cadastradas na tabela `permissions` sem atribuição a nenhum perfil padrão (conforme comprovado em P20). Para habilitar operações de piloto com canal sem violar o princípio de menor privilégio, propõe-se a seguinte matriz de concessões:
+> [!WARNING]
+> **Status de D7: PROPOSTA NÃO APROVADA PARA IMPLEMENTAÇÃO.**
+> As 4 permissões continuam sem concessão padrão. Qualquer acesso concedido a suporte técnico no futuro deve preservar estritamente a decisão arquitetural consolidada: **acesso assistido, temporário, restrito ao tenant e auditado**.
 
 | Permissão | Finalidade Operacional | Perfil Recomendado | Justificativa e Salvaguardas |
 |---|---|---|---|
 | `channel.order_contact.read` | Visualizar nome, telefone e endereço para expedição e entrega. | **Operador de Delivery / Expedição** (`ORDER_DISPATCHER` ou concessão nominal) | Restrita à janela operacional do pedido (até o estado terminal). Não concedida a perfis de garçom ou atendente de balcão. Toda leitura gera registro nominal em `audit_events`. |
 | `channel.legal_hold.manage` | Aplicar ou liberar `legal_hold` sobre eventos, evidências ou contatos em disputa judicial. | **Gerente de Loja / Administrador** (`STORE_MANAGER`, `TENANT_ADMIN`) | Exige fornecimento obrigatório dos 5 campos estruturados (motivo, processo, responsável, revisão). Não delegável a operadores comuns. |
 | `channel.retention.extend` | Estender prazo de retenção de registro além da política padrão por necessidade administrativa. | **Administrador do Tenant** (`TENANT_ADMIN`) | Ação excepcional. Requer motivo em código e prazo delimitado. Auditada. |
-| `channel.retention.purge` | Disparar manualmente a rotina de limpeza física de registros vencidos. | **Administrador da Plataforma / Suporte Especializado** (`PLATFORM_SUPPORT`, `TENANT_ADMIN`) | Ação destrutiva definitiva. Não disponível no PDV diário. Exige registro de contagens de linhas expurgadas em `audit_events`. |
+| `channel.retention.purge` | Disparar manualmente a rotina de limpeza física de registros vencidos. | **Acesso Assistido de Suporte / Admin do Tenant** | Ação destrutiva definitiva. Preserva a exigência de acesso assistido, temporário, auditado e restrito ao tenant. Não concedido de forma irrestrita. |
 
 ---
 
-## 7. Preparação para a Próxima Fatia: Transição para S13.2
+## 7. Diagnóstico e Preparação para S13.2 (Estruturas Existentes e Modelo de Publicação)
 
-Com o gate interno fundacional do S10.1 concluído, o projeto prepara a transição para o épico **S13.2 (Catálogo e Integrações Avançadas)**, iniciando pelo **executor de publicação de catálogo por versão**:
+Com o gate interno fundacional do S10.1 concluído, o diagnóstico para o épico **S13.2 (Catálogo e Integrações Avançadas)** estabelece as bases sobre o código já existente no backend, antes de qualquer início de codificação:
 
-1. **Diagnóstico do Código Existente:**
-   - O contrato em `app/modules/channels/contracts.py` já declara a capacidade `ChannelCapability.CATALOG_PUBLICATION`;
-   - O conector de referência (`reference.py`) implementa as assinaturas de contrato básicas, mas ainda não possui rotina de carga e sincronização diferencial de produtos/categorias;
-   - As tabelas `channel_catalog_mappings` associam entidades locais (`PRODUCT`, `MODIFIER`) a identificadores externos, mas não rastreiam versão publicada nem hash de catálogo.
-2. **Escopo Mínimo de S13.2 (Fatia 1):**
-   - Criação de snapshot versionado do catálogo de delivery da loja (`CatalogPublicationRevision`);
-   - Mapeamento determinístico de itens com preço, complementos e disponibilidade;
-   - Executor assíncrono de publicação utilizando o conector de referência;
-   - Tratamento de idempotência e retentativas: cada tentativa de publicação leva `publication_version` como chave; respostas atrasadas ou falhas parciais são tratadas sem duplicação de itens.
-3. **Critérios de Isolamento Técnico:**
-   - Separar expressamente correções técnicas de publicação (payload, idempotência, timeouts) de decisões de repasse financeiro, ATP (Available-to-Promise) e comissões do canal, que pertencem à camada comercial do Commerce OS.
+1. **Estruturas de Dados Já Existentes (`app/models/channel_catalog.py`):**
+   O próximo executor deve partir estritamente dos modelos já introduzidos no repositório:
+   - **`ChannelCatalogOffer`:** Rastreia cada item publicado por conexão (`merchant_connection_id`, `product_id`), contendo `price`, `available`, `stock_quantity`, versão desejada (`desired_version: int`), versão publicada confirmada (`published_version: int`) e o status da última tentativa (`last_publication_status: PublicationItemStatusEnum` — `PENDING`, `SUCCEEDED`, `FAILED`);
+   - **`ChannelPublicationBatch`:** Modela o lote de publicação idempotente (`merchant_connection_id`, `status: PublicationStatusEnum`, `idempotency_key`, `request_hash`, `created_by`);
+   - **`ChannelPublicationItem`:** Registra o resultado individual por item do lote (`batch_id`, `offer_id`, `desired_version`, `provider_operation_key`, `status: PublicationItemStatusEnum`, `attempt_count`, `provider_result_ref`, `error_code`, `error_message`).
+
+2. **Relação com o Snapshot Imutável de Catálogo:**
+   Caso a fatia de S13.2 introduza um snapshot imutável (ex.: `CatalogPublicationSnapshot`), sua relação com os modelos existentes fica expressamente definida:
+   - O snapshot imutável congela a árvore completa da oferta de delivery (produtos, categorias, complementos e regras de visibilidade) no instante em que o lote é montado;
+   - O hash do snapshot imutável ancora o campo `request_hash` de `ChannelPublicationBatch`;
+   - Cada oferta contemplada no lote gera um `ChannelPublicationItem` que referencia `ChannelCatalogOffer.id` com `desired_version = snapshot.version`;
+   - O conector externo transmite o lote; respostas de sucesso do canal promovem `ChannelPublicationItem.status = SUCCEEDED`, o que avança `ChannelCatalogOffer.published_version = desired_version`; falhas individuais movem o item para `FAILED` com `error_code`, mantendo `published_version` na versão anterior.
+
+3. **Critérios de Isolamento Técnico de S13.2:**
+   - Separar expressamente correções técnicas de publicação (payload, idempotência, timeouts) de decisões de repasse financeiro, ATP (Available-to-Promise) e comissões do canal, que pertencem à camada comercial do Commerce OS;
+   - **Nenhum código novo de S13.2 deve ser escrito** antes da aprovação formal deste diagnóstico e fechamento dos portões pendentes.

@@ -255,13 +255,18 @@ A correção delimitada foi aplicada e comprovada:
   migração 101 no banco de produção permanecem **sem prova direta**, dada a ausência de acesso
   ou credenciais de introspecção direta ao banco e container de produção.
 
-### Conclusão do Gate Interno Fundacional (01/10/2026)
+### Alinhamento Probatório e Estado do Gate (01/10/2026)
 
-- **Gate interno fundacional do S10.1 concluído:** todos os requisitos funcionais R1–R20 e os requisitos de retenção P1–P11 e P17–P21 foram plenamente comprovados com testes automatizados e evidências auditadas ([gate consolidado](../quality/s10-1-gate-consolidado-2026-10-01.md)).
+- **Publicação D1/R11 confirmada:** a migração 101 e a preservação de preços do canal permanecem aprovadas e publicadas (commits `4b5e312` e `9a6543c`, CI 36901102911 verde). Não reabrir sem regressão demonstrada.
+- **Fechamento formal aguardando avaliação (GO pendente):** os testes e evidências foram estritamente alinhados nesta fatia delimitada ([gate consolidado](../quality/s10-1-gate-consolidado-2026-10-01.md)):
+  1. R19: controle negativo de idempotência por linha (implementação normal passa; quebra deliberada de identificação estável provoca duplicação que faz a mesma verificação reprovar), conservando o teste de commit prematuro como controle de atomicidade;
+  2. P8: comparação de snapshot de estado antes e depois da ingestão/atualização demonstrando ausência de criação ou alteração em CRM, fidelidade e fiscal;
+  3. R20: evidência contendo `order_id` verificado na API e separação entre travessia visual e cenários de backend;
+  4. D2/D8/D7: propostas mantidas como **NÃO APROVADAS para implementação**, com contradições sanadas (sem `OPEN` para tickets de produção, impactos financeiros segregados conforme iFood Financial API v2 e acesso de suporte temporário/auditado);
+  5. S13.2: diagnóstico técnico ancorado nos modelos pré-existentes de `app/models/channel_catalog.py` (`ChannelCatalogOffer`, `ChannelPublicationBatch`, `ChannelPublicationItem`), definindo sua relação com snapshot imutável antes de qualquer início de codificação.
 - **Pendências mantidas claramente:**
   1. Purga física (P12–P16): reservada para etapa posterior (§7, item 9), a ser executada após formalização de G2;
-  2. D2 operacional: cancelamento em preparo segue retido no comportamento conservador comprovado (`NEEDS_REVIEW` com `PREPARATION_STARTED`), preservando produção e cobertura; esteira de resolução humana entregue como proposta revisada;
-  3. D8 avisos automáticos: matriz de transições outbound formalizada com prevenção de eco; nenhuma emissão automática gerada antes de decisão;
-  4. D7 concessões de perfis: as 4 permissões constam no catálogo sem concessão a perfis padrão; acesso a contatos segue bloqueado até concessão explícita;
+  2. D2 operacional: cancelamento em preparo segue retido no comportamento conservador comprovado (`NEEDS_REVIEW` com `PREPARATION_STARTED`), preservando produção e cobertura; esteira de resolução humana é proposta não aprovada;
+  3. D8 avisos automáticos: proposta não aprovada; nenhuma emissão automática gerada antes de decisão;
+  4. D7 concessões de perfis: proposta não aprovada; as 4 permissões constam no catálogo sem concessão a perfis padrão; acesso a contatos segue bloqueado até concessão explícita;
   5. Canais comerciais: nenhum canal real (iFood, 99Food) conectado; a fundação opera sobre o conector de referência.
-- **D1/R11:** encerrada e publicada no commit `4b5e312`; não reabrir sem regressão demonstrada.

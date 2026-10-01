@@ -1069,13 +1069,15 @@ Passos 1 a 4 autorizados pelo dono em 16/09/2026. Passo 6 e a parte estrutural d
    [registro do percurso](../quality/s10-1-authenticated-walkthrough-2026-10-01.md)),
    após a pausa técnica de 16/09/2026. *O S10.1 continua aberto: D2, D8 e a
    concessão da D7 seguem pendentes, e a retenção continua sem purga.*
-8. **Concluído no gate interno fundacional em 01/10/2026:** todos os requisitos funcionais R1–R20
-   e requisitos de retenção P1–P11 e P17–P21 foram plenamente comprovados com limites e evidências
-   auditadas ([gate consolidado](../quality/s10-1-gate-consolidado-2026-10-01.md)). A purga física
-   (P12–P16) é registrada como etapa posterior não bloqueante do gate interno; D2 operacional
-   (proposta revisada sem política automática), avisos automáticos D8 (matriz com anti-echo) e
-   concessões D7 permanecem como pendências operacionais explícitas, e canais comerciais não
-   homologados (fundação validada sobre o conector de referência).
+8. **Alinhamento probatório consolidado em 01/10/2026 (GO pendente de avaliação):**
+   com a publicação da migração 101 e D1/R11 confirmada em produção e CI, as provas de R19
+   (controle negativo de idempotência por linha com controle de atomicidade preservado), P8
+   (comparação estrita de snapshot antes e depois da ingestão sem alteração de CRM, fidelidade e fiscal)
+   e R20 (gravação de `order_id` na evidência e separação das asserções de tela vs. backend) foram
+   estritamente alinhadas ([gate consolidado](../quality/s10-1-gate-consolidado-2026-10-01.md)).
+   As propostas D2, D8 e concessões de D7 permanecem não aprovadas para implementação, e o diagnóstico
+   prévio de S13.2 foi ancorado nas estruturas existentes de `app/models/channel_catalog.py` antes de
+   qualquer codificação.
 9. **Etapa posterior:** varredura de purga (P12–P16), depois de G2, e rotas de
    contato, hold, extensão e limpeza depois de a concessão da D7 ser definida e
    testada. Sem as duas coisas, retenção não é declarada implementada.

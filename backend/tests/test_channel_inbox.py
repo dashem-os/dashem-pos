@@ -13,7 +13,9 @@ Acceptance criteria the owner set for this step, and where each is proved:
 - resumed after a failure, no duplicate order or item ........... R2, R1, lease test
 - no partial order visible after a failed application ........... R2
 - crash after lines and before order key resumes without duplicates  R3
-- negative control: broken line idempotency leaks partial order . R19
+- negative control: broken line idempotency produces duplicates that fail uniqueness verification . R19
+- control: premature commit before end of transaction leaks partial order (C1 control)
+- channel order ingestion does not create or mutate CRM, loyalty or fiscal records . P8
 - contact never copied to orders.notes, logs or immutable trails . P3 (+ log guard)
 - an event with no order expires from reception, no restart ..... P18, P17
 - quarantine resumed without extending retention ................ P17, P19
@@ -54,7 +56,7 @@ from app.models.channel_hub import (
     ChannelInboxEvent, ChannelInboxStatusEnum, ChannelOrderContact, ChannelOrderLine,
     ChannelOrderLineStatusEnum, ChannelRetentionBasisEnum, ExternalOrderMapping,
 )
-from app.models.order import Order, OrderItem, ProductionStateEnum
+from app.models.order import Order, OrderItem, OrderItemStatusEnum, ProductionStateEnum
 from app.modules.channels import inbox, ingress
 from app.modules.channels.adapters import reference
 from app.services import order_service
@@ -270,12 +272,12 @@ async def test_r3_parada_depois_das_linhas_e_antes_de_gravar_chave_de_ordem_reto
 
 
 @pytest.mark.asyncio
-async def test_r19_controle_idempotencia_por_linha_quebrada_de_proposito_enxerga_duplicata(monkeypatch):
-    """R19: Controle negativo: idempotência por linha quebrada de propósito — R2 tem de ver a duplicata."""
+async def test_controle_atomicidade_commit_prematuro_encontra_pedido_parcial(monkeypatch):
+    """Controle de atomicidade (C1): commit prematuro antes do término transacional deixa pedido parcial no banco."""
     async with httpx.AsyncClient(base_url=BASE_URL, timeout=30) as client:
         _tenant, _h, _a, _p, connection = await _connected(client, "R19Ctrl", "ITEM-A", "ITEM-B")
     merchant = connection["merchant_external_id"]
-    order_ref = f"pedido-r19-{uuid.uuid4()}"
+    order_ref = f"pedido-atom-{uuid.uuid4()}"
     placed = _event(
         merchant, "ORDER_PLACED", order_ref,
         lines=[_line("l1", "ITEM-A", 1), _line("l2", "ITEM-B", 2)],
@@ -300,14 +302,97 @@ async def test_r19_controle_idempotencia_por_linha_quebrada_de_proposito_enxerga
     # O processamento falha na segunda linha e tenta fazer rollback:
     assert inbox.process_event(row.id) == ChannelInboxStatusEnum.RECEIVED
 
-    # O controle negativo: em R2 o teste exige que nenhum pedido ou item parcial exista no banco.
+    # O controle de atomicidade: em R2 o teste exige que nenhum pedido ou item parcial exista no banco.
     # Aqui, devido ao commit prematuro plantado, o teste COMPROVA que a asserção detecta o vazamento:
     with Session(engine) as db:
         set_platform_db_context(db)
         leaked_orders = db.exec(select(Order).where(Order.external_reference == order_ref)).all()
-        assert len(leaked_orders) == 1, "R19 controle: pedido prematuro deve ser detectado pela asserção"
+        assert len(leaked_orders) == 1, "Controle de atomicidade: pedido prematuro deve ser detectado pela asserção"
         leaked_items = db.exec(select(OrderItem).where(OrderItem.order_id == leaked_orders[0].id)).all()
-        assert len(leaked_items) == 1, "R19 controle: linha 1 prematuramente commitada deve ser detectada"
+        assert len(leaked_items) == 1, "Controle de atomicidade: linha 1 prematuramente commitada deve ser detectada"
+
+
+@pytest.mark.asyncio
+async def test_r19_controle_idempotencia_por_linha_quebrada_de_proposito_reprova_duplicata(monkeypatch):
+    """R19: Controle negativo: idempotência por linha quebrada de propósito — a verificação de unicidade reprova a duplicata.
+    
+    1. Implementação normal: evento com l1 aplicado; atualização com l1 e l2 identifica l1 como existente.
+       A verificação de unicidade passa (2 linhas ativas, 2 itens no pedido, sem duplicação).
+    2. Identificação deliberadamente quebrada: a mesma atualização não identifica l1 como existente,
+       tratando-a como nova linha e inserindo linha e item duplicados.
+       A MESMA verificação de unicidade reprova (detecta a duplicação e falha com AssertionError).
+    """
+    async with httpx.AsyncClient(base_url=BASE_URL, timeout=30) as client:
+        _tenant, _h, _a, _p, connection = await _connected(client, "R19Idem", "ITEM-A", "ITEM-B")
+    merchant = connection["merchant_external_id"]
+    order_ref = f"pedido-r19-{uuid.uuid4()}"
+
+    def assert_no_duplicate_lines(order_id: uuid.UUID, mapping_id: uuid.UUID, expected_count: int, expected_quantities: list[Decimal]):
+        items = _items(order_id)
+        assert len(items) == expected_count, (
+            f"Duplicação detectada nos itens do pedido: esperado {expected_count}, mas encontrou {len(items)}"
+        )
+        assert sorted(item.quantity for item in items) == sorted(expected_quantities), (
+            f"Quantidades divergentes ou duplicadas: {[item.quantity for item in items]}"
+        )
+        with Session(engine) as db:
+            set_platform_db_context(db)
+            lines = db.exec(select(ChannelOrderLine).where(
+                ChannelOrderLine.external_order_mapping_id == mapping_id,
+                ChannelOrderLine.status == ChannelOrderLineStatusEnum.ACTIVE,
+            )).all()
+        assert len(lines) == expected_count, (
+            f"Duplicação detectada nas linhas: esperado {expected_count}, mas encontrou {len(lines)}"
+        )
+        assert {line.order_item_id for line in lines} == {item.id for item in items}
+
+    # 1. Pedido inicial com l1 aplicado normalmente:
+    placed = _event(
+        merchant, "ORDER_PLACED", order_ref, sequence=1,
+        lines=[_line("l1", "ITEM-A", 1)],
+    )
+    _receive(placed)
+    assert inbox.process_event(_row(placed["id"]).id) == ChannelInboxStatusEnum.APPLIED
+    mapping = _mapping(connection["id"], order_ref)
+    assert_no_duplicate_lines(mapping.order_id, mapping.id, 1, [Decimal("1")])
+
+    # 2. Execução normal: atualização com l1 e l2 (implementação normal com identificação por linha estável)
+    updated = _event(
+        merchant, "ORDER_UPDATED", order_ref, sequence=2,
+        lines=[_line("l1", "ITEM-A", 1), _line("l2", "ITEM-B", 2)],
+    )
+    _receive(updated)
+    assert inbox.process_event(_row(updated["id"]).id) == ChannelInboxStatusEnum.APPLIED
+    # Implementação normal passa: l1 foi reconhecido e não duplicado
+    assert_no_duplicate_lines(mapping.order_id, mapping.id, 2, [Decimal("1"), Decimal("2")])
+
+    # 3. Controle negativo: em um novo pedido, simulamos a quebra da identificação de linha
+    #    (a mesma linha do produto ITEM-A perde seu identificador estável l1 e recebe identificador instável):
+    broken_order_ref = f"pedido-r19-broken-{uuid.uuid4()}"
+    placed_broken = _event(
+        merchant, "ORDER_PLACED", broken_order_ref, sequence=1,
+        lines=[_line("l1", "ITEM-A", 1)],
+    )
+    _receive(placed_broken)
+    assert inbox.process_event(_row(placed_broken["id"]).id) == ChannelInboxStatusEnum.APPLIED
+    broken_mapping = _mapping(connection["id"], broken_order_ref)
+    assert_no_duplicate_lines(broken_mapping.order_id, broken_mapping.id, 1, [Decimal("1")])
+
+    # Atualização com identificação de linha deliberadamente corrompida/instável:
+    # Em vez de enviar o ID estável "l1", o evento envia "l1-broken-unstable", quebrando a identificação:
+    updated_broken = _event(
+        merchant, "ORDER_UPDATED", broken_order_ref, sequence=2,
+        lines=[_line("l1-broken-unstable", "ITEM-A", 1), _line("l2", "ITEM-B", 2)],
+    )
+    _receive(updated_broken)
+    assert inbox.process_event(_row(updated_broken["id"]).id) == ChannelInboxStatusEnum.APPLIED
+
+    # A MESMA verificação de unicidade agora REPROVA diante da duplicação provocada pela quebra de identificação:
+    with pytest.raises(AssertionError) as exc_info:
+        assert_no_duplicate_lines(broken_mapping.order_id, broken_mapping.id, 2, [Decimal("1"), Decimal("2")])
+    assert "Duplicação detectada" in str(exc_info.value), (
+        f"A verificação deveria reprovar com duplicata, mas devolveu: {exc_info.value}"
+    )
 
 
 @pytest.mark.asyncio
@@ -608,6 +693,180 @@ async def test_a_pessoa_mora_so_no_contato_e_evento_sem_pedido_nao_cria_contato(
     assert (contacts[0].display_name, contacts[0].phone, contacts[0].delivery_instructions) == (name, phone, gate)
     assert contacts[0].delivery_address == {"street": street}
     assert any(item.notes == "sem cebola" for item in _items(_mapping(connection["id"], applied_ref).order_id))
+
+
+@pytest.mark.asyncio
+async def test_p8_ingestao_de_pedido_de_canal_nao_cria_nem_altera_crm_fidelidade_e_fiscal():
+    """P8: Ingestão de pedido de canal não cria nem altera cliente de CRM, fidelidade ou dado fiscal (H19).
+
+    Compara o estado relevante antes e depois da ingestão, incluindo registros existentes prévios.
+    """
+    from app.models.fiscal import FiscalDocument, FiscalDocumentTypeEnum, FiscalEvent, FiscalEventTypeEnum, FiscalStatusEnum
+    from app.models.receivable import CreditPolicyStatusEnum, CustomerCreditPolicy
+    from app.models.sale import Customer, FulfillmentTypeEnum, Sale, SaleOperationModeEnum, SaleStatusEnum, SyncStatusEnum
+
+    async with httpx.AsyncClient(base_url=BASE_URL, timeout=30) as client:
+        tenant, headers, actor, product, connection = await _connected(client, "P8State", "ITEM-A")
+
+    tenant_id = uuid.UUID(tenant["id"])
+    store_id = uuid.UUID(connection["store_id"])
+    actor_id = uuid.UUID(actor)
+
+    # 1. Criação de registros existentes prévios de CRM, fidelidade/crédito e fiscal:
+    with Session(engine) as db:
+        set_platform_db_context(db)
+        existing_customer = Customer(
+            tenant_id=tenant_id,
+            name="Cliente CRM Existente",
+            phone="5511999991111",
+            cpf_cnpj="11122233344",
+            email="crm.existente@exemplo.com",
+        )
+        db.add(existing_customer)
+        db.flush()
+
+        existing_policy = CustomerCreditPolicy(
+            tenant_id=tenant_id,
+            customer_id=existing_customer.id,
+            status=CreditPolicyStatusEnum.ACTIVE,
+            credit_limit=Decimal("500.0000"),
+            terms_days=30,
+            version=1,
+            updated_by=actor_id,
+        )
+        db.add(existing_policy)
+
+        existing_sale = Sale(
+            tenant_id=tenant_id,
+            store_id=store_id,
+            customer_id=existing_customer.id,
+            source_type="POS",
+            fulfillment_type=FulfillmentTypeEnum.COUNTER,
+            sync_status=SyncStatusEnum.SYNCED,
+            operation_mode=SaleOperationModeEnum.COUNTER,
+            status=SaleStatusEnum.COMPLETED,
+            gross_total=Decimal("50.0000"),
+            net_total=Decimal("50.0000"),
+        )
+        db.add(existing_sale)
+        db.flush()
+
+        existing_fiscal_doc = FiscalDocument(
+            tenant_id=tenant_id,
+            store_id=store_id,
+            sale_id=existing_sale.id,
+            document_type=FiscalDocumentTypeEnum.NFCE,
+            status=FiscalStatusEnum.AUTHORIZED,
+            access_key="35261012345678000100550010000000011000000010",
+            document_number=1,
+            series=1,
+        )
+        db.add(existing_fiscal_doc)
+        db.flush()
+
+        existing_fiscal_evt = FiscalEvent(
+            tenant_id=tenant_id,
+            store_id=store_id,
+            fiscal_document_id=existing_fiscal_doc.id,
+            actor_id=actor_id,
+            event_type=FiscalEventTypeEnum.AUTHORIZED,
+            details="Protocolo de autorizacao 135260000001",
+        )
+        db.add(existing_fiscal_evt)
+        db.commit()
+
+        customer_id_saved = existing_customer.id
+        policy_id_saved = existing_policy.id
+        doc_id_saved = existing_fiscal_doc.id
+        evt_id_saved = existing_fiscal_evt.id
+
+    def snapshot_relevant_state():
+        with Session(engine) as db:
+            set_platform_db_context(db)
+            customers = db.exec(select(Customer).where(Customer.tenant_id == tenant_id)).all()
+            policies = db.exec(select(CustomerCreditPolicy).where(CustomerCreditPolicy.tenant_id == tenant_id)).all()
+            docs = db.exec(select(FiscalDocument).where(FiscalDocument.tenant_id == tenant_id)).all()
+            events = db.exec(select(FiscalEvent).where(FiscalEvent.tenant_id == tenant_id)).all()
+            return {
+                "customers": {
+                    c.id: (c.name, c.phone, c.cpf_cnpj, c.email, c.created_at) for c in customers
+                },
+                "policies": {
+                    p.id: (p.customer_id, p.status, p.credit_limit, p.terms_days, p.version, p.updated_at)
+                    for p in policies
+                },
+                "fiscal_docs": {
+                    d.id: (d.sale_id, d.document_type, d.status, d.access_key, d.document_number, d.series)
+                    for d in docs
+                },
+                "fiscal_events": {
+                    e.id: (e.fiscal_document_id, e.event_type, e.details) for e in events
+                },
+            }
+
+    state_before = snapshot_relevant_state()
+    assert len(state_before["customers"]) == 1
+    assert customer_id_saved in state_before["customers"]
+    assert len(state_before["policies"]) == 1
+    assert policy_id_saved in state_before["policies"]
+    assert len(state_before["fiscal_docs"]) == 1
+    assert doc_id_saved in state_before["fiscal_docs"]
+    assert len(state_before["fiscal_events"]) == 1
+    assert evt_id_saved in state_before["fiscal_events"]
+
+    # 2. Ingestão de pedido do canal trazendo dados de cliente:
+    merchant = connection["merchant_external_id"]
+    order_ref = f"pedido-p8-{uuid.uuid4()}"
+    channel_customer = {
+        "name": "Cliente do Marketplace Silva",
+        "phone": "5511988882222",
+        "cpf_cnpj": "99988877766",
+        "address": {"street": "Rua do Canal 100", "number": "100"},
+        "instructions": "Deixar na portaria",
+    }
+    placed = _event(
+        merchant, "ORDER_PLACED", order_ref, sequence=1,
+        lines=[_line("l1", "ITEM-A", 2)], customer=channel_customer,
+    )
+    _receive(placed)
+    assert inbox.process_event(_row(placed["id"]).id) == ChannelInboxStatusEnum.APPLIED
+
+    # 3. Atualização subsequente do mesmo pedido pelo canal:
+    updated = _event(
+        merchant, "ORDER_UPDATED", order_ref, sequence=2,
+        lines=[_line("l1", "ITEM-A", 3)], customer=channel_customer,
+    )
+    _receive(updated)
+    assert inbox.process_event(_row(updated["id"]).id) == ChannelInboxStatusEnum.APPLIED
+
+    # 4. Verificação de estado após ingestão e atualização:
+    state_after = snapshot_relevant_state()
+
+    # Comprovação P8: NENHUM novo registro em customers, policies, fiscal_docs ou fiscal_events:
+    assert len(state_after["customers"]) == 1, "Ingestão externa não pode criar cliente em CRM"
+    assert state_after["customers"] == state_before["customers"], "Cliente existente não pode ser mutado"
+
+    assert len(state_after["policies"]) == 1, "Ingestão externa não pode criar ou alterar fidelidade/crédito"
+    assert state_after["policies"] == state_before["policies"], "Política de fidelidade/crédito existente não pode ser alterada"
+
+    assert len(state_after["fiscal_docs"]) == 1, "Ingestão externa não pode criar documento fiscal"
+    assert state_after["fiscal_docs"] == state_before["fiscal_docs"], "Documento fiscal existente não pode ser mutado"
+
+    assert len(state_after["fiscal_events"]) == 1, "Ingestão externa não pode emitir evento fiscal"
+    assert state_after["fiscal_events"] == state_before["fiscal_events"], "Evento fiscal existente não pode ser mutado"
+
+    # Verificação de isolamento: os dados do cliente do canal estão exclusivamente no contato do pedido externo:
+    mapping = _mapping(connection["id"], order_ref)
+    with Session(engine) as db:
+        set_platform_db_context(db)
+        order = db.get(Order, mapping.order_id)
+        assert order.customer_id is None, "Pedido do canal não vincula cliente de CRM do estabelecimento"
+        contact = db.exec(select(ChannelOrderContact).where(
+            ChannelOrderContact.external_order_mapping_id == mapping.id,
+        )).one()
+    assert contact.display_name == "Cliente do Marketplace Silva"
+    assert contact.phone == "5511988882222"
+    assert contact.delivery_instructions == "Deixar na portaria"
 
 
 async def _attach_mapped_modifier(
