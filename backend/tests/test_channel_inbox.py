@@ -314,84 +314,209 @@ async def test_controle_atomicidade_commit_prematuro_encontra_pedido_parcial(mon
 
 @pytest.mark.asyncio
 async def test_r19_controle_idempotencia_por_linha_quebrada_de_proposito_reprova_duplicata(monkeypatch):
-    """R19: Controle negativo: idempotência por linha quebrada de propósito — a verificação de unicidade reprova a duplicata.
-    
-    1. Implementação normal: evento com l1 aplicado; atualização com l1 e l2 identifica l1 como existente.
-       A verificação de unicidade passa (2 linhas ativas, 2 itens no pedido, sem duplicação).
-    2. Identificação deliberadamente quebrada: a mesma atualização não identifica l1 como existente,
-       tratando-a como nova linha e inserindo linha e item duplicados.
-       A MESMA verificação de unicidade reprova (detecta a duplicação e falha com AssertionError).
+    """R19: Controle negativo: idempotência por linha quebrada de propósito — o detector reprova a duplicação ativa.
+
+    Requisitos estritos comprovados:
+    1. Mesmo conteúdo normalizado e identificadores estáveis (l1, l2) nos cenários normal e mutante.
+    2. O evento atualiza a quantidade da linha existente l1, exercitando o caminho de atualização.
+    3. Quebra somente da implementação via monkeypatch no caminho de atualização: cria outro item ativo
+       em vez de atualizar o existente, preservando o original intacto. Sem alteração de payload,
+       sem commit prematuro e sem remoção de restrições do banco.
+    4. Demonstração de que a implementação mutante foi efetivamente executada.
+    5. Detector comum de itens e linhas ATIVAS: verifica unicidade, correspondência 1:1, quantidades e valores,
+       permitindo histórico cancelado legítimo e múltiplas linhas para o mesmo produto.
+    6. Cenário normal passa; mutante reprova especificamente por duplicação ativa de itens.
+    7. Caso positivo de substituição legítima: 2 itens ativos e 1 cancelado passam no detector comum.
+    8. Duas linhas externas distintas do mesmo produto são permitidas (não há deduplicação por SKU).
     """
     async with httpx.AsyncClient(base_url=BASE_URL, timeout=30) as client:
         _tenant, _h, _a, _p, connection = await _connected(client, "R19Idem", "ITEM-A", "ITEM-B")
     merchant = connection["merchant_external_id"]
-    order_ref = f"pedido-r19-{uuid.uuid4()}"
 
-    def assert_no_duplicate_lines(order_id: uuid.UUID, mapping_id: uuid.UUID, expected_count: int, expected_quantities: list[Decimal]):
-        items = _items(order_id)
-        assert len(items) == expected_count, (
-            f"Duplicação detectada nos itens do pedido: esperado {expected_count}, mas encontrou {len(items)}"
-        )
-        assert sorted(item.quantity for item in items) == sorted(expected_quantities), (
-            f"Quantidades divergentes ou duplicadas: {[item.quantity for item in items]}"
-        )
+    def assert_active_lines_and_items(
+        order_id: uuid.UUID,
+        mapping_id: uuid.UUID,
+        expected_active_lines: dict[str, dict],
+    ):
         with Session(engine) as db:
             set_platform_db_context(db)
-            lines = db.exec(select(ChannelOrderLine).where(
+            active_items = db.exec(select(OrderItem).where(
+                OrderItem.order_id == order_id,
+                OrderItem.status == OrderItemStatusEnum.ACTIVE,
+            )).all()
+            active_lines = db.exec(select(ChannelOrderLine).where(
                 ChannelOrderLine.external_order_mapping_id == mapping_id,
                 ChannelOrderLine.status == ChannelOrderLineStatusEnum.ACTIVE,
             )).all()
-        assert len(lines) == expected_count, (
-            f"Duplicação detectada nas linhas: esperado {expected_count}, mas encontrou {len(lines)}"
+
+        assert len(active_lines) == len(expected_active_lines), (
+            f"Contagem de linhas ativas divergente: esperado {len(expected_active_lines)}, mas encontrou {len(active_lines)}"
         )
-        assert {line.order_item_id for line in lines} == {item.id for item in items}
+        line_keys = [line.external_line_id for line in active_lines]
+        assert len(line_keys) == len(set(line_keys)), (
+            f"Duplicação ativa em ChannelOrderLine: chaves {line_keys}"
+        )
+        assert set(line_keys) == set(expected_active_lines.keys()), (
+            f"Identidades externas ativas divergentes: esperado {set(expected_active_lines.keys())}, mas encontrou {set(line_keys)}"
+        )
+        assert len(active_items) == len(expected_active_lines), (
+            f"Duplicação ativa ou divergência de itens no pedido: esperado {len(expected_active_lines)} ativos, mas encontrou {len(active_items)}"
+        )
 
-    # 1. Pedido inicial com l1 aplicado normalmente:
-    placed = _event(
-        merchant, "ORDER_PLACED", order_ref, sequence=1,
-        lines=[_line("l1", "ITEM-A", 1)],
+        items_by_id = {item.id: item for item in active_items}
+        linked_item_ids = set()
+        for line in active_lines:
+            assert line.order_item_id in items_by_id, (
+                f"Linha ativa {line.external_line_id} aponta para item não ativo ou inexistente ({line.order_item_id})"
+            )
+            assert line.order_item_id not in linked_item_ids, (
+                f"Duas linhas ativas apontam para o mesmo OrderItem ({line.order_item_id})"
+            )
+            linked_item_ids.add(line.order_item_id)
+            expected = expected_active_lines[line.external_line_id]
+            item = items_by_id[line.order_item_id]
+            assert line.quantity == expected["quantity"], (
+                f"Quantidade na linha ativa {line.external_line_id} divergente: esperado {expected['quantity']}, obtido {line.quantity}"
+            )
+            assert item.quantity == expected["quantity"], (
+                f"Quantidade no item ativo {item.id} divergente: esperado {expected['quantity']}, obtido {item.quantity}"
+            )
+
+        unlinked_items = set(items_by_id.keys()) - linked_item_ids
+        assert not unlinked_items, (
+            f"Itens ativos órfãos detectados no pedido sem linha correspondente: {unlinked_items}"
+        )
+
+    # 1. CENÁRIO NORMAL: pedido inicial (l1=qty 1, l2=qty 1) e atualização (l1=qty 2, l2=qty 1)
+    normal_order_ref = f"pedido-r19-normal-{uuid.uuid4()}"
+    placed_normal = _event(
+        merchant, "ORDER_PLACED", normal_order_ref, sequence=1,
+        lines=[_line("l1", "ITEM-A", 1), _line("l2", "ITEM-B", 1)],
     )
-    _receive(placed)
-    assert inbox.process_event(_row(placed["id"]).id) == ChannelInboxStatusEnum.APPLIED
-    mapping = _mapping(connection["id"], order_ref)
-    assert_no_duplicate_lines(mapping.order_id, mapping.id, 1, [Decimal("1")])
-
-    # 2. Execução normal: atualização com l1 e l2 (implementação normal com identificação por linha estável)
-    updated = _event(
-        merchant, "ORDER_UPDATED", order_ref, sequence=2,
-        lines=[_line("l1", "ITEM-A", 1), _line("l2", "ITEM-B", 2)],
+    _receive(placed_normal)
+    assert inbox.process_event(_row(placed_normal["id"]).id) == ChannelInboxStatusEnum.APPLIED
+    normal_mapping = _mapping(connection["id"], normal_order_ref)
+    assert_active_lines_and_items(
+        normal_mapping.order_id, normal_mapping.id,
+        {"l1": {"quantity": Decimal("1")}, "l2": {"quantity": Decimal("1")}},
     )
-    _receive(updated)
-    assert inbox.process_event(_row(updated["id"]).id) == ChannelInboxStatusEnum.APPLIED
-    # Implementação normal passa: l1 foi reconhecido e não duplicado
-    assert_no_duplicate_lines(mapping.order_id, mapping.id, 2, [Decimal("1"), Decimal("2")])
 
-    # 3. Controle negativo: em um novo pedido, simulamos a quebra da identificação de linha
-    #    (a mesma linha do produto ITEM-A perde seu identificador estável l1 e recebe identificador instável):
-    broken_order_ref = f"pedido-r19-broken-{uuid.uuid4()}"
-    placed_broken = _event(
-        merchant, "ORDER_PLACED", broken_order_ref, sequence=1,
-        lines=[_line("l1", "ITEM-A", 1)],
+    # Atualização da linha l1 para quantidade 2 no cenário normal:
+    updated_normal = _event(
+        merchant, "ORDER_UPDATED", normal_order_ref, sequence=2,
+        lines=[_line("l1", "ITEM-A", 2), _line("l2", "ITEM-B", 1)],
     )
-    _receive(placed_broken)
-    assert inbox.process_event(_row(placed_broken["id"]).id) == ChannelInboxStatusEnum.APPLIED
-    broken_mapping = _mapping(connection["id"], broken_order_ref)
-    assert_no_duplicate_lines(broken_mapping.order_id, broken_mapping.id, 1, [Decimal("1")])
-
-    # Atualização com identificação de linha deliberadamente corrompida/instável:
-    # Em vez de enviar o ID estável "l1", o evento envia "l1-broken-unstable", quebrando a identificação:
-    updated_broken = _event(
-        merchant, "ORDER_UPDATED", broken_order_ref, sequence=2,
-        lines=[_line("l1-broken-unstable", "ITEM-A", 1), _line("l2", "ITEM-B", 2)],
+    _receive(updated_normal)
+    assert inbox.process_event(_row(updated_normal["id"]).id) == ChannelInboxStatusEnum.APPLIED
+    # Implementação normal passa no detector comum:
+    assert_active_lines_and_items(
+        normal_mapping.order_id, normal_mapping.id,
+        {"l1": {"quantity": Decimal("2")}, "l2": {"quantity": Decimal("1")}},
     )
-    _receive(updated_broken)
-    assert inbox.process_event(_row(updated_broken["id"]).id) == ChannelInboxStatusEnum.APPLIED
 
-    # A MESMA verificação de unicidade agora REPROVA diante da duplicação provocada pela quebra de identificação:
-    with pytest.raises(AssertionError) as exc_info:
-        assert_no_duplicate_lines(broken_mapping.order_id, broken_mapping.id, 2, [Decimal("1"), Decimal("2")])
-    assert "Duplicação detectada" in str(exc_info.value), (
-        f"A verificação deveria reprovar com duplicata, mas devolveu: {exc_info.value}"
+    # 2. CENÁRIO MUTANTE: mesmo conteúdo normalizado, mesmos identificadores estáveis (l1, l2)
+    #    Quebra somente a implementação via monkeypatch no caminho de atualização
+    mutant_order_ref = f"pedido-r19-mutante-{uuid.uuid4()}"
+    placed_mutant = _event(
+        merchant, "ORDER_PLACED", mutant_order_ref, sequence=1,
+        lines=[_line("l1", "ITEM-A", 1), _line("l2", "ITEM-B", 1)],
+    )
+    _receive(placed_mutant)
+    assert inbox.process_event(_row(placed_mutant["id"]).id) == ChannelInboxStatusEnum.APPLIED
+    mutant_mapping = _mapping(connection["id"], mutant_order_ref)
+    assert_active_lines_and_items(
+        mutant_mapping.order_id, mutant_mapping.id,
+        {"l1": {"quantity": Decimal("1")}, "l2": {"quantity": Decimal("1")}},
+    )
+
+    # Mesmíssimo payload normalizado de atualização (l1=qty 2, l2=qty 1):
+    updated_mutant = _event(
+        merchant, "ORDER_UPDATED", mutant_order_ref, sequence=2,
+        lines=[_line("l1", "ITEM-A", 2), _line("l2", "ITEM-B", 1)],
+    )
+    _receive(updated_mutant)
+
+    mutant_executed = {"called": 0}
+
+    def mutant_change_external_item(session, context, order, item, *, quantity, notes=None, unit_price=None, actor_id=None):
+        mutant_executed["called"] += 1
+        # Implementação defeituosa/mutante: em vez de atualizar o item existente in-place,
+        # cria outro item ativo no pedido preservando o original intacto (duplicação ativa de itens):
+        order_service.add_external_item(
+            session, context, order, product_id=item.product_id, quantity=quantity,
+            modifier_ids=[], notes=notes, unit_price=unit_price, actor_id=actor_id,
+        )
+
+    monkeypatch.setattr(order_service, "change_external_item", mutant_change_external_item)
+    try:
+        assert inbox.process_event(_row(updated_mutant["id"]).id) == ChannelInboxStatusEnum.APPLIED
+        # Demonstração de que a implementação mutante foi de fato executada:
+        assert mutant_executed["called"] == 1, "Implementação mutante deve ter sido executada na atualização de l1"
+
+        # O MESMO detector comum reprova especificamente por duplicação ativa de itens no pedido:
+        with pytest.raises(AssertionError) as exc_info:
+            assert_active_lines_and_items(
+                mutant_mapping.order_id, mutant_mapping.id,
+                {"l1": {"quantity": Decimal("2")}, "l2": {"quantity": Decimal("1")}},
+            )
+        assert "Duplicação ativa ou divergência de itens no pedido" in str(exc_info.value), (
+            f"O detector deveria acusar duplicação de itens ativos, mas retornou: {exc_info.value}"
+        )
+    finally:
+        monkeypatch.undo()
+
+    # 3. CASO POSITIVO DE SUBSTITUIÇÃO LEGÍTIMA DE IDENTIFICADOR: 2 ativos e 1 cancelado
+    #    Canal substitui a linha l1 pela nova linha l3, mantendo a linha l2
+    subst_order_ref = f"pedido-r19-subst-{uuid.uuid4()}"
+    placed_subst = _event(
+        merchant, "ORDER_PLACED", subst_order_ref, sequence=1,
+        lines=[_line("l1", "ITEM-A", 1), _line("l2", "ITEM-B", 1)],
+    )
+    _receive(placed_subst)
+    assert inbox.process_event(_row(placed_subst["id"]).id) == ChannelInboxStatusEnum.APPLIED
+    subst_mapping = _mapping(connection["id"], subst_order_ref)
+
+    # Atualização com substituição: l1 sai, entra l3 (ITEM-A qty 2), l2 permanece
+    updated_subst = _event(
+        merchant, "ORDER_UPDATED", subst_order_ref, sequence=2,
+        lines=[_line("l2", "ITEM-B", 1), _line("l3", "ITEM-A", 2)],
+    )
+    _receive(updated_subst)
+    assert inbox.process_event(_row(updated_subst["id"]).id) == ChannelInboxStatusEnum.APPLIED
+
+    # O detector comum verifica as linhas ATIVAS (l2 e l3) e DEVE PASSAR mesmo existindo histórico cancelado de l1:
+    assert_active_lines_and_items(
+        subst_mapping.order_id, subst_mapping.id,
+        {"l2": {"quantity": Decimal("1")}, "l3": {"quantity": Decimal("2")}},
+    )
+    # Comprovação adicional do histórico cancelado preservado legitimamente:
+    with Session(engine) as db:
+        set_platform_db_context(db)
+        canceled_items = db.exec(select(OrderItem).where(
+            OrderItem.order_id == subst_mapping.order_id,
+            OrderItem.status == OrderItemStatusEnum.CANCELED,
+        )).all()
+        canceled_lines = db.exec(select(ChannelOrderLine).where(
+            ChannelOrderLine.external_order_mapping_id == subst_mapping.id,
+            ChannelOrderLine.status == ChannelOrderLineStatusEnum.CANCELED,
+        )).all()
+    assert len(canceled_items) == 1, "Histórico legítimo deve conter 1 item cancelado"
+    assert len(canceled_lines) == 1, "Histórico legítimo deve conter 1 linha cancelada"
+    assert canceled_lines[0].external_line_id == "l1"
+
+    # 4. CASO DE DUAS LINHAS EXTERNAS DISTINTAS DO MESMO PRODUTO:
+    #    Duas linhas com external_line_id distintos (l1 e l2) para ITEM-A são permitidas e não deduplicadas por SKU
+    multi_order_ref = f"pedido-r19-multi-{uuid.uuid4()}"
+    placed_multi = _event(
+        merchant, "ORDER_PLACED", multi_order_ref, sequence=1,
+        lines=[_line("l1", "ITEM-A", 1), _line("l2", "ITEM-A", 3)],
+    )
+    _receive(placed_multi)
+    assert inbox.process_event(_row(placed_multi["id"]).id) == ChannelInboxStatusEnum.APPLIED
+    multi_mapping = _mapping(connection["id"], multi_order_ref)
+    assert_active_lines_and_items(
+        multi_mapping.order_id, multi_mapping.id,
+        {"l1": {"quantity": Decimal("1")}, "l2": {"quantity": Decimal("3")}},
     )
 
 

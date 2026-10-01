@@ -2,7 +2,7 @@
 
 Data: 01 de outubro de 2026  
 Commit base: `4b5e312` (em `main`, após publicação de D1/R11 e CI 36861234960)  
-Ambiente: PostgreSQL 15 isolado (`127.0.0.1:5439`), API local (`127.0.0.1:8004`, `AUTH_MODE=test`), Frontend Vite (`127.0.0.1:5173`)  
+Ambiente: PostgreSQL 15 isolado (`127.0.0.1:5437`, container `dashem-pos-db`), API local (`127.0.0.1:8004`, `AUTH_MODE=test`), Frontend Vite (`127.0.0.1:5173`)  
 Resultado: **17 etapas · 10 telas capturadas · 0 falhas**  
 Evidências salvas: [`docs/quality/evidence/s10-1-2026-10-01/hom09-canais.json`](evidence/s10-1-2026-10-01/hom09-canais.json)
 
@@ -45,7 +45,7 @@ Para não atribuir à interface do navegador asserções que ele não percorreu,
 
 ### B. Valores Efetivamente Verificados pela API neste Roteiro
 - Requisição `GET /api/v1/orders/{order_id}` executada contra o pedido criado:
-  - `order_id == "f5bbd9b8-1f14-41d9-813f-b8833d735041"` (registrado em `hom09-canais.json`);
+  - `order_id == "d7210e9a-5d54-4552-952b-be771d928fdc"` (registrado em `hom09-canais.json`);
   - `Order.items[0].unit_price == "18.5000"`;
   - `Order.items[0].quantity == "2.0000"`;
 - Confirma que o Order Engine absorveu o preço unitário e a quantidade declarados pelo canal no item de pedido.
@@ -62,7 +62,7 @@ As garantias abaixo **são independentes da travessia visual do navegador** e fo
 
 ## 3. Limites Declarados e Camadas da Execução
 
-- **Autenticação:** A sessão foi injetada no navegador via chave de sessão contendo JWT de teste assinado localmente com `AUTH_TEST_SECRET`, contra API executando em `AUTH_MODE=test` e permissões efetivas lidas do banco PostgreSQL isolado (`127.0.0.1:5439`). Esta execução **não comprova o fluxo de login interativo** (formulário com usuário/senha ou Magic Link) nem a disponibilidade dos servidores do Supabase Auth em produção.
+- **Autenticação:** A sessão foi injetada no navegador via chave de sessão contendo JWT de teste assinado localmente com `AUTH_TEST_SECRET`, contra API executando em `AUTH_MODE=test` e permissões efetivas lidas do banco PostgreSQL isolado (`127.0.0.1:5437`, container `dashem-pos-db`). Esta execução **não comprova o fluxo de login interativo** (formulário com usuário/senha ou Magic Link) nem a disponibilidade dos servidores do Supabase Auth em produção.
 - **Responsividade e Layout:** A varredura nas larguras 1366 px, 1024 px, 768 px e 390 px afere exclusivamente a ausência de quebras no meio de palavras (`palavrasPartidas`); **não atesta a ausência universal de defeitos de layout**, alinhamentos visuais gerais ou sobreposições de outros elementos sem outras verificações.
 - **Canal Externo:** Simulado pelo conector de referência (`CONTRACT_TEST`) com ingressos autenticados por assinatura HMAC-SHA256 derivada de `SECRET_KEY`.
 - **Cozinha (KDS):** Simulada pelo roteiro utilizando as rotas reais de despacho de produção (`/api/v1/production/orders/{id}/dispatch`) e aceite de ticket (`/api/v1/production/tickets/{id}/transition` com status `ACCEPTED`).
@@ -83,3 +83,38 @@ As 10 telas capturadas durante o percurso encontram-se arquivadas em `docs/quali
 8. `8-canais-390.png`: Tela de canais adaptada à largura mobile (390 px) sem quebras de palavras.
 9. `9-diagnostico.png`: Aba de diagnóstico de sistema confirmando integridade e contagens de canal.
 10. `10-leitora-390.png`: Visão da leitora com ausência total de controles de mutação e HTTP 403 verificado.
+
+---
+
+## 5. Comando Reproduzível e Configuração do Roteiro
+
+```powershell
+# 1. Banco de dados do projeto (container isolado oficial dashem-pos-db):
+docker compose up -d dashem-pos-db
+alembic upgrade head
+
+# 2. API backend em modo de autenticação de teste:
+$env:DATABASE_URL="postgresql://dashem_pos:dashem_pos_password_local@127.0.0.1:5437/dashem_pos"
+$env:SECRET_KEY="ci-only-secret-key-with-at-least-32-characters"
+$env:AUTH_TEST_SECRET="ci-only-auth-test-secret-with-at-least-32-characters"
+$env:ENVIRONMENT="test"
+$env:AUTH_MODE="test"
+$env:CORS_ORIGINS='["http://localhost:5173","http://127.0.0.1:5173"]'
+uvicorn app.main:app --host 127.0.0.1 --port 8004
+
+# 3. Semeadura de food service com canal conectado e permissões negadas à leitora:
+python tests/support/seed_channel_hub_walkthrough.py --api http://127.0.0.1:8004 --output .tmp/channel-walkthrough-fixture.json
+
+# 4. Frontend Vite em modo integrado com a API de teste:
+$env:VITE_API_URL="http://127.0.0.1:8004"
+$env:VITE_SUPABASE_URL="http://127.0.0.1:8004"
+$env:VITE_SUPABASE_PUBLISHABLE_KEY="test-anon-key"
+npx vite --host 127.0.0.1 --port 5173
+
+# 5. Execução do roteiro de homologação:
+$env:UX_FIXTURE="backend/.tmp/channel-walkthrough-fixture.json"
+$env:UX_APP_URL="http://127.0.0.1:5173"
+$env:UX_API_URL="http://127.0.0.1:8004"
+$env:UX_OUT="docs/quality/evidence/s10-1-2026-10-01"
+node frontend/e2e/presentation/hom09_canais_de_venda.cjs
+```
