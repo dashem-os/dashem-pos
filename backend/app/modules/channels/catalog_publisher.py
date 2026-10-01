@@ -3,28 +3,38 @@
 Implementa a primeira fatia fundacional do publicador de catálogo:
 1. Reuso estrito de ChannelCatalogOffer, ChannelPublicationBatch e ChannelPublicationItem.
 2. Separação de snapshot_version (lote) da desired_version individual de cada oferta.
-3. Congelamento integral por item (frozen_payload com snapshot dos atributos no momento da criação).
-4. Separação de hashes: request_hash (idempotência do comando) vs. content_hash (conteúdo congelado).
-5. Idempotência estrita: rechamada com a mesma Idempotency-Key recupera o lote original existente,
-   mesmo após alterações posteriores no catálogo.
-6. Convergência monotônica e proteção contra fora de ordem:
-   - Confirmação de versão antiga não publica versão nova nem regride published_version.
-   - Falha antiga não sobrescreve sucesso posterior.
-7. Preservação de identidade da operação (provider_operation_key estável) em retomadas e reenvios.
-8. Chamadas de rede executadas ESTRITAMENTE fora de transações abertas de banco de dados.
-9. Suporte agnóstico aos três nichos (alimentação, varejo e beleza) e combinações, com preços
-   vindos exclusivamente dos dados sem imposição de cozinha/mesas a varejo/beleza.
+3. Atribuição sequencial de snapshot_version serializada por conexão via bloqueio transacional.
+4. Congelamento integral por item (frozen_payload com snapshot dos atributos no momento da criação).
+   Validação estrita antes do envio: lotes legados sem snapshot permanecem não publicáveis (422).
+5. Separação de hashes: request_hash (idempotência do comando) vs. content_hash (conteúdo congelado).
+   Reconhecimento do algoritmo legado de request_hash para compatibilidade com lotes existentes.
+6. Uma chave de operação, um conteúdo:
+   - Mudanças de produto (título/SKU) e oferta (preço/disponibilidade) avançam a desired_version.
+   - Identidade operacional atrelada ao conteúdo; proibida mesma chave com hashes divergentes.
+   - Reenvios preservam a identidade estável e o conteúdo originais.
+7. Convergência monotônica e proteção contra respostas fora de ordem:
+   - Regras unificadas em apply_item_results_to_offers para execute, resume e apply_results.
+   - Bloqueio ordenado de ofertas (ORDER BY id FOR UPDATE) sem I/O de rede durante os locks.
+   - Confirmação de versão antiga não sobrescreve versão nova já confirmada.
+   - Falha tardia não desfaz sucesso confirmado.
+8. Aquisição durável de execução (durable lease):
+   - Evita despachos simultâneos locais por dois executores.
+   - Registro de tentativas persistido antes de qualquer chamada de rede.
+   - NOTA: Concessão local não substitui desduplicação externa do canal (idempotência do provedor).
+9. Chamadas de rede executadas ESTRITAMENTE fora de transações abertas de banco de dados (zero conexões retidas).
+10. Suporte agnóstico aos três nichos (alimentação, varejo e beleza) e combinações.
 """
 
 import hashlib
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any, Callable, Mapping, Optional, Sequence
 
 from fastapi import HTTPException
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from app.core.context import TenantContext, resolve_actor, scope_tenant_query
@@ -40,6 +50,7 @@ from app.modules.channels.contracts import (
     ChannelCapability, require,
 )
 from app.modules.channels.registry import adapter_for
+from app.services import reliability_service
 
 
 def _serialize_for_hash(data: Any) -> str:
@@ -53,6 +64,17 @@ def compute_content_hash(items_payload: Sequence[Mapping[str, Any]]) -> str:
 
 def compute_request_hash(data: Mapping[str, Any]) -> str:
     return hashlib.sha256(_serialize_for_hash(data).encode("utf-8")).hexdigest()
+
+
+def _matches_request_hash(stored_hash: str, req_data: Mapping[str, Any]) -> bool:
+    """Verifica correspondência com o hash canônico atual ou com o algoritmo legado do reliability_service."""
+    current_digest = compute_request_hash(req_data)
+    if stored_hash == current_digest:
+        return True
+    legacy_digest = reliability_service.compute_request_hash(req_data)
+    if stored_hash == legacy_digest:
+        return True
+    return False
 
 
 def batch_projection(session: Session, batch: ChannelPublicationBatch) -> dict:
@@ -69,6 +91,58 @@ def batch_projection(session: Session, batch: ChannelPublicationBatch) -> dict:
     }
 
 
+def validate_frozen_payload(item: ChannelPublicationItem) -> Mapping[str, Any]:
+    """Valida o conteúdo congelado antes do envio.
+
+    Rejeita lotes legados sem snapshot ou payloads incompletos, sem recorrer
+    a defaults que distorçam dados (como preço zero, produto None ou disponibilidade True).
+    """
+    fp = item.frozen_payload
+    if not fp or not isinstance(fp, dict):
+        raise HTTPException(
+            422,
+            f"Lote sem snapshot congelado válido para o item da oferta {item.offer_id}. "
+            "Lotes legados sem snapshot não são publicáveis; crie um novo lote de publicação com snapshot explícito."
+        )
+
+    price_raw = fp.get("price")
+    if price_raw is None:
+        raise HTTPException(422, f"Snapshot do item {item.offer_id} sem campo 'price' obrigatório.")
+    try:
+        price = Decimal(str(price_raw))
+        if not price.is_finite() or price < 0:
+            raise ValueError()
+    except Exception:
+        raise HTTPException(422, f"Snapshot do item {item.offer_id} com 'price' inválido: {price_raw}.")
+
+    prod_id = fp.get("product_id")
+    if not prod_id or str(prod_id).strip() == "" or str(prod_id).lower() == "none":
+        raise HTTPException(422, f"Snapshot do item {item.offer_id} sem 'product_id' canônico válido.")
+
+    avail = fp.get("available")
+    if not isinstance(avail, bool):
+        raise HTTPException(422, f"Snapshot do item {item.offer_id} com 'available' ausente ou não booleano.")
+
+    stock_raw = fp.get("stock_quantity")
+    stock_qty = None
+    if stock_raw is not None:
+        try:
+            stock_qty = Decimal(str(stock_raw))
+            if not stock_qty.is_finite() or stock_qty < 0:
+                raise ValueError()
+        except Exception:
+            raise HTTPException(422, f"Snapshot do item {item.offer_id} com 'stock_quantity' inválido: {stock_raw}.")
+
+    return {
+        "price": price,
+        "product_id": str(prod_id),
+        "available": avail,
+        "stock_quantity": stock_qty,
+        "sku": fp.get("sku"),
+        "title": fp.get("title"),
+    }
+
+
 def prepare_batch(
     session: Session,
     context: TenantContext,
@@ -80,12 +154,20 @@ def prepare_batch(
 ) -> dict:
     """Prepara o lote de publicação congelando o snapshot de ofertas e conteúdo.
 
-    Garante idempotência estrita (recupera lote original) e gera hashes segregados.
+    Garante:
+    - Atribuição sequencial protegida de snapshot_version por conexão (bloqueio ordenado da conexão).
+    - Idempotência estrita: rechamada concorrente ou sequencial com mesma Idempotency-Key e payload
+      recupera o lote existente sem expor IntegrityError; divergência real resulta em 409.
+    - Reconhecimento do algoritmo anterior de request_hash para lotes legados.
+    - Uma chave de operação, um conteúdo: alterações em título/SKU, preço ou disponibilidade avançam
+      a versão desejada da oferta; mesma chave não é permitida com hashes de conteúdo divergentes.
     """
     act = resolve_actor(context, actor_id)
+
+    # 1. Bloqueia a linha da conexão no banco para serializar a versão sequencial do snapshot
     conn = session.exec(
         scope_tenant_query(
-            select(MerchantConnection).where(MerchantConnection.id == connection_id),
+            select(MerchantConnection).where(MerchantConnection.id == connection_id).with_for_update(),
             MerchantConnection,
             context,
         )
@@ -102,6 +184,7 @@ def prepare_batch(
     }
     req_hash = compute_request_hash(req_data)
 
+    # 2. Verificação prévia de idempotência
     existing = session.exec(
         select(ChannelPublicationBatch).where(
             ChannelPublicationBatch.tenant_id == context.tenant_id,
@@ -109,19 +192,21 @@ def prepare_batch(
         )
     ).first()
     if existing:
-        if existing.request_hash != req_hash:
+        if not _matches_request_hash(existing.request_hash, req_data):
             raise HTTPException(409, "Idempotency-Key reutilizada com payload divergente.")
         return batch_projection(session, existing)
 
+    # 3. Carregar e bloquear ofertas ordenadamente (ORDER BY id)
+    sorted_unique_ids = sorted(list(set(offer_ids)))
     offers = list(
         session.exec(
             select(ChannelCatalogOffer).where(
-                ChannelCatalogOffer.id.in_(offer_ids),
+                ChannelCatalogOffer.id.in_(sorted_unique_ids),
                 ChannelCatalogOffer.merchant_connection_id == conn.id,
-            )
+            ).order_by(ChannelCatalogOffer.id).with_for_update()
         ).all()
     )
-    if len(offers) != len(set(offer_ids)):
+    if len(offers) != len(sorted_unique_ids):
         raise HTTPException(404, "Uma ou mais ofertas de canal não foram encontradas.")
 
     products_by_id = {
@@ -131,7 +216,7 @@ def prepare_batch(
         ).all()
     }
 
-    # Snapshot version do lote/conexão (desacoplada da desired_version das ofertas)
+    # 4. Versão sequencial do snapshot serializada pela transação da conexão
     max_snap = session.exec(
         select(func.max(ChannelPublicationBatch.snapshot_version)).where(
             ChannelPublicationBatch.tenant_id == context.tenant_id,
@@ -143,8 +228,35 @@ def prepare_batch(
     frozen_list = []
     items_to_create = []
 
+    # 5. Processamento dos itens e amarração de chave a conteúdo
     for offer in offers:
         prod = products_by_id.get(offer.product_id)
+        if not prod:
+            raise HTTPException(404, f"Produto canônico da oferta {offer.id} não encontrado.")
+
+        # Verifica se o item anterior possuía conteúdo diferente (título, SKU, preço, disponibilidade, estoque)
+        latest_item = session.exec(
+            select(ChannelPublicationItem)
+            .where(ChannelPublicationItem.offer_id == offer.id)
+            .order_by(ChannelPublicationItem.created_at.desc())
+        ).first()
+
+        if latest_item and latest_item.frozen_payload:
+            prev_fp = latest_item.frozen_payload
+            content_changed = (
+                prev_fp.get("title") != prod.name
+                or prev_fp.get("sku") != prod.sku
+                or prev_fp.get("price") != str(offer.price)
+                or prev_fp.get("available") != offer.available
+                or prev_fp.get("stock_quantity") != (str(offer.stock_quantity) if offer.stock_quantity is not None else None)
+            )
+            # Se o conteúdo mudou mas desired_version ainda não avançou, incrementa a versão da oferta
+            if content_changed and offer.desired_version <= latest_item.desired_version:
+                offer.desired_version = latest_item.desired_version + 1
+                offer.last_publication_status = PublicationItemStatusEnum.PENDING
+                offer.updated_at = datetime.utcnow()
+                session.add(offer)
+
         frozen = {
             "offer_id": str(offer.id),
             "product_id": str(offer.product_id),
@@ -152,13 +264,25 @@ def prepare_batch(
             "price": str(offer.price),
             "available": offer.available,
             "stock_quantity": str(offer.stock_quantity) if offer.stock_quantity is not None else None,
-            "sku": prod.sku if prod else None,
-            "title": prod.name if prod else None,
+            "sku": prod.sku,
+            "title": prod.name,
         }
         frozen_list.append(frozen)
 
-        # Chave estável de operação do conector para esta tentativa da oferta
-        op_key = f"cat:{conn.id}:{offer.id}:v{offer.desired_version}"
+        # Chave de operação unívoca atrelada ao conteúdo e à versão
+        item_content_hash = compute_content_hash([frozen])[:10]
+        op_key = f"pub:{conn.id}:{offer.id}:v{offer.desired_version}:{item_content_hash}"
+
+        # Validação estrita: não permitir a mesma chave com hashes de conteúdo divergentes
+        prior_items_with_key = session.exec(
+            select(ChannelPublicationItem).where(ChannelPublicationItem.provider_operation_key == op_key)
+        ).all()
+        for prior_item in prior_items_with_key:
+            if prior_item and prior_item.frozen_payload:
+                prior_hash = compute_content_hash([prior_item.frozen_payload])[:10]
+                if prior_hash != item_content_hash:
+                    raise HTTPException(409, f"A chave de operação '{op_key}' já foi utilizada com conteúdo divergente.")
+
         items_to_create.append((offer, frozen, op_key))
 
     content_hash = compute_content_hash(frozen_list)
@@ -175,7 +299,23 @@ def prepare_batch(
         created_by=act,
     )
     session.add(batch)
-    session.flush()
+
+    try:
+        session.flush()
+    except IntegrityError:
+        # Colisão concorrente na chave de idempotência do lote
+        session.rollback()
+        existing = session.exec(
+            select(ChannelPublicationBatch).where(
+                ChannelPublicationBatch.tenant_id == context.tenant_id,
+                ChannelPublicationBatch.idempotency_key == idempotency_key,
+            )
+        ).first()
+        if existing:
+            if not _matches_request_hash(existing.request_hash, req_data):
+                raise HTTPException(409, "Idempotency-Key reutilizada com payload divergente.")
+            return batch_projection(session, existing)
+        raise
 
     for offer, frozen, op_key in items_to_create:
         item = ChannelPublicationItem(
@@ -189,9 +329,117 @@ def prepare_batch(
         )
         session.add(item)
 
-    session.commit()
+    try:
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        existing = session.exec(
+            select(ChannelPublicationBatch).where(
+                ChannelPublicationBatch.tenant_id == context.tenant_id,
+                ChannelPublicationBatch.idempotency_key == idempotency_key,
+            )
+        ).first()
+        if existing:
+            if not _matches_request_hash(existing.request_hash, req_data):
+                raise HTTPException(409, "Idempotency-Key reutilizada com payload divergente.")
+            return batch_projection(session, existing)
+        raise
+
     session.refresh(batch)
     return batch_projection(session, batch)
+
+
+def apply_item_results_to_offers(
+    session: Session,
+    batch: ChannelPublicationBatch,
+    items_map: Mapping[str, ChannelPublicationItem],
+    results: Sequence[CatalogPublicationItemResult],
+) -> None:
+    """Aplica monotonicamente os resultados do conector sobre ofertas e itens do lote.
+
+    Regras canônicas unificadas (execute_publication, resume_publication, apply_results):
+    1. Valida correspondência de cada resultado a um item existente do lote.
+    2. Adquire locks ordenados sobre as ofertas envolvidas (ORDER BY id FOR UPDATE).
+    3. Atualização estritamente monotônica:
+       - Confirmação de versão antiga não sobrescreve versão nova já confirmada.
+       - Falha antiga não sobrescreve status de sucesso já confirmado para versão igual ou posterior.
+       - Apenas versão estritamente mais recente ou versão igual atualizam published_version e status.
+    4. Recalcula o status do lote (SUCCEEDED, FAILED, PARTIAL).
+    """
+    now = datetime.utcnow()
+
+    # 1. Validar identidade dos resultados
+    matched_entries = []
+    for res in results:
+        item = items_map.get(res.operation_key)
+        if not item:
+            # Resultado para chave não pertencente a este lote é ignorado
+            continue
+        matched_entries.append((item, res))
+
+    if matched_entries:
+        # 2. Bloqueio ordenado das ofertas envolvidas (evita deadlocks)
+        distinct_offer_ids = sorted(list({item.offer_id for item, _ in matched_entries}))
+        offers = list(
+            session.exec(
+                select(ChannelCatalogOffer)
+                .where(ChannelCatalogOffer.id.in_(distinct_offer_ids))
+                .order_by(ChannelCatalogOffer.id)
+                .with_for_update()
+            ).all()
+        )
+        offers_by_id = {o.id: o for o in offers}
+
+        # 3. Aplicação monotônica
+        for item, res in matched_entries:
+            item.updated_at = now
+            offer = offers_by_id.get(item.offer_id)
+
+            if res.status == "SUCCEEDED":
+                item.status = PublicationItemStatusEnum.SUCCEEDED
+                item.provider_result_ref = res.provider_result_ref
+                item.error_code = None
+                item.error_message = None
+
+                if offer:
+                    if item.desired_version > offer.published_version:
+                        offer.published_version = item.desired_version
+                        offer.last_publication_status = PublicationItemStatusEnum.SUCCEEDED
+                        offer.updated_at = now
+                    elif item.desired_version == offer.published_version:
+                        offer.last_publication_status = PublicationItemStatusEnum.SUCCEEDED
+                        offer.updated_at = now
+                    else:
+                        # Confirmação atrasada de versão antiga: não regride versão nem sucesso atual!
+                        pass
+            elif res.status == "FAILED":
+                item.status = PublicationItemStatusEnum.FAILED
+                item.error_code = res.error_code or "PROVIDER_REJECTED"
+                item.error_message = res.error_message
+
+                if offer:
+                    if item.desired_version > offer.published_version:
+                        offer.last_publication_status = PublicationItemStatusEnum.FAILED
+                        offer.updated_at = now
+                    elif item.desired_version == offer.published_version:
+                        # Se a oferta já alcançou SUCCEEDED para esta versão, falha atrasada não desfaz o sucesso!
+                        if offer.last_publication_status != PublicationItemStatusEnum.SUCCEEDED:
+                            offer.last_publication_status = PublicationItemStatusEnum.FAILED
+                            offer.updated_at = now
+                    else:
+                        # Falha de versão anterior ignorada na oferta pois versão posterior já está vigente
+                        pass
+
+    # 4. Recalcular status do lote
+    all_items = list(items_map.values())
+    if all(i.status == PublicationItemStatusEnum.SUCCEEDED for i in all_items):
+        batch.status = PublicationStatusEnum.SUCCEEDED
+    elif all(i.status == PublicationItemStatusEnum.FAILED for i in all_items):
+        batch.status = PublicationStatusEnum.FAILED
+    else:
+        batch.status = PublicationStatusEnum.PARTIAL
+
+    batch.updated_at = now
 
 
 def execute_publication(
@@ -201,15 +449,24 @@ def execute_publication(
     *,
     simulate_network_failure: bool = False,
     omit_operation_keys: Sequence[str] = (),
+    simulate_crash_before_confirmation: bool = False,
 ) -> dict:
     """Executa o envio do lote ao canal respeitando estritamente:
 
-    1. Chamadas de rede FORA de transações abertas do banco.
-    2. Atualização monotônica de versões das ofertas.
-    3. Proteção contra sobrescrita de sucesso posterior por falha antiga.
+    1. Aquisição durável de execução (lease com expiração) impedindo múltiplos executores simultâneos.
+    2. Registro de tentativa gravado no banco ANTES de qualquer chamada de rede.
+    3. Validação estrita do snapshot congelado (lotes legados sem snapshot rejeitados com 422).
+    4. Chamadas de rede executadas FORA de transações abertas do banco (zero conexões retidas no pool).
+    5. Preservação de operation_keys já armazenadas no banco (inclusive prefixos legados).
+    6. Atualização monotônica com bloqueios ordenados via apply_item_results_to_offers.
+
+    NOTA DE ARQUITETURA:
+    O lease durável protege contra corridas concorrentes locais no Dashem POS. Contudo,
+    a deduplicação externa no provedor permanece mandatória pela chave estável de operação e seu conteúdo,
+    uma vez que quedas de rede e timeouts podem levar a tentativas repetidas de entrega junto ao canal.
     """
     # =========================================================================
-    # FASE 1: Transação Local 1 (Preparação e marcação de PROCESSING)
+    # FASE 1: Transação Local 1 (Lease durável, validação de payload e registro de tentativa)
     # =========================================================================
     with session_factory() as session:
         batch = session.exec(
@@ -226,8 +483,17 @@ def execute_publication(
         if batch.status == PublicationStatusEnum.SUCCEEDED:
             return batch_projection(session, batch)
 
+        now = datetime.utcnow()
+
+        # Proteção de lease durável contra executores concorrentes
+        if batch.status == PublicationStatusEnum.PROCESSING and batch.lease_expires_at and batch.lease_expires_at > now:
+            raise HTTPException(409, "Lote já está sendo executado por outro processo.")
+
+        lease_token = uuid.uuid4().hex
+        batch.lease_token = lease_token
+        batch.lease_expires_at = now + timedelta(seconds=60)
         batch.status = PublicationStatusEnum.PROCESSING
-        batch.updated_at = datetime.utcnow()
+        batch.updated_at = now
 
         conn = session.get(MerchantConnection, batch.merchant_connection_id)
         if not conn:
@@ -246,18 +512,24 @@ def execute_publication(
 
         payload_items = []
         for it in items_to_send:
-            fp = it.frozen_payload or {}
+            # Validação estrita do payload congelado (rejeita lotes legados ou incompletos com 422)
+            valid_fp = validate_frozen_payload(it)
+
+            # Registra tentativa ANTES de qualquer I/O de rede
+            it.attempt_count += 1
+            it.updated_at = now
+
             payload_items.append(
                 CatalogPublicationItemPayload(
                     operation_key=it.provider_operation_key,
                     offer_id=str(it.offer_id),
-                    product_id=str(fp.get("product_id")),
+                    product_id=valid_fp["product_id"],
                     desired_version=it.desired_version,
-                    price=Decimal(str(fp.get("price", "0"))),
-                    available=bool(fp.get("available", True)),
-                    stock_quantity=Decimal(str(fp["stock_quantity"])) if fp.get("stock_quantity") is not None else None,
-                    sku=fp.get("sku"),
-                    title=fp.get("title"),
+                    price=valid_fp["price"],
+                    available=valid_fp["available"],
+                    stock_quantity=valid_fp["stock_quantity"],
+                    sku=valid_fp["sku"],
+                    title=valid_fp["title"],
                 )
             )
 
@@ -295,8 +567,12 @@ def execute_publication(
         except Exception:
             batch_result = None
 
+    if simulate_crash_before_confirmation:
+        # Simula crash do executor após o envio ao canal e antes de gravar a confirmação no banco
+        raise RuntimeError("Crash simulado do executor antes da gravação da confirmação.")
+
     # =========================================================================
-    # FASE 3: Transação Local 2 (Aplicação de resultados com regras anti-inversão)
+    # FASE 3: Transação Local 2 (Aplicação monotônica e liberação do lease)
     # =========================================================================
     with session_factory() as session:
         batch = session.exec(
@@ -308,9 +584,13 @@ def execute_publication(
             .with_for_update()
         ).first()
 
+        # Libera o lease durável após conclusão da tentativa
+        batch.lease_token = None
+        batch.lease_expires_at = None
+
         if batch_result is None:
-            # Queda de rede ou resposta não recebida: lote permanece em PARTIAL
-            # com tentativas registradas, pronto para retomada
+            # Queda de rede ou resposta não recebida: lote permanece em PARTIAL,
+            # com tentativas registradas antes do I/O, pronto para recuperação
             batch.status = PublicationStatusEnum.PARTIAL
             batch.updated_at = datetime.utcnow()
             session.commit()
@@ -323,59 +603,7 @@ def execute_publication(
             ).all()
         }
 
-        for res in batch_result.results:
-            item = items_map.get(res.operation_key)
-            if not item:
-                continue
-
-            item.attempt_count += 1
-            item.updated_at = datetime.utcnow()
-
-            offer = session.exec(
-                select(ChannelCatalogOffer)
-                .where(ChannelCatalogOffer.id == item.offer_id)
-                .with_for_update()
-            ).first()
-
-            if res.status == "SUCCEEDED":
-                item.status = PublicationItemStatusEnum.SUCCEEDED
-                item.provider_result_ref = res.provider_result_ref
-                item.error_code = None
-                item.error_message = None
-
-                if offer:
-                    # Invariante 5: Atualização monotônica
-                    # Apenas avança published_version se esta versão for estritamente mais recente
-                    if item.desired_version > offer.published_version:
-                        offer.published_version = item.desired_version
-                        offer.last_publication_status = PublicationItemStatusEnum.SUCCEEDED
-                    elif item.desired_version == offer.published_version:
-                        offer.last_publication_status = PublicationItemStatusEnum.SUCCEEDED
-                    else:
-                        # Confirmação tardia de versão antiga: não regride versão nem status da mais nova!
-                        pass
-            else:
-                item.status = PublicationItemStatusEnum.FAILED
-                item.error_code = res.error_code or "PROVIDER_REJECTED"
-                item.error_message = res.error_message
-
-                if offer:
-                    # Invariante 5: Falha antiga não sobrescreve sucesso posterior
-                    if item.desired_version >= offer.published_version:
-                        offer.last_publication_status = PublicationItemStatusEnum.FAILED
-                    else:
-                        # Versão mais nova já foi publicada com sucesso; erro de versão anterior ignorado na oferta
-                        pass
-
-        all_items = list(items_map.values())
-        if all(i.status == PublicationItemStatusEnum.SUCCEEDED for i in all_items):
-            batch.status = PublicationStatusEnum.SUCCEEDED
-        elif all(i.status == PublicationItemStatusEnum.FAILED for i in all_items):
-            batch.status = PublicationStatusEnum.FAILED
-        else:
-            batch.status = PublicationStatusEnum.PARTIAL
-
-        batch.updated_at = datetime.utcnow()
+        apply_item_results_to_offers(session, batch, items_map, batch_result.results)
         session.commit()
         return batch_projection(session, batch)
 
@@ -387,10 +615,11 @@ def resume_publication(
 ) -> dict:
     """Retoma um lote de publicação interrompido ou com falhas parciais.
 
-    1. Consulta itens pendentes junto ao canal via `check_catalog_status`
+    1. Identifica itens pendentes ou não sucedidos.
+    2. Consulta itens pendentes junto ao conector via `check_catalog_status`
        usando a `provider_operation_key` estável (cenário de confirmação perdida).
-    2. Aplica confirmações encontradas.
-    3. Reenvia apenas itens que permanecerem pendentes/com falha retentável.
+    3. Aplica confirmações registradas via `apply_item_results_to_offers` com bloqueios ordenados.
+    4. Se restarem itens não resolvidos/pendentes, executa reenvio com `execute_publication`.
     """
     # Etapa 1: Identificar itens não sucedidos
     with session_factory() as session:
@@ -414,6 +643,8 @@ def resume_publication(
         )
         if not items:
             batch.status = PublicationStatusEnum.SUCCEEDED
+            batch.lease_token = None
+            batch.lease_expires_at = None
             session.commit()
             return batch_projection(session, batch)
 
@@ -421,7 +652,7 @@ def resume_publication(
         provider_code = conn.provider_code
         merchant_ext_id = conn.merchant_external_id
 
-    # Etapa 2: Consultar conector fora da transação
+    # Etapa 2: Consultar conector FORA de transação aberta
     adapter = adapter_for(provider_code)
     require(adapter, ChannelCapability.CATALOG_PUBLICATION)
 
@@ -432,34 +663,29 @@ def resume_publication(
         except Exception:
             recovered_results = ()
 
-    # Se o conector confirmou itens perdidos, aplica na base
-    if recovered_results:
+    # Etapa 3: Aplicar confirmações efetivamente registradas (ignora UNKNOWN / não encontradas)
+    conclusive_results = [r for r in recovered_results if r.status in ("SUCCEEDED", "FAILED")]
+    if conclusive_results:
         with session_factory() as session:
-            batch = session.get(ChannelPublicationBatch, batch_id)
-            items_by_key = {
+            batch = session.exec(
+                select(ChannelPublicationBatch).where(
+                    ChannelPublicationBatch.id == batch_id,
+                    ChannelPublicationBatch.tenant_id == tenant_id,
+                ).with_for_update()
+            ).first()
+
+            items_map = {
                 i.provider_operation_key: i
                 for i in session.exec(
                     select(ChannelPublicationItem).where(ChannelPublicationItem.batch_id == batch_id)
                 ).all()
             }
-            for res in recovered_results:
-                it = items_by_key.get(res.operation_key)
-                if it and res.status == "SUCCEEDED":
-                    it.status = PublicationItemStatusEnum.SUCCEEDED
-                    it.provider_result_ref = res.provider_result_ref
-                    it.error_code = None
-                    offer = session.get(ChannelCatalogOffer, it.offer_id)
-                    if offer and it.desired_version >= offer.published_version:
-                        offer.published_version = it.desired_version
-                        offer.last_publication_status = PublicationItemStatusEnum.SUCCEEDED
 
-            all_items = list(items_by_key.values())
-            if all(i.status == PublicationItemStatusEnum.SUCCEEDED for i in all_items):
-                batch.status = PublicationStatusEnum.SUCCEEDED
-            elif any(i.status == PublicationItemStatusEnum.SUCCEEDED for i in all_items):
-                batch.status = PublicationStatusEnum.PARTIAL
-            batch.updated_at = datetime.utcnow()
+            apply_item_results_to_offers(session, batch, items_map, conclusive_results)
             session.commit()
 
-    # Etapa 3: Executar reenvio para qualquer item que ainda reste não sucedido
+            if batch.status == PublicationStatusEnum.SUCCEEDED:
+                return batch_projection(session, batch)
+
+    # Etapa 4: Executar reenvio para qualquer item que ainda reste não sucedido
     return execute_publication(session_factory, tenant_id, batch_id)

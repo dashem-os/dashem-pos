@@ -19,9 +19,10 @@ exceções leve o valor a um log (H17).
 import hashlib
 import hmac
 import json
+import threading
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
-from typing import Mapping, Optional
+from typing import Any, Mapping, Optional
 
 from app.core.config import settings
 from app.modules.channels.contracts import (
@@ -99,6 +100,32 @@ class ReferenceChannelAdapter:
         "ORDER_ACCEPTED", "ORDER_READY", "ORDER_DISPATCHED", "ORDER_CONCLUDED", "ORDER_CANCELLED",
     })
 
+    # Registro de envios efetivamente recebidos compartilhado entre instâncias (persiste em memória durante execução):
+    # Chave: (merchant_external_id, operation_key) -> dict com dados do item e resultado registrado
+    _registry: dict[tuple[str, str], dict[str, Any]] = {}
+    _simulated_failures: dict[tuple[str, str], tuple[str, str]] = {}
+    _registry_lock = threading.Lock()
+
+    @classmethod
+    def reset_registry(cls) -> None:
+        """Limpa o registro de envios e as falhas simuladas (isolamento de testes)."""
+        with cls._registry_lock:
+            cls._registry.clear()
+            cls._simulated_failures.clear()
+
+    @classmethod
+    def simulate_failure(
+        cls,
+        operation_key: str,
+        error_code: str = "ITEM_REJECTED",
+        error_message: str = "Simulated rejection",
+        merchant_external_id: Optional[str] = None,
+    ) -> None:
+        """Configura falha deliberada para uma chave de operação sem depender de padrão textual."""
+        with cls._registry_lock:
+            target_merchant = merchant_external_id or "*"
+            cls._simulated_failures[(target_merchant, operation_key)] = (error_code, error_message)
+
     def send_notice(self, notice: OutboundNotice) -> DeliveryOutcome:
         if notice.message_type not in self.supported_notice_types:
             return DeliveryOutcome(DeliveryResult.PERMANENT, code="NOTICE_TYPE_NOT_SUPPORTED")
@@ -109,40 +136,55 @@ class ReferenceChannelAdapter:
 
     def publish_catalog(self, payload: CatalogPublicationPayload) -> CatalogPublicationBatchResult:
         results = []
-        for item in payload.items:
-            # Simula rejeição controlada para testes se SKU ou título contiver "FAIL"
-            if (item.sku and "FAIL" in item.sku) or (item.title and "FAIL" in item.title):
-                results.append(CatalogPublicationItemResult(
-                    operation_key=item.operation_key,
-                    status="FAILED",
-                    error_code="ITEM_REJECTED",
-                    error_message=f"Simulated rejection for {item.sku or item.operation_key}",
-                ))
-            else:
-                results.append(CatalogPublicationItemResult(
-                    operation_key=item.operation_key,
-                    status="SUCCEEDED",
-                    provider_result_ref=f"ref-{item.operation_key}",
-                ))
+        with self._registry_lock:
+            for item in payload.items:
+                # Verifica regra de falha explícita para esta operação/merchant
+                fail_spec = self._simulated_failures.get((payload.merchant_external_id, item.operation_key)) or \
+                            self._simulated_failures.get(("*", item.operation_key))
+
+                if fail_spec:
+                    err_code, err_msg = fail_spec
+                    res = CatalogPublicationItemResult(
+                        operation_key=item.operation_key,
+                        status="FAILED",
+                        error_code=err_code,
+                        error_message=err_msg,
+                    )
+                else:
+                    res = CatalogPublicationItemResult(
+                        operation_key=item.operation_key,
+                        status="SUCCEEDED",
+                        provider_result_ref=f"ref-{item.operation_key}",
+                    )
+
+                # Registra o envio efetivamente recebido
+                self._registry[(payload.merchant_external_id, item.operation_key)] = {
+                    "merchant": payload.merchant_external_id,
+                    "operation_key": item.operation_key,
+                    "item": item,
+                    "result": res,
+                }
+                results.append(res)
+
         return CatalogPublicationBatchResult(batch_id=payload.batch_id, results=tuple(results))
 
     def check_catalog_status(
         self, merchant_external_id: str, operation_keys: tuple[str, ...],
     ) -> tuple[CatalogPublicationItemResult, ...]:
         results = []
-        for key in operation_keys:
-            if "FAIL" in key:
-                results.append(CatalogPublicationItemResult(
-                    operation_key=key,
-                    status="FAILED",
-                    error_code="ITEM_REJECTED",
-                ))
-            else:
-                results.append(CatalogPublicationItemResult(
-                    operation_key=key,
-                    status="SUCCEEDED",
-                    provider_result_ref=f"ref-{key}",
-                ))
+        with self._registry_lock:
+            for key in operation_keys:
+                entry = self._registry.get((merchant_external_id, key))
+                if entry:
+                    results.append(entry["result"])
+                else:
+                    # Chave nunca recebida pelo conector: status indeterminado/não encontrada, NUNCA SUCCEEDED
+                    results.append(CatalogPublicationItemResult(
+                        operation_key=key,
+                        status="UNKNOWN",
+                        error_code="OPERATION_NOT_FOUND",
+                        error_message=f"Operação '{key}' nunca foi recebida pelo conector de referência.",
+                    ))
         return tuple(results)
 
     def validate_connection(self, merchant_external_id: str) -> ValidationOutcome:

@@ -34,6 +34,7 @@ def upsert_offer(session,context,*,connection_id,product_id,price,available,stoc
  if row:row.price=price;row.available=available;row.stock_quantity=stock_quantity;row.desired_version+=1;row.last_publication_status=PublicationItemStatusEnum.PENDING;row.updated_at=datetime.utcnow()
  else:row=ChannelCatalogOffer(tenant_id=context.tenant_id,store_id=conn.store_id,merchant_connection_id=conn.id,product_id=product_id,price=price,available=available,stock_quantity=stock_quantity);session.add(row)
  session.commit();session.refresh(row);reliability_service.save_idempotency_record(session,context.tenant_id,a,"channel.catalog.offer",idempotency_key,payload,200,{"offer_id":str(row.id)});session.commit();session.refresh(row);return row
+from app.modules.channels.contracts import CatalogPublicationItemResult
 from app.modules.channels import catalog_publisher
 
 def create_batch(session,context,*,connection_id,offer_ids,actor_id,idempotency_key):
@@ -42,21 +43,22 @@ def batch_projection(session,batch):return catalog_publisher.batch_projection(se
 def apply_results(session,context,batch_id,results,actor_id):
  a=actor(context,actor_id);batch=session.exec(scope_tenant_query(select(ChannelPublicationBatch).where(ChannelPublicationBatch.id==batch_id).with_for_update(),ChannelPublicationBatch,context)).first()
  if not batch:raise HTTPException(404,"Lote não encontrado.")
- items={row.offer_id:row for row in session.exec(select(ChannelPublicationItem).where(ChannelPublicationItem.batch_id==batch.id)).all()}
+ items_by_offer={row.offer_id:row for row in session.exec(select(ChannelPublicationItem).where(ChannelPublicationItem.batch_id==batch.id)).all()}
+ items_by_key={row.provider_operation_key:row for row in items_by_offer.values()}
+ converted_results=[]
  for result in results:
-  item=items.get(result["offer_id"])
+  offer_id=result.get("offer_id")
+  if isinstance(offer_id,str):offer_id=uuid.UUID(offer_id)
+  item=items_by_offer.get(offer_id)
   if not item:raise HTTPException(404,"Item não pertence ao lote.")
-  item.attempt_count+=1;item.updated_at=datetime.utcnow();offer=session.get(ChannelCatalogOffer,item.offer_id)
-  if result["success"]:
-   item.status=PublicationItemStatusEnum.SUCCEEDED;item.provider_result_ref=result.get("provider_result_ref");item.error_code=None;item.error_message=None
-   if offer:
-    if item.desired_version>offer.published_version:offer.published_version=item.desired_version;offer.last_publication_status=PublicationItemStatusEnum.SUCCEEDED
-    elif item.desired_version==offer.published_version:offer.last_publication_status=PublicationItemStatusEnum.SUCCEEDED
-  else:
-   item.status=PublicationItemStatusEnum.FAILED;item.error_code=result.get("error_code") or "PROVIDER_REJECTED";item.error_message=result.get("error_message")
-   if offer and item.desired_version>=offer.published_version:
-    offer.last_publication_status=PublicationItemStatusEnum.FAILED
- statuses=[i.status for i in items.values()];batch.status=PublicationStatusEnum.SUCCEEDED if all(s==PublicationItemStatusEnum.SUCCEEDED for s in statuses) else PublicationStatusEnum.FAILED if all(s==PublicationItemStatusEnum.FAILED for s in statuses) else PublicationStatusEnum.PARTIAL;batch.updated_at=datetime.utcnow()
+  converted_results.append(CatalogPublicationItemResult(
+   operation_key=item.provider_operation_key,
+   status="SUCCEEDED" if result.get("success") else "FAILED",
+   provider_result_ref=result.get("provider_result_ref"),
+   error_code=result.get("error_code") if not result.get("success") else None,
+   error_message=result.get("error_message") if not result.get("success") else None,
+  ))
+ catalog_publisher.apply_item_results_to_offers(session,batch,items_by_key,converted_results)
  reliability_service.write_audit_and_outbox(session,context.tenant_id,batch.store_id,a,"channel.catalog.results",f"PUBLICATION-{batch.id}",{"status":batch.status.value},"channel_publication",str(batch.id),"channel.catalog.results",{"status":batch.status.value});session.commit();return batch_projection(session,batch)
 def channel_labels(session,context,connection_ids):
  """Who the offer belongs to, resolved once for the whole page.
