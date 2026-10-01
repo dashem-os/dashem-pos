@@ -1545,3 +1545,292 @@ def test_conector_referencia_reenvio_mesmo_conteudo_recupera_e_recusa_divergente
             os.environ["REFERENCE_CONNECTOR_DB_PATH"] = old_env
         else:
             os.environ.pop("REFERENCE_CONNECTOR_DB_PATH", None)
+
+
+# =========================================================================
+# GRUPO 4: Intercalamento de Sessões e Recarga com populate_existing em apply_results
+# =========================================================================
+
+def test_apply_results_lote_completo_intercalamento_sessoes_mantem_succeeded(monkeypatch):
+    """Session A carrega e mantém referências fortes ao lote e aos itens PENDING.
+    Session B confirma a publicação e commita.
+    Sem commit, rollback, expire_all ou refresh na Session A, ela recebe uma falha tardia via apply_results.
+    No lote completo, item, lote e oferta continuam SUCCEEDED.
+    Verifica o estado persistido com Session C e conta chamadas a publish_catalog.
+    """
+    suffix = uuid.uuid4().hex[:8]
+    context, conn_id, user_id = _setup_fixture(suffix, RETAIL)
+
+    publish_calls = 0
+    orig_publish = ReferenceChannelAdapter.publish_catalog
+
+    def counting_publish(self, payload):
+        nonlocal publish_calls
+        publish_calls += 1
+        return orig_publish(self, payload)
+
+    monkeypatch.setattr(ReferenceChannelAdapter, "publish_catalog", counting_publish)
+
+    with _session_factory() as session:
+        offer, _ = _create_offer(session, context, conn_id, "Teclado Mecânico RGB", f"TEC-{suffix}", Decimal("250.00"))
+        offer_id = offer.id
+        prep = catalog_publisher.prepare_batch(
+            session, context, connection_id=conn_id, offer_ids=[offer_id],
+            actor_id=user_id, idempotency_key=f"comp-idem-{suffix}",
+        )
+        batch_id = prep["batch"].id
+
+    # 1. Session A carrega e mantém referências fortes ao lote e itens PENDING em seu identity map
+    session_a = _session_factory()
+    try:
+        batch_a = session_a.get(ChannelPublicationBatch, batch_id)
+        items_a = list(session_a.exec(
+            select(ChannelPublicationItem).where(ChannelPublicationItem.batch_id == batch_id)
+        ).all())
+        assert batch_a.status == PublicationStatusEnum.PENDING
+        assert len(items_a) == 1
+        assert items_a[0].status == PublicationItemStatusEnum.PENDING
+
+        # 2. Session B confirma a publicação e commita
+        assert publish_calls == 0
+        exec_res = catalog_publisher.execute_publication(_session_factory, context.tenant_id, batch_id)
+        assert exec_res["batch"].status == PublicationStatusEnum.SUCCEEDED
+        assert exec_res["items"][0].status == PublicationItemStatusEnum.SUCCEEDED
+        assert publish_calls == 1
+
+        # 3. Sem commit, rollback, expire_all ou refresh na Session A, ela recebe falha tardia via apply_results
+        late_results = [{
+            "offer_id": str(offer_id),
+            "success": False,
+            "error_code": "LATE_TIMEOUT",
+            "error_message": "Timeout tardio após confirmação",
+        }]
+        res_a = channel_catalog_service.apply_results(
+            session_a, context, batch_id, late_results, user_id,
+        )
+
+        assert res_a["batch"].status == PublicationStatusEnum.SUCCEEDED
+        assert res_a["items"][0].status == PublicationItemStatusEnum.SUCCEEDED
+
+        # 4. Falha tardia não provoca envio adicional ao conector
+        assert publish_calls == 1
+
+        # 5. Verificação com Session C (terceira sessão)
+        with _session_factory() as session_c:
+            batch_c = session_c.get(ChannelPublicationBatch, batch_id)
+            assert batch_c.status == PublicationStatusEnum.SUCCEEDED
+
+            item_c = session_c.exec(
+                select(ChannelPublicationItem).where(ChannelPublicationItem.batch_id == batch_id)
+            ).first()
+            assert item_c.status == PublicationItemStatusEnum.SUCCEEDED
+
+            offer_c = session_c.get(ChannelCatalogOffer, offer_id)
+            assert offer_c.published_version == 1
+            assert offer_c.last_publication_status == PublicationItemStatusEnum.SUCCEEDED
+    finally:
+        session_a.close()
+
+
+def test_apply_results_lote_parcial_intercalamento_sessoes_mantem_partial(monkeypatch):
+    """Session A carrega lote e itens PENDING em seu identity map.
+    Session B confirma parcialmente a publicação (item 1 confirmado, item 2 pendente) e commita.
+    Sem commit, rollback, expire_all ou refresh na Session A, ela recebe falha tardia para o item confirmado.
+    No lote parcial, o item confirmado continua SUCCEEDED, o outro continua PENDING e o lote continua PARTIAL.
+    Verifica estado persistido com Session C e conta chamadas reais a publish_catalog.
+    """
+    suffix = uuid.uuid4().hex[:8]
+    context, conn_id, user_id = _setup_fixture(suffix, RETAIL)
+
+    publish_calls = 0
+    orig_publish = ReferenceChannelAdapter.publish_catalog
+
+    def counting_publish(self, payload):
+        nonlocal publish_calls
+        publish_calls += 1
+        return orig_publish(self, payload)
+
+    monkeypatch.setattr(ReferenceChannelAdapter, "publish_catalog", counting_publish)
+
+    with _session_factory() as session:
+        offer1, _ = _create_offer(session, context, conn_id, "Monitor Gamer 144Hz", f"MON-{suffix}", Decimal("899.00"))
+        offer2, _ = _create_offer(session, context, conn_id, "Cabo DisplayPort 2m", f"CAB-{suffix}", Decimal("49.90"))
+        offer1_id = offer1.id
+        offer2_id = offer2.id
+        prep = catalog_publisher.prepare_batch(
+            session, context, connection_id=conn_id, offer_ids=[offer1_id, offer2_id],
+            actor_id=user_id, idempotency_key=f"parc-idem-{suffix}",
+        )
+        batch_id = prep["batch"].id
+
+    # 1. Session A carrega e mantém referências fortes ao lote e aos itens PENDING
+    session_a = _session_factory()
+    try:
+        batch_a = session_a.get(ChannelPublicationBatch, batch_id)
+        items_a = list(session_a.exec(
+            select(ChannelPublicationItem)
+            .where(ChannelPublicationItem.batch_id == batch_id)
+            .order_by(ChannelPublicationItem.id)
+        ).all())
+        assert batch_a.status == PublicationStatusEnum.PENDING
+        assert len(items_a) == 2
+        assert all(i.status == PublicationItemStatusEnum.PENDING for i in items_a)
+
+        # 2. Session B confirma publicação parcial (apenas item 1) e commita
+        assert publish_calls == 0
+        item2_key = [i.provider_operation_key for i in items_a if i.offer_id == offer2_id][0]
+        exec_res = catalog_publisher.execute_publication(
+            _session_factory, context.tenant_id, batch_id,
+            omit_operation_keys=[item2_key],
+        )
+        assert exec_res["batch"].status == PublicationStatusEnum.PARTIAL
+        assert publish_calls == 1
+
+        # 3. Sem commit, rollback, expire_all ou refresh na Session A, ela recebe falha tardia para item 1
+        late_results = [{
+            "offer_id": str(offer1_id),
+            "success": False,
+            "error_code": "LATE_TIMEOUT",
+            "error_message": "Timeout tardio para item confirmado",
+        }]
+        res_a = channel_catalog_service.apply_results(
+            session_a, context, batch_id, late_results, user_id,
+        )
+
+        # Lote permanece PARTIAL e item1 permanece SUCCEEDED
+        assert res_a["batch"].status == PublicationStatusEnum.PARTIAL
+        items_by_off = {i.offer_id: i.status for i in res_a["items"]}
+        assert items_by_off[offer1_id] == PublicationItemStatusEnum.SUCCEEDED
+        assert items_by_off[offer2_id] == PublicationItemStatusEnum.PENDING
+
+        # 4. Falha tardia não provoca novo envio
+        assert publish_calls == 1
+
+        # 5. Verificação na Session C
+        with _session_factory() as session_c:
+            batch_c = session_c.get(ChannelPublicationBatch, batch_id)
+            assert batch_c.status == PublicationStatusEnum.PARTIAL
+
+            items_c = {
+                i.offer_id: i.status
+                for i in session_c.exec(
+                    select(ChannelPublicationItem).where(ChannelPublicationItem.batch_id == batch_id)
+                ).all()
+            }
+            assert items_c[offer1_id] == PublicationItemStatusEnum.SUCCEEDED
+            assert items_c[offer2_id] == PublicationItemStatusEnum.PENDING
+
+            off1_c = session_c.get(ChannelCatalogOffer, offer1_id)
+            assert off1_c.published_version == 1
+            assert off1_c.last_publication_status == PublicationItemStatusEnum.SUCCEEDED
+
+            off2_c = session_c.get(ChannelCatalogOffer, offer2_id)
+            assert off2_c.published_version == 0
+            assert off2_c.last_publication_status == PublicationItemStatusEnum.PENDING
+    finally:
+        session_a.close()
+
+
+def test_controle_negativo_sem_recarga_dos_itens_reprova_com_failed_failed_succeeded(monkeypatch):
+    """Controle negativo: sem a recarga dos itens sob bloqueio com populate_existing=True,
+    a Session A opera com itens obsoletos em PENDING e a falha tardia sobrescreve o sucesso,
+    reproduzindo exatamente o defeito FAILED / FAILED / SUCCEEDED e reprovando a verificação de integridade.
+    """
+    from app.core.context import scope_tenant_query
+
+    suffix = uuid.uuid4().hex[:8]
+    context, conn_id, user_id = _setup_fixture(suffix, RETAIL)
+
+    publish_calls = 0
+    orig_publish = ReferenceChannelAdapter.publish_catalog
+
+    def counting_publish(self, payload):
+        nonlocal publish_calls
+        publish_calls += 1
+        return orig_publish(self, payload)
+
+    monkeypatch.setattr(ReferenceChannelAdapter, "publish_catalog", counting_publish)
+
+    with _session_factory() as session:
+        offer, _ = _create_offer(session, context, conn_id, "Mouse Pad XL", f"PAD-{suffix}", Decimal("80.00"))
+        offer_id = offer.id
+        prep = catalog_publisher.prepare_batch(
+            session, context, connection_id=conn_id, offer_ids=[offer_id],
+            actor_id=user_id, idempotency_key=f"neg-idem-{suffix}",
+        )
+        batch_id = prep["batch"].id
+
+    session_a = _session_factory()
+    try:
+        # Session A carrega e mantém referências fortes a batch e items em PENDING
+        batch_a = session_a.get(ChannelPublicationBatch, batch_id)
+        items_a = list(session_a.exec(
+            select(ChannelPublicationItem).where(ChannelPublicationItem.batch_id == batch_id)
+        ).all())
+        assert batch_a.status == PublicationStatusEnum.PENDING
+        assert items_a[0].status == PublicationItemStatusEnum.PENDING
+
+        # Session B publica e confirma com sucesso
+        exec_res = catalog_publisher.execute_publication(_session_factory, context.tenant_id, batch_id)
+        assert exec_res["batch"].status == PublicationStatusEnum.SUCCEEDED
+        assert exec_res["items"][0].status == PublicationItemStatusEnum.SUCCEEDED
+        assert publish_calls == 1
+
+        # Simula o caminho legado SEM populate_existing nos itens e no lote
+        def apply_results_sem_recarga(session, ctx, b_id, results, act_id):
+            from app.services.channel_catalog_service import actor
+            a = actor(ctx, act_id)
+            b = session.exec(scope_tenant_query(
+                select(ChannelPublicationBatch).where(ChannelPublicationBatch.id == b_id).with_for_update(),
+                ChannelPublicationBatch, ctx
+            )).first()
+            # Consulta legada: sem populate_existing e sem lock ordenado
+            items_by_off = {
+                row.offer_id: row
+                for row in session.exec(
+                    select(ChannelPublicationItem).where(ChannelPublicationItem.batch_id == b.id)
+                ).all()
+            }
+            items_by_k = {row.provider_operation_key: row for row in items_by_off.values()}
+            conv_res = [
+                CatalogPublicationItemResult(
+                    operation_key=items_by_off[offer_id].provider_operation_key,
+                    status="FAILED",
+                    error_code="LATE_FAIL",
+                    error_message="Falha tardia",
+                )
+            ]
+            catalog_publisher.apply_item_results_to_offers(session, b, items_by_k, conv_res)
+            reliability_service.write_audit_and_outbox(
+                session, ctx.tenant_id, b.store_id, a, "channel.catalog.results",
+                f"PUBLICATION-{b.id}", {"status": b.status.value}, "channel_publication",
+                str(b.id), "channel.catalog.results", {"status": b.status.value}
+            )
+            session.commit()
+            return catalog_publisher.batch_projection(session, b)
+
+        # Session A aplica a falha tardia sem recarga
+        apply_results_sem_recarga(session_a, context, batch_id, [{"offer_id": str(offer_id), "success": False}], user_id)
+    finally:
+        session_a.close()
+
+    # Nenhuma chamada adicional ao conector
+    assert publish_calls == 1
+
+    # Session C comprova a reprodução exata do defeito: FAILED / FAILED / SUCCEEDED
+    with _session_factory() as session_c:
+        batch_c = session_c.get(ChannelPublicationBatch, batch_id)
+        item_c = session_c.exec(
+            select(ChannelPublicationItem).where(ChannelPublicationItem.batch_id == batch_id)
+        ).first()
+        offer_c = session_c.get(ChannelCatalogOffer, offer_id)
+
+        # Reprodução verificada: item e lote foram indevidamente degradados para FAILED, oferta manteve SUCCEEDED
+        assert item_c.status == PublicationItemStatusEnum.FAILED
+        assert batch_c.status == PublicationStatusEnum.FAILED
+        assert offer_c.last_publication_status == PublicationItemStatusEnum.SUCCEEDED
+
+        # Prova que o detector de integridade monotônica reprova diante dessa degradação
+        with pytest.raises(AssertionError):
+            assert batch_c.status == PublicationStatusEnum.SUCCEEDED
+            assert item_c.status == PublicationItemStatusEnum.SUCCEEDED

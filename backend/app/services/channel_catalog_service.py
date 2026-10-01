@@ -41,10 +41,11 @@ def create_batch(session,context,*,connection_id,offer_ids,actor_id,idempotency_
  return catalog_publisher.prepare_batch(session,context,connection_id=connection_id,offer_ids=offer_ids,actor_id=actor_id,idempotency_key=idempotency_key)
 def batch_projection(session,batch):return catalog_publisher.batch_projection(session,batch)
 def apply_results(session,context,batch_id,results,actor_id):
- a=actor(context,actor_id);batch=session.exec(scope_tenant_query(select(ChannelPublicationBatch).where(ChannelPublicationBatch.id==batch_id).with_for_update(),ChannelPublicationBatch,context)).first()
+ a=actor(context,actor_id);batch=session.exec(scope_tenant_query(select(ChannelPublicationBatch).where(ChannelPublicationBatch.id==batch_id).with_for_update(),ChannelPublicationBatch,context).execution_options(populate_existing=True)).first()
  if not batch:raise HTTPException(404,"Lote não encontrado.")
- items_by_offer={row.offer_id:row for row in session.exec(select(ChannelPublicationItem).where(ChannelPublicationItem.batch_id==batch.id)).all()}
- items_by_key={row.provider_operation_key:row for row in items_by_offer.values()}
+ items=list(session.exec(select(ChannelPublicationItem).where(ChannelPublicationItem.batch_id==batch.id).order_by(ChannelPublicationItem.id).with_for_update().execution_options(populate_existing=True)).all())
+ items_by_offer={row.offer_id:row for row in items}
+ items_by_key={row.provider_operation_key:row for row in items}
  converted_results=[]
  for result in results:
   offer_id=result.get("offer_id")

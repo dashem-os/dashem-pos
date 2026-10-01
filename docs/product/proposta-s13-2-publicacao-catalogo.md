@@ -77,7 +77,7 @@ A arquitetura do S13.2 reutiliza as entidades canônicas de `app/models/channel_
 
 ## 4. Matriz de Provas Automatizadas (`test_channel_catalog_publication.py`)
 
-A suíte completa conta com **29 testes automatizados** validados contra PostgreSQL isolado:
+A suíte completa conta com **32 testes automatizados** validados contra PostgreSQL isolado:
 
 | Teste | Requisito / Critério Comprovado | Tipo de Prova | Resultado |
 |---|---|---|---|
@@ -110,6 +110,9 @@ A suíte completa conta com **29 testes automatizados** validados contra Postgre
 | `test_falha_tardia_via_apply_results_mantem_item_lote_e_oferta_coerentes` | Falha tardia via apply_results não rebaixa item, lote nem oferta confirmados com sucesso. | Monotonicidade (Grupo 2) | `PASSED` |
 | `test_conector_referencia_registro_sqlite_duravel_entre_processos` | Persistência SQLite durável comprovada entre processos Python independentes via subprocess. | Multi-Processo (Grupo 3)| `PASSED` |
 | `test_conector_referencia_reenvio_mesmo_conteudo_recupera_e_recusa_divergente` | Reenvio de mesmo conteúdo recupera sucesso original; conteúdo divergente gera DIVERGENT_CONTENT. | Idempotência (Grupo 3) | `PASSED` |
+| `test_apply_results_lote_completo_intercalamento_sessoes_mantem_succeeded` | Intercalamento de sessões no lote completo: recarga sob bloqueio com populate_existing mantém SUCCEEDED; zero despachos extras. | Monotonicidade (Grupo 4) | `PASSED` |
+| `test_apply_results_lote_parcial_intercalamento_sessoes_mantem_partial` | Intercalamento no lote parcial: item confirmado SUCCEEDED, item pendente PENDING, lote PARTIAL; zero despachos extras. | Monotonicidade (Grupo 4) | `PASSED` |
+| `test_controle_negativo_sem_recarga_dos_itens_reprova_com_failed_failed_succeeded` | Controle negativo: sem recarga com populate_existing, falha tardia reproduz FAILED/FAILED/SUCCEEDED e reprova asserção. | Controle Negativo (Grupo 4) | `PASSED` |
 
 ---
 
