@@ -9,6 +9,8 @@ from app.models.catalog import Product
 from app.models.channel_catalog import *
 from app.models.channel_hub import MerchantConnection
 from app.models.order import Order
+from app.core.database import engine
+from app.core.tenancy import set_tenant_db_context
 from app.services import reliability_service
 
 def actor(context,actor_id):
@@ -61,6 +63,20 @@ def apply_results(session,context,batch_id,results,actor_id):
   ))
  catalog_publisher.apply_item_results_to_offers(session,batch,items_by_key,converted_results)
  reliability_service.write_audit_and_outbox(session,context.tenant_id,batch.store_id,a,"channel.catalog.results",f"PUBLICATION-{batch.id}",{"status":batch.status.value},"channel_publication",str(batch.id),"channel.catalog.results",{"status":batch.status.value});session.commit();return batch_projection(session,batch)
+def execute_batch(context,batch_id,actor_id=None):
+ a=actor(context,actor_id)
+ def session_factory():
+  session=Session(engine)
+  set_tenant_db_context(session,context.tenant_id,context.store_id,a)
+  return session
+ return catalog_publisher.execute_publication(session_factory,context.tenant_id,batch_id,actor_id=a)
+def resume_batch(context,batch_id,actor_id=None):
+ a=actor(context,actor_id)
+ def session_factory():
+  session=Session(engine)
+  set_tenant_db_context(session,context.tenant_id,context.store_id,a)
+  return session
+ return catalog_publisher.resume_publication(session_factory,context.tenant_id,batch_id,actor_id=a)
 def channel_labels(session,context,connection_ids):
  """Who the offer belongs to, resolved once for the whole page.
 

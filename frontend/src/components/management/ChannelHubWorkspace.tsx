@@ -60,8 +60,8 @@ const offerStatusLabels: Record<api.ChannelCatalogOffer['last_publication_status
   PENDING: 'Aguardando o canal', SUCCEEDED: 'Publicado', FAILED: 'Recusado pelo canal',
 }
 const batchStatusLabels: Record<api.ChannelPublicationBatch['status'], string> = {
-  PENDING: 'Enviado, aguardando o canal', PROCESSING: 'Em processamento', PARTIAL: 'Parcial',
-  SUCCEEDED: 'Concluído', FAILED: 'Recusado',
+  PENDING: 'Pendente de envio', PROCESSING: 'Em processamento no canal', PARTIAL: 'Parcial',
+  SUCCEEDED: 'Confirmado pelo canal', FAILED: 'Recusado pelo canal',
 }
 const settlementStatusLabels: Record<api.MarketplaceSettlement['status'], string> = {
   PENDING: 'A receber', PARTIAL: 'Recebido em parte', PAID: 'Recebido', DIVERGENT: 'Divergente',
@@ -134,6 +134,9 @@ export function ChannelHubWorkspace() {
 type Toast = (type: 'success' | 'error' | 'info', text: string) => void
 interface PanelProps { headers: Record<string, string>; actorId: string; connections: api.MerchantConnection[]; loading: boolean; canManage: boolean; onChanged: () => Promise<void>; showToast: Toast }
 
+export { getItemPresentationStatus } from '../../domain/channelCatalogPresentation'
+import { getItemPresentationStatus } from '../../domain/channelCatalogPresentation'
+
 /**
  * Publishing a catalogue to a marketplace is a request, not a result.
  *
@@ -150,6 +153,7 @@ function ChannelCatalogPanel({ headers, actorId, connections, offers, batches, m
   const [editing, setEditing] = useState<api.ChannelCatalogOffer | null>(null)
   const [busy, setBusy] = useState(false)
   const active = connections.find((item) => item.id === connectionId) ?? connections[0] ?? null
+  const isConnectionReady = Boolean(active && active.status === 'CONNECTED' && (active.capabilities ?? []).includes('CATALOG_PUBLICATION'))
   useEffect(() => { if (active && active.id !== connectionId) setConnectionId(active.id) }, [active, connectionId])
   // Changing channel discards a selection that belonged to the previous one: a
   // batch carries exactly one connection and must never mix merchants.
@@ -159,15 +163,76 @@ function ChannelCatalogPanel({ headers, actorId, connections, offers, batches, m
   const channelMappings = useMemo(() => mappings.filter((item) => item.merchant_connection_id === active?.id), [mappings, active])
   const pending = channelOffers.filter((item) => item.last_publication_status !== 'SUCCEEDED' || item.published_version < item.desired_version)
   const toggle = (id: string) => setSelected((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])
+
+  const refreshBacklog = async () => {
+    try {
+      await onChanged()
+    } catch (refreshError) {
+      showToast('error', refreshError instanceof Error ? refreshError.message : 'Falha ao atualizar o catálogo.')
+    }
+  }
+
   const publish = async () => {
-    if (!active || selected.length === 0) return
+    if (!active || selected.length === 0 || !isConnectionReady) return
     setBusy(true)
     try {
-      const result = await api.publishChannelCatalogOffers(headers, crypto.randomUUID(), { connection_id: active.id, offer_ids: selected, actor_id: actorId })
-      showToast('info', `Lote com ${result.items.length} item(ns) enviado. O canal confirma item a item.`)
-      setSelected([]); await onChanged()
-    } catch (error) { showToast('error', error instanceof Error ? error.message : 'Não foi possível enviar o lote.') }
-    finally { setBusy(false) }
+      const created = await api.publishChannelCatalogOffers(headers, crypto.randomUUID(), { connection_id: active.id, offer_ids: selected, actor_id: actorId })
+      try {
+        const execResult = await api.executeChannelPublicationBatch(headers, created.batch.id, { actor_id: actorId })
+        if (execResult.batch.status === 'SUCCEEDED') {
+          showToast('success', `Lote com ${execResult.items.length} item(ns) publicado e confirmado pelo canal.`)
+        } else if (execResult.batch.status === 'PARTIAL') {
+          showToast('info', 'Lote processado com pendências parciais no canal.')
+        } else {
+          showToast('error', 'Canal rejeitou a publicação do lote.')
+        }
+      } catch (execError) {
+        showToast('error', execError instanceof Error ? execError.message : 'Lote criado, mas a execução falhou ou expirou.')
+      }
+      setSelected([])
+    } catch (error) {
+      showToast('error', error instanceof Error ? error.message : 'Não foi possível publicar o lote.')
+      setSelected([])
+    } finally {
+      await refreshBacklog()
+      setBusy(false)
+    }
+  }
+  const resumeBatch = async (batchId: string) => {
+    setBusy(true)
+    try {
+      const result = await api.resumeChannelPublicationBatch(headers, batchId, { actor_id: actorId })
+      if (result.batch.status === 'SUCCEEDED') {
+        showToast('success', 'Lote retomado e confirmado com sucesso.')
+      } else if (result.batch.status === 'PARTIAL') {
+        showToast('info', 'Lote retomado com pendências parciais.')
+      } else {
+        showToast('error', 'Retomada do lote não obteve sucesso no canal.')
+      }
+    } catch (error) {
+      showToast('error', error instanceof Error ? error.message : 'Não foi possível retomar o lote.')
+    } finally {
+      await refreshBacklog()
+      setBusy(false)
+    }
+  }
+  const executeBatch = async (batchId: string) => {
+    setBusy(true)
+    try {
+      const result = await api.executeChannelPublicationBatch(headers, batchId, { actor_id: actorId })
+      if (result.batch.status === 'SUCCEEDED') {
+        showToast('success', 'Lote executado e confirmado com sucesso.')
+      } else if (result.batch.status === 'PARTIAL') {
+        showToast('info', 'Lote executado com pendências parciais.')
+      } else {
+        showToast('error', 'Execução do lote não obteve sucesso no canal.')
+      }
+    } catch (error) {
+      showToast('error', error instanceof Error ? error.message : 'Não foi possível executar o lote.')
+    } finally {
+      await refreshBacklog()
+      setBusy(false)
+    }
   }
   return <section className="rounded-3xl border border-dashem-border bg-white p-5">
     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -177,10 +242,11 @@ function ChannelCatalogPanel({ headers, actorId, connections, offers, batches, m
         {canManage && active && <>
           <Button size="sm" variant="secondary" icon={Tag} onClick={() => setDialog('mapping')}>Vincular código</Button>
           <Button size="sm" variant="secondary" icon={Plus} onClick={() => { setEditing(null); setDialog('offer') }}>Nova oferta</Button>
-          <Button size="sm" icon={Send} loading={busy} disabled={selected.length === 0} onClick={() => void publish()}>Publicar {selected.length > 0 ? `(${selected.length})` : 'selecionadas'}</Button>
+          <Button size="sm" icon={Send} loading={busy} disabled={selected.length === 0 || !isConnectionReady} title={!isConnectionReady ? 'Conexão não está ativa ou conector não suporta publicação de catálogo neste ambiente' : undefined} onClick={() => void publish()}>Publicar {selected.length > 0 ? `(${selected.length})` : 'selecionadas'}</Button>
         </>}
       </div>
     </div>
+    {active && !isConnectionReady && <p className="mt-3 rounded-xl bg-state-warning-soft p-3 text-xs leading-5 text-dashem-strong">Conexão não está ativa ou conector não suporta publicação de catálogo neste ambiente. Ações de envio, execução e retomada ficam desabilitadas.</p>}
     <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3"><Metric label="Ofertas" value={channelOffers.length} /><Metric label="Pendências" value={pending.length} /><Metric label="Lotes parciais" value={channelBatches.filter((item) => item.status === 'PARTIAL' || item.status === 'FAILED').length} /></div>
     {!loading && connections.length === 0 && <Empty text="Nenhum canal configurado. Cadastre e valide uma conexão antes de montar catálogo por canal." />}
     {connections.length > 0 && channelOffers.length === 0 && !loading && <Empty text="Nenhuma oferta persistida neste canal. O catálogo local continua sendo a fonte canônica." />}
@@ -195,10 +261,27 @@ function ChannelCatalogPanel({ headers, actorId, connections, offers, batches, m
         {canManage && <td className="p-3 text-right"><Button size="sm" variant="ghost" onClick={() => { setEditing(offer); setDialog('offer') }}>Editar</Button></td>}
       </tr>)}
     </tbody></ResponsiveTable></div>}
-    {canManage && channelOffers.length > 0 && <p className="mt-3 rounded-xl bg-dashem-surface-elevated p-3 text-[11px] leading-5 text-dashem-muted">Publicar registra o pedido de envio e nada mais. O canal responde item a item pelo adapter, e nenhuma tela marca sucesso no lugar dele — por isso um lote pode ficar pendente enquanto o provider não estiver homologado.</p>}
-    {channelBatches.length > 0 && <div className="mt-5"><h3 className="text-xs font-black uppercase tracking-wide text-dashem-muted">Lotes de publicação</h3><div className="mt-2 space-y-2">{channelBatches.map((batch) => <article key={batch.id} className="rounded-2xl border border-dashem-border p-4">
-      <div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-xs font-black text-dashem-strong">{formatApiDateTime(batch.created_at)}</p><p className="text-[11px] text-dashem-muted">{batch.items.length} item(ns)</p></div><StatusPill tone={batch.status === 'SUCCEEDED' ? 'good' : batch.status === 'PENDING' || batch.status === 'PROCESSING' ? 'wait' : 'bad'} text={batchStatusLabels[batch.status]} /></div>
-      <ul className="mt-3 space-y-1">{batch.items.map((item) => <li key={item.id} className="flex flex-wrap items-baseline justify-between gap-2 border-t border-dashem-border pt-1 text-[11px]"><span className="font-bold text-dashem-strong">{item.product_name ?? 'Produto removido do catálogo'}</span><span className={item.status === 'FAILED' ? 'text-state-danger' : item.status === 'SUCCEEDED' ? 'text-state-success' : 'text-dashem-muted'}>{offerStatusLabels[item.status]}{item.error_code ? ` · ${item.error_code}` : ''}</span>{item.error_message && <span className="w-full text-state-danger">{item.error_message}</span>}</li>)}</ul>
+    {canManage && channelOffers.length > 0 && <p className="mt-3 rounded-xl bg-dashem-surface-elevated p-3 text-[11px] leading-5 text-dashem-muted">Publicar cria o lote e aciona o executor do canal imediatamente. A confirmação ocorre item a item pelo conector, sem marcação antecipada de sucesso — lotes com rejeições ou falhas de rede permanecem disponíveis para retomada.</p>}
+    {channelBatches.length > 0 && <div className="mt-5"><h3 className="text-xs font-black uppercase tracking-wide text-dashem-muted">Lotes de publicação</h3><div className="mt-2 space-y-2">{channelBatches.map((batch) => <article key={batch.id} data-batch-id={batch.id} className="rounded-2xl border border-dashem-border p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="text-xs font-black text-dashem-strong">{formatApiDateTime(batch.created_at)}</p>
+          <p className="text-[11px] text-dashem-muted">{batch.items.length} item(ns)</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <StatusPill tone={batch.status === 'SUCCEEDED' ? 'good' : batch.status === 'PROCESSING' ? 'info' : batch.status === 'PENDING' ? 'wait' : 'bad'} text={batchStatusLabels[batch.status] ?? batch.status} />
+          {canManage && (batch.status === 'PARTIAL' || batch.status === 'FAILED' || batch.status === 'PROCESSING') && (
+            <Button size="sm" variant="secondary" loading={busy} disabled={!isConnectionReady} title={!isConnectionReady ? 'Conexão não está ativa ou conector não suporta publicação de catálogo neste ambiente' : undefined} onClick={() => void resumeBatch(batch.id)}>Retomar</Button>
+          )}
+          {canManage && batch.status === 'PENDING' && (
+            <Button size="sm" variant="secondary" loading={busy} disabled={!isConnectionReady} title={!isConnectionReady ? 'Conexão não está ativa ou conector não suporta publicação de catálogo neste ambiente' : undefined} onClick={() => void executeBatch(batch.id)}>Executar</Button>
+          )}
+        </div>
+      </div>
+      <ul className="mt-3 space-y-1">{batch.items.map((item) => {
+        const { label, toneClass } = getItemPresentationStatus(item, batch.status)
+        return <li key={item.id} data-item-id={item.id} className="flex flex-wrap items-baseline justify-between gap-2 border-t border-dashem-border pt-1 text-[11px]"><span className="font-bold text-dashem-strong">{item.product_name ?? 'Produto removido do catálogo'}</span><span className={toneClass}>{label}{item.error_code ? ` · ${item.error_code}` : ''}</span>{item.error_message && <span className="w-full text-state-danger">{item.error_message}</span>}</li>
+      })}</ul>
     </article>)}</div></div>}
     {channelMappings.length > 0 && <div className="mt-5"><h3 className="text-xs font-black uppercase tracking-wide text-dashem-muted">Códigos do canal</h3><div className="mt-2 overflow-x-auto"><ResponsiveTable className="w-full text-left text-xs"><thead><tr className="border-b text-[10px] uppercase text-dashem-muted"><th className="p-3">Item interno</th><th className="p-3">Tipo</th><th className="p-3">Código no canal</th></tr></thead><tbody>{channelMappings.map((item) => <tr key={item.id} className="border-b border-dashem-border"><td className="p-3 font-bold text-dashem-strong">{item.internal_name ?? item.internal_id}</td><td className="p-3">{item.entity_type}</td><td className="p-3 font-mono">{item.external_id}</td></tr>)}</tbody></ResponsiveTable></div></div>}
     {dialog === 'offer' && active && <OfferDialog headers={headers} actorId={actorId} connection={active} offer={editing} onClose={() => { setDialog(null); setEditing(null) }} onSaved={async () => { setDialog(null); setEditing(null); await onChanged() }} showToast={showToast} />}
@@ -394,8 +477,8 @@ function PaymentDialog({ headers, actorId, settlement, onClose, onSaved, showToa
   </Modal>
 }
 
-function StatusPill({ tone, text }: { tone: 'good' | 'bad' | 'wait'; text: string }) {
-  const styles = { good: 'bg-state-success-soft text-state-success', bad: 'bg-state-danger-soft text-state-danger', wait: 'bg-state-warning-soft text-state-warning' }
+function StatusPill({ tone, text }: { tone: 'good' | 'bad' | 'wait' | 'info'; text: string }) {
+  const styles = { good: 'bg-state-success-soft text-state-success', bad: 'bg-state-danger-soft text-state-danger', wait: 'bg-state-warning-soft text-state-warning', info: 'bg-state-info-soft text-state-info' }
   return <span className={`inline-block rounded-full px-2 py-1 text-[10px] font-black ${styles[tone]}`}>{text}</span>
 }
 function Empty({ text }: { text: string }) { return <div className="mt-4 rounded-2xl border border-dashed border-dashem-border bg-dashem-surface-elevated p-6 text-center text-sm text-dashem-muted">{text}</div> }

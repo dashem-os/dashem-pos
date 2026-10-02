@@ -73,6 +73,8 @@ CONTRACTS = [
     ("POST", "/api/v1/channel-catalog/mappings", "/api/v1/channel-catalog/mappings`"),
     ("POST", "/api/v1/channel-catalog/offers", "/api/v1/channel-catalog/offers`"),
     ("POST", "/api/v1/channel-catalog/publications", "/api/v1/channel-catalog/publications`"),
+    ("POST", "/api/v1/channel-catalog/publications/{batch_id}/execute", "/api/v1/channel-catalog/publications/${batchId}/execute`"),
+    ("POST", "/api/v1/channel-catalog/publications/{batch_id}/resume", "/api/v1/channel-catalog/publications/${batchId}/resume`"),
     ("GET", "/api/v1/channel-catalog/settlements", "/api/v1/channel-catalog/settlements`"),
     ("POST", "/api/v1/channel-catalog/settlements", "/api/v1/channel-catalog/settlements`"),
     ("POST", "/api/v1/channel-catalog/settlements/{settlement_id}/payments", "/api/v1/channel-catalog/settlements/${settlementId}/payments`"),

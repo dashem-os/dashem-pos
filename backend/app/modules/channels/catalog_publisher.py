@@ -44,7 +44,7 @@ from app.models.channel_catalog import (
     ChannelCatalogOffer, ChannelPublicationBatch, ChannelPublicationItem,
     PublicationItemStatusEnum, PublicationStatusEnum,
 )
-from app.models.channel_hub import MerchantConnection
+from app.models.channel_hub import MerchantConnection, MerchantConnectionStatusEnum
 from app.modules.channels.contracts import (
     CatalogPublicationBatchResult, CatalogPublicationItemPayload,
     CatalogPublicationItemResult, CatalogPublicationPayload,
@@ -469,6 +469,7 @@ def execute_publication(
     tenant_id: uuid.UUID,
     batch_id: uuid.UUID,
     *,
+    actor_id: Optional[uuid.UUID] = None,
     lease_token: Optional[str] = None,
     simulate_network_failure: bool = False,
     omit_operation_keys: Sequence[str] = (),
@@ -477,13 +478,15 @@ def execute_publication(
 ) -> dict:
     """Executa o envio do lote ao canal respeitando estritamente:
 
-    1. Aquisição durável de execução (lease com expiração e token) impedindo múltiplos executores simultâneos.
-    2. Verificação do lease_token sob bloqueio antes de qualquer alteração de estado ou liberação.
-    3. Registro de tentativa gravado no banco ANTES de qualquer chamada de rede.
-    4. Validação estrita do snapshot congelado (lotes legados sem snapshot rejeitados com 422).
-    5. Chamadas de rede executadas FORA de transações abertas do banco (zero conexões retidas no pool).
-    6. Preservação de operation_keys já armazenadas no banco (inclusive prefixos legados).
-    7. Atualização monotônica com bloqueios ordenados e populate_existing=True via apply_item_results_to_offers.
+    1. Validação de conexão ativa (CONNECTED), escopo e capacidade CATALOG_PUBLICATION antes de qualquer lease/tentativa.
+    2. Aquisição durável de execução (lease com expiração e token) impedindo múltiplos executores simultâneos.
+    3. Verificação do lease_token sob bloqueio antes de qualquer alteração de estado ou liberação.
+    4. Registro de tentativa e auditoria/outbox de intenção transacionais antes de qualquer chamada de rede.
+    5. Validação estrita do snapshot congelado (lotes legados sem snapshot rejeitados com 422).
+    6. Chamadas de rede executadas FORA de transações abertas do banco (zero conexões retidas no pool).
+    7. Preservação de operation_keys já armazenadas no banco (inclusive prefixos legados).
+    8. Atualização monotônica com bloqueios ordenados e populate_existing=True via apply_item_results_to_offers.
+    9. Gravação do resultado e auditoria/outbox na mesma transação local (sem sucesso desacompanhado de auditoria).
 
     NOTA DE ARQUITETURA:
     O lease durável protege contra corridas concorrentes locais no Dashem POS. Contudo,
@@ -491,7 +494,7 @@ def execute_publication(
     uma vez que quedas de rede e timeouts podem levar a tentativas repetidas de entrega junto ao canal.
     """
     # =========================================================================
-    # FASE 1: Transação Local 1 (Lease durável, validação de payload e registro de tentativa)
+    # FASE 1: Transação Local 1 (Validação, Lease, Tentativas e Auditoria de Intenção)
     # =========================================================================
     with session_factory() as session:
         batch = session.exec(
@@ -511,23 +514,42 @@ def execute_publication(
 
         now = datetime.utcnow()
 
-        # Proteção de lease durável contra executores concorrentes
+        # 1. Validar conexão de canal e escopo ANTES de gravar lease ou tentativas
+        conn = session.exec(
+            select(MerchantConnection).where(
+                MerchantConnection.id == batch.merchant_connection_id,
+                MerchantConnection.tenant_id == tenant_id,
+                MerchantConnection.store_id == batch.store_id,
+            )
+        ).first()
+        if not conn:
+            raise HTTPException(404, "Conexão de merchant não encontrada para a unidade do lote.")
+
+        if conn.status != MerchantConnectionStatusEnum.CONNECTED:
+            raise HTTPException(400, f"Conexão de canal não está ativa (status atual: {conn.status.value}).")
+
+        # 2. Validar conector e capacidade declarada ANTES de alterar estado ou lease
+        try:
+            adapter = adapter_for(conn.provider_code)
+            require(adapter, ChannelCapability.CATALOG_PUBLICATION)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(400, f"Provedor {conn.provider_code} indisponível ou sem capacidade de catálogo: {exc}")
+
+        # 3. Proteção de lease durável contra executores concorrentes
         if batch.lease_expires_at and batch.lease_expires_at > now:
             if lease_token and batch.lease_token == lease_token:
                 # Mesmo executor autorizado (ex.: continuação pela retomada)
                 pass
             else:
-                raise HTTPException(409, "Lote já está sendo executado por outro processo.")
+                raise HTTPException(409, "Lote já está sendo executado por outro processo (concessão ativa).")
 
         active_token = lease_token or uuid.uuid4().hex
         batch.lease_token = active_token
         batch.lease_expires_at = now + timedelta(seconds=60)
         batch.status = PublicationStatusEnum.PROCESSING
         batch.updated_at = now
-
-        conn = session.get(MerchantConnection, batch.merchant_connection_id)
-        if not conn:
-            raise HTTPException(404, "Conexão de merchant não encontrada.")
 
         items = list(
             session.exec(
@@ -573,6 +595,32 @@ def execute_publication(
         )
         provider_code = conn.provider_code
 
+        # 4. Auditoria e outbox da intenção de envio transacionais com a aquisição da tentativa
+        audit_actor = actor_id or getattr(batch, "created_by", None) or uuid.UUID("00000000-0000-0000-0000-000000000000")
+        reliability_service.write_audit_and_outbox(
+            session,
+            tenant_id,
+            batch.store_id,
+            audit_actor,
+            "channel.catalog.execute",
+            f"PUBLICATION-INTENT-{batch.id}-{active_token}",
+            {
+                "batch_id": str(batch.id),
+                "snapshot_version": batch.snapshot_version,
+                "items_count": len(payload_items),
+                "status": batch.status.value,
+            },
+            "channel_publication",
+            str(batch.id),
+            "channel.publication.intent_dispatched",
+            {
+                "batch_id": str(batch.id),
+                "snapshot_version": batch.snapshot_version,
+                "items_count": len(payload_items),
+                "status": batch.status.value,
+            },
+        )
+
         session.commit()
 
     # =========================================================================
@@ -607,7 +655,7 @@ def execute_publication(
         raise RuntimeError("Crash simulado do executor antes da gravação da confirmação.")
 
     # =========================================================================
-    # FASE 3: Transação Local 2 (Aplicação monotônica e liberação do lease sob conferência)
+    # FASE 3: Transação Local 2 (Aplicação monotônica, auditoria e liberação do lease sob conferência)
     # =========================================================================
     with session_factory() as session:
         batch = session.exec(
@@ -625,7 +673,6 @@ def execute_publication(
         # VERIFICAÇÃO ESTRITA DO LEASE:
         # Se o lease_token atual difere do active_token deste executor,
         # a concessão expirou e outro executor assumiu.
-        # Este executor atrasado NÃO pode apagar a concessão de outro nem sobrescrever o lote!
         if batch.lease_token != active_token:
             logger.warning(
                 "Executor atrasado perdeu concessão do lote %s (esperado: %s, atual: %s).",
@@ -643,6 +690,30 @@ def execute_publication(
             # com tentativas registradas antes do I/O, pronto para recuperação
             batch.status = PublicationStatusEnum.PARTIAL
             batch.updated_at = datetime.utcnow()
+            audit_actor = actor_id or getattr(batch, "created_by", None) or uuid.UUID("00000000-0000-0000-0000-000000000000")
+            reliability_service.write_audit_and_outbox(
+                session,
+                tenant_id,
+                batch.store_id,
+                audit_actor,
+                "channel.catalog.executed",
+                f"PUBLICATION-EXEC-{batch.id}-{active_token}",
+                {
+                    "batch_id": str(batch.id),
+                    "snapshot_version": batch.snapshot_version,
+                    "status": batch.status.value,
+                    "code": "NETWORK_FAILURE",
+                },
+                "channel_publication",
+                str(batch.id),
+                "channel.publication.executed",
+                {
+                    "batch_id": str(batch.id),
+                    "snapshot_version": batch.snapshot_version,
+                    "status": batch.status.value,
+                    "code": "NETWORK_FAILURE",
+                },
+            )
             session.commit()
             return batch_projection(session, batch)
 
@@ -657,6 +728,30 @@ def execute_publication(
         }
 
         apply_item_results_to_offers(session, batch, items_map, batch_result.results)
+        audit_actor = actor_id or getattr(batch, "created_by", None) or uuid.UUID("00000000-0000-0000-0000-000000000000")
+        reliability_service.write_audit_and_outbox(
+            session,
+            tenant_id,
+            batch.store_id,
+            audit_actor,
+            "channel.catalog.executed",
+            f"PUBLICATION-EXEC-{batch.id}-{active_token}",
+            {
+                "batch_id": str(batch.id),
+                "snapshot_version": batch.snapshot_version,
+                "status": batch.status.value,
+                "code": batch_result.code,
+            },
+            "channel_publication",
+            str(batch.id),
+            "channel.publication.executed",
+            {
+                "batch_id": str(batch.id),
+                "snapshot_version": batch.snapshot_version,
+                "status": batch.status.value,
+                "code": batch_result.code,
+            },
+        )
         session.commit()
         return batch_projection(session, batch)
 
@@ -665,20 +760,22 @@ def resume_publication(
     session_factory: Callable[[], Session],
     tenant_id: uuid.UUID,
     batch_id: uuid.UUID,
+    *,
+    actor_id: Optional[uuid.UUID] = None,
 ) -> dict:
     """Retoma um lote de publicação interrompido ou com falhas parciais.
 
-    1. Bloqueia o lote e verifica se outro executor mantém concessão ativa (409 se ativo).
-    2. Adquire concessão durável para a retomada (impede múltiplos executores concorrentes).
-    3. Consulta itens pendentes junto ao conector via `check_catalog_status`
-       usando a `provider_operation_key` estável (cenário de confirmação perdida).
-    4. Aplica confirmações registradas via `apply_item_results_to_offers` com bloqueios ordenados
-       e populate_existing=True.
-    5. Se todos os itens foram solucionados, conclui como SUCCEEDED sem reenvio ao conector.
-    6. Se restarem itens não resolvidos/pendentes, executa reenvio com `execute_publication`
+    1. Valida conexão ativa (CONNECTED), escopo e capacidade antes de adquirir lease.
+    2. Bloqueia o lote e verifica se outro executor mantém concessão ativa (409 se ativo).
+    3. Adquire concessão durável para a retomada (impede múltiplos executores concorrentes).
+    4. Grava auditoria/outbox de intenção de retomada transacionalmente com a concessão.
+    5. Consulta itens pendentes junto ao conector via `check_catalog_status` FORA de transação aberta.
+    6. Aplica confirmações registradas via `apply_item_results_to_offers` com bloqueios ordenados.
+    7. Se todos os itens foram solucionados, conclui como SUCCEEDED gravando auditoria/outbox de resultado.
+    8. Se restarem itens não resolvidos/pendentes, executa reenvio com `execute_publication`
        preservando a concessão adquirida.
     """
-    # Etapa 1: Identificar itens não sucedidos e adquirir concessão da retomada sob lock
+    # Etapa 1: Validar conexão, identificar itens pendentes e adquirir concessão da retomada sob lock
     with session_factory() as session:
         batch = session.exec(
             select(ChannelPublicationBatch).where(
@@ -695,11 +792,33 @@ def resume_publication(
             return batch_projection(session, batch)
 
         now = datetime.utcnow()
-        # A retomada não pode habilitar reenvio enquanto outro executor mantém concessão válida ativa
+
+        # 1. Validar conexão de canal e escopo ANTES de adquirir lease
+        conn = session.exec(
+            select(MerchantConnection).where(
+                MerchantConnection.id == batch.merchant_connection_id,
+                MerchantConnection.tenant_id == tenant_id,
+                MerchantConnection.store_id == batch.store_id,
+            )
+        ).first()
+        if not conn:
+            raise HTTPException(404, "Conexão de merchant não encontrada para a unidade do lote.")
+
+        if conn.status != MerchantConnectionStatusEnum.CONNECTED:
+            raise HTTPException(400, f"Conexão de canal não está ativa (status atual: {conn.status.value}).")
+
+        try:
+            adapter = adapter_for(conn.provider_code)
+            require(adapter, ChannelCapability.CATALOG_PUBLICATION)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(400, f"Provedor {conn.provider_code} indisponível ou sem capacidade de catálogo: {exc}")
+
+        # 2. A retomada não pode habilitar reenvio enquanto outro executor mantém concessão válida ativa
         if batch.lease_expires_at and batch.lease_expires_at > now:
             raise HTTPException(409, "Lote já está sendo executado por outro processo (concessão ativa).")
 
-        conn = session.get(MerchantConnection, batch.merchant_connection_id)
         items = list(
             session.exec(
                 select(ChannelPublicationItem).where(
@@ -714,6 +833,30 @@ def resume_publication(
             batch.status = PublicationStatusEnum.SUCCEEDED
             batch.lease_token = None
             batch.lease_expires_at = None
+            audit_actor = actor_id or getattr(batch, "created_by", None) or uuid.UUID("00000000-0000-0000-0000-000000000000")
+            reliability_service.write_audit_and_outbox(
+                session,
+                tenant_id,
+                batch.store_id,
+                audit_actor,
+                "channel.catalog.resumed",
+                f"PUBLICATION-RESUME-NO-PENDING-{batch.id}-{uuid.uuid4().hex[:8]}",
+                {
+                    "batch_id": str(batch.id),
+                    "status": batch.status.value,
+                    "conclusive_count": 0,
+                    "remaining_pending_count": 0,
+                },
+                "channel_publication",
+                str(batch.id),
+                "channel.publication.resumed",
+                {
+                    "batch_id": str(batch.id),
+                    "status": batch.status.value,
+                    "conclusive_count": 0,
+                    "remaining_pending_count": 0,
+                },
+            )
             session.commit()
             return batch_projection(session, batch)
 
@@ -727,6 +870,31 @@ def resume_publication(
         unresolved_keys = [i.provider_operation_key for i in items]
         provider_code = conn.provider_code
         merchant_ext_id = conn.merchant_external_id
+
+        # 3. Auditoria e outbox de intenção da retomada transacionais
+        audit_actor = actor_id or getattr(batch, "created_by", None) or uuid.UUID("00000000-0000-0000-0000-000000000000")
+        reliability_service.write_audit_and_outbox(
+            session,
+            tenant_id,
+            batch.store_id,
+            audit_actor,
+            "channel.catalog.resume",
+            f"PUBLICATION-RESUME-INTENT-{batch.id}-{resume_token}",
+            {
+                "batch_id": str(batch.id),
+                "unresolved_keys_count": len(items),
+                "status": batch.status.value,
+            },
+            "channel_publication",
+            str(batch.id),
+            "channel.publication.intent_resumed",
+            {
+                "batch_id": str(batch.id),
+                "unresolved_keys_count": len(items),
+                "status": batch.status.value,
+            },
+        )
+
         session.commit()
 
     # Etapa 2: Consultar conector FORA de transação aberta
@@ -770,21 +938,81 @@ def resume_publication(
             }
             apply_item_results_to_offers(session, batch, items_map, conclusive_results)
 
-        # Checa se todos os itens foram concluídos com sucesso após a aplicação da consulta
+        # Checa itens após a aplicação da consulta
         all_items = list(
             session.exec(
                 select(ChannelPublicationItem).where(ChannelPublicationItem.batch_id == batch_id)
                 .execution_options(populate_existing=True)
             ).all()
         )
+        remaining_pending = [it for it in all_items if it.status == PublicationItemStatusEnum.PENDING]
+        audit_actor = actor_id or getattr(batch, "created_by", None) or uuid.UUID("00000000-0000-0000-0000-000000000000")
+
+        # Ramo A: todos os itens concluídos com sucesso após a consulta
         if all(it.status == PublicationItemStatusEnum.SUCCEEDED for it in all_items):
             batch.status = PublicationStatusEnum.SUCCEEDED
             batch.lease_token = None
             batch.lease_expires_at = None
+            reliability_service.write_audit_and_outbox(
+                session,
+                tenant_id,
+                batch.store_id,
+                audit_actor,
+                "channel.catalog.resumed",
+                f"PUBLICATION-RESUME-{batch.id}-{resume_token}",
+                {
+                    "batch_id": str(batch.id),
+                    "status": batch.status.value,
+                    "conclusive_count": len(conclusive_results),
+                    "remaining_pending_count": 0,
+                },
+                "channel_publication",
+                str(batch.id),
+                "channel.publication.resumed",
+                {
+                    "batch_id": str(batch.id),
+                    "status": batch.status.value,
+                    "conclusive_count": len(conclusive_results),
+                    "remaining_pending_count": 0,
+                },
+            )
             session.commit()
             return batch_projection(session, batch)
+
+        # Se houve recuperação conclusiva de resultados (mesmo parcial), registra o desfecho dessa recuperação
+        # na mesma transação atômica que gravou os itens e versões de oferta.
+        if conclusive_results:
+            reliability_service.write_audit_and_outbox(
+                session,
+                tenant_id,
+                batch.store_id,
+                audit_actor,
+                "channel.catalog.resumed",
+                f"PUBLICATION-RESUME-RECOVERY-{batch.id}-{resume_token}",
+                {
+                    "batch_id": str(batch.id),
+                    "status": batch.status.value,
+                    "conclusive_count": len(conclusive_results),
+                    "remaining_pending_count": len(remaining_pending),
+                },
+                "channel_publication",
+                str(batch.id),
+                "channel.publication.resumed",
+                {
+                    "batch_id": str(batch.id),
+                    "status": batch.status.value,
+                    "conclusive_count": len(conclusive_results),
+                    "remaining_pending_count": len(remaining_pending),
+                },
+            )
 
         session.commit()
 
     # Etapa 4: Se restarem itens pendentes, executa reenvio preservando o token da concessão
-    return execute_publication(session_factory, tenant_id, batch_id, lease_token=resume_token)
+    return execute_publication(
+        session_factory,
+        tenant_id,
+        batch_id,
+        actor_id=actor_id,
+        lease_token=resume_token,
+    )

@@ -25,6 +25,38 @@ def offer(data:OfferIn,key:str=Header(alias='Idempotency-Key',min_length=8,max_l
 @router.post('/publications')
 def batch(data:BatchIn,key:str=Header(alias='Idempotency-Key',min_length=8,max_length=160),context:TenantContext=Depends(get_tenant_context),session:Session=Depends(get_session)):
  value=service.create_batch(session,context,connection_id=data.connection_id,offer_ids=data.offer_ids,actor_id=data.actor_id,idempotency_key=key);return {'batch':value['batch'].model_dump(),'items':[row.model_dump() for row in value['items']]}
+class PublicationActionIn(BaseModel):
+    actor_id: Optional[uuid.UUID] = None
+
+
+@router.post('/publications/{batch_id}/execute')
+def execute(
+    batch_id: uuid.UUID,
+    data: Optional[PublicationActionIn] = None,
+    context: TenantContext = Depends(get_tenant_context),
+    session: Session = Depends(get_session),
+):
+    actor_id = data.actor_id if data else None
+    # R14 pattern: encerra a sessão da requisição após materializar o contexto autenticado,
+    # liberando a conexão de volta ao pool antes de qualquer I/O externo do executor.
+    session.close()
+    value = service.execute_batch(context, batch_id, actor_id=actor_id)
+    return {'batch': value['batch'].model_dump(), 'items': [row.model_dump() for row in value['items']]}
+
+
+@router.post('/publications/{batch_id}/resume')
+def resume(
+    batch_id: uuid.UUID,
+    data: Optional[PublicationActionIn] = None,
+    context: TenantContext = Depends(get_tenant_context),
+    session: Session = Depends(get_session),
+):
+    actor_id = data.actor_id if data else None
+    # R14 pattern: encerra a sessão da requisição após materializar o contexto autenticado,
+    # liberando a conexão de volta ao pool antes de qualquer I/O externo do executor.
+    session.close()
+    value = service.resume_batch(context, batch_id, actor_id=actor_id)
+    return {'batch': value['batch'].model_dump(), 'items': [row.model_dump() for row in value['items']]}
 @router.post('/publications/{batch_id}/results')
 def results(batch_id:uuid.UUID,data:ResultsIn,context:TenantContext=Depends(get_tenant_context),session:Session=Depends(get_session)):
  value=service.apply_results(session,context,batch_id,[row.model_dump() for row in data.results],data.actor_id);return {'batch':value['batch'].model_dump(),'items':[row.model_dump() for row in value['items']]}

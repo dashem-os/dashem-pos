@@ -3963,6 +3963,16 @@ export async function publishChannelCatalogOffers(headers:Record<string,string>,
   if(!res.ok)throw await apiError(res,'Não foi possível enviar o lote de publicação.')
   return res.json()
 }
+export async function executeChannelPublicationBatch(headers:Record<string,string>,batchId:string,data:{actor_id?:string}={}):Promise<{batch:ChannelPublicationBatch;items:ChannelPublicationItem[]}>{
+  const res=await fetch(`${API_BASE_URL}/api/v1/channel-catalog/publications/${batchId}/execute`,{method:'POST',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify(data)})
+  if(!res.ok)throw await apiError(res,'Não foi possível executar a publicação do lote.')
+  return res.json()
+}
+export async function resumeChannelPublicationBatch(headers:Record<string,string>,batchId:string,data:{actor_id?:string}={}):Promise<{batch:ChannelPublicationBatch;items:ChannelPublicationItem[]}>{
+  const res=await fetch(`${API_BASE_URL}/api/v1/channel-catalog/publications/${batchId}/resume`,{method:'POST',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify(data)})
+  if(!res.ok)throw await apiError(res,'Não foi possível retomar a publicação do lote.')
+  return res.json()
+}
 export async function importMarketplaceSettlement(headers:Record<string,string>,idempotencyKey:string,data:{connection_id:string;provider_document_ref:string;external_order_id?:string;order_id?:string;competence_date:string;gross_amount:number;commission_amount:number;fee_amount:number;promotion_amount:number;adjustment_amount:number;actor_id?:string}):Promise<MarketplaceSettlement>{
   const res=await fetch(`${API_BASE_URL}/api/v1/channel-catalog/settlements`,{method:'POST',headers:{...headers,'Content-Type':'application/json','Idempotency-Key':idempotencyKey},body:JSON.stringify(data)})
   if(!res.ok)throw await apiError(res,'Não foi possível registrar o documento de repasse.')
